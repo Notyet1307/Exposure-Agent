@@ -6,6 +6,12 @@
 
 [功能架构与数据流转架构 v0.1](docs/architecture/commercial-function-and-data-architecture-v0.1.md)
 
+实现阶段以 FastAPI 官方
+[`full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template/tree/4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8)
+的固定版本作为管理控制面起点，采用边界见：
+
+[ADR-0001：使用 Full Stack FastAPI Template 作为管理控制面基座](docs/adr/0001-use-full-stack-fastapi-template.md)
+
 ## v0.1 定位
 
 ```text
@@ -25,8 +31,8 @@
 - Python、SQL 和 Polars 负责确定性数据处理；
 - Agent 只基于有界 Evidence 生成结构化报告草稿；
 - 真实动作必须经过审批、计划 Hash 和幂等控制。
+- 管理控制面复用成熟模板，治理领域、调度和外部能力边界独立实现。
 
 ## 当前内容
 
 本仓库只包含商业版设计，不包含临时 Demo 代码、客户数据、运行产物或研究参考材料。
-

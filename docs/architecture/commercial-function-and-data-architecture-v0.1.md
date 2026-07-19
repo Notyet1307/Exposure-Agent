@@ -28,6 +28,7 @@ IP 和端口是第一批核心资产字段，但不是系统唯一的数据模�
 | 主题 | v0.1 决策 |
 |---|---|
 | 部署形态 | 单客户、单实例、Docker Compose 私有化部署 |
+| 应用基座 | 固定 `full-stack-fastapi-template@4d3d5e9`，一次性引入并独立维护 |
 | 调度与执行 | agent-compose 负责 Cron、手动/API 触发、Session 隔离与运行历史 |
 | 业务事实 | PostgreSQL 是唯一权威结构化事实库 |
 | 临时执行 | 每个 Governance Run 启动一个临时 Python Runner |
@@ -39,6 +40,9 @@ IP 和端口是第一批核心资产字段，但不是系统唯一的数据模�
 | 消息与队列 | 不引入 Redis、Celery、Kafka、Temporal 和通用 Outbox |
 | 规则扩展 | 普通 Python 函数；不建设 DSL、插件框架或可视化规则编辑器 |
 | 监控 | 结构化日志、健康检查、业务状态页、审计表和可选 OpenMetrics |
+
+应用基座只提供认证、用户、API/Web 工程骨架、OpenAPI 客户端和测试基础设施，不承担 Governance Run、治理数据模型、调度或外部系统接入。详细边界见
+[ADR-0001](../adr/0001-use-full-stack-fastapi-template.md)。
 
 ## 3. 功能架构
 
@@ -174,6 +178,10 @@ flowchart TD
 | `postgres` | PostgreSQL | 业务状态、事实、治理结果、审计 |
 | `octobus` | OctoBus Runtime | 外部系统能力网关 |
 | `agent-compose` | agent-compose daemon | 定时、触发、隔离、Session 和运行日志 |
+
+`governance-web` 和 `governance-api` 从固定版本的
+[`full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template/tree/4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8)
+开始实现。保留 React/Vite、FastAPI、PostgreSQL、Alembic、OpenAPI 客户端生成和测试结构；删除示例 Item、公开注册、Traefik、Adminer、邮件测试等首期不用的路径。
 
 ### 4.2 临时 Runner
 
@@ -667,6 +675,8 @@ OctoBus Service Package  外部能力定义
 - Shell 只负责构建、启动和部署，不承载业务规则；
 - 不在 v0.1 引入 Go、Java 或 Rust 服务。
 
+模板使用 SQLModel，但本项目不长期维护两套建模规范。引入模板时删除示例 Item，并将小型用户与认证模型迁移到 SQLAlchemy + Pydantic；之后所有业务模型由同一 SQLAlchemy Metadata 和 Alembic 环境管理。
+
 出现经过测量的热点后，先优化 SQL、索引、批处理和 Polars，再决定是否重写局部组件。
 
 ## 11. 大数据量设计
@@ -935,16 +945,17 @@ Elasticsearch
 ## 18. 推荐实施顺序
 
 ```text
-1. 新仓库与 PostgreSQL 迁移骨架
-2. Governance Run + agent-compose Runner
-3. OctoBus 双来源拉取 + SourceSnapshot
-4. Observation + Resource Resolution
-5. 资产检查 + 云图 SourceFinding 归一
-6. Finding 生命周期 + Evidence
-7. 客户 Web 的 Run/资产/Finding 页面
-8. 单 PI StructuredReport + Validator
-9. Plan / Approval / ActionJob
-10. 10k / 100k / 1m 性能与故障恢复验收
-11. pi-workflow 兼容性和质量 PoC
-12. 离线交付与备份恢复验收
+1. 固定应用模板并验证登录、Project 四角色、Run 只读页面和 AuditEvent
+2. PostgreSQL 治理领域迁移骨架
+3. Governance Run + agent-compose Runner
+4. OctoBus 双来源拉取 + SourceSnapshot
+5. Observation + Resource Resolution
+6. 资产检查 + 云图 SourceFinding 归一
+7. Finding 生命周期 + Evidence
+8. 客户 Web 的 Run/资产/Finding 页面
+9. 单 PI StructuredReport + Validator
+10. Plan / Approval / ActionJob
+11. 10k / 100k / 1m 性能与故障恢复验收
+12. pi-workflow 兼容性和质量 PoC
+13. 离线交付与备份恢复验收
 ```
