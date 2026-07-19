@@ -181,7 +181,8 @@ flowchart TD
 
 `governance-web` 和 `governance-api` 从固定版本的
 [`full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template/tree/4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8)
-开始实现。保留 React/Vite、FastAPI、PostgreSQL、Alembic、OpenAPI 客户端生成和测试结构；删除示例 Item、公开注册、Traefik、Adminer、邮件测试等首期不用的路径。
+开始实现。模板的一次性导入、清理、认证、数据访问和 Nginx 边界统一以
+[ADR-0001](../adr/0001-use-full-stack-fastapi-template.md) 为准，避免在架构文档重复维护清单。
 
 ### 4.2 临时 Runner
 
@@ -755,9 +756,9 @@ Endpoint
 | Viewer | 查看资产、Finding 和报告 |
 | Operator | 创建 Run、确认 Finding、创建 Plan |
 | Approver | 审批或拒绝固定 Plan |
-| Admin | 管理数据源、用户、角色和 Policy |
+| Admin | 全局管理数据源、用户、项目、成员角色和 Policy；复用模板 `is_superuser` |
 
-除 Admin 外，角色默认按项目授权。
+Viewer、Operator 和 Approver 通过 `ProjectMembership` 按项目授权。Admin 是全局身份，不写入 `ProjectMembership`。
 
 ### 12.2 系统身份
 
@@ -944,18 +945,22 @@ Elasticsearch
 
 ## 18. 推荐实施顺序
 
+以下顺序只表示依赖关系，不代表第 3 步及之后已经达到 agent-ready。每个业务阶段仍需经过调查或针对性 grilling，再进入 `/to-spec`、`/to-tickets` 和 factory。
+
 ```text
-1. 固定应用模板并验证登录、Project 四角色、Run 只读页面和 AuditEvent
-2. PostgreSQL 治理领域迁移骨架
-3. Governance Run + agent-compose Runner
-4. OctoBus 双来源拉取 + SourceSnapshot
-5. Observation + Resource Resolution
-6. 资产检查 + 云图 SourceFinding 归一
-7. Finding 生命周期 + Evidence
-8. 客户 Web 的 Run/资产/Finding 页面
-9. 单 PI StructuredReport + Validator
-10. Plan / Approval / ActionJob
-11. 10k / 100k / 1m 性能与故障恢复验收
-12. pi-workflow 兼容性和质量 PoC
-13. 离线交付与备份恢复验收
+1. 固定版本模板基线导入并证明上游检查可运行
+2. 模板清理与私有化控制面收敛
+3. Project + ProjectMembership 三个项目角色 + AuditEvent
+4. PostgreSQL 治理领域迁移骨架
+5. Governance Run + agent-compose Runner
+6. OctoBus 双来源拉取 + SourceSnapshot
+7. Observation + Resource Resolution
+8. 资产检查 + 云图 SourceFinding 归一
+9. Finding 生命周期 + Evidence
+10. 客户 Web 的 Run/资产/Finding 页面
+11. 单 PI StructuredReport + Validator
+12. Plan / Approval / ActionJob
+13. 10k / 100k / 1m 性能与故障恢复验收
+14. pi-workflow 兼容性和质量 PoC
+15. 离线交付与备份恢复验收
 ```
