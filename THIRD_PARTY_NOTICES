@@ -1,0 +1,13 @@
+# Third-Party Notices
+
+## Full Stack FastAPI Template
+
+This repository includes a one-time imported snapshot of the [FastAPI Full Stack FastAPI Template](https://github.com/fastapi/full-stack-fastapi-template) at commit `4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8`.
+
+The imported template is licensed under the MIT License:
+
+> Copyright (c) 2019 Sebastián Ramírez
+
+The template's complete MIT license text is preserved in `LICENSE`.
+
+This notice documents a one-time third-party import only. It does not determine the license for Exposure-Agent itself.
