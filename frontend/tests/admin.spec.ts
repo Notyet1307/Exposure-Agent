@@ -1,8 +1,7 @@
 import { expect, test } from "@playwright/test"
 import { firstSuperuser, firstSuperuserPassword } from "./config.ts"
-import { createUser } from "./utils/privateApi"
 import { randomEmail, randomPassword } from "./utils/random"
-import { logInUser } from "./utils/user"
+import { createUser, logInUser } from "./utils/user"
 
 test("Admin page is accessible and shows correct title", async ({ page }) => {
   await page.goto("/admin")
@@ -94,38 +93,6 @@ test.describe("Admin user management", () => {
 
     await expect(page.getByText("User updated successfully")).toBeVisible()
     await expect(page.getByText(updatedName)).toBeVisible()
-  })
-
-  test("Delete a user successfully", async ({ page }) => {
-    await page.goto("/admin")
-
-    const email = randomEmail()
-    const password = randomPassword()
-
-    await page.getByRole("button", { name: "Add User" }).click()
-    await page.getByPlaceholder("Email").fill(email)
-    await page.getByPlaceholder("Password").first().fill(password)
-    await page.getByPlaceholder("Password").last().fill(password)
-    await page.getByRole("button", { name: "Save" }).click()
-
-    await expect(page.getByText("User created successfully")).toBeVisible()
-
-    await expect(page.getByRole("dialog")).not.toBeVisible()
-
-    const userRow = page.getByRole("row").filter({ hasText: email })
-    await userRow.getByRole("button").click()
-
-    await page.getByRole("menuitem", { name: "Delete User" }).click()
-
-    await page.getByRole("button", { name: "Delete" }).click()
-
-    await expect(
-      page.getByText("The user was deleted successfully"),
-    ).toBeVisible()
-
-    await expect(
-      page.getByRole("row").filter({ hasText: email }),
-    ).not.toBeVisible()
   })
 
   test("Cancel user creation", async ({ page }) => {
