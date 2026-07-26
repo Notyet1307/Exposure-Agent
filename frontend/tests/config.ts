@@ -17,3 +17,4 @@ function getEnvVar(name: string): string {
 
 export const firstSuperuser = getEnvVar("FIRST_SUPERUSER")
 export const firstSuperuserPassword = getEnvVar("FIRST_SUPERUSER_PASSWORD")
+export const testApiUrl = getEnvVar("TEST_API_URL")

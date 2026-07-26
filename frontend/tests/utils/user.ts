@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test"
 import { LoginService, OpenAPI, UsersService } from "../../src/client"
-import { firstSuperuser, firstSuperuserPassword } from "../config"
+import { firstSuperuser, firstSuperuserPassword, testApiUrl } from "../config"
 
 export async function createUser({
   email,
@@ -9,7 +9,7 @@ export async function createUser({
   email: string
   password: string
 }) {
-  OpenAPI.BASE = `${process.env.VITE_API_URL}`
+  OpenAPI.BASE = testApiUrl
   const token = await LoginService.loginAccessToken({
     formData: {
       username: firstSuperuser,
