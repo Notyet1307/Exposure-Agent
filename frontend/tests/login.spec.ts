@@ -32,9 +32,14 @@ test("Log In button is visible", async ({ page }) => {
 test("Log in with valid email and password ", async ({ page }) => {
   await page.goto("/login")
 
+  const loginRequest = page.waitForRequest((request) =>
+    request.url().endsWith("/api/v1/login/access-token"),
+  )
   await fillForm(page, firstSuperuser, firstSuperuserPassword)
   await page.getByRole("button", { name: "Log In" }).click()
 
+  const request = await loginRequest
+  expect(new URL(request.url()).origin).toBe(new URL(page.url()).origin)
   await page.waitForURL("/")
 
   await expect(

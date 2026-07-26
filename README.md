@@ -35,4 +35,6 @@
 
 ## 当前内容
 
-本仓库包含商业版设计与固定版本的管理控制面模板基线，不包含临时 Demo 代码、客户数据、运行产物或研究参考材料。
+本仓库包含商业版设计，以及从固定模板收敛出的私有化管理控制面应用壳。当前 Compose 路径由 Nginx 提供前端并同源代理 FastAPI，保留登录、Admin 用户管理、PostgreSQL 迁移、OpenAPI 客户端生成与构建测试基础；不包含临时 Demo 代码、客户数据、运行产物或尚未排期的治理领域功能。
+
+开发与交付边界见 [development.md](development.md) 和 [deployment.md](deployment.md)。

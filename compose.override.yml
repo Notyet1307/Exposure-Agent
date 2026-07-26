@@ -37,14 +37,13 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
       args:
-        VITE_API_URL: http://localhost:8000
+        VITE_API_URL: ""
 
   playwright:
     build:
       context: .
       dockerfile: frontend/Dockerfile.playwright
       args:
-        VITE_API_URL: http://backend:8000
         NODE_ENV: production
     ipc: host
     depends_on:
@@ -53,7 +52,8 @@ services:
     env_file:
       - .env
     environment:
-      - VITE_API_URL=http://backend:8000
+      - VITE_API_URL=
+      - API_PROXY_TARGET=http://backend:8000
       - PLAYWRIGHT_HTML_HOST=0.0.0.0
       - CI=${CI}
     volumes:

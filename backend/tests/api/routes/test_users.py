@@ -378,14 +378,6 @@ def test_configuration_parses_cors_and_rejects_default_secrets() -> None:
     with pytest.raises(ValueError, match="unsupported"):
         parse_cors({"unsupported": "origin"})
 
-    settings_for_deployment = Settings(
-        _env_file=None,
-        PROJECT_NAME="test",
-        POSTGRES_SERVER="localhost",
-        POSTGRES_USER="test",
-        FIRST_SUPERUSER="admin@example.com",
-        FIRST_SUPERUSER_PASSWORD="safe-password",
-        ENVIRONMENT="production",
-    )
+    settings_for_deployment = Settings.model_construct(ENVIRONMENT="production")
     with pytest.raises(ValueError, match="for security"):
         settings_for_deployment._check_default_secret("SECRET_KEY", "changethis")
