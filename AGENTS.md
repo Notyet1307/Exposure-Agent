@@ -9,9 +9,9 @@
 3. `CONTEXT.md`（如果存在）；
 4. `docs/adr/` 中与当前改动相关的已接受 ADR；
 5. `docs/architecture/commercial-function-and-data-architecture-v0.1.md` 的相关章节；
-6. 当前已确认的 issue 或 factory `TASK.md`。
+6. 当前已确认的 GitHub issue 或 PRD。
 
-Factory 中，人工确认后的 `TASK.md` 是本轮唯一 Spec/AC；本文件、相关 ADR 和架构基线是仓库 Standards。任务与已接受 ADR 冲突时必须停止并显式重开决策，不得静默覆盖。
+当前已确认的 GitHub issue 是本轮唯一 Spec/AC；本文件、相关 ADR 和架构基线是仓库 Standards。任务与已接受 ADR 冲突时必须停止并显式重开决策，不得静默覆盖。
 
 ## 产品硬边界
 
@@ -22,25 +22,28 @@ Factory 中，人工确认后的 `TASK.md` 是本轮唯一 Spec/AC；本文件�
 - 未经新 ADR 明确批准，不引入 Redis、Celery、Kafka、Temporal、第二套调度器、通用规则 DSL 或默认多 Agent 路径。
 - 只实现当前已确认任务，不提前推进架构文档中的后续阶段。
 
-## Factory 工作流
+## Harness 工作流
 
-- 正式功能、Bug 修复、跨文件改动和 issue 实现默认使用已部署的 `agent-tasks` factory 完成开发与自动审阅。
-- 问答、只读分析、状态核查，以及明确要求的微小机械性单文件配置可以直接处理。
-- 需求澄清可以使用 `/grill-with-docs`、`/to-spec` 和 `/to-tickets`；形成 agent-ready ticket 后交给 factory，不在宿主会话中用 `/implement` 替代 worker/reviewer。
-- Factory 不得创建或改写目标仓的 `AGENTS.md`、`CLAUDE.md`、skills 或其他 agent instruction。本文件由指挥官直接维护，并在派发新任务前提交到预期基线。
-- Factory 的具体命令、角色配置、状态机、重试和 review 协议以已部署 runtime 的 canonical contract 为准，不复制到本仓。
+- 只实现当前被 Harness 领取的 GitHub issue；父 Map 仅提供上下文，不是实现范围。
+- Implementer 负责修改、验证并提交当前分支；不得 push、创建 PR、merge、修改标签或关闭 issue。
+- 独立 Auditor 根据仓库 Standards 和当前 issue 的 Spec/AC 审阅；审计不通过时由 Harness 驱动受控返工。
+- Controller 仅在审计通过后发布 PR；最终合并由人工完成。
 
-## 派发与人工 Gate
+## Fresh worktree 初始化
 
-- 派发前确认目标仓已 checkout 预期基线、基线已有 commit，并独立检查工作区；未提交改动不会进入 factory worktree。
-- 指挥官必须亲自核对 planner 生成的 `TASK.md`：允许改动白名单、全部 AC、现有代码锚点、设计决定、禁止事项和真实可运行的自检命令。
-- planner 成功不代表可以放行；人工 gate 通过后才能运行 worker → reviewer 闭环，宿主会话不得直接替代其中任一角色。
+首次进入新的 worktree 后，按需安装受影响部分的依赖：
 
-## Review 与完成
+- 后端：`cd backend && uv sync`
+- 前端：`cd frontend && bun ci`
 
-- Factory reviewer 必须基于 recorded base 的仓库 Standards 和已确认 `TASK.md` 的 Spec/AC 完成双轴审阅；宿主 `/code-review` 不能替代 factory verdict。
-- `passed` 只是合并的必要条件。指挥官仍须独立核对累计 diff、白名单、全部 AC、测试证据、目标产物、失败路径和边界行为。
-- 只有 factory `passed` 且指挥官复核通过后才可合并；`failed_escalate` 必须交回人工判断。
+常用验证命令：
+
+- 后端 lint/typecheck：`cd backend && uv run ruff check . && uv run mypy .`
+- 后端测试：`cd backend && uv run bash scripts/tests-start.sh`
+- 前端 lint：`cd frontend && bun run lint`
+- 前端 typecheck/build：`cd frontend && bun run build`
+
+后端完整测试需要可用的 PostgreSQL；如果环境未启动，必须明确报告未运行的测试及原因，不得声称验证通过。
 
 ## 改动纪律
 
