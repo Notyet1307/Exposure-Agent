@@ -16,11 +16,11 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - run: docker compose build
-      - run: docker compose down -v --remove-orphans
-      - run: docker compose up -d --wait
-      - name: Test same-origin API is up
-        run: curl --fail http://localhost/api/v1/utils/health-check/
-      - name: Test frontend is up
-        run: curl --fail http://localhost/login
-      - run: docker compose down -v --remove-orphans
+      - run: docker compose -f compose.yml build
+      - run: docker compose -f compose.yml down -v --remove-orphans
+      - run: docker compose -f compose.yml up -d --wait
+      - name: Test same-origin API is up on the loopback ingress upstream
+        run: curl --fail http://127.0.0.1:8080/api/v1/utils/health-check/
+      - name: Test frontend is up on the loopback ingress upstream
+        run: curl --fail http://127.0.0.1:8080/login
+      - run: docker compose -f compose.yml down -v --remove-orphans

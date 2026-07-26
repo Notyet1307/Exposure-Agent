@@ -67,7 +67,7 @@ services:
       args:
         VITE_API_URL: ""
     ports:
-      - "80:80"
+      - "127.0.0.1:${WEB_HTTP_PORT:-8080}:80"
 
 volumes:
   app-db-data:

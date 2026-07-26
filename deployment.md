@@ -9,16 +9,18 @@ The repository intentionally contains no customer-environment deployment workflo
 The persistent application stack is:
 
 ```text
-customer ingress
-  -> governance-web (Nginx, port 80)
-       -> static React application
-       -> /api -> governance-api (FastAPI, internal port 8000)
-  -> PostgreSQL (internal only)
+customer network
+  -> customer-managed HTTPS ingress (port 443)
+       -> host loopback 127.0.0.1:8080
+            -> governance-web (Nginx, container port 80)
+                 -> static React application
+                 -> /api -> governance-api (FastAPI, internal port 8000)
+            -> PostgreSQL (internal only)
 ```
 
-Only the Nginx port should be published to the customer ingress. PostgreSQL and FastAPI remain on the Compose network. The supplied Compose file publishes port 80 so the application shell can be validated directly; customer packaging may bind that port to a private interface before placing it behind the customer-managed ingress.
+Only the customer-managed HTTPS ingress exposes port 443 to the customer network. The supplied Compose file binds Nginx's unencrypted listener to host loopback only (`127.0.0.1:${WEB_HTTP_PORT:-8080}`); it must never be forwarded or rebound directly to a customer-network interface. PostgreSQL and FastAPI remain on the Compose network. Set `WEB_HTTP_PORT` only when the ingress needs a different loopback port.
 
-Nginx forwards the original host, client address, and protocol headers. The customer ingress is responsible for setting trusted forwarding headers and restricting access to the host.
+Nginx forwards the original host, client address, and protocol headers. The customer ingress terminates TLS, proxies to the loopback listener, sets trusted forwarding headers, and restricts access to the host.
 
 ## Required configuration
 
@@ -55,11 +57,13 @@ docker compose -f compose.yml up -d --wait
 
 The `prestart` service waits for PostgreSQL, applies Alembic migrations, and creates the initial Admin before FastAPI starts. This same path supports both a fresh database and an existing database from the imported template baseline.
 
-Verify the only public application path:
+Verify the private ingress upstream from the deployment host (the customer-facing check must use its HTTPS URL):
 
 ```bash
-curl --fail http://127.0.0.1/login
-curl --fail http://127.0.0.1/api/v1/utils/health-check/
+curl --fail http://127.0.0.1:8080/login
+curl --fail http://127.0.0.1:8080/api/v1/utils/health-check/
+curl --fail https://exposure.example.com/login
+curl --fail https://exposure.example.com/api/v1/utils/health-check/
 ```
 
 Inspect startup state without exposing internal services:

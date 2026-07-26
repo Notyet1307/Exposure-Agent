@@ -8,7 +8,7 @@ Start the local stack from the repository root:
 docker compose up -d --wait
 ```
 
-The development override exposes these entry points:
+The development override binds these entry points to host loopback only:
 
 - application shell (Nginx): <http://localhost:5173>
 - same-origin health check: <http://localhost:5173/api/v1/utils/health-check/>
@@ -81,12 +81,12 @@ bun run build
 bun run test
 
 cd ..
-docker compose config --quiet
-docker compose build
-docker compose up -d --wait
-curl --fail http://localhost/api/v1/utils/health-check/
-curl --fail http://localhost/login
-docker compose down -v --remove-orphans
+docker compose -f compose.yml config --quiet
+docker compose -f compose.yml build
+docker compose -f compose.yml up -d --wait
+curl --fail http://127.0.0.1:8080/api/v1/utils/health-check/
+curl --fail http://127.0.0.1:8080/login
+docker compose -f compose.yml down -v --remove-orphans
 ```
 
 Backend and browser tests require PostgreSQL. The browser suite uses the same relative `/api` contract as the Nginx application shell.
