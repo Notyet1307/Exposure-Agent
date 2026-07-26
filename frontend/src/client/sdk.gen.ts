@@ -3,7 +3,33 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { HealthHealthLiveResponse, HealthHealthReadyResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+
+export class HealthService {
+    /**
+     * Health Live
+     * @returns boolean Successful Response
+     * @throws ApiError
+     */
+    public static healthLive(): CancelablePromise<HealthHealthLiveResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/health/live'
+        });
+    }
+    
+    /**
+     * Health Ready
+     * @returns boolean Successful Response
+     * @throws ApiError
+     */
+    public static healthReady(): CancelablePromise<HealthHealthReadyResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/health/ready'
+        });
+    }
+}
 
 export class LoginService {
     /**
@@ -179,20 +205,6 @@ export class UsersService {
             errors: {
                 422: 'Validation Error'
             }
-        });
-    }
-}
-
-export class UtilsService {
-    /**
-     * Health Check
-     * @returns boolean Successful Response
-     * @throws ApiError
-     */
-    public static healthCheck(): CancelablePromise<UtilsHealthCheckResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/v1/utils/health-check/'
         });
     }
 }

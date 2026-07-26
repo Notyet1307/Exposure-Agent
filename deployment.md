@@ -61,9 +61,11 @@ Verify the private ingress upstream from the deployment host (the customer-facin
 
 ```bash
 curl --fail http://127.0.0.1:8080/login
-curl --fail http://127.0.0.1:8080/api/v1/utils/health-check/
+curl --fail http://127.0.0.1:8080/health/live
+curl --fail http://127.0.0.1:8080/health/ready
 curl --fail https://exposure.example.com/login
-curl --fail https://exposure.example.com/api/v1/utils/health-check/
+curl --fail https://exposure.example.com/health/live
+curl --fail https://exposure.example.com/health/ready
 ```
 
 Inspect startup state without exposing internal services:

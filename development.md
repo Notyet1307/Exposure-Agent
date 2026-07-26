@@ -11,7 +11,7 @@ docker compose up -d --wait
 The development override binds these entry points to host loopback only:
 
 - application shell (Nginx): <http://localhost:5173>
-- same-origin health check: <http://localhost:5173/api/v1/utils/health-check/>
+- same-origin readiness check: <http://localhost:5173/health/ready>
 - backend API for direct development and OpenAPI generation: <http://localhost:8000>
 - backend API documentation: <http://localhost:8000/docs>
 - PostgreSQL: `localhost:5432`
@@ -84,7 +84,8 @@ cd ..
 docker compose -f compose.yml config --quiet
 docker compose -f compose.yml build
 docker compose -f compose.yml up -d --wait
-curl --fail http://127.0.0.1:8080/api/v1/utils/health-check/
+curl --fail http://127.0.0.1:8080/health/live
+curl --fail http://127.0.0.1:8080/health/ready
 curl --fail http://127.0.0.1:8080/login
 docker compose -f compose.yml down -v --remove-orphans
 ```

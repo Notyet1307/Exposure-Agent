@@ -72,6 +72,10 @@ export type ValidationError = {
     };
 };
 
+export type HealthHealthLiveResponse = (boolean);
+
+export type HealthHealthReadyResponse = (boolean);
+
 export type LoginLoginAccessTokenData = {
     formData: Body_login_login_access_token;
 };
@@ -119,5 +123,3 @@ export type UsersUpdateUserData = {
 };
 
 export type UsersUpdateUserResponse = (UserPublic);
-
-export type UtilsHealthCheckResponse = (boolean);
