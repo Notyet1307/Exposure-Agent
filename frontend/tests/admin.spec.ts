@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 import { firstSuperuser, firstSuperuserPassword } from "./config.ts"
 import { randomEmail, randomPassword } from "./utils/random"
-import { createUser, logInUser } from "./utils/user"
+import { createUser, logInUser, logOutUser } from "./utils/user"
 
 test("Admin page is accessible and shows correct title", async ({ page }) => {
   await page.goto("/admin")
@@ -39,6 +39,25 @@ test.describe("Admin user management", () => {
 
     const userRow = page.getByRole("row").filter({ hasText: email })
     await expect(userRow).toBeVisible()
+  })
+
+  test("Create an active ordinary user who can log in", async ({ page }) => {
+    await page.goto("/admin")
+
+    const email = randomEmail()
+    const password = randomPassword()
+
+    await page.getByRole("button", { name: "Add User" }).click()
+    await page.getByPlaceholder("Email").fill(email)
+    await page.getByPlaceholder("Password").first().fill(password)
+    await page.getByPlaceholder("Password").last().fill(password)
+    await page.getByRole("button", { name: "Save" }).click()
+
+    const userRow = page.getByRole("row").filter({ hasText: email })
+    await expect(userRow.getByText("Active", { exact: true })).toBeVisible()
+
+    await logOutUser(page)
+    await logInUser(page, email, password)
   })
 
   test("Create a superuser", async ({ page }) => {
@@ -143,6 +162,60 @@ test.describe("Admin user management", () => {
     await page.getByPlaceholder("Password").last().blur()
 
     await expect(page.getByText("The passwords don't match")).toBeVisible()
+  })
+
+  test("Admin can reset a user's password", async ({ page }) => {
+    const email = randomEmail()
+    const password = randomPassword()
+    const replacementPassword = randomPassword()
+    await createUser({ email, password })
+
+    await page.goto("/admin")
+    const userRow = page.getByRole("row").filter({ hasText: email })
+    await userRow.getByRole("button").click()
+    await page.getByRole("menuitem", { name: "Edit User" }).click()
+
+    const editDialog = page.getByRole("dialog")
+    await editDialog
+      .getByPlaceholder("Password")
+      .first()
+      .fill(replacementPassword)
+    await editDialog
+      .getByPlaceholder("Password")
+      .last()
+      .fill(replacementPassword)
+    await editDialog.getByRole("button", { name: "Save" }).click()
+
+    await expect(page.getByText("User updated successfully")).toBeVisible()
+    await logOutUser(page)
+    await logInUser(page, email, replacementPassword)
+  })
+
+  test("Admin can deactivate a user without a delete action", async ({
+    page,
+  }) => {
+    const email = randomEmail()
+    const password = randomPassword()
+    await createUser({ email, password })
+
+    await page.goto("/admin")
+    const userRow = page.getByRole("row").filter({ hasText: email })
+    await userRow.getByRole("button").click()
+    await expect(
+      page.getByRole("menuitem", { name: "Delete User" }),
+    ).not.toBeVisible()
+    await page.getByRole("menuitem", { name: "Edit User" }).click()
+
+    const editDialog = page.getByRole("dialog")
+    await editDialog.getByLabel("Is active?").uncheck()
+    await editDialog.getByRole("button", { name: "Save" }).click()
+
+    await expect(page.getByText("User updated successfully")).toBeVisible()
+    await logOutUser(page)
+    await page.getByTestId("email-input").fill(email)
+    await page.getByTestId("password-input").fill(password)
+    await page.getByRole("button", { name: "Log In" }).click()
+    await expect(page.getByText("Inactive user")).toBeVisible()
   })
 })
 

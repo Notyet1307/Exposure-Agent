@@ -381,3 +381,28 @@ def test_configuration_parses_cors_and_rejects_default_secrets() -> None:
     settings_for_deployment = Settings.model_construct(ENVIRONMENT="production")
     with pytest.raises(ValueError, match="for security"):
         settings_for_deployment._check_default_secret("SECRET_KEY", "changethis")
+
+
+@pytest.mark.parametrize(
+    ("field_name", "default_value"),
+    [
+        ("SECRET_KEY", "not-for-production-issue4-secret"),
+        ("POSTGRES_PASSWORD", "not-for-production-issue4-postgres"),
+        ("FIRST_SUPERUSER", "admin@example.com"),
+        ("FIRST_SUPERUSER_PASSWORD", "not-for-production-issue4-admin"),
+    ],
+)
+def test_configuration_rejects_repository_defaults_in_production(
+    field_name: str, default_value: str
+) -> None:
+    settings_for_deployment = Settings.model_construct(
+        ENVIRONMENT="production",
+        SECRET_KEY="a-secure-secret",
+        POSTGRES_PASSWORD="a-secure-password",
+        FIRST_SUPERUSER="administrator@example.com",
+        FIRST_SUPERUSER_PASSWORD="a-secure-admin-password",
+    )
+    setattr(settings_for_deployment, field_name, default_value)
+
+    with pytest.raises(ValueError, match="for security"):
+        settings_for_deployment._enforce_non_default_secrets()

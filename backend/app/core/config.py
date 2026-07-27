@@ -5,6 +5,17 @@ from typing import Annotated, Any, Literal
 from pydantic import AnyUrl, BeforeValidator, EmailStr, PostgresDsn, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+REPOSITORY_DEFAULT_VALUES = {
+    "SECRET_KEY": frozenset({"changethis", "not-for-production-issue4-secret"}),
+    "POSTGRES_PASSWORD": frozenset(
+        {"changethis", "not-for-production-issue4-postgres"}
+    ),
+    "FIRST_SUPERUSER": frozenset({"admin@example.com"}),
+    "FIRST_SUPERUSER_PASSWORD": frozenset(
+        {"changethis", "not-for-production-issue4-admin"}
+    ),
+}
+
 
 def parse_cors(v: Any) -> list[str] | str:
     if isinstance(v, str) and not v.startswith("["):
@@ -63,9 +74,9 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER_PASSWORD: str
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
-        if value == "changethis":
+        if value in REPOSITORY_DEFAULT_VALUES.get(var_name, frozenset()):
             message = (
-                f'The value of {var_name} is "changethis", '
+                f"The value of {var_name} is a repository default, "
                 "for security, please change it, at least for deployments."
             )
             if self.ENVIRONMENT == "local":
@@ -76,6 +87,7 @@ class Settings(BaseSettings):
     def _enforce_non_default_secrets(self) -> None:
         self._check_default_secret("SECRET_KEY", self.SECRET_KEY)
         self._check_default_secret("POSTGRES_PASSWORD", self.POSTGRES_PASSWORD)
+        self._check_default_secret("FIRST_SUPERUSER", self.FIRST_SUPERUSER)
         self._check_default_secret(
             "FIRST_SUPERUSER_PASSWORD", self.FIRST_SUPERUSER_PASSWORD
         )
