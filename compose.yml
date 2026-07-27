@@ -31,7 +31,12 @@ services:
     env_file:
       - .env
     environment:
-      - POSTGRES_SERVER=db
+      POSTGRES_SERVER: db
+      ENVIRONMENT: production
+      SECRET_KEY: ${SECRET_KEY?Variable not set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
+      FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
+      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
 
   backend:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
@@ -45,7 +50,12 @@ services:
     env_file:
       - .env
     environment:
-      - POSTGRES_SERVER=db
+      POSTGRES_SERVER: db
+      ENVIRONMENT: production
+      SECRET_KEY: ${SECRET_KEY?Variable not set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
+      FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
+      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
       interval: 10s

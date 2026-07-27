@@ -120,23 +120,13 @@ export const UpdatePasswordSchema = {
     title: 'UpdatePassword'
 } as const;
 
-export const UserCreateSchema = {
+export const UserCreateByAdminSchema = {
     properties: {
         email: {
             type: 'string',
             maxLength: 255,
             format: 'email',
             title: 'Email'
-        },
-        is_active: {
-            type: 'boolean',
-            title: 'Is Active',
-            default: true
-        },
-        is_superuser: {
-            type: 'boolean',
-            title: 'Is Superuser',
-            default: false
         },
         full_name: {
             anyOf: [
@@ -157,9 +147,10 @@ export const UserCreateSchema = {
             title: 'Password'
         }
     },
+    additionalProperties: false,
     type: 'object',
     required: ['email', 'password'],
-    title: 'UserCreate'
+    title: 'UserCreateByAdmin'
 } as const;
 
 export const UserPublicSchema = {
@@ -215,7 +206,7 @@ export const UserPublicSchema = {
     title: 'UserPublic'
 } as const;
 
-export const UserUpdateSchema = {
+export const UserUpdateByAdminSchema = {
     properties: {
         email: {
             anyOf: [
@@ -240,17 +231,6 @@ export const UserUpdateSchema = {
                 }
             ],
             title: 'Is Active'
-        },
-        is_superuser: {
-            anyOf: [
-                {
-                    type: 'boolean'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Is Superuser'
         },
         full_name: {
             anyOf: [
@@ -278,8 +258,9 @@ export const UserUpdateSchema = {
             title: 'Password'
         }
     },
+    additionalProperties: false,
     type: 'object',
-    title: 'UserUpdate'
+    title: 'UserUpdateByAdmin'
 } as const;
 
 export const UserUpdateMeSchema = {

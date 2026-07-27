@@ -29,6 +29,15 @@ test("Log In button is visible", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Log In" })).toBeVisible()
 })
 
+test("Public signup and password recovery routes are absent", async ({
+  page,
+}) => {
+  for (const path of ["/signup", "/recover-password", "/reset-password"]) {
+    await page.goto(path)
+    await expect(page.getByTestId("not-found")).toBeVisible()
+  }
+})
+
 test("Log in with valid email and password ", async ({ page }) => {
   await page.goto("/login")
 

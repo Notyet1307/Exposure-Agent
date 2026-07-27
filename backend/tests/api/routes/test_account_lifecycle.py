@@ -5,7 +5,6 @@ from sqlmodel import Session
 from app import crud
 from app.core.config import settings
 from app.core.db import init_db
-from app.models import User
 from tests.utils.utils import random_email, random_lower_string
 
 
@@ -40,6 +39,35 @@ def test_admin_creates_active_ordinary_user_with_initial_password(
     status_code, token = login(client, email, password)
     assert status_code == 200
     assert token["access_token"]
+
+
+def test_admin_cannot_create_or_promote_another_global_admin(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    email = random_email()
+    password = random_lower_string()
+
+    create_response = client.post(
+        f"{settings.API_V1_STR}/users/",
+        headers=superuser_token_headers,
+        json={"email": email, "password": password, "is_superuser": True},
+    )
+
+    assert create_response.status_code == 422
+
+    regular_user_response = client.post(
+        f"{settings.API_V1_STR}/users/",
+        headers=superuser_token_headers,
+        json={"email": email, "password": password},
+    )
+    assert regular_user_response.status_code == 200
+    promote_response = client.patch(
+        f"{settings.API_V1_STR}/users/{regular_user_response.json()['id']}",
+        headers=superuser_token_headers,
+        json={"is_superuser": True},
+    )
+
+    assert promote_response.status_code == 422
 
 
 def test_admin_can_reset_user_password(
@@ -87,7 +115,7 @@ def test_admin_deactivates_user_without_deleting_their_record(
 
     assert response.status_code == 200
     assert response.json()["is_active"] is False
-    user = db.get(User, user_id)
+    user = crud.get_user_by_email(session=db, email=email)
     assert user is not None
     assert user.email == email
     assert user.is_active is False

@@ -27,10 +27,8 @@ export type UpdatePassword = {
     new_password: string;
 };
 
-export type UserCreate = {
+export type UserCreateByAdmin = {
     email: string;
-    is_active?: boolean;
-    is_superuser?: boolean;
     full_name?: (string | null);
     password: string;
 };
@@ -49,10 +47,9 @@ export type UsersPublic = {
     count: number;
 };
 
-export type UserUpdate = {
+export type UserUpdateByAdmin = {
     email?: (string | null);
     is_active?: (boolean | null);
-    is_superuser?: (boolean | null);
     full_name?: (string | null);
     password?: (string | null);
 };
@@ -92,7 +89,7 @@ export type UsersReadUsersData = {
 export type UsersReadUsersResponse = (UsersPublic);
 
 export type UsersCreateUserData = {
-    requestBody: UserCreate;
+    requestBody: UserCreateByAdmin;
 };
 
 export type UsersCreateUserResponse = (UserPublic);
@@ -118,7 +115,7 @@ export type UsersReadUserByIdData = {
 export type UsersReadUserByIdResponse = (UserPublic);
 
 export type UsersUpdateUserData = {
-    requestBody: UserUpdate;
+    requestBody: UserUpdateByAdmin;
     userId: string;
 };
 

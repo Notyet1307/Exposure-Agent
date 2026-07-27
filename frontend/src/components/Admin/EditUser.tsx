@@ -5,7 +5,7 @@ import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { type UserPublic, UsersService } from "@/client"
+import { type UserPublic, UsersService, type UserUpdateByAdmin } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -41,7 +41,6 @@ const formSchema = z
       .optional()
       .or(z.literal("")),
     confirm_password: z.string().optional(),
-    is_superuser: z.boolean().optional(),
     is_active: z.boolean().optional(),
   })
   .refine((data) => !data.password || data.password === data.confirm_password, {
@@ -68,13 +67,12 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
     defaultValues: {
       email: user.email,
       full_name: user.full_name ?? undefined,
-      is_superuser: user.is_superuser,
       is_active: user.is_active,
     },
   })
 
   const mutation = useMutation({
-    mutationFn: (data: FormData) =>
+    mutationFn: (data: UserUpdateByAdmin) =>
       UsersService.updateUser({ userId: user.id, requestBody: data }),
     onSuccess: () => {
       showSuccessToast("User updated successfully")
@@ -182,22 +180,6 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
                       />
                     </FormControl>
                     <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="is_superuser"
-                render={({ field }) => (
-                  <FormItem className="flex items-center gap-3 space-y-0">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <FormLabel className="font-normal">Is superuser?</FormLabel>
                   </FormItem>
                 )}
               />

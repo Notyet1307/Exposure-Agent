@@ -16,6 +16,14 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - name: Generate deployment-test credentials
+        run: |
+          {
+            echo "SECRET_KEY=$(openssl rand -hex 32)"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 32)"
+            echo "FIRST_SUPERUSER=admin@compose-test.example"
+            echo "FIRST_SUPERUSER_PASSWORD=$(openssl rand -hex 32)"
+          } >> "$GITHUB_ENV"
       - run: docker compose -f compose.yml build
       - run: docker compose -f compose.yml down -v --remove-orphans
       - run: docker compose -f compose.yml up -d --wait
