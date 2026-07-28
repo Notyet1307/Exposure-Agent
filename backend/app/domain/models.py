@@ -55,6 +55,10 @@ class Project(ProjectBase, table=True):
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
+    archived_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
 
 
 class ProjectPublic(ProjectBase):
@@ -62,6 +66,7 @@ class ProjectPublic(ProjectBase):
     tenant_id: uuid.UUID
     created_at: datetime
     updated_at: datetime
+    archived_at: datetime | None
 
 
 class ProjectsPublic(SQLModel):

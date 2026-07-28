@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -161,6 +162,168 @@ def test_admin_can_rename_project_with_immutable_id_and_one_audit_event(
     assert rename_event["after_data"] == {"name": renamed_name}
 
 
+def test_admin_can_archive_project_idempotently_and_still_read_it(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    name = f"Archive Me {uuid.uuid4()}"
+    create_response = client.post(
+        f"{settings.API_V1_STR}/projects/",
+        headers=superuser_token_headers,
+        json={"name": name},
+    )
+    assert create_response.status_code == 201
+    active_project = create_response.json()
+    assert active_project["archived_at"] is None
+
+    archive_response = client.post(
+        f"{settings.API_V1_STR}/projects/{active_project['id']}/archive",
+        headers=superuser_token_headers,
+    )
+
+    assert archive_response.status_code == 200
+    archived_project = archive_response.json()
+    assert archived_project["id"] == active_project["id"]
+    assert archived_project["name"] == name
+    assert archived_project["created_at"] == active_project["created_at"]
+    assert archived_project["archived_at"] is not None
+
+    read_response = client.get(
+        f"{settings.API_V1_STR}/projects/{active_project['id']}",
+        headers=superuser_token_headers,
+    )
+    assert read_response.status_code == 200
+    assert read_response.json() == archived_project
+
+    repeated_response = client.post(
+        f"{settings.API_V1_STR}/projects/{active_project['id']}/archive",
+        headers=superuser_token_headers,
+    )
+    assert repeated_response.status_code == 200
+    assert repeated_response.json() == archived_project
+
+    audit_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
+    )
+    project_events = [
+        event
+        for event in audit_response.json()["data"]
+        if event["target_id"] == active_project["id"]
+    ]
+    assert [event["action"] for event in project_events] == [
+        "project.archived",
+        "project.created",
+    ]
+    archive_event = project_events[0]
+    assert archive_event["before_data"] == {"name": name, "archived_at": None}
+    assert archive_event["after_data"]["name"] == name
+    assert datetime.fromisoformat(
+        archive_event["after_data"]["archived_at"]
+    ) == datetime.fromisoformat(archived_project["archived_at"])
+
+
+def test_archived_project_rejects_rename_without_emitting_audit_event(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    original_name = f"Frozen {uuid.uuid4()}"
+    create_response = client.post(
+        f"{settings.API_V1_STR}/projects/",
+        headers=superuser_token_headers,
+        json={"name": original_name},
+    )
+    project_id = create_response.json()["id"]
+    archive_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/archive",
+        headers=superuser_token_headers,
+    )
+    assert archive_response.status_code == 200
+
+    rename_response = client.patch(
+        f"{settings.API_V1_STR}/projects/{project_id}",
+        headers=superuser_token_headers,
+        json={"name": "Forbidden rename"},
+    )
+
+    assert rename_response.status_code == 409
+    assert rename_response.json() == {"detail": "Archived project is read-only"}
+    read_response = client.get(
+        f"{settings.API_V1_STR}/projects/{project_id}",
+        headers=superuser_token_headers,
+    )
+    assert read_response.json()["name"] == original_name
+    audit_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
+    )
+    assert [
+        event["action"]
+        for event in audit_response.json()["data"]
+        if event["target_id"] == project_id
+    ] == ["project.archived", "project.created"]
+
+
+def test_admin_can_reactivate_project_idempotently_and_then_rename_it(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    name = f"Recover Me {uuid.uuid4()}"
+    create_response = client.post(
+        f"{settings.API_V1_STR}/projects/",
+        headers=superuser_token_headers,
+        json={"name": name},
+    )
+    active_project = create_response.json()
+    archive_response = client.post(
+        f"{settings.API_V1_STR}/projects/{active_project['id']}/archive",
+        headers=superuser_token_headers,
+    )
+    archived_project = archive_response.json()
+
+    reactivate_response = client.post(
+        f"{settings.API_V1_STR}/projects/{active_project['id']}/reactivate",
+        headers=superuser_token_headers,
+    )
+
+    assert reactivate_response.status_code == 200
+    reactivated_project = reactivate_response.json()
+    assert reactivated_project["id"] == active_project["id"]
+    assert reactivated_project["name"] == name
+    assert reactivated_project["created_at"] == active_project["created_at"]
+    assert reactivated_project["archived_at"] is None
+
+    repeated_response = client.post(
+        f"{settings.API_V1_STR}/projects/{active_project['id']}/reactivate",
+        headers=superuser_token_headers,
+    )
+    assert repeated_response.status_code == 200
+    assert repeated_response.json() == reactivated_project
+
+    audit_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
+    )
+    project_events = [
+        event
+        for event in audit_response.json()["data"]
+        if event["target_id"] == active_project["id"]
+    ]
+    assert [event["action"] for event in project_events] == [
+        "project.reactivated",
+        "project.archived",
+        "project.created",
+    ]
+    reactivation_event = project_events[0]
+    assert reactivation_event["before_data"]["name"] == name
+    assert datetime.fromisoformat(
+        reactivation_event["before_data"]["archived_at"]
+    ) == datetime.fromisoformat(archived_project["archived_at"])
+    assert reactivation_event["after_data"] == {"name": name, "archived_at": None}
+
+    rename_response = client.patch(
+        f"{settings.API_V1_STR}/projects/{active_project['id']}",
+        headers=superuser_token_headers,
+        json={"name": "Recovered project"},
+    )
+    assert rename_response.status_code == 200
+    assert rename_response.json()["name"] == "Recovered project"
+
+
 def test_admin_can_list_multiple_independent_projects_with_the_same_name(
     client: TestClient, superuser_token_headers: dict[str, str]
 ) -> None:
@@ -242,6 +405,77 @@ def test_audit_insert_failure_rolls_back_project_creation(
 
     db.expire_all()
     assert db.exec(select(Project).where(Project.name == name)).first() is None
+    audit_count_after = db.exec(select(func.count()).select_from(AuditEvent)).one()
+    assert audit_count_after == audit_count_before
+
+
+def test_audit_insert_failure_rolls_back_project_archive(
+    db: Session,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    with TestClient(app, client=("127.0.0.1", 50004)) as setup_client:
+        create_response = setup_client.post(
+            f"{settings.API_V1_STR}/projects/",
+            headers=superuser_token_headers,
+            json={"name": f"Archive Rollback {uuid.uuid4()}"},
+        )
+    project_id = uuid.UUID(create_response.json()["id"])
+    audit_count_before = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with reject_audit_inserts(db):
+        with TestClient(
+            app,
+            raise_server_exceptions=False,
+            client=("127.0.0.1", 50005),
+        ) as failure_client:
+            response = failure_client.post(
+                f"{settings.API_V1_STR}/projects/{project_id}/archive",
+                headers=superuser_token_headers,
+            )
+        assert response.status_code == 500
+
+    db.expire_all()
+    project = db.get(Project, project_id)
+    assert project is not None
+    assert project.archived_at is None
+    audit_count_after = db.exec(select(func.count()).select_from(AuditEvent)).one()
+    assert audit_count_after == audit_count_before
+
+
+def test_audit_insert_failure_rolls_back_project_reactivation(
+    db: Session,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    with TestClient(app, client=("127.0.0.1", 50006)) as setup_client:
+        create_response = setup_client.post(
+            f"{settings.API_V1_STR}/projects/",
+            headers=superuser_token_headers,
+            json={"name": f"Reactivate Rollback {uuid.uuid4()}"},
+        )
+        project_id = uuid.UUID(create_response.json()["id"])
+        archive_response = setup_client.post(
+            f"{settings.API_V1_STR}/projects/{project_id}/archive",
+            headers=superuser_token_headers,
+        )
+    archived_at = datetime.fromisoformat(archive_response.json()["archived_at"])
+    audit_count_before = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with reject_audit_inserts(db):
+        with TestClient(
+            app,
+            raise_server_exceptions=False,
+            client=("127.0.0.1", 50007),
+        ) as failure_client:
+            response = failure_client.post(
+                f"{settings.API_V1_STR}/projects/{project_id}/reactivate",
+                headers=superuser_token_headers,
+            )
+        assert response.status_code == 500
+
+    db.expire_all()
+    project = db.get(Project, project_id)
+    assert project is not None
+    assert project.archived_at == archived_at
     audit_count_after = db.exec(select(func.count()).select_from(AuditEvent)).one()
     assert audit_count_after == audit_count_before
 
@@ -342,5 +576,16 @@ def test_openapi_exposes_supported_project_and_read_only_audit_contracts(
         "get",
         "patch",
     }
+    assert set(
+        paths[f"{settings.API_V1_STR}/projects/{{project_id}}/archive"]
+    ) == {"post"}
+    assert set(
+        paths[f"{settings.API_V1_STR}/projects/{{project_id}}/reactivate"]
+    ) == {"post"}
+    assert not any(
+        "delete" in path_operations
+        for path, path_operations in paths.items()
+        if path.startswith(f"{settings.API_V1_STR}/projects")
+    )
     assert set(paths[f"{settings.API_V1_STR}/audit-events/"]) == {"get"}
     assert not any("tenant" in path for path in paths)

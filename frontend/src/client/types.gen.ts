@@ -53,6 +53,7 @@ export type ProjectPublic = {
     tenant_id: string;
     created_at: string;
     updated_at: string;
+    archived_at: (string | null);
 };
 
 export type ProjectsPublic = {
@@ -160,6 +161,18 @@ export type ProjectsRenameProjectData = {
 };
 
 export type ProjectsRenameProjectResponse = (ProjectPublic);
+
+export type ProjectsArchiveProjectData = {
+    projectId: string;
+};
+
+export type ProjectsArchiveProjectResponse = (ProjectPublic);
+
+export type ProjectsReactivateProjectData = {
+    projectId: string;
+};
+
+export type ProjectsReactivateProjectResponse = (ProjectPublic);
 
 export type UsersReadUsersData = {
     limit?: number;
