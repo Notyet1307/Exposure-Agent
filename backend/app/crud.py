@@ -3,10 +3,18 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app.core.security import get_password_hash, verify_password
-from app.models import User, UserCreate, UserUpdate
+from app.models import (
+    User,
+    UserCreate,
+    UserCreateByAdmin,
+    UserUpdate,
+    UserUpdateByAdmin,
+)
 
 
-def create_user(*, session: Session, user_create: UserCreate) -> User:
+def create_user(
+    *, session: Session, user_create: UserCreate | UserCreateByAdmin
+) -> User:
     db_obj = User.model_validate(
         user_create, update={"hashed_password": get_password_hash(user_create.password)}
     )
@@ -16,7 +24,9 @@ def create_user(*, session: Session, user_create: UserCreate) -> User:
     return db_obj
 
 
-def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
+def update_user(
+    *, session: Session, db_user: User, user_in: UserUpdate | UserUpdateByAdmin
+) -> Any:
     user_data = user_in.model_dump(exclude_unset=True)
     extra_data = {}
     if "password" in user_data:

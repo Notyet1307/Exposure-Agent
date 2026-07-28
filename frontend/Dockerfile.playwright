@@ -14,6 +14,6 @@ COPY frontend/package.json /app/frontend/
 
 WORKDIR /app/frontend
 
-RUN bun install
+RUN bun install --frozen-lockfile --network-concurrency=1
 
 COPY ./frontend /app/frontend

@@ -15,10 +15,10 @@ from app.models import (
     Message,
     UpdatePassword,
     User,
-    UserCreate,
+    UserCreateByAdmin,
     UserPublic,
     UsersPublic,
-    UserUpdate,
+    UserUpdateByAdmin,
     UserUpdateMe,
 )
 
@@ -47,7 +47,7 @@ def read_users(session: SessionDep, skip: int = 0, limit: int = 100) -> Any:
 @router.post(
     "/", dependencies=[Depends(get_current_active_superuser)], response_model=UserPublic
 )
-def create_user(*, session: SessionDep, user_in: UserCreate) -> Any:
+def create_user(*, session: SessionDep, user_in: UserCreateByAdmin) -> Any:
     """
     Create new user.
     """
@@ -138,7 +138,7 @@ def update_user(
     *,
     session: SessionDep,
     user_id: uuid.UUID,
-    user_in: UserUpdate,
+    user_in: UserUpdateByAdmin,
 ) -> Any:
     """
     Update a user.
