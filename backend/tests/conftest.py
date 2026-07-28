@@ -2,6 +2,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlmodel import Session, delete
 
 from app.core.config import settings
@@ -17,6 +18,7 @@ def db() -> Generator[Session]:
     with Session(engine) as session:
         init_db(session)
         yield session
+        session.execute(text("TRUNCATE TABLE audit_events, projects"))
         statement = delete(User)
         session.execute(statement)
         session.commit()
@@ -24,7 +26,7 @@ def db() -> Generator[Session]:
 
 @pytest.fixture(scope="module")
 def client() -> Generator[TestClient]:
-    with TestClient(app) as c:
+    with TestClient(app, client=("127.0.0.1", 50000)) as c:
         yield c
 
 

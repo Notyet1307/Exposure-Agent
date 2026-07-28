@@ -14,6 +14,8 @@ from app.core.config import settings
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PRE_CLEANUP_REVISION = "fe56fa70289e"
 CLEANUP_REVISION = "a7d4c9e0b1f2"
+PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
+DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 def connect(database: str) -> psycopg.Connection:
@@ -97,4 +99,55 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CLEANUP_REVISION,)
+        ).fetchone() == (PROJECT_AUDIT_REVISION,)
+        assert connection.execute("SELECT id FROM tenants").fetchall() == [
+            (DEPLOYMENT_TENANT_ID,)
+        ]
+        assert connection.execute(
+            "SELECT to_regclass('public.projects')"
+        ).fetchone() == ("projects",)
+        assert connection.execute(
+            "SELECT to_regclass('public.audit_events')"
+        ).fetchone() == ("audit_events",)
+
+
+def test_fresh_database_migrates_to_project_and_audit_schema(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == (PROJECT_AUDIT_REVISION,)
+        assert connection.execute("SELECT id FROM tenants").fetchall() == [
+            (DEPLOYMENT_TENANT_ID,)
+        ]
+        assert connection.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name IN ('projects', 'audit_events')
+            ORDER BY table_name
+            """
+        ).fetchall() == [("audit_events",), ("projects",)]
+        assert connection.execute(
+            """
+            SELECT is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'audit_events'
+              AND column_name = 'project_id'
+            """
+        ).fetchone() == ("YES",)
+        assert connection.execute(
+            """
+            SELECT column_name, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'audit_events'
+              AND column_name IN ('created_at', 'updated_at')
+            ORDER BY column_name
+            """
+        ).fetchall() == [("created_at", "NO"), ("updated_at", "NO")]
