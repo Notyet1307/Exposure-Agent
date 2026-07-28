@@ -26,7 +26,9 @@ router = APIRouter(
 
 
 def _get_writable_project(*, session: SessionDep, project_id: uuid.UUID) -> Project:
-    project = session.get(Project, project_id)
+    project = session.exec(
+        select(Project).where(Project.id == project_id).with_for_update()
+    ).one_or_none()
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     if project.archived_at is not None:

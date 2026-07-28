@@ -1,4 +1,5 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import datetime
 from typing import cast
 
@@ -7,7 +8,9 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, func, select
 
 from app.core.config import settings
-from app.domain.models import AuditEvent, ProjectMembership
+from app.core.db import engine
+from app.core.time import get_datetime_utc
+from app.domain.models import AuditEvent, Project, ProjectMembership
 from app.main import app
 from tests.utils.audit import reject_audit_inserts
 from tests.utils.user import user_authentication_headers
@@ -459,6 +462,47 @@ def test_account_reactivation_restores_only_still_active_memberships(
         ).status_code
         == 404
     )
+
+
+def test_membership_change_waits_for_concurrent_archive_and_is_rejected(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    project = create_project(client, superuser_token_headers)
+    user = create_ordinary_user(client, superuser_token_headers)
+    membership = grant_membership(
+        client,
+        superuser_token_headers,
+        project["id"],
+        user["id"],
+        ["viewer"],
+    )
+    project_id = uuid.UUID(str(project["id"]))
+
+    with Session(engine) as archive_session:
+        locked_project = archive_session.exec(
+            select(Project).where(Project.id == project_id).with_for_update()
+        ).one()
+        locked_project.archived_at = get_datetime_utc()
+        archive_session.add(locked_project)
+        archive_session.flush()
+
+        def change_roles() -> int:
+            with TestClient(app, client=("127.0.0.1", 50014)) as request_client:
+                return int(
+                    request_client.patch(
+                        f"{settings.API_V1_STR}/projects/{project['id']}/memberships/{membership['id']}",
+                        headers=superuser_token_headers,
+                        json={"roles": ["operator"]},
+                    ).status_code
+                )
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            response_future = executor.submit(change_roles)
+            with pytest.raises(TimeoutError):
+                response_future.result(timeout=0.2)
+            archive_session.commit()
+            assert response_future.result(timeout=5) == 409
 
 
 def test_audit_failure_rolls_back_every_membership_change(
