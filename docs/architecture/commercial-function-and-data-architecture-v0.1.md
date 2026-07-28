@@ -676,7 +676,7 @@ OctoBus Service Package  外部能力定义
 - Shell 只负责构建、启动和部署，不承载业务规则；
 - 不在 v0.1 引入 Go、Java 或 Rust 服务。
 
-模板使用 SQLModel，但本项目不长期维护两套建模规范。引入模板时删除示例 Item，并将小型用户与认证模型迁移到 SQLAlchemy + Pydantic；之后所有业务模型由同一 SQLAlchemy Metadata 和 Alembic 环境管理。
+模板现有认证和用户模型使用 SQLModel。首期保留这套实现，并与现有 SQLAlchemy Engine、Session、Metadata 和 Alembic 环境共同管理；只有实际业务模型遇到可复现的 SQLModel 限制时，才另立 ADR 评估迁移。
 
 出现经过测量的热点后，先优化 SQL、索引、批处理和 Polars，再决定是否重写局部组件。
 
