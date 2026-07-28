@@ -15,6 +15,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 PRE_CLEANUP_REVISION = "fe56fa70289e"
 CLEANUP_REVISION = "a7d4c9e0b1f2"
 PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
+PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
@@ -99,7 +100,7 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (PROJECT_AUDIT_REVISION,)
+        ).fetchone() == (PROJECT_LIFECYCLE_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -111,6 +112,50 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("audit_events",)
 
 
+def test_existing_projects_and_audit_events_survive_lifecycle_upgrade(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, PROJECT_AUDIT_REVISION)
+
+    project_id = uuid.uuid4()
+    audit_event_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    with connect(template_baseline_database) as connection:
+        connection.execute(
+            "INSERT INTO projects (id, tenant_id, name, created_at, updated_at) "
+            "VALUES (%s, %s, %s, now(), now())",
+            (project_id, DEPLOYMENT_TENANT_ID, "Existing Project"),
+        )
+        connection.execute(
+            "INSERT INTO audit_events "
+            "(id, tenant_id, project_id, actor_subject, actor_type, action, "
+            "target_type, target_id, occurred_at, created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now(), now(), now())",
+            (
+                audit_event_id,
+                DEPLOYMENT_TENANT_ID,
+                project_id,
+                str(actor_id),
+                "user",
+                "project.created",
+                "project",
+                project_id,
+            ),
+        )
+
+    run_migration(template_baseline_database, "head")
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT id, name, archived_at FROM projects WHERE id = %s",
+            (project_id,),
+        ).fetchone() == (project_id, "Existing Project", None)
+        assert connection.execute(
+            "SELECT id, action FROM audit_events WHERE id = %s",
+            (audit_event_id,),
+        ).fetchone() == (audit_event_id, "project.created")
+
+
 def test_fresh_database_migrates_to_project_and_audit_schema(
     template_baseline_database: str,
 ) -> None:
@@ -119,7 +164,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (PROJECT_AUDIT_REVISION,)
+        ).fetchone() == (PROJECT_LIFECYCLE_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -132,6 +177,15 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             ORDER BY table_name
             """
         ).fetchall() == [("audit_events",), ("projects",)]
+        assert connection.execute(
+            """
+            SELECT is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'projects'
+              AND column_name = 'archived_at'
+            """
+        ).fetchone() == ("YES",)
         assert connection.execute(
             """
             SELECT is_nullable

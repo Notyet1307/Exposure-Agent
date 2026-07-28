@@ -245,10 +245,22 @@ export const ProjectPublicSchema = {
             type: 'string',
             format: 'date-time',
             title: 'Updated At'
+        },
+        archived_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Archived At'
         }
     },
     type: 'object',
-    required: ['name', 'id', 'tenant_id', 'created_at', 'updated_at'],
+    required: ['name', 'id', 'tenant_id', 'created_at', 'updated_at', 'archived_at'],
     title: 'ProjectPublic'
 } as const;
 
