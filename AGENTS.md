@@ -27,7 +27,9 @@
 - 只实现当前被 Harness 领取的 GitHub issue；父 Map 仅提供上下文，不是实现范围。
 - Implementer 负责修改、验证并提交当前分支；不得 push、创建 PR、merge、修改标签或关闭 issue。
 - 独立 Auditor 根据仓库 Standards 和当前 issue 的 Spec/AC 审阅；审计不通过时由 Harness 驱动受控返工。
-- Controller 仅在审计通过后发布 PR；最终合并由人工完成。
+- Controller 仅在审计通过后发布 PR；默认 wait 模式下最终合并仍由人工控制。
+- 可选 auto 模式仅在独立审计通过后运行，并使用 GitHub 原生的 `gh pr merge --auto --match-head-commit <audited-sha>`。
+- 所需 CI 与 Review 门禁仍由 GitHub 分支规则负责。
 
 ## Fresh worktree 初始化
 
