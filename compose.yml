@@ -33,7 +33,7 @@ services:
     environment:
       POSTGRES_SERVER: db
       ENVIRONMENT: production
-      SECRET_KEY: ${SECRET_KEY?Variable not set}
+      SECRET_KEY: ${SECRET_KEY:?Variable not set or empty}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
@@ -52,7 +52,7 @@ services:
     environment:
       POSTGRES_SERVER: db
       ENVIRONMENT: production
-      SECRET_KEY: ${SECRET_KEY?Variable not set}
+      SECRET_KEY: ${SECRET_KEY:?Variable not set or empty}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
