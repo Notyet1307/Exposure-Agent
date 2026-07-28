@@ -47,6 +47,31 @@ export type ProjectCreate = {
     name: string;
 };
 
+export type ProjectMembershipCreate = {
+    roles: Array<ProjectRole>;
+    user_id: string;
+};
+
+export type ProjectMembershipPublic = {
+    roles: Array<ProjectRole>;
+    id: string;
+    tenant_id: string;
+    project_id: string;
+    user_id: string;
+    revoked_at: (string | null);
+    created_at: string;
+    updated_at: string;
+};
+
+export type ProjectMembershipsPublic = {
+    data: Array<ProjectMembershipPublic>;
+    count: number;
+};
+
+export type ProjectMembershipUpdate = {
+    roles: Array<ProjectRole>;
+};
+
 export type ProjectPublic = {
     name: string;
     id: string;
@@ -55,6 +80,8 @@ export type ProjectPublic = {
     updated_at: string;
     archived_at: (string | null);
 };
+
+export type ProjectRole = 'viewer' | 'operator' | 'approver';
 
 export type ProjectsPublic = {
     data: Array<ProjectPublic>;
@@ -135,6 +162,44 @@ export type LoginLoginAccessTokenData = {
 export type LoginLoginAccessTokenResponse = (Token);
 
 export type LoginTestTokenResponse = (UserPublic);
+
+export type ProjectMembershipsReadProjectMembershipsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+};
+
+export type ProjectMembershipsReadProjectMembershipsResponse = (ProjectMembershipsPublic);
+
+export type ProjectMembershipsGrantProjectMembershipData = {
+    projectId: string;
+    requestBody: ProjectMembershipCreate;
+};
+
+export type ProjectMembershipsGrantProjectMembershipResponse = (ProjectMembershipPublic);
+
+export type ProjectMembershipsChangeProjectMembershipRolesData = {
+    membershipId: string;
+    projectId: string;
+    requestBody: ProjectMembershipUpdate;
+};
+
+export type ProjectMembershipsChangeProjectMembershipRolesResponse = (ProjectMembershipPublic);
+
+export type ProjectMembershipsRevokeProjectMembershipData = {
+    membershipId: string;
+    projectId: string;
+};
+
+export type ProjectMembershipsRevokeProjectMembershipResponse = (ProjectMembershipPublic);
+
+export type ProjectMembershipsRegrantProjectMembershipData = {
+    membershipId: string;
+    projectId: string;
+    requestBody: ProjectMembershipUpdate;
+};
+
+export type ProjectMembershipsRegrantProjectMembershipResponse = (ProjectMembershipPublic);
 
 export type ProjectsCreateProjectData = {
     requestBody: ProjectCreate;

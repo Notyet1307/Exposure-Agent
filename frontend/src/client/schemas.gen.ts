@@ -218,6 +218,122 @@ export const ProjectCreateSchema = {
     title: 'ProjectCreate'
 } as const;
 
+export const ProjectMembershipCreateSchema = {
+    properties: {
+        roles: {
+            items: {
+                '$ref': '#/components/schemas/ProjectRole'
+            },
+            type: 'array',
+            minItems: 1,
+            title: 'Roles'
+        },
+        user_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'User Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['roles', 'user_id'],
+    title: 'ProjectMembershipCreate'
+} as const;
+
+export const ProjectMembershipPublicSchema = {
+    properties: {
+        roles: {
+            items: {
+                '$ref': '#/components/schemas/ProjectRole'
+            },
+            type: 'array',
+            minItems: 1,
+            title: 'Roles'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        tenant_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Tenant Id'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        user_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'User Id'
+        },
+        revoked_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Revoked At'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['roles', 'id', 'tenant_id', 'project_id', 'user_id', 'revoked_at', 'created_at', 'updated_at'],
+    title: 'ProjectMembershipPublic'
+} as const;
+
+export const ProjectMembershipUpdateSchema = {
+    properties: {
+        roles: {
+            items: {
+                '$ref': '#/components/schemas/ProjectRole'
+            },
+            type: 'array',
+            minItems: 1,
+            title: 'Roles'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['roles'],
+    title: 'ProjectMembershipUpdate'
+} as const;
+
+export const ProjectMembershipsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/ProjectMembershipPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'ProjectMembershipsPublic'
+} as const;
+
 export const ProjectPublicSchema = {
     properties: {
         name: {
@@ -262,6 +378,12 @@ export const ProjectPublicSchema = {
     type: 'object',
     required: ['name', 'id', 'tenant_id', 'created_at', 'updated_at', 'archived_at'],
     title: 'ProjectPublic'
+} as const;
+
+export const ProjectRoleSchema = {
+    type: 'string',
+    enum: ['viewer', 'operator', 'approver'],
+    title: 'ProjectRole'
 } as const;
 
 export const ProjectUpdateSchema = {

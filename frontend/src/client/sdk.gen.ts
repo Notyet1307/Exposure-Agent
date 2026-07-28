@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+import type { AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
 
 export class AuditEventsService {
     /**
@@ -86,6 +86,129 @@ export class LoginService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/login/test-token'
+        });
+    }
+}
+
+export class ProjectMembershipsService {
+    /**
+     * Read Project Memberships
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.skip
+     * @param data.limit
+     * @returns ProjectMembershipsPublic Successful Response
+     * @throws ApiError
+     */
+    public static readProjectMemberships(data: ProjectMembershipsReadProjectMembershipsData): CancelablePromise<ProjectMembershipsReadProjectMembershipsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/memberships/',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Grant Project Membership
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.requestBody
+     * @returns ProjectMembershipPublic Successful Response
+     * @throws ApiError
+     */
+    public static grantProjectMembership(data: ProjectMembershipsGrantProjectMembershipData): CancelablePromise<ProjectMembershipsGrantProjectMembershipResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/memberships/',
+            path: {
+                project_id: data.projectId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Change Project Membership Roles
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.membershipId
+     * @param data.requestBody
+     * @returns ProjectMembershipPublic Successful Response
+     * @throws ApiError
+     */
+    public static changeProjectMembershipRoles(data: ProjectMembershipsChangeProjectMembershipRolesData): CancelablePromise<ProjectMembershipsChangeProjectMembershipRolesResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/projects/{project_id}/memberships/{membership_id}',
+            path: {
+                project_id: data.projectId,
+                membership_id: data.membershipId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Revoke Project Membership
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.membershipId
+     * @returns ProjectMembershipPublic Successful Response
+     * @throws ApiError
+     */
+    public static revokeProjectMembership(data: ProjectMembershipsRevokeProjectMembershipData): CancelablePromise<ProjectMembershipsRevokeProjectMembershipResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/memberships/{membership_id}/revoke',
+            path: {
+                project_id: data.projectId,
+                membership_id: data.membershipId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Regrant Project Membership
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.membershipId
+     * @param data.requestBody
+     * @returns ProjectMembershipPublic Successful Response
+     * @throws ApiError
+     */
+    public static regrantProjectMembership(data: ProjectMembershipsRegrantProjectMembershipData): CancelablePromise<ProjectMembershipsRegrantProjectMembershipResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/memberships/{membership_id}/regrant',
+            path: {
+                project_id: data.projectId,
+                membership_id: data.membershipId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
 }
