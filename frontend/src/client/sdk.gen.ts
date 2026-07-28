@@ -3,7 +3,31 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { HealthHealthLiveResponse, HealthHealthReadyResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+import type { AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+
+export class AuditEventsService {
+    /**
+     * Read Audit Events
+     * @param data The data for the request.
+     * @param data.skip
+     * @param data.limit
+     * @returns AuditEventsPublic Successful Response
+     * @throws ApiError
+     */
+    public static readAuditEvents(data: AuditEventsReadAuditEventsData = {}): CancelablePromise<AuditEventsReadAuditEventsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/audit-events/',
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
 
 export class HealthService {
     /**
@@ -62,6 +86,92 @@ export class LoginService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/login/test-token'
+        });
+    }
+}
+
+export class ProjectsService {
+    /**
+     * Create Project
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns ProjectPublic Successful Response
+     * @throws ApiError
+     */
+    public static createProject(data: ProjectsCreateProjectData): CancelablePromise<ProjectsCreateProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Projects
+     * @param data The data for the request.
+     * @param data.skip
+     * @param data.limit
+     * @returns ProjectsPublic Successful Response
+     * @throws ApiError
+     */
+    public static readProjects(data: ProjectsReadProjectsData = {}): CancelablePromise<ProjectsReadProjectsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/',
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Project
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns ProjectPublic Successful Response
+     * @throws ApiError
+     */
+    public static readProject(data: ProjectsReadProjectData): CancelablePromise<ProjectsReadProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Rename Project
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.requestBody
+     * @returns ProjectPublic Successful Response
+     * @throws ApiError
+     */
+    public static renameProject(data: ProjectsRenameProjectData): CancelablePromise<ProjectsRenameProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/projects/{project_id}',
+            path: {
+                project_id: data.projectId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
 }
