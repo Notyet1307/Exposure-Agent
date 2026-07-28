@@ -1,12 +1,53 @@
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 from sqlmodel import Session, func, select
 
 from app.core.config import settings
+from app.domain.models import AuditEvent, Project
 from app.main import app
-from app.models import AuditEvent, Project
+
+
+@contextmanager
+def reject_audit_inserts(db: Session) -> Iterator[None]:
+    db.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION fail_test_audit_insert()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                RAISE EXCEPTION 'test audit failure';
+            END;
+            $$
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            CREATE TRIGGER fail_test_audit_insert
+            BEFORE INSERT ON audit_events
+            FOR EACH ROW EXECUTE FUNCTION fail_test_audit_insert()
+            """
+        )
+    )
+    db.commit()
+    try:
+        yield
+    finally:
+        db.rollback()
+        db.execute(
+            text("DROP TRIGGER IF EXISTS fail_test_audit_insert ON audit_events")
+        )
+        db.execute(text("DROP FUNCTION IF EXISTS fail_test_audit_insert()"))
+        db.commit()
 
 
 def test_admin_can_create_and_read_project_without_source_configuration(
@@ -72,6 +113,8 @@ def test_project_creation_emits_one_sanitized_audit_event(
     assert event["after_data"] == {"name": name}
     assert event["ip_address"] == "203.0.113.7"
     assert event["occurred_at"]
+    assert event["created_at"]
+    assert event["updated_at"]
 
 
 def test_admin_can_rename_project_with_immutable_id_and_one_audit_event(
@@ -182,32 +225,8 @@ def test_audit_insert_failure_rolls_back_project_creation(
 ) -> None:
     name = f"Rolled Back {uuid.uuid4()}"
     audit_count_before = db.exec(select(func.count()).select_from(AuditEvent)).one()
-    db.execute(
-        text(
-            """
-            CREATE OR REPLACE FUNCTION fail_test_audit_insert()
-            RETURNS trigger
-            LANGUAGE plpgsql
-            AS $$
-            BEGIN
-                RAISE EXCEPTION 'test audit failure';
-            END;
-            $$
-            """
-        )
-    )
-    db.execute(
-        text(
-            """
-            CREATE TRIGGER fail_test_audit_insert
-            BEFORE INSERT ON audit_events
-            FOR EACH ROW EXECUTE FUNCTION fail_test_audit_insert()
-            """
-        )
-    )
-    db.commit()
 
-    try:
+    with reject_audit_inserts(db):
         with TestClient(
             app,
             raise_server_exceptions=False,
@@ -220,17 +239,73 @@ def test_audit_insert_failure_rolls_back_project_creation(
             )
 
         assert response.status_code == 500
-        db.expire_all()
-        assert db.exec(select(Project).where(Project.name == name)).first() is None
-        audit_count_after = db.exec(select(func.count()).select_from(AuditEvent)).one()
-        assert audit_count_after == audit_count_before
+
+    db.expire_all()
+    assert db.exec(select(Project).where(Project.name == name)).first() is None
+    audit_count_after = db.exec(select(func.count()).select_from(AuditEvent)).one()
+    assert audit_count_after == audit_count_before
+
+
+def test_audit_insert_failure_rolls_back_project_rename(
+    db: Session,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    original_name = f"Original Rollback {uuid.uuid4()}"
+    with TestClient(app, client=("127.0.0.1", 50002)) as setup_client:
+        create_response = setup_client.post(
+            f"{settings.API_V1_STR}/projects/",
+            headers=superuser_token_headers,
+            json={"name": original_name},
+        )
+    assert create_response.status_code == 201
+    project_id = uuid.UUID(create_response.json()["id"])
+    audit_count_before = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with reject_audit_inserts(db):
+        with TestClient(
+            app,
+            raise_server_exceptions=False,
+            client=("127.0.0.1", 50003),
+        ) as failure_client:
+            response = failure_client.patch(
+                f"{settings.API_V1_STR}/projects/{project_id}",
+                headers=superuser_token_headers,
+                json={"name": "This must roll back"},
+            )
+
+        assert response.status_code == 500
+
+    db.expire_all()
+    project = db.get(Project, project_id)
+    assert project is not None
+    assert project.name == original_name
+    audit_count_after = db.exec(select(func.count()).select_from(AuditEvent)).one()
+    assert audit_count_after == audit_count_before
+
+
+def test_audit_events_cannot_be_modified_after_insertion(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    create_response = client.post(
+        f"{settings.API_V1_STR}/projects/",
+        headers=superuser_token_headers,
+        json={"name": f"Immutable Audit {uuid.uuid4()}"},
+    )
+    assert create_response.status_code == 201
+    project_id = uuid.UUID(create_response.json()["id"])
+    audit_event = db.exec(
+        select(AuditEvent).where(AuditEvent.project_id == project_id)
+    ).one()
+
+    audit_event.action = "tampered"
+    db.add(audit_event)
+    try:
+        with pytest.raises(ProgrammingError, match="audit_events is append-only"):
+            db.commit()
     finally:
         db.rollback()
-        db.execute(
-            text("DROP TRIGGER IF EXISTS fail_test_audit_insert ON audit_events")
-        )
-        db.execute(text("DROP FUNCTION IF EXISTS fail_test_audit_insert()"))
-        db.commit()
 
 
 def test_failed_project_rename_does_not_emit_success_event(

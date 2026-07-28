@@ -14,7 +14,7 @@ from app.core.config import settings
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PRE_CLEANUP_REVISION = "fe56fa70289e"
 CLEANUP_REVISION = "a7d4c9e0b1f2"
-PROJECT_AUDIT_REVISION = "8b1e6a7d2f30"
+PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
@@ -141,3 +141,13 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
               AND column_name = 'project_id'
             """
         ).fetchone() == ("YES",)
+        assert connection.execute(
+            """
+            SELECT column_name, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'audit_events'
+              AND column_name IN ('created_at', 'updated_at')
+            ORDER BY column_name
+            """
+        ).fetchall() == [("created_at", "NO"), ("updated_at", "NO")]

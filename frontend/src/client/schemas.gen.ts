@@ -84,10 +84,20 @@ export const AuditEventPublicSchema = {
             type: 'string',
             format: 'date-time',
             title: 'Occurred At'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Updated At'
         }
     },
     type: 'object',
-    required: ['id', 'tenant_id', 'project_id', 'actor_subject', 'actor_type', 'action', 'target_type', 'target_id', 'before_data', 'after_data', 'ip_address', 'occurred_at'],
+    required: ['id', 'tenant_id', 'project_id', 'actor_subject', 'actor_type', 'action', 'target_type', 'target_id', 'before_data', 'after_data', 'ip_address', 'occurred_at', 'created_at', 'updated_at'],
     title: 'AuditEventPublic'
 } as const;
 

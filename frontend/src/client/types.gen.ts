@@ -17,6 +17,8 @@ export type AuditEventPublic = {
 } | null);
     ip_address: (string | null);
     occurred_at: string;
+    created_at: string;
+    updated_at: string;
 };
 
 export type AuditEventsPublic = {

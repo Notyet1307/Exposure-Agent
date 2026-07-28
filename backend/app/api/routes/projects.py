@@ -3,18 +3,16 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
-from app.models import (
-    AuditEvent,
+from app.domain import projects as project_service
+from app.domain.models import (
     Project,
     ProjectCreate,
     ProjectPublic,
     ProjectsPublic,
     ProjectUpdate,
-    get_datetime_utc,
 )
 
 router = APIRouter(
@@ -47,27 +45,12 @@ def create_project(
     current_user: CurrentUser,
     request: Request,
 ) -> Any:
-    project = Project.model_validate(project_in)
-    audit_event = AuditEvent(
-        project_id=project.id,
+    return project_service.create_project(
+        session=session,
+        project_in=project_in,
         actor_subject=str(current_user.id),
-        actor_type="user",
-        action="project.created",
-        target_type="project",
-        target_id=project.id,
-        after_data={"name": project.name},
         ip_address=_request_ip_address(request),
     )
-    session.add(project)
-    try:
-        session.flush()
-        session.add(audit_event)
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        raise
-    session.refresh(project)
-    return project
 
 
 @router.get("/", response_model=ProjectsPublic)
@@ -111,26 +94,10 @@ def rename_project(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    previous_name = project.name
-    project.name = project_in.name
-    project.updated_at = get_datetime_utc()
-    audit_event = AuditEvent(
-        project_id=project.id,
+    return project_service.rename_project(
+        session=session,
+        project=project,
+        project_in=project_in,
         actor_subject=str(current_user.id),
-        actor_type="user",
-        action="project.renamed",
-        target_type="project",
-        target_id=project.id,
-        before_data={"name": previous_name},
-        after_data={"name": project.name},
         ip_address=_request_ip_address(request),
     )
-    session.add(project)
-    session.add(audit_event)
-    try:
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        raise
-    session.refresh(project)
-    return project

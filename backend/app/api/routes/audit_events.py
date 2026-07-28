@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlmodel import col, func, select
 
 from app.api.deps import SessionDep, get_current_active_superuser
-from app.models import AuditEvent, AuditEventPublic, AuditEventsPublic
+from app.domain.models import AuditEvent, AuditEventPublic, AuditEventsPublic
 
 router = APIRouter(
     prefix="/audit-events",
