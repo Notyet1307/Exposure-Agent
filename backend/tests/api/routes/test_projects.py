@@ -373,12 +373,22 @@ def test_ordinary_user_cannot_discover_projects_or_read_raw_audit_events(
         f"{settings.API_V1_STR}/projects/{project_id}",
         headers=normal_user_token_headers,
     )
+    archive_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/archive",
+        headers=normal_user_token_headers,
+    )
+    reactivate_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/reactivate",
+        headers=normal_user_token_headers,
+    )
     audit_response = client.get(
         f"{settings.API_V1_STR}/audit-events/", headers=normal_user_token_headers
     )
 
     assert list_response.status_code == 403
     assert read_response.status_code == 403
+    assert archive_response.status_code == 403
+    assert reactivate_response.status_code == 403
     assert audit_response.status_code == 403
 
 
