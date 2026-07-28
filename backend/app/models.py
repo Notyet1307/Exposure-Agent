@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pydantic import EmailStr
 from sqlalchemy import DateTime
 from sqlmodel import Field, SQLModel
+from sqlmodel.main import SQLModelConfig
 
 
 def get_datetime_utc() -> datetime:
@@ -25,7 +26,7 @@ class UserCreate(UserBase):
 
 # Properties accepted when a global Admin creates an ordinary account
 class UserCreateByAdmin(SQLModel):
-    model_config = {"extra": "forbid"}
+    model_config = SQLModelConfig(extra="forbid")
 
     email: EmailStr = Field(max_length=255)
     full_name: str | None = Field(default=None, max_length=255)
@@ -43,7 +44,7 @@ class UserUpdate(SQLModel):
 
 # Properties a global Admin can update, all optional
 class UserUpdateByAdmin(SQLModel):
-    model_config = {"extra": "forbid"}
+    model_config = SQLModelConfig(extra="forbid")
 
     email: EmailStr | None = Field(default=None, max_length=255)
     is_active: bool | None = None
