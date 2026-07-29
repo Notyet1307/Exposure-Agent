@@ -297,15 +297,17 @@ def test_failed_admin_user_requests_do_not_emit_success_audit_events(
         headers=superuser_token_headers,
         json={"full_name": "Missing User"},
     )
+    invalid_password = "abc123"
     invalid_response = client.patch(
         f"{settings.API_V1_STR}/users/{existing_user.id}",
         headers=superuser_token_headers,
-        json={"password": "short"},
+        json={"password": invalid_password},
     )
 
     assert duplicate_response.status_code == 400
     assert missing_response.status_code == 404
     assert invalid_response.status_code == 422
+    assert invalid_password not in invalid_response.text
     assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
 
 
