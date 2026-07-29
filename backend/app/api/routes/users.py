@@ -49,7 +49,13 @@ def read_users(session: SessionDep, skip: int = 0, limit: int = 100) -> Any:
 @router.post(
     "/", dependencies=[Depends(get_current_active_superuser)], response_model=UserPublic
 )
-def create_user(*, session: SessionDep, user_in: UserCreateByAdmin) -> Any:
+def create_user(
+    *,
+    session: SessionDep,
+    user_in: UserCreateByAdmin,
+    current_user: CurrentUser,
+    request: Request,
+) -> Any:
     """
     Create new user.
     """
@@ -59,7 +65,12 @@ def create_user(*, session: SessionDep, user_in: UserCreateByAdmin) -> Any:
             status_code=400,
             detail="The user with this email already exists in the system.",
         )
-    return crud.create_user(session=session, user_create=user_in)
+    return user_service.create_user_by_admin(
+        session=session,
+        user_in=user_in,
+        actor_subject=str(current_user.id),
+        ip_address=get_request_ip_address(request),
+    )
 
 
 @router.patch("/me", response_model=UserPublic)

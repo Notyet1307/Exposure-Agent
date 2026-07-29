@@ -3,7 +3,7 @@ from sqlmodel import Session
 
 from app.core.security import get_password_hash
 from app.domain.models import AuditEvent
-from app.models import User, UserUpdate, UserUpdateByAdmin
+from app.models import User, UserCreateByAdmin, UserUpdate, UserUpdateByAdmin
 
 
 def _user_audit_snapshot(user: User) -> dict[str, object]:
@@ -12,6 +12,40 @@ def _user_audit_snapshot(user: User) -> dict[str, object]:
         "full_name": user.full_name,
         "is_active": user.is_active,
     }
+
+
+def create_user_by_admin(
+    *,
+    session: Session,
+    user_in: UserCreateByAdmin,
+    actor_subject: str,
+    ip_address: str | None,
+) -> User:
+    user = User.model_validate(
+        user_in, update={"hashed_password": get_password_hash(user_in.password)}
+    )
+    session.add(user)
+    try:
+        session.flush()
+        session.add(
+            AuditEvent(
+                actor_subject=actor_subject,
+                actor_type="user",
+                action="user.created",
+                target_type="user",
+                target_id=user.id,
+                before_data=None,
+                after_data=_user_audit_snapshot(user),
+                ip_address=ip_address,
+            )
+        )
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+
+    session.refresh(user)
+    return user
 
 
 def apply_user_update(

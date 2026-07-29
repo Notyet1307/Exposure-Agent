@@ -1,3 +1,5 @@
+import json
+import logging
 import uuid
 
 import pytest
@@ -53,6 +55,125 @@ def test_create_user_new_email(
     user = crud.get_user_by_email(session=db, email=username)
     assert user
     assert user.email == created_user["email"]
+
+
+def test_admin_user_creation_emits_one_sanitized_global_audit_event(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    email = random_email()
+    password = random_lower_string()
+    actor_response = client.get(
+        f"{settings.API_V1_STR}/users/me", headers=superuser_token_headers
+    )
+
+    create_response = client.post(
+        f"{settings.API_V1_STR}/users/",
+        headers={**superuser_token_headers, "X-Real-IP": "203.0.113.28"},
+        json={"email": email, "full_name": "Created User", "password": password},
+    )
+
+    assert create_response.status_code == 200
+    audit_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
+    )
+    user_events = [
+        event
+        for event in audit_response.json()["data"]
+        if event["target_id"] == create_response.json()["id"]
+    ]
+    assert len(user_events) == 1
+    event = user_events[0]
+    assert event["project_id"] is None
+    assert event["actor_subject"] == actor_response.json()["id"]
+    assert event["actor_type"] == "user"
+    assert event["action"] == "user.created"
+    assert event["target_type"] == "user"
+    assert event["before_data"] is None
+    assert event["after_data"] == {
+        "email": email,
+        "full_name": "Created User",
+        "is_active": True,
+    }
+    assert event["ip_address"] == "203.0.113.28"
+    assert password not in str(event)
+    assert "hashed_password" not in str(event)
+
+
+def test_audit_pagination_combines_project_and_global_events_deterministically(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    project_response = client.post(
+        f"{settings.API_V1_STR}/projects/",
+        headers=superuser_token_headers,
+        json={"name": f"Audit pagination {random_lower_string()}"},
+    )
+    user_response = client.post(
+        f"{settings.API_V1_STR}/users/",
+        headers=superuser_token_headers,
+        json={"email": random_email(), "password": random_lower_string()},
+    )
+
+    assert project_response.status_code == 201
+    assert user_response.status_code == 200
+    combined_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/?skip=0&limit=2",
+        headers=superuser_token_headers,
+    )
+    first_page_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/?skip=0&limit=1",
+        headers=superuser_token_headers,
+    )
+    second_page_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/?skip=1&limit=1",
+        headers=superuser_token_headers,
+    )
+
+    assert combined_response.status_code == 200
+    combined_events = combined_response.json()["data"]
+    assert {event["target_id"] for event in combined_events} == {
+        project_response.json()["id"],
+        user_response.json()["id"],
+    }
+    project_event = next(
+        event
+        for event in combined_events
+        if event["target_id"] == project_response.json()["id"]
+    )
+    global_event = next(
+        event
+        for event in combined_events
+        if event["target_id"] == user_response.json()["id"]
+    )
+    assert project_event["project_id"] == project_response.json()["id"]
+    assert global_event["project_id"] is None
+    assert project_event["tenant_id"] == global_event["tenant_id"]
+    assert [
+        first_page_response.json()["data"][0]["id"],
+        second_page_response.json()["data"][0]["id"],
+    ] == [event["id"] for event in combined_events]
+
+
+def test_user_creation_rolls_back_when_audit_insert_fails(
+    db: Session,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    email = random_email()
+    audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with reject_audit_inserts(db):
+        with TestClient(
+            app, raise_server_exceptions=False, client=("127.0.0.1", 50032)
+        ) as failure_client:
+            response = failure_client.post(
+                f"{settings.API_V1_STR}/users/",
+                headers=superuser_token_headers,
+                json={"email": email, "password": random_lower_string()},
+            )
+        assert response.status_code == 500
+
+    db.expire_all()
+    assert crud.get_user_by_email(session=db, email=email) is None
+    assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
 
 
 def test_get_existing_user_as_superuser(
@@ -158,6 +279,36 @@ def test_create_user_existing_username(
     created_user = r.json()
     assert r.status_code == 400
     assert "_id" not in created_user
+
+
+def test_failed_admin_user_requests_do_not_emit_success_audit_events(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    existing_user = create_random_user(db)
+    audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    duplicate_response = client.post(
+        f"{settings.API_V1_STR}/users/",
+        headers=superuser_token_headers,
+        json={"email": existing_user.email, "password": random_lower_string()},
+    )
+    missing_response = client.patch(
+        f"{settings.API_V1_STR}/users/{uuid.uuid4()}",
+        headers=superuser_token_headers,
+        json={"full_name": "Missing User"},
+    )
+    invalid_password = "abc123"
+    invalid_response = client.patch(
+        f"{settings.API_V1_STR}/users/{existing_user.id}",
+        headers=superuser_token_headers,
+        json={"password": invalid_password},
+    )
+
+    assert duplicate_response.status_code == 400
+    assert missing_response.status_code == 404
+    assert invalid_response.status_code == 422
+    assert invalid_password not in invalid_response.text
+    assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
 
 
 def test_create_user_by_normal_user(
@@ -340,28 +491,26 @@ def test_update_user(
     assert user_db.full_name == "Updated_full_name"
 
 
-def test_admin_user_update_emits_sanitized_audit_event(
+def test_admin_profile_updates_emit_explanatory_audit_events(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
     user = create_random_user(db)
     original_email = str(user.email)
     new_email = random_email()
-    new_password = random_lower_string()
 
-    update_response = client.patch(
+    name_response = client.patch(
         f"{settings.API_V1_STR}/users/{user.id}",
         headers=superuser_token_headers,
-        json={"full_name": "Audited User", "password": new_password},
+        json={"full_name": "Audited User"},
     )
-
-    assert update_response.status_code == 200
-    mixed_update_response = client.patch(
+    email_response = client.patch(
         f"{settings.API_V1_STR}/users/{user.id}",
         headers=superuser_token_headers,
-        json={"email": new_email, "is_active": False},
+        json={"email": new_email},
     )
-    assert mixed_update_response.status_code == 200
 
+    assert name_response.status_code == 200
+    assert email_response.status_code == 200
     audit_response = client.get(
         f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
     )
@@ -372,33 +521,109 @@ def test_admin_user_update_emits_sanitized_audit_event(
     ]
     assert [event["action"] for event in user_events] == [
         "user.updated",
-        "user.deactivated",
+        "user.updated",
     ]
-    update_event, mixed_event = user_events
-    assert update_event["before_data"] == {
+    name_event, email_event = user_events
+    assert name_event["before_data"] == {
         "email": original_email,
         "full_name": None,
         "is_active": True,
-        "password_changed": False,
     }
-    assert update_event["after_data"] == {
-        "email": original_email,
-        "full_name": "Audited User",
-        "is_active": True,
-        "password_changed": True,
-    }
-    assert mixed_event["before_data"] == {
+    assert name_event["after_data"] == {
         "email": original_email,
         "full_name": "Audited User",
         "is_active": True,
     }
-    assert mixed_event["after_data"] == {
+    assert email_event["before_data"] == name_event["after_data"]
+    assert email_event["after_data"] == {
         "email": new_email,
         "full_name": "Audited User",
-        "is_active": False,
+        "is_active": True,
     }
-    assert new_password not in str(user_events)
     assert "hashed_password" not in str(user_events)
+
+
+def test_admin_password_reset_is_sanitized_and_rolls_back_with_audit_failure(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    old_password = random_lower_string()
+    new_password = random_lower_string()
+    admin_token = superuser_token_headers["Authorization"].removeprefix("Bearer ")
+    user = crud.create_user(
+        session=db,
+        user_create=UserCreate(email=random_email(), password=old_password),
+    )
+
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        reset_response = client.patch(
+            f"{settings.API_V1_STR}/users/{user.id}",
+            headers=superuser_token_headers,
+            json={"password": new_password},
+        )
+        audit_response = client.get(
+            f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
+        )
+
+    assert reset_response.status_code == 200
+    reset_events = [
+        event
+        for event in audit_response.json()["data"]
+        if event["target_id"] == str(user.id)
+    ]
+    assert len(reset_events) == 1
+    reset_event = reset_events[0]
+    assert reset_event["action"] == "user.updated"
+    assert reset_event["before_data"]["password_changed"] is False
+    assert reset_event["after_data"]["password_changed"] is True
+
+    for snapshot in (reset_event["before_data"], reset_event["after_data"]):
+        assert snapshot is not None
+        assert {key.casefold() for key in snapshot}.isdisjoint(
+            {"password", "hashed_password", "token"}
+        )
+        serialized_snapshot = json.dumps(snapshot)
+        assert old_password not in serialized_snapshot
+        assert new_password not in serialized_snapshot
+        assert admin_token not in serialized_snapshot
+
+    for response in (reset_response, audit_response):
+        response_text = response.text
+        assert '"password"' not in response_text.casefold()
+        assert '"hashed_password"' not in response_text.casefold()
+        assert '"token"' not in response_text.casefold()
+        assert old_password not in response_text
+        assert new_password not in response_text
+        assert admin_token not in response_text
+
+    db.expire_all()
+    persisted_user = db.get(User, user.id)
+    assert persisted_user is not None
+    successful_hash = persisted_user.hashed_password
+    for secret in (old_password, new_password, successful_hash, admin_token):
+        assert secret not in caplog.text
+
+    audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with reject_audit_inserts(db):
+        with TestClient(
+            app, raise_server_exceptions=False, client=("127.0.0.1", 50033)
+        ) as failure_client:
+            failure_response = failure_client.patch(
+                f"{settings.API_V1_STR}/users/{user.id}",
+                headers=superuser_token_headers,
+                json={"password": random_lower_string()},
+            )
+        assert failure_response.status_code == 500
+
+    db.expire_all()
+    persisted_user = db.get(User, user.id)
+    assert persisted_user is not None
+    assert persisted_user.hashed_password == successful_hash
+    assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
 
 
 def test_admin_deactivates_and_reactivates_user_with_audit_history(
@@ -466,6 +691,50 @@ def test_admin_deactivates_and_reactivates_user_with_audit_history(
         "is_active": True,
     }
     assert user_events[1]["ip_address"] == "203.0.113.30"
+
+
+@pytest.mark.parametrize("update_kind", ["full_name", "email", "reactivation"])
+def test_profile_updates_and_reactivation_roll_back_when_audit_insert_fails(
+    update_kind: str,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    user = create_random_user(db)
+    if update_kind == "reactivation":
+        user.is_active = False
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    original_state = (str(user.email), user.full_name, user.is_active)
+    if update_kind == "full_name":
+        update_data: dict[str, object] = {"full_name": "Rolled Back Name"}
+    elif update_kind == "email":
+        update_data = {"email": random_email()}
+    else:
+        update_data = {"is_active": True}
+    audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with reject_audit_inserts(db):
+        with TestClient(
+            app, raise_server_exceptions=False, client=("127.0.0.1", 50034)
+        ) as failure_client:
+            response = failure_client.patch(
+                f"{settings.API_V1_STR}/users/{user.id}",
+                headers=superuser_token_headers,
+                json=update_data,
+            )
+        assert response.status_code == 500
+
+    db.expire_all()
+    persisted_user = db.get(User, user.id)
+    assert persisted_user is not None
+    assert (
+        str(persisted_user.email),
+        persisted_user.full_name,
+        persisted_user.is_active,
+    ) == original_state
+    assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
 
 
 def test_user_deactivation_rolls_back_when_audit_insert_fails(
