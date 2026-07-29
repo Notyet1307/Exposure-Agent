@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import col, func, select
 
 from app import crud
@@ -10,7 +10,9 @@ from app.api.deps import (
     SessionDep,
     get_current_active_superuser,
 )
+from app.api.request import get_request_ip_address
 from app.core.security import get_password_hash, verify_password
+from app.domain import users as user_service
 from app.models import (
     Message,
     UpdatePassword,
@@ -139,6 +141,8 @@ def update_user(
     session: SessionDep,
     user_id: uuid.UUID,
     user_in: UserUpdateByAdmin,
+    current_user: CurrentUser,
+    request: Request,
 ) -> Any:
     """
     Update a user.
@@ -155,4 +159,10 @@ def update_user(
             raise HTTPException(
                 status_code=409, detail="User with this email already exists"
             )
-    return crud.update_user(session=session, db_user=db_user, user_in=user_in)
+    return user_service.update_user_by_admin(
+        session=session,
+        db_user=db_user,
+        user_in=user_in,
+        actor_subject=str(current_user.id),
+        ip_address=get_request_ip_address(request),
+    )

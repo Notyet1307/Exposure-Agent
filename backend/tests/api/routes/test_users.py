@@ -2,12 +2,15 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from app import crud
 from app.core.config import Settings, parse_cors, settings
 from app.core.security import verify_password
+from app.domain.models import AuditEvent
+from app.main import app
 from app.models import User, UserCreate
+from tests.utils.audit import reject_audit_inserts
 from tests.utils.user import create_random_user
 from tests.utils.utils import random_email, random_lower_string
 
@@ -335,6 +338,82 @@ def test_update_user(
     db.refresh(user_db)
     assert user_db
     assert user_db.full_name == "Updated_full_name"
+
+
+def test_admin_deactivates_and_reactivates_user_with_audit_history(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    user = create_random_user(db)
+    actor_response = client.get(
+        f"{settings.API_V1_STR}/users/me", headers=superuser_token_headers
+    )
+    assert actor_response.status_code == 200
+
+    deactivate_response = client.patch(
+        f"{settings.API_V1_STR}/users/{user.id}",
+        headers={**superuser_token_headers, "X-Real-IP": "203.0.113.29"},
+        json={"is_active": False},
+    )
+    reactivate_response = client.patch(
+        f"{settings.API_V1_STR}/users/{user.id}",
+        headers={**superuser_token_headers, "X-Real-IP": "203.0.113.30"},
+        json={"is_active": True},
+    )
+
+    assert deactivate_response.status_code == 200
+    assert deactivate_response.json()["is_active"] is False
+    assert reactivate_response.status_code == 200
+    assert reactivate_response.json()["is_active"] is True
+    audit_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
+    )
+    assert audit_response.status_code == 200
+    user_events = [
+        event
+        for event in reversed(audit_response.json()["data"])
+        if event["target_id"] == str(user.id)
+    ]
+    assert [event["action"] for event in user_events] == [
+        "user.deactivated",
+        "user.reactivated",
+    ]
+    assert all(event["project_id"] is None for event in user_events)
+    assert all(
+        event["actor_subject"] == actor_response.json()["id"] for event in user_events
+    )
+    assert all(event["actor_type"] == "user" for event in user_events)
+    assert all(event["target_type"] == "user" for event in user_events)
+    assert user_events[0]["before_data"] == {"is_active": True}
+    assert user_events[0]["after_data"] == {"is_active": False}
+    assert user_events[0]["ip_address"] == "203.0.113.29"
+    assert user_events[1]["before_data"] == {"is_active": False}
+    assert user_events[1]["after_data"] == {"is_active": True}
+    assert user_events[1]["ip_address"] == "203.0.113.30"
+
+
+def test_user_deactivation_rolls_back_when_audit_insert_fails(
+    db: Session,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    user = create_random_user(db)
+    audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with reject_audit_inserts(db):
+        with TestClient(
+            app, raise_server_exceptions=False, client=("127.0.0.1", 50031)
+        ) as failure_client:
+            response = failure_client.patch(
+                f"{settings.API_V1_STR}/users/{user.id}",
+                headers=superuser_token_headers,
+                json={"is_active": False},
+            )
+        assert response.status_code == 500
+
+    db.expire_all()
+    persisted_user = db.get(User, user.id)
+    assert persisted_user is not None
+    assert persisted_user.is_active is True
+    assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
 
 
 def test_update_user_not_exists(
