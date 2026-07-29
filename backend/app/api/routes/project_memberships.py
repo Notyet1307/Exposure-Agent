@@ -1,15 +1,15 @@
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, func, select
 
-from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
+from app.api.deps import CurrentUser, SessionDep
+from app.api.project_authorization import get_authorized_project
 from app.api.request import get_request_ip_address
 from app.domain import project_memberships as membership_service
 from app.domain.models import (
-    Project,
     ProjectMembership,
     ProjectMembershipCreate,
     ProjectMembershipPublic,
@@ -21,19 +21,7 @@ from app.models import User
 router = APIRouter(
     prefix="/projects/{project_id}/memberships",
     tags=["project-memberships"],
-    dependencies=[Depends(get_current_active_superuser)],
 )
-
-
-def _get_writable_project(*, session: SessionDep, project_id: uuid.UUID) -> Project:
-    project = session.exec(
-        select(Project).where(Project.id == project_id).with_for_update()
-    ).one_or_none()
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if project.archived_at is not None:
-        raise HTTPException(status_code=409, detail="Archived project is read-only")
-    return project
 
 
 def _lock_membership(
@@ -57,11 +45,16 @@ def read_project_memberships(
     *,
     session: SessionDep,
     project_id: uuid.UUID,
+    current_user: CurrentUser,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 100,
 ) -> Any:
-    if session.get(Project, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+    get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=None,
+    )
     filters = ProjectMembership.project_id == project_id
     count = session.exec(
         select(func.count()).select_from(ProjectMembership).where(filters)
@@ -93,7 +86,13 @@ def grant_project_membership(
     current_user: CurrentUser,
     request: Request,
 ) -> Any:
-    _get_writable_project(session=session, project_id=project_id)
+    get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=None,
+        writable=True,
+    )
     user = session.get(User, membership_in.user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
@@ -101,8 +100,6 @@ def grant_project_membership(
         raise HTTPException(
             status_code=409, detail="Global Admin cannot have a project membership"
         )
-    if not user.is_active:
-        raise HTTPException(status_code=409, detail="Inactive user cannot be granted")
     try:
         return membership_service.grant_membership(
             session=session,
@@ -126,7 +123,13 @@ def change_project_membership_roles(
     current_user: CurrentUser,
     request: Request,
 ) -> Any:
-    _get_writable_project(session=session, project_id=project_id)
+    get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=None,
+        writable=True,
+    )
     membership = _lock_membership(
         session=session, project_id=project_id, membership_id=membership_id
     )
@@ -153,7 +156,13 @@ def revoke_project_membership(
     current_user: CurrentUser,
     request: Request,
 ) -> Any:
-    _get_writable_project(session=session, project_id=project_id)
+    get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=None,
+        writable=True,
+    )
     membership = _lock_membership(
         session=session, project_id=project_id, membership_id=membership_id
     )
@@ -177,17 +186,18 @@ def regrant_project_membership(
     current_user: CurrentUser,
     request: Request,
 ) -> Any:
-    _get_writable_project(session=session, project_id=project_id)
+    get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=None,
+        writable=True,
+    )
     membership = _lock_membership(
         session=session, project_id=project_id, membership_id=membership_id
     )
     if membership.revoked_at is None:
         raise HTTPException(status_code=409, detail="Membership is already active")
-    user = session.get(User, membership.user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    if not user.is_active:
-        raise HTTPException(status_code=409, detail="Inactive user cannot be granted")
     return membership_service.regrant_membership(
         session=session,
         membership=membership,

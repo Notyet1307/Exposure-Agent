@@ -1,9 +1,9 @@
 import uuid
 
-from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
 from app.core.time import get_datetime_utc
+from app.domain.audit import commit_with_audit
 from app.domain.models import AuditEvent, ProjectMembership, ProjectRole
 
 
@@ -36,21 +36,6 @@ def _membership_audit_event(
     )
 
 
-def _commit_membership_change(
-    *, session: Session, membership: ProjectMembership, audit_event: AuditEvent
-) -> ProjectMembership:
-    session.add(membership)
-    try:
-        session.flush()
-        session.add(audit_event)
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        raise
-    session.refresh(membership)
-    return membership
-
-
 def _change_membership(
     *,
     session: Session,
@@ -77,8 +62,8 @@ def _change_membership(
         before_data=before_data,
         ip_address=ip_address,
     )
-    return _commit_membership_change(
-        session=session, membership=membership, audit_event=audit_event
+    return commit_with_audit(
+        session=session, record=membership, audit_event=audit_event
     )
 
 
@@ -158,6 +143,6 @@ def grant_membership(
         before_data=None,
         ip_address=ip_address,
     )
-    return _commit_membership_change(
-        session=session, membership=membership, audit_event=audit_event
+    return commit_with_audit(
+        session=session, record=membership, audit_event=audit_event
     )

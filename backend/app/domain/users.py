@@ -1,7 +1,7 @@
-from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
 from app.core.security import get_password_hash
+from app.domain.audit import commit_with_audit
 from app.domain.models import AuditEvent
 from app.models import User, UserCreateByAdmin, UserUpdate, UserUpdateByAdmin
 
@@ -24,28 +24,17 @@ def create_user_by_admin(
     user = User.model_validate(
         user_in, update={"hashed_password": get_password_hash(user_in.password)}
     )
-    session.add(user)
-    try:
-        session.flush()
-        session.add(
-            AuditEvent(
-                actor_subject=actor_subject,
-                actor_type="user",
-                action="user.created",
-                target_type="user",
-                target_id=user.id,
-                before_data=None,
-                after_data=_user_audit_snapshot(user),
-                ip_address=ip_address,
-            )
-        )
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        raise
-
-    session.refresh(user)
-    return user
+    audit_event = AuditEvent(
+        actor_subject=actor_subject,
+        actor_type="user",
+        action="user.created",
+        target_type="user",
+        target_id=user.id,
+        before_data=None,
+        after_data=_user_audit_snapshot(user),
+        ip_address=ip_address,
+    )
+    return commit_with_audit(session=session, record=user, audit_event=audit_event)
 
 
 def apply_user_update(
@@ -74,31 +63,25 @@ def update_user_by_admin(
         before_data["password_changed"] = False
         after_data["password_changed"] = True
     has_changes = before_data != after_data
-    session.add(db_user)
-
-    try:
-        session.flush()
-        if has_changes:
-            was_active = bool(before_data["is_active"])
-            action = "user.updated"
-            if db_user.is_active != was_active:
-                action = "user.reactivated" if db_user.is_active else "user.deactivated"
-            session.add(
-                AuditEvent(
-                    actor_subject=actor_subject,
-                    actor_type="user",
-                    action=action,
-                    target_type="user",
-                    target_id=db_user.id,
-                    before_data=before_data,
-                    after_data=after_data,
-                    ip_address=ip_address,
-                )
-            )
-        session.commit()
-    except SQLAlchemyError:
+    if not has_changes:
         session.rollback()
-        raise
+        session.refresh(db_user)
+        return db_user
 
-    session.refresh(db_user)
-    return db_user
+    was_active = bool(before_data["is_active"])
+    action = "user.updated"
+    if db_user.is_active != was_active:
+        action = "user.reactivated" if db_user.is_active else "user.deactivated"
+    audit_event = AuditEvent(
+        actor_subject=actor_subject,
+        actor_type="user",
+        action=action,
+        target_type="user",
+        target_id=db_user.id,
+        before_data=before_data,
+        after_data=after_data,
+        ip_address=ip_address,
+    )
+    return commit_with_audit(
+        session=session, record=db_user, audit_event=audit_event
+    )

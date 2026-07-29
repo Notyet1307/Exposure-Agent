@@ -45,7 +45,7 @@ _Avoid_: 角色等级、单一角色绑定
 _Avoid_: Admin Membership、仅管理面 Admin
 
 **Inactive User**:
-被 Admin 停用的用户，不能认证或获得项目授权；其 ProjectMembership 保留，并在重新启用账号时恢复原有权限。
+被 Admin 停用的用户，不能认证或获得项目授权；其 ProjectMembership 保留，Admin 仍可授予、改角色、撤销或重新授予，但这些权限只在重新启用账号后生效。
 _Avoid_: 已删除用户、已移除成员
 
 **AuditEvent**:

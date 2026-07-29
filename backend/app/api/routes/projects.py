@@ -1,32 +1,26 @@
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import and_
-from sqlmodel import Session, col, func, select
+from fastapi import APIRouter, Depends, Query, Request, status
+from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
+from app.api.project_authorization import (
+    PROJECT_READ_ROLES,
+    get_authorized_project,
+    project_access_filter,
+)
 from app.api.request import get_request_ip_address
 from app.domain import projects as project_service
 from app.domain.models import (
     Project,
     ProjectCreate,
-    ProjectMembership,
     ProjectPublic,
     ProjectsPublic,
     ProjectUpdate,
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-
-
-def _lock_project(*, session: Session, project_id: uuid.UUID) -> Project:
-    project = session.exec(
-        select(Project).where(Project.id == project_id).with_for_update()
-    ).one_or_none()
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
 
 
 @router.post(
@@ -57,17 +51,11 @@ def read_projects(
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 100,
 ) -> Any:
-    count_statement = select(func.count()).select_from(Project)
-    statement = select(Project)
-    if not current_user.is_superuser:
-        membership_filter = and_(
-            col(ProjectMembership.user_id) == current_user.id,
-            col(ProjectMembership.revoked_at).is_(None),
-        )
-        count_statement = count_statement.join(ProjectMembership).where(
-            membership_filter
-        )
-        statement = statement.join(ProjectMembership).where(membership_filter)
+    access_filter = project_access_filter(
+        user=current_user, allowed_roles=PROJECT_READ_ROLES
+    )
+    count_statement = select(func.count()).select_from(Project).where(access_filter)
+    statement = select(Project).where(access_filter)
     count = session.exec(count_statement).one()
     statement = (
         statement.order_by(col(Project.created_at).desc(), col(Project.id).desc())
@@ -85,22 +73,17 @@ def read_projects(
 def read_project(
     *, session: SessionDep, project_id: uuid.UUID, current_user: CurrentUser
 ) -> Any:
-    statement = select(Project).where(Project.id == project_id)
-    if not current_user.is_superuser:
-        statement = statement.join(ProjectMembership).where(
-            col(ProjectMembership.user_id) == current_user.id,
-            col(ProjectMembership.revoked_at).is_(None),
-        )
-    project = session.exec(statement).one_or_none()
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
+    return get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=PROJECT_READ_ROLES,
+    )
 
 
 @router.post(
     "/{project_id}/archive",
     response_model=ProjectPublic,
-    dependencies=[Depends(get_current_active_superuser)],
 )
 def archive_project(
     *,
@@ -109,7 +92,13 @@ def archive_project(
     current_user: CurrentUser,
     request: Request,
 ) -> Any:
-    project = _lock_project(session=session, project_id=project_id)
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=None,
+        lock=True,
+    )
 
     return project_service.archive_project(
         session=session,
@@ -122,7 +111,6 @@ def archive_project(
 @router.post(
     "/{project_id}/reactivate",
     response_model=ProjectPublic,
-    dependencies=[Depends(get_current_active_superuser)],
 )
 def reactivate_project(
     *,
@@ -131,7 +119,13 @@ def reactivate_project(
     current_user: CurrentUser,
     request: Request,
 ) -> Any:
-    project = _lock_project(session=session, project_id=project_id)
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=None,
+        lock=True,
+    )
 
     return project_service.reactivate_project(
         session=session,
@@ -144,7 +138,6 @@ def reactivate_project(
 @router.patch(
     "/{project_id}",
     response_model=ProjectPublic,
-    dependencies=[Depends(get_current_active_superuser)],
 )
 def rename_project(
     *,
@@ -154,9 +147,13 @@ def rename_project(
     current_user: CurrentUser,
     request: Request,
 ) -> Any:
-    project = _lock_project(session=session, project_id=project_id)
-    if project.archived_at is not None:
-        raise HTTPException(status_code=409, detail="Archived project is read-only")
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=None,
+        writable=True,
+    )
 
     return project_service.rename_project(
         session=session,
