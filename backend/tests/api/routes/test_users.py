@@ -340,6 +340,67 @@ def test_update_user(
     assert user_db.full_name == "Updated_full_name"
 
 
+def test_admin_user_update_emits_sanitized_audit_event(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    user = create_random_user(db)
+    original_email = str(user.email)
+    new_email = random_email()
+    new_password = random_lower_string()
+
+    update_response = client.patch(
+        f"{settings.API_V1_STR}/users/{user.id}",
+        headers=superuser_token_headers,
+        json={"full_name": "Audited User", "password": new_password},
+    )
+
+    assert update_response.status_code == 200
+    mixed_update_response = client.patch(
+        f"{settings.API_V1_STR}/users/{user.id}",
+        headers=superuser_token_headers,
+        json={"email": new_email, "is_active": False},
+    )
+    assert mixed_update_response.status_code == 200
+
+    audit_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
+    )
+    user_events = [
+        event
+        for event in reversed(audit_response.json()["data"])
+        if event["target_id"] == str(user.id)
+    ]
+    assert [event["action"] for event in user_events] == [
+        "user.updated",
+        "user.deactivated",
+    ]
+    update_event, mixed_event = user_events
+    assert update_event["before_data"] == {
+        "email": original_email,
+        "full_name": None,
+        "is_active": True,
+        "password_changed": False,
+    }
+    assert update_event["after_data"] == {
+        "email": original_email,
+        "full_name": "Audited User",
+        "is_active": True,
+        "password_changed": True,
+    }
+    assert mixed_event["before_data"] == {
+        "email": original_email,
+        "full_name": "Audited User",
+        "is_active": True,
+    }
+    assert mixed_event["after_data"] == {
+        "email": new_email,
+        "full_name": "Audited User",
+        "is_active": False,
+    }
+    assert new_password not in str(user_events)
+    assert "hashed_password" not in str(user_events)
+
+
 def test_admin_deactivates_and_reactivates_user_with_audit_history(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
@@ -383,11 +444,27 @@ def test_admin_deactivates_and_reactivates_user_with_audit_history(
     )
     assert all(event["actor_type"] == "user" for event in user_events)
     assert all(event["target_type"] == "user" for event in user_events)
-    assert user_events[0]["before_data"] == {"is_active": True}
-    assert user_events[0]["after_data"] == {"is_active": False}
+    assert user_events[0]["before_data"] == {
+        "email": user.email,
+        "full_name": None,
+        "is_active": True,
+    }
+    assert user_events[0]["after_data"] == {
+        "email": user.email,
+        "full_name": None,
+        "is_active": False,
+    }
     assert user_events[0]["ip_address"] == "203.0.113.29"
-    assert user_events[1]["before_data"] == {"is_active": False}
-    assert user_events[1]["after_data"] == {"is_active": True}
+    assert user_events[1]["before_data"] == {
+        "email": user.email,
+        "full_name": None,
+        "is_active": False,
+    }
+    assert user_events[1]["after_data"] == {
+        "email": user.email,
+        "full_name": None,
+        "is_active": True,
+    }
     assert user_events[1]["ip_address"] == "203.0.113.30"
 
 
