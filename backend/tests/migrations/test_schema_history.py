@@ -16,6 +16,7 @@ PRE_CLEANUP_REVISION = "fe56fa70289e"
 CLEANUP_REVISION = "a7d4c9e0b1f2"
 PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
+PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
@@ -100,7 +101,7 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (PROJECT_LIFECYCLE_REVISION,)
+        ).fetchone() == (PROJECT_MEMBERSHIP_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -110,6 +111,9 @@ def test_template_database_upgrades_without_losing_users(
         assert connection.execute(
             "SELECT to_regclass('public.audit_events')"
         ).fetchone() == ("audit_events",)
+        assert connection.execute(
+            "SELECT to_regclass('public.project_memberships')"
+        ).fetchone() == ("project_memberships",)
 
 
 def test_existing_projects_and_audit_events_survive_lifecycle_upgrade(
@@ -164,7 +168,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (PROJECT_LIFECYCLE_REVISION,)
+        ).fetchone() == (PROJECT_MEMBERSHIP_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -173,10 +177,14 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = 'public'
-              AND table_name IN ('projects', 'audit_events')
+              AND table_name IN ('projects', 'project_memberships', 'audit_events')
             ORDER BY table_name
             """
-        ).fetchall() == [("audit_events",), ("projects",)]
+        ).fetchall() == [
+            ("audit_events",),
+            ("project_memberships",),
+            ("projects",),
+        ]
         assert connection.execute(
             """
             SELECT is_nullable
@@ -205,3 +213,62 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             ORDER BY column_name
             """
         ).fetchall() == [("created_at", "NO"), ("updated_at", "NO")]
+
+
+def test_membership_migration_preserves_revoked_history_and_rejects_duplicates(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+
+    user_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    membership_id = uuid.uuid4()
+    with connect(template_baseline_database) as connection:
+        connection.execute(
+            'INSERT INTO "user" '
+            "(email, is_active, is_superuser, id, hashed_password) "
+            "VALUES (%s, true, false, %s, %s)",
+            (f"member-{user_id}@example.com", user_id, "unused-test-hash"),
+        )
+        connection.execute(
+            "INSERT INTO projects (id, tenant_id, name, created_at, updated_at) "
+            "VALUES (%s, %s, %s, now(), now())",
+            (project_id, DEPLOYMENT_TENANT_ID, "Membership History"),
+        )
+        connection.execute(
+            "INSERT INTO project_memberships "
+            "(id, tenant_id, project_id, user_id, roles, revoked_at, "
+            "created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, now(), now(), now())",
+            (
+                membership_id,
+                DEPLOYMENT_TENANT_ID,
+                project_id,
+                user_id,
+                ["operator", "approver"],
+            ),
+        )
+
+    run_migration(template_baseline_database, "head")
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT id, roles, revoked_at IS NOT NULL "
+            "FROM project_memberships WHERE id = %s",
+            (membership_id,),
+        ).fetchone() == (membership_id, ["operator", "approver"], True)
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO project_memberships "
+                "(id, tenant_id, project_id, user_id, roles, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    project_id,
+                    user_id,
+                    ["viewer"],
+                ),
+            )

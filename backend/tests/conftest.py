@@ -18,7 +18,9 @@ def db() -> Generator[Session]:
     with Session(engine) as session:
         init_db(session)
         yield session
-        session.execute(text("TRUNCATE TABLE audit_events, projects"))
+        session.execute(
+            text("TRUNCATE TABLE project_memberships, audit_events, projects")
+        )
         statement = delete(User)
         session.execute(statement)
         session.commit()

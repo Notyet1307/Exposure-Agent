@@ -1,54 +1,15 @@
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
 from sqlalchemy.exc import ProgrammingError
 from sqlmodel import Session, func, select
 
 from app.core.config import settings
 from app.domain.models import AuditEvent, Project
 from app.main import app
-
-
-@contextmanager
-def reject_audit_inserts(db: Session) -> Iterator[None]:
-    db.execute(
-        text(
-            """
-            CREATE OR REPLACE FUNCTION fail_test_audit_insert()
-            RETURNS trigger
-            LANGUAGE plpgsql
-            AS $$
-            BEGIN
-                RAISE EXCEPTION 'test audit failure';
-            END;
-            $$
-            """
-        )
-    )
-    db.execute(
-        text(
-            """
-            CREATE TRIGGER fail_test_audit_insert
-            BEFORE INSERT ON audit_events
-            FOR EACH ROW EXECUTE FUNCTION fail_test_audit_insert()
-            """
-        )
-    )
-    db.commit()
-    try:
-        yield
-    finally:
-        db.rollback()
-        db.execute(
-            text("DROP TRIGGER IF EXISTS fail_test_audit_insert ON audit_events")
-        )
-        db.execute(text("DROP FUNCTION IF EXISTS fail_test_audit_insert()"))
-        db.commit()
+from tests.utils.audit import reject_audit_inserts
 
 
 def test_admin_can_create_and_read_project_without_source_configuration(
@@ -353,7 +314,7 @@ def test_admin_can_list_multiple_independent_projects_with_the_same_name(
     assert payload["count"] >= 2
 
 
-def test_ordinary_user_cannot_discover_projects_or_read_raw_audit_events(
+def test_ordinary_user_sees_no_unassigned_projects_or_raw_audit_events(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     normal_user_token_headers: dict[str, str],
@@ -385,8 +346,9 @@ def test_ordinary_user_cannot_discover_projects_or_read_raw_audit_events(
         f"{settings.API_V1_STR}/audit-events/", headers=normal_user_token_headers
     )
 
-    assert list_response.status_code == 403
-    assert read_response.status_code == 403
+    assert list_response.status_code == 200
+    assert list_response.json() == {"data": [], "count": 0}
+    assert read_response.status_code == 404
     assert archive_response.status_code == 403
     assert reactivate_response.status_code == 403
     assert audit_response.status_code == 403
@@ -586,16 +548,31 @@ def test_openapi_exposes_supported_project_and_read_only_audit_contracts(
         "get",
         "patch",
     }
-    assert set(
-        paths[f"{settings.API_V1_STR}/projects/{{project_id}}/archive"]
-    ) == {"post"}
-    assert set(
-        paths[f"{settings.API_V1_STR}/projects/{{project_id}}/reactivate"]
-    ) == {"post"}
+    assert set(paths[f"{settings.API_V1_STR}/projects/{{project_id}}/archive"]) == {
+        "post"
+    }
+    assert set(paths[f"{settings.API_V1_STR}/projects/{{project_id}}/reactivate"]) == {
+        "post"
+    }
     assert not any(
         "delete" in path_operations
         for path, path_operations in paths.items()
         if path.startswith(f"{settings.API_V1_STR}/projects")
     )
+    membership_path = f"{settings.API_V1_STR}/projects/{{project_id}}/memberships"
+    assert set(paths[f"{membership_path}/"]) == {"get", "post"}
+    assert set(paths[f"{membership_path}/{{membership_id}}"]) == {"patch"}
+    assert set(paths[f"{membership_path}/{{membership_id}}/revoke"]) == {"post"}
+    assert set(paths[f"{membership_path}/{{membership_id}}/regrant"]) == {"post"}
+    assert not any(
+        "delete" in path_operations
+        for path, path_operations in paths.items()
+        if "/memberships" in path
+    )
+    assert response.json()["components"]["schemas"]["ProjectRole"]["enum"] == [
+        "viewer",
+        "operator",
+        "approver",
+    ]
     assert set(paths[f"{settings.API_V1_STR}/audit-events/"]) == {"get"}
     assert not any("tenant" in path for path in paths)

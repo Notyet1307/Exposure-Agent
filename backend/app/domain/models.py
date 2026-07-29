@@ -1,9 +1,11 @@
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, ClassVar
 
-from sqlalchemy import DateTime
-from sqlalchemy.dialects.postgresql import JSONB
+from pydantic import field_validator
+from sqlalchemy import CheckConstraint, Column, DateTime, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
@@ -71,6 +73,89 @@ class ProjectPublic(ProjectBase):
 
 class ProjectsPublic(SQLModel):
     data: list[ProjectPublic]
+    count: int
+
+
+class ProjectRole(StrEnum):
+    VIEWER = "viewer"
+    OPERATOR = "operator"
+    APPROVER = "approver"
+
+
+class ProjectMembershipRoles(SQLModel):
+    roles: list[ProjectRole] = Field(min_length=1)
+
+    @field_validator("roles")
+    @classmethod
+    def roles_must_be_unique(cls, roles: list[ProjectRole]) -> list[ProjectRole]:
+        if len(roles) != len(set(roles)):
+            raise ValueError("roles must not contain duplicates")
+        return roles
+
+
+class ProjectMembershipCreate(ProjectMembershipRoles):
+    model_config = SQLModel.model_config | {"extra": "forbid"}
+
+    user_id: uuid.UUID
+
+
+class ProjectMembershipUpdate(ProjectMembershipRoles):
+    model_config = SQLModel.model_config | {"extra": "forbid"}
+
+
+class ProjectMembership(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "project_memberships"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "user_id", name="uq_project_memberships_project_user"
+        ),
+        CheckConstraint(
+            "cardinality(roles) > 0", name="ck_project_memberships_roles_nonempty"
+        ),
+        CheckConstraint(
+            "roles <@ ARRAY['viewer', 'operator', 'approver']::varchar[]",
+            name="ck_project_memberships_roles_known",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(
+        default=DEPLOYMENT_TENANT_ID,
+        foreign_key="tenants.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
+    project_id: uuid.UUID = Field(
+        foreign_key="projects.id", ondelete="RESTRICT", index=True
+    )
+    user_id: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT", index=True)
+    roles: list[str] = Field(sa_column=Column(ARRAY(String(20)), nullable=False))
+    revoked_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class ProjectMembershipPublic(ProjectMembershipRoles):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    project_id: uuid.UUID
+    user_id: uuid.UUID
+    revoked_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectMembershipsPublic(SQLModel):
+    data: list[ProjectMembershipPublic]
     count: int
 
 
