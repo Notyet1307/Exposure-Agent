@@ -311,6 +311,22 @@ def test_failed_admin_user_requests_do_not_emit_success_audit_events(
     assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
 
 
+def test_admin_user_validation_error_does_not_echo_malformed_password_body(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    user = create_random_user(db)
+    attempted_password = random_lower_string()
+
+    response = client.patch(
+        f"{settings.API_V1_STR}/users/{user.id}",
+        headers=superuser_token_headers,
+        json=[{"password": attempted_password}],
+    )
+
+    assert response.status_code == 422
+    assert attempted_password not in response.text
+
+
 def test_create_user_by_normal_user(
     client: TestClient, normal_user_token_headers: dict[str, str]
 ) -> None:

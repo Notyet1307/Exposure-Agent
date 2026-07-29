@@ -22,11 +22,6 @@ app = FastAPI(
     generate_unique_id_function=custom_generate_unique_id,
 )
 
-SENSITIVE_VALIDATION_FIELDS = frozenset(
-    {"password", "current_password", "new_password", "hashed_password", "token"}
-)
-
-
 @app.exception_handler(RequestValidationError)
 async def sanitized_validation_exception_handler(
     _request: Request, exc: RequestValidationError
@@ -34,13 +29,7 @@ async def sanitized_validation_exception_handler(
     errors: list[dict[str, Any]] = []
     for error in exc.errors():
         sanitized_error = dict(error)
-        location = error.get("loc", ())
-        if any(
-            isinstance(part, str)
-            and part.casefold() in SENSITIVE_VALIDATION_FIELDS
-            for part in location
-        ):
-            sanitized_error.pop("input", None)
+        sanitized_error.pop("input", None)
         errors.append(sanitized_error)
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

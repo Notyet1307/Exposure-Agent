@@ -145,12 +145,17 @@ def test_project_roles_read_only_their_active_membership_projects(
         f"{settings.API_V1_STR}/projects/{hidden_project['id']}",
         headers=user_headers,
     )
+    membership_list_response = client.get(
+        f"{settings.API_V1_STR}/projects/{allowed_project['id']}/memberships/",
+        headers=user_headers,
+    )
 
     assert list_response.status_code == 200
     assert list_response.json() == {"data": [allowed_project], "count": 1}
     assert allowed_response.status_code == 200
     assert allowed_response.json() == allowed_project
     assert hidden_response.status_code == 404
+    assert membership_list_response.status_code == 403
 
 
 def test_admin_changes_revokes_and_explicitly_regrants_membership(
@@ -389,6 +394,101 @@ def test_archived_project_remains_readable_but_blocks_membership_changes(
     )
     assert list_response.status_code == 200
     assert list_response.json()["count"] == 2
+
+
+def test_admin_can_stage_membership_for_inactive_user(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    project = create_project(client, superuser_token_headers)
+    user, user_headers = create_user_with_headers(client, superuser_token_headers)
+
+    deactivate_response = client.patch(
+        f"{settings.API_V1_STR}/users/{user['id']}",
+        headers=superuser_token_headers,
+        json={"is_active": False},
+    )
+    grant_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/memberships/",
+        headers=superuser_token_headers,
+        json={"user_id": user["id"], "roles": ["viewer"]},
+    )
+
+    assert deactivate_response.status_code == 200
+    assert grant_response.status_code == 201
+    assert (
+        client.get(
+            f"{settings.API_V1_STR}/projects/{project['id']}", headers=user_headers
+        ).status_code
+        == 400
+    )
+
+    reactivate_response = client.patch(
+        f"{settings.API_V1_STR}/users/{user['id']}",
+        headers=superuser_token_headers,
+        json={"is_active": True},
+    )
+    assert reactivate_response.status_code == 200
+    assert (
+        client.get(
+            f"{settings.API_V1_STR}/projects/{project['id']}", headers=user_headers
+        ).status_code
+        == 200
+    )
+
+
+def test_admin_can_regrant_membership_before_user_reactivation(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    project = create_project(client, superuser_token_headers)
+    user, user_headers = create_user_with_headers(client, superuser_token_headers)
+    membership = grant_membership(
+        client,
+        superuser_token_headers,
+        project["id"],
+        user["id"],
+        ["viewer"],
+    )
+    revoke_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/memberships/{membership['id']}/revoke",
+        headers=superuser_token_headers,
+    )
+    deactivate_response = client.patch(
+        f"{settings.API_V1_STR}/users/{user['id']}",
+        headers=superuser_token_headers,
+        json={"is_active": False},
+    )
+
+    regrant_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/memberships/{membership['id']}/regrant",
+        headers=superuser_token_headers,
+        json={"roles": ["approver"]},
+    )
+
+    assert revoke_response.status_code == 200
+    assert deactivate_response.status_code == 200
+    assert regrant_response.status_code == 200
+    assert regrant_response.json()["roles"] == ["approver"]
+    assert (
+        client.get(
+            f"{settings.API_V1_STR}/projects/{project['id']}", headers=user_headers
+        ).status_code
+        == 400
+    )
+
+    reactivate_response = client.patch(
+        f"{settings.API_V1_STR}/users/{user['id']}",
+        headers=superuser_token_headers,
+        json={"is_active": True},
+    )
+    assert reactivate_response.status_code == 200
+    assert (
+        client.get(
+            f"{settings.API_V1_STR}/projects/{project['id']}", headers=user_headers
+        ).status_code
+        == 200
+    )
 
 
 def test_account_reactivation_restores_only_still_active_memberships(

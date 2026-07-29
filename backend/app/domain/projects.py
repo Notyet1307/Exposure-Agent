@@ -1,8 +1,13 @@
-from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
 from app.core.time import get_datetime_utc
-from app.domain.models import AuditEvent, Project, ProjectCreate, ProjectUpdate
+from app.domain.audit import commit_with_audit
+from app.domain.models import (
+    AuditEvent,
+    Project,
+    ProjectCreate,
+    ProjectUpdate,
+)
 
 
 def _project_audit_event(
@@ -24,21 +29,6 @@ def _project_audit_event(
         after_data={"name": project.name},
         ip_address=ip_address,
     )
-
-
-def _commit_project_change(
-    *, session: Session, project: Project, audit_event: AuditEvent
-) -> Project:
-    session.add(project)
-    try:
-        session.flush()
-        session.add(audit_event)
-        session.commit()
-    except SQLAlchemyError:
-        session.rollback()
-        raise
-    session.refresh(project)
-    return project
 
 
 def _project_lifecycle_audit_event(
@@ -80,8 +70,8 @@ def create_project(
         before_name=None,
         ip_address=ip_address,
     )
-    return _commit_project_change(
-        session=session, project=project, audit_event=audit_event
+    return commit_with_audit(
+        session=session, record=project, audit_event=audit_event
     )
 
 
@@ -105,8 +95,8 @@ def archive_project(
         before_archived_at=None,
         ip_address=ip_address,
     )
-    return _commit_project_change(
-        session=session, project=project, audit_event=audit_event
+    return commit_with_audit(
+        session=session, record=project, audit_event=audit_event
     )
 
 
@@ -131,8 +121,8 @@ def reactivate_project(
         before_archived_at=before_archived_at,
         ip_address=ip_address,
     )
-    return _commit_project_change(
-        session=session, project=project, audit_event=audit_event
+    return commit_with_audit(
+        session=session, record=project, audit_event=audit_event
     )
 
 
@@ -154,6 +144,6 @@ def rename_project(
         before_name=previous_name,
         ip_address=ip_address,
     )
-    return _commit_project_change(
-        session=session, project=project, audit_event=audit_event
+    return commit_with_audit(
+        session=session, record=project, audit_event=audit_event
     )
