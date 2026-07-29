@@ -1,3 +1,5 @@
+import json
+import logging
 import uuid
 
 import pytest
@@ -552,42 +554,65 @@ def test_admin_password_reset_is_sanitized_and_rolls_back_with_audit_failure(
     client: TestClient,
     db: Session,
     superuser_token_headers: dict[str, str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     old_password = random_lower_string()
     new_password = random_lower_string()
+    admin_token = superuser_token_headers["Authorization"].removeprefix("Bearer ")
     user = crud.create_user(
         session=db,
         user_create=UserCreate(email=random_email(), password=old_password),
     )
 
-    reset_response = client.patch(
-        f"{settings.API_V1_STR}/users/{user.id}",
-        headers=superuser_token_headers,
-        json={"password": new_password},
-    )
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        reset_response = client.patch(
+            f"{settings.API_V1_STR}/users/{user.id}",
+            headers=superuser_token_headers,
+            json={"password": new_password},
+        )
+        audit_response = client.get(
+            f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
+        )
 
     assert reset_response.status_code == 200
-    assert "password" not in reset_response.text
-    audit_response = client.get(
-        f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
-    )
     reset_events = [
         event
         for event in audit_response.json()["data"]
         if event["target_id"] == str(user.id)
     ]
     assert len(reset_events) == 1
-    assert reset_events[0]["action"] == "user.updated"
-    assert reset_events[0]["before_data"]["password_changed"] is False
-    assert reset_events[0]["after_data"]["password_changed"] is True
-    assert old_password not in str(reset_events)
-    assert new_password not in str(reset_events)
-    assert "hashed_password" not in str(reset_events)
+    reset_event = reset_events[0]
+    assert reset_event["action"] == "user.updated"
+    assert reset_event["before_data"]["password_changed"] is False
+    assert reset_event["after_data"]["password_changed"] is True
+
+    for snapshot in (reset_event["before_data"], reset_event["after_data"]):
+        assert snapshot is not None
+        assert {key.casefold() for key in snapshot}.isdisjoint(
+            {"password", "hashed_password", "token"}
+        )
+        serialized_snapshot = json.dumps(snapshot)
+        assert old_password not in serialized_snapshot
+        assert new_password not in serialized_snapshot
+        assert admin_token not in serialized_snapshot
+
+    for response in (reset_response, audit_response):
+        response_text = response.text
+        assert '"password"' not in response_text.casefold()
+        assert '"hashed_password"' not in response_text.casefold()
+        assert '"token"' not in response_text.casefold()
+        assert old_password not in response_text
+        assert new_password not in response_text
+        assert admin_token not in response_text
 
     db.expire_all()
     persisted_user = db.get(User, user.id)
     assert persisted_user is not None
     successful_hash = persisted_user.hashed_password
+    for secret in (old_password, new_password, successful_hash, admin_token):
+        assert secret not in caplog.text
+
     audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
 
     with reject_audit_inserts(db):

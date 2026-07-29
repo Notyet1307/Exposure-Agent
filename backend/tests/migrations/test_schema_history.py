@@ -16,7 +16,8 @@ PRE_CLEANUP_REVISION = "fe56fa70289e"
 CLEANUP_REVISION = "a7d4c9e0b1f2"
 PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
-PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
+PRE_AUDIT_INET_REVISION = "b4f2a1c8d903"
+LATEST_REVISION = "f6a1b2c3d4e5"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
@@ -101,7 +102,7 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (PROJECT_MEMBERSHIP_REVISION,)
+        ).fetchone() == (LATEST_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -168,7 +169,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (PROJECT_MEMBERSHIP_REVISION,)
+        ).fetchone() == (LATEST_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -213,6 +214,45 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             ORDER BY column_name
             """
         ).fetchall() == [("created_at", "NO"), ("updated_at", "NO")]
+
+
+def test_audit_ip_migration_preserves_existing_addresses_as_inet(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, PRE_AUDIT_INET_REVISION)
+
+    audit_event_id = uuid.uuid4()
+    with connect(template_baseline_database) as connection:
+        connection.execute(
+            "INSERT INTO audit_events "
+            "(id, tenant_id, actor_subject, actor_type, action, target_type, "
+            "target_id, ip_address, occurred_at, created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now(), now(), now())",
+            (
+                audit_event_id,
+                DEPLOYMENT_TENANT_ID,
+                str(uuid.uuid4()),
+                "user",
+                "user.updated",
+                "user",
+                uuid.uuid4(),
+                "2001:db8::20",
+            ),
+        )
+
+    run_migration(template_baseline_database, "head")
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'audit_events' "
+            "AND column_name = 'ip_address'"
+        ).fetchone() == ("inet",)
+        stored_address = connection.execute(
+            "SELECT ip_address FROM audit_events WHERE id = %s", (audit_event_id,)
+        ).fetchone()
+        assert stored_address is not None
+        assert str(stored_address[0]) == "2001:db8::20"
 
 
 def test_membership_migration_preserves_revoked_history_and_rejects_duplicates(

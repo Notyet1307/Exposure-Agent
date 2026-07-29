@@ -3,9 +3,9 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, ClassVar
 
-from pydantic import field_validator
+from pydantic import IPvAnyAddress, field_validator
 from sqlalchemy import CheckConstraint, Column, DateTime, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
@@ -182,7 +182,9 @@ class AuditEvent(SQLModel, table=True):
     target_id: uuid.UUID
     before_data: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
     after_data: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
-    ip_address: str | None = Field(default=None, max_length=45)
+    ip_address: IPvAnyAddress | None = Field(
+        default=None, sa_column=Column(INET, nullable=True)
+    )
     occurred_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -209,7 +211,7 @@ class AuditEventPublic(SQLModel):
     target_id: uuid.UUID
     before_data: dict[str, Any] | None
     after_data: dict[str, Any] | None
-    ip_address: str | None
+    ip_address: IPvAnyAddress | None
     occurred_at: datetime
     created_at: datetime
     updated_at: datetime
