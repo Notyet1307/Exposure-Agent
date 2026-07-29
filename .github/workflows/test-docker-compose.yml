@@ -33,4 +33,44 @@ jobs:
           curl --fail http://127.0.0.1:8080/health/ready
       - name: Test frontend is up on the loopback ingress upstream
         run: curl --fail http://127.0.0.1:8080/login
+      - name: Test trusted ingress client address reaches the audit stream
+        run: |
+          audit_ip="203.0.113.42"
+          access_token="$(
+            curl --fail --silent --show-error \
+              --data-urlencode "username=${FIRST_SUPERUSER}" \
+              --data-urlencode "password=${FIRST_SUPERUSER_PASSWORD}" \
+              http://127.0.0.1:8080/api/v1/login/access-token \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin)["access_token"])'
+          )"
+          audit_email="audit-client-ip-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@example.com"
+          created_user="$(
+            curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${access_token}" \
+              -H "Content-Type: application/json" \
+              -H "X-Real-IP: ${audit_ip}" \
+              --data "{\"email\":\"${audit_email}\",\"password\":\"compose-audit-password\"}" \
+              http://127.0.0.1:8080/api/v1/users/
+          )"
+          target_id="$(
+            printf '%s' "${created_user}" \
+              | python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])'
+          )"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${access_token}" \
+            http://127.0.0.1:8080/api/v1/audit-events/ \
+            | AUDIT_TARGET_ID="${target_id}" AUDIT_EXPECTED_IP="${audit_ip}" python3 -c '
+          import json
+          import os
+          import sys
+
+          events = json.load(sys.stdin)["data"]
+          event = next(
+              item
+              for item in events
+              if item["target_id"] == os.environ["AUDIT_TARGET_ID"]
+              and item["action"] == "user.created"
+          )
+          assert event["ip_address"] == os.environ["AUDIT_EXPECTED_IP"], event
+          '
       - run: docker compose -f compose.yml down -v --remove-orphans

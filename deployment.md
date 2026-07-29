@@ -20,7 +20,7 @@ customer network
 
 Only the customer-managed HTTPS ingress exposes port 443 to the customer network. The supplied Compose file binds Nginx's unencrypted listener to host loopback only (`127.0.0.1:${WEB_HTTP_PORT:-8080}`); it must never be forwarded or rebound directly to a customer-network interface. PostgreSQL and FastAPI remain on the Compose network. Set `WEB_HTTP_PORT` only when the ingress needs a different loopback port.
 
-Nginx forwards the original host, client address, and protocol headers. The customer ingress terminates TLS, proxies to the loopback listener, sets trusted forwarding headers, and restricts access to the host.
+Nginx forwards the original host, client address, and protocol headers. The customer ingress terminates TLS, proxies to the loopback listener, replaces `X-Real-IP` with the validated client address, sets the other trusted forwarding headers, and restricts access to the host.
 
 ## Required configuration
 
