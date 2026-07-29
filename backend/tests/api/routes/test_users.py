@@ -491,28 +491,26 @@ def test_update_user(
     assert user_db.full_name == "Updated_full_name"
 
 
-def test_admin_user_update_emits_sanitized_audit_event(
+def test_admin_profile_updates_emit_explanatory_audit_events(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
     user = create_random_user(db)
     original_email = str(user.email)
     new_email = random_email()
-    new_password = random_lower_string()
 
-    update_response = client.patch(
+    name_response = client.patch(
         f"{settings.API_V1_STR}/users/{user.id}",
         headers=superuser_token_headers,
-        json={"full_name": "Audited User", "password": new_password},
+        json={"full_name": "Audited User"},
     )
-
-    assert update_response.status_code == 200
-    mixed_update_response = client.patch(
+    email_response = client.patch(
         f"{settings.API_V1_STR}/users/{user.id}",
         headers=superuser_token_headers,
-        json={"email": new_email, "is_active": False},
+        json={"email": new_email},
     )
-    assert mixed_update_response.status_code == 200
 
+    assert name_response.status_code == 200
+    assert email_response.status_code == 200
     audit_response = client.get(
         f"{settings.API_V1_STR}/audit-events/", headers=superuser_token_headers
     )
@@ -523,32 +521,25 @@ def test_admin_user_update_emits_sanitized_audit_event(
     ]
     assert [event["action"] for event in user_events] == [
         "user.updated",
-        "user.deactivated",
+        "user.updated",
     ]
-    update_event, mixed_event = user_events
-    assert update_event["before_data"] == {
+    name_event, email_event = user_events
+    assert name_event["before_data"] == {
         "email": original_email,
         "full_name": None,
         "is_active": True,
-        "password_changed": False,
     }
-    assert update_event["after_data"] == {
-        "email": original_email,
-        "full_name": "Audited User",
-        "is_active": True,
-        "password_changed": True,
-    }
-    assert mixed_event["before_data"] == {
+    assert name_event["after_data"] == {
         "email": original_email,
         "full_name": "Audited User",
         "is_active": True,
     }
-    assert mixed_event["after_data"] == {
+    assert email_event["before_data"] == name_event["after_data"]
+    assert email_event["after_data"] == {
         "email": new_email,
         "full_name": "Audited User",
-        "is_active": False,
+        "is_active": True,
     }
-    assert new_password not in str(user_events)
     assert "hashed_password" not in str(user_events)
 
 
@@ -700,6 +691,50 @@ def test_admin_deactivates_and_reactivates_user_with_audit_history(
         "is_active": True,
     }
     assert user_events[1]["ip_address"] == "203.0.113.30"
+
+
+@pytest.mark.parametrize("update_kind", ["full_name", "email", "reactivation"])
+def test_profile_updates_and_reactivation_roll_back_when_audit_insert_fails(
+    update_kind: str,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    user = create_random_user(db)
+    if update_kind == "reactivation":
+        user.is_active = False
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    original_state = (str(user.email), user.full_name, user.is_active)
+    if update_kind == "full_name":
+        update_data: dict[str, object] = {"full_name": "Rolled Back Name"}
+    elif update_kind == "email":
+        update_data = {"email": random_email()}
+    else:
+        update_data = {"is_active": True}
+    audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with reject_audit_inserts(db):
+        with TestClient(
+            app, raise_server_exceptions=False, client=("127.0.0.1", 50034)
+        ) as failure_client:
+            response = failure_client.patch(
+                f"{settings.API_V1_STR}/users/{user.id}",
+                headers=superuser_token_headers,
+                json=update_data,
+            )
+        assert response.status_code == 500
+
+    db.expire_all()
+    persisted_user = db.get(User, user.id)
+    assert persisted_user is not None
+    assert (
+        str(persisted_user.email),
+        persisted_user.full_name,
+        persisted_user.is_active,
+    ) == original_state
+    assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
 
 
 def test_user_deactivation_rolls_back_when_audit_insert_fails(
