@@ -32,7 +32,8 @@ IP 和端口是第一批核心资产字段，但不是系统唯一的数据模�
 | 调度与执行 | agent-compose 负责 Cron、手动/API 触发、Session 隔离与运行历史 |
 | 业务事实 | PostgreSQL 是唯一权威结构化事实库 |
 | 临时执行 | 每个 Governance Run 启动一个临时 Python Runner |
-| 外部能力 | 客户系统和云图统一通过 OctoBus Service Package/Instance/Capset 接入 |
+| 外部能力 | 最终交付中，客户系统和云图统一通过 OctoBus Service Package/Instance/Capset 接入 |
+| 初期客户输入 | 客户系统不可达期间使用受控 CustomerUpload 完成测试；不把文件伪装成 OctoBus Instance |
 | 数据语言 | Python 为 API、确定性处理和规则主语言；SQL/Polars 承担重计算 |
 | 前端与 Agent | React/TypeScript；PI Agent Kit 使用 TypeScript |
 | Agent 编排 | v0.1 使用单个受限 PI；pi-workflow 先做 PoC，不进入关键路径 |
@@ -61,8 +62,9 @@ IP 和端口是第一批核心资产字段，但不是系统唯一的数据模�
 
 ### 3.1 项目与数据源
 
-- 管理项目及客户系统数据源；
-- 绑定 OctoBus Service、Instance 和只读 Capset；
+- 管理项目及客户侧、暴露面侧输入；
+- 初期上传并校验客户报备文件；
+- 最终为客户系统和云图绑定 OctoBus Service、Instance 和只读 Capset；
 - 测试连接并预览来源 Schema；
 - 配置字段映射、启停状态和同步周期；
 - 查看最近同步时间、记录数和错误摘要。
@@ -155,13 +157,14 @@ flowchart TD
     WEB --> API["governance-api<br/>FastAPI"]
     API --> PG["PostgreSQL<br/>业务事实库"]
     API --> AC["agent-compose<br/>Scheduler / Session"]
+    API --> ART["Artifact Volume"]
 
     AC --> RUNNER["临时 governance-runner<br/>Python + PI"]
     RUNNER --> PG
     RUNNER --> OCTO["OctoBus Runtime"]
     RUNNER --> ART["Artifact Volume"]
 
-    OCTO --> CUSTOMER["客户系统 API"]
+    OCTO --> CUSTOMER["客户系统 API<br/>最终接入"]
     OCTO --> ATLAS["云图 API"]
 
     RUNNER --> PI["PI Report Agent"]
@@ -217,9 +220,21 @@ PI
 
 agent-compose 的 Run 成功不等于业务 Run 完成；客户业务状态始终以 PostgreSQL 为准。
 
-## 5. 客户 API 接入流程
+## 5. 客户输入与最终 API 接入流程
 
-客户提供 API 文档后，不让 Agent 在生产运行时临时理解文档并直接调用接口。
+客户系统不可达的初期测试阶段使用受控文件上传：
+
+```text
+客户报备文件
+→ 类型、大小和结构校验
+→ 计算内容 Hash 并保存不可变 Artifact
+→ 形成 CustomerUpload
+→ Operator 为 GovernanceRun 选择该版本
+```
+
+CustomerUpload 只是过渡输入，不是 Source Instance，也不通过伪造 Instance、Credential 或 Capset 复用 OctoBus。上传不自动触发 GovernanceRun；原始文件由确定性代码校验和解析，PI 不读取完整客户文件。客户系统可达后，新 Run 改用客户 Source Instance，历史 CustomerUpload 和基于它完成的 Run 继续保留。
+
+最终交付仍以客户系统 API 经 OctoBus 接入为目标。客户提供 API 文档后，不让 Agent 在生产运行时临时理解文档并直接调用接口。
 
 ```text
 客户 API 文档
@@ -249,7 +264,16 @@ Capset
 
 Source Instance
   业务数据库中对 OctoBus Instance 的引用
+
+Customer Upload
+  客户系统不可达期间的不可变客户侧文件输入
 ```
+
+Source Instance 的“连接有效”只表示当前 Instance 绑定和连接配置已经成功通过读取验证。Instance 绑定、地址、凭据或 Capset 变化后必须重新验证；配置不变时不设置按时间自动失效的 TTL，实际 Run 中的拉取失败按 `FAILED_DATA` 处理。
+
+OctoBus 当前提供 Instance 的 `ConfigSHA256` 和 `SecretSHA256`，可作为连接配置指纹的一部分，但二者不能单独证明 Capset 授权和实际读取方法可用。连接验证仍须通过对应 Service Package 的最小只读方法完成。初期先验证云图读取、Capset 与方法选择的稳定版本指纹和脱敏结果；客户系统侧的同类契约在其可达后验证，不以 CustomerUpload 结果冒充。
+
+同一 Project 对每类外部系统最多启用一个 Source Instance，可以保留已停用的历史引用。初期只有一个云图 Source Instance，并可保留多个不可变 CustomerUpload 版本；每个 GovernanceRun 只固定其中一个。客户系统可达后再启用一个客户 Source Instance。启用同类新外部来源前必须停用旧来源；同侧多来源所需的优先级、冲突合并、部分失败和步骤扇出语义不进入 v0.1。
 
 Agent 可以协助生成 Service Package 草稿，但草稿必须经过代码审查、契约测试和人工启用。
 
@@ -277,21 +301,35 @@ Cron / 手动 / API
 
 `project_id + trigger_id` 用于防止同一次计划重复创建业务 Run。
 
+`trigger_id` 是唯一规范名称，不再使用 `trigger_key`。定时触发沿用 agent-compose 对该次计划执行生成的稳定标识；手动或 API 触发必须由调用方通过 `Idempotency-Key` 提供，前端负责自动生成并在 HTTP 重试时复用。缺少幂等标识的手动或 API 触发直接拒绝，不由服务端静默生成；`Run Rerun` 必须使用新值。
+
+`GovernanceRun` 不表示排队中的触发请求。只有 Runner 真正开始执行后，才按 `project_id + trigger_id` 原子地创建或恢复业务 Run；Runner 启动前的失败不创建空 Run，由 agent-compose 的触发或 Session 历史以及必要的 `AuditEvent` 记录。
+
+Runner 在创建或恢复 `GovernanceRun` 前检查 Project 的来源前置条件。初期测试要求一个已通过校验的 CustomerUpload 和唯一一个启用且连接有效的云图 Source Instance；客户系统可达后，客户 Source Instance 替代 CustomerUpload。缺少任一输入、文件未通过校验、外部来源未启用或连接尚未验证时，启动前拒绝且不创建业务 Run；输入就绪后开始执行、但实际读取失败时，才创建并保留 `FAILED_DATA` Run。
+
+创建 `GovernanceRun` 时，初期固定 CustomerUpload ID 与内容 Hash、云图 Source Instance 的已验证连接配置版本，以及实际 Runner 镜像摘要或构建版本；最终固定客户系统与云图两侧 Source Instance。Retry 始终复用原 CustomerUpload，选择不同上传版本必须创建新 Run。网络抖动、限流等配置与处理版本均未变化的失败可以 Retry；任一已固定的 Instance 绑定、地址、凭据、Capset 或 Runner 版本变化后，旧 Run 不再可恢复，必须通过 `Run Rerun` 创建新 Run。规范化规则、字段映射或 Policy 功能实际引入后再固定其版本，不为尚不存在的模块预建空字段。
+
+同一 Project 同时最多执行一个 GovernanceRun。相同 `trigger_id` 进入恢复逻辑；不同 `trigger_id` 在已有执行中 Run 时启动前拒绝且不创建空 Run，不同 Project 可以并行。该边界必须由 PostgreSQL 事务或约束兜底，不能只依赖 agent-compose 的调度行为。
+
+有执行中 GovernanceRun 时，归档 Project 必须返回冲突，不自动停止 Session，也不增加 `CANCELLED` 状态。Run 停止后才能归档；Archived Project 不接受 Trigger、Retry、Rerun、新 CustomerUpload 或 Source Instance 变更，重新启用后才恢复这些操作。归档与重新启用不改变既有 Run；重新启用后，只要输入版本、来源配置、处理版本、原 Session、最新 Run 等既定条件仍全部成立，最新失败 Run 仍可 Retry。
+
 ### 6.2 数据拉取
 
 ```mermaid
 flowchart LR
-    R["Runner"] --> OC["OctoBus"]
-    OC --> C["客户系统 Read Capset"]
+    R["Runner"] --> U["CustomerUpload Artifact<br/>初期测试"]
+    R --> OC["OctoBus"]
+    OC -. 客户系统可达后 .-> C["客户系统 Read Capset<br/>最终接入"]
     OC --> A["云图 Read Capset"]
-    C --> RAW["Raw SourceSnapshot"]
+    U --> RAW["Raw SourceSnapshot"]
+    C --> RAW
     A --> RAW
 ```
 
 要求：
 
-- 使用分页和游标；
-- 每页原始响应立即写入 Artifact；
+- API 来源使用分页和游标，文件上传采用流式保存；
+- 每页原始响应或上传文件立即写入 Artifact；
 - 记录 Schema 版本、记录数、游标和 SHA-256；
 - 不把完整 API 响应一次性放入内存；
 - 原始快照创建后不可覆盖。
@@ -425,18 +463,24 @@ Governance Session 完成
 
 不为每个小步骤创建单独 Session。
 
+该对应关系在 Retry 中保持不变：`Run Retry` 必须通过 `ResumeSession` 恢复原 `session_id`。原 Session 丢失或损坏到无法恢复时，Retry 失败；Operator 只能显式发起 `Run Rerun`，创建新的 GovernanceRun 和 Session，不为同一 Run 静默创建替代 Session。
+
+Runner 失联或经过一段时间本身不能释放 Project 的执行资格。只有确认关联的 agent-compose Session 已进入终态后，才能把仍处于执行中的业务 Run 收敛为 `FAILED_PROCESSING` 并允许后续恢复；无法获得可靠终态信号时必须 fail-closed，不使用任意超时推断 Session 已死亡。
+
 ### 7.2 Run 步骤
 
 ```text
-PULL_CUSTOMER
+LOAD_CUSTOMER
 → PULL_CLOUDATLAS
 → NORMALIZE
 → RESOLVE
 → CHECK_FINDINGS
 → BUILD_REPORT
 → VALIDATE_REPORT
-→ COMPLETE
+→ PUBLISH
 ```
+
+`PUBLISH` 是真实的最终步骤，不使用重复顶层状态的 `COMPLETE` 步骤。它在一个事务中把 GovernanceRun 写为 `COMPLETED` 或 `COMPLETED_WITH_WARNINGS`，并更新 `projects.latest_completed_run_id`；任一写入失败时整个发布事务回滚，随后把本轮收敛为 `FAILED_PROCESSING`。Retry 只重试失败的 `PUBLISH`，不重复输入未变化且已经成功的步骤。
 
 每个 `run_step` 保存：
 
@@ -447,7 +491,21 @@ PULL_CUSTOMER
 - 开始和完成时间；
 - 错误摘要。
 
-重新启动 Session 时使用同一个 `governance_run_id`，跳过输入未变化且已经成功的步骤。
+`run_step` 在对应步骤第一次真正开始时才创建，不为尚未执行的未来步骤预建 `PENDING` 记录。它的状态只有 `RUNNING`、`SUCCEEDED` 和 `FAILED`；没有记录表示尚未开始。步骤顺序由 Runner 代码定义，不由数据库空行表达。
+
+`Run Retry` 使用相同的 `trigger_id`、`governance_run_id` 和 agent-compose `session_id`，在对应 `run_step` 上增加尝试，并跳过输入未变化且已经成功的步骤。成功完成的 Run 不再 Retry；失败 Run 停止执行后释放 Project 的执行资格，但只有 Project 中不存在更新 Run、原 Session 可恢复，且该 Run 固定的 CustomerUpload 或客户 Source Instance、暴露面来源绑定、已验证连接配置与实际参与计算的版本均未变化时才能 Retry。用户明确选择 `Run Rerun` 时使用新的 `trigger_id` 创建新的 GovernanceRun 和 Session；新 Run 一旦创建，旧 Run 永久保留为历史记录且不能再次恢复，不需要额外的 `SUPERSEDED` 状态。
+
+`GovernanceRun.status` 在 v0.1 只有以下五个值：
+
+| 状态 | 含义 |
+|---|---|
+| `RUNNING` | Runner 已创建或恢复 Run，正在执行 |
+| `FAILED_DATA` | 来源拉取失败，已停止且可能 Retry |
+| `FAILED_PROCESSING` | 确定性处理失败，或已确认关联 Session 异常终止；已停止且可能 Retry |
+| `COMPLETED` | 所有必需步骤成功，结果可发布且不可 Retry |
+| `COMPLETED_WITH_WARNINGS` | 确定性结果完成，但报告生成降级；结果可发布且不可 Retry |
+
+Retry 直接把失败 Run 转回 `RUNNING` 并增加步骤尝试，不增加 `RETRYING`。`PENDING`、`QUEUED`、`CANCELLED`、`PAUSED` 和 `SUPERSEDED` 不进入 v0.1。
 
 ### 7.3 发布规则
 
@@ -457,14 +515,16 @@ PULL_CUSTOMER
 projects.latest_completed_run_id
 ```
 
-Runner 可以分步骤写入本轮数据，但客户默认页面只读取最新完整 Run。新 Run 完成时在事务中更新该指针。
+Runner 可以分步骤写入本轮数据，但客户默认页面只读取最新完整 Run。`PUBLISH` 在同一事务中写入 Run 完成状态并更新该指针；不能出现 Run 已完成但 Project 指针未更新，或指针指向未完成 Run 的部分发布状态。
 
 ### 7.4 失败分类
 
 | 失败位置 | 结果 |
 |---|---|
-| 客户 API 或云图拉取 | `FAILED_DATA`，不发布本轮 |
+| CustomerUpload 缺失或未通过校验，或外部来源未配置、未启用、连接尚未验证 | 启动前拒绝，不创建业务 Run |
+| CustomerUpload 读取/解析、客户 API 或云图拉取 | `FAILED_DATA`，不发布本轮 |
 | 标准化、匹配或 Finding 检查 | `FAILED_PROCESSING`，不发布本轮 |
+| Runner 失联且已确认关联 Session 终止 | `FAILED_PROCESSING`，允许按原 Run Retry |
 | PI 或 pi-workflow | 生成模板报告，`COMPLETED_WITH_WARNINGS` |
 | OctoBus 处置 | 只影响 `ActionJob`，不修改事实 Run |
 
@@ -486,10 +546,12 @@ v0.1 单实例单租户，但保留 `tenant_id`。
 ```mermaid
 erDiagram
     TENANTS ||--o{ PROJECTS : owns
+    PROJECTS ||--o{ CUSTOMER_UPLOADS : receives
     PROJECTS ||--o{ SOURCE_INSTANCES : configures
     PROJECTS ||--o{ GOVERNANCE_RUNS : runs
     GOVERNANCE_RUNS ||--o{ RUN_STEPS : contains
     GOVERNANCE_RUNS ||--o{ SOURCE_SNAPSHOTS : captures
+    CUSTOMER_UPLOADS ||--o{ SOURCE_SNAPSHOTS : supplies
     SOURCE_INSTANCES ||--o{ SOURCE_SNAPSHOTS : produces
     SOURCE_SNAPSHOTS ||--o{ OBSERVATIONS : contains
     SOURCE_SNAPSHOTS ||--o{ SOURCE_FINDINGS : contains
@@ -515,6 +577,7 @@ erDiagram
 项目与运行
 ├─ tenants
 ├─ projects
+├─ customer_uploads
 ├─ source_instances
 ├─ governance_runs
 └─ run_steps
@@ -568,8 +631,12 @@ FindingOccurrence
 ### 8.4 核心唯一约束
 
 ```text
-UNIQUE(project_id, trigger_key)
+UNIQUE(project_id, trigger_id)
 UNIQUE(run_id, step_code)
+同一 project_id 最多一个执行中的 governance_run
+governance_runs.status 只允许 v0.1 的五个状态
+run_steps.status 只允许 RUNNING、SUCCEEDED、FAILED
+同一 project_id + source_type 最多一个启用的 source_instance
 UNIQUE(snapshot_id, source_record_key)
 UNIQUE(project_id, resource_type, canonical_key)
 UNIQUE(project_id, dedupe_key)
@@ -754,7 +821,7 @@ Endpoint
 | 角色 | 主要权限 |
 |---|---|
 | Viewer | 查看资产、Finding 和报告 |
-| Operator | 创建 Run、确认 Finding、创建 Plan |
+| Operator | Trigger、Retry 或 Rerun、确认 Finding、创建 Plan |
 | Approver | 审批或拒绝固定 Plan |
 | Admin | 全局管理数据源、用户、项目、成员角色和 Policy；复用模板 `is_superuser` |
 
@@ -806,6 +873,7 @@ timestamp
 level
 service
 project_id
+customer_upload_id
 governance_run_id
 run_step
 agent_compose_session_id
@@ -842,7 +910,7 @@ ip_address
 occurred_at
 ```
 
-数据源变更、Run 启动/重试、人工确认、Plan 变更、审批、Apply、Policy 变更、角色变更和 Artifact 下载必须审计。
+CustomerUpload 接收与选择、数据源变更、Run Trigger/Retry/Rerun、人工确认、Plan 变更、审批、Apply、Policy 变更、角色变更和 Artifact 下载必须审计。
 
 ### 13.4 指标
 
@@ -902,7 +970,7 @@ v0.1 不提供 Helm Chart、跨节点高可用或自动扩缩容。
 1. 相同输入快照、处理版本和 Policy 版本产生相同确定性 Finding；
 2. 原始 SourceSnapshot、Observation 和 SourceFinding 不可被覆盖；
 3. 云图原始风险判断可追溯；
-4. 每个用户可见结论都能追溯到 Finding 和 Evidence；
+4. 每个用户可见结论都能沿 SourceSnapshot、Observation 或 SourceFinding、FindingOccurrence 追溯到来源事实；独立 Evidence 对象只在报告或审批需要稳定引用契约时引入；
 5. Agent 不计算权威统计，也不能修改 Finding；
 6. Agent 失败不阻断确定性结果和模板报告；
 7. 客户默认只看到最新完整 Run；
@@ -935,11 +1003,14 @@ Elasticsearch
 
 以下内容依赖真实客户环境，不能在架构阶段臆定：
 
-- 客户系统 API 的认证、分页、限流和增量能力；
+- CustomerUpload 的支持格式、大小、字段结构、恶意文件防护和脱敏校验错误契约；
+- 客户系统可达后的 API 认证、分页、限流、增量能力及 OctoBus 只读方法；
 - 云图与客户系统的实际数据规模；
 - 交付服务器 CPU、内存、磁盘和网络规格；
 - 客户身份源及登录集成方式；
 - Artifact 和审计数据保留周期；
+- OctoBus 云图读取 Service Package 的最小验证方法、脱敏失败契约，以及包含 Instance 配置、凭据、Capset 和方法选择的稳定版本指纹；
+- agent-compose Session 终态的可靠查询或通知契约；
 - agent-compose 商业交付版本的生产硬化项；
 - 客户对备份恢复时间和数据恢复点的要求。
 
@@ -951,16 +1022,17 @@ Elasticsearch
 1. 固定版本模板基线导入并证明上游检查可运行
 2. 模板清理与私有化控制面收敛
 3. Project + ProjectMembership 三个项目角色 + AuditEvent
-4. PostgreSQL 治理领域迁移骨架
-5. Governance Run + agent-compose Runner
-6. OctoBus 双来源拉取 + SourceSnapshot
+4. CustomerUpload 输入契约 + 云图 SourceInstance 控制面与 OctoBus 读取验证
+5. GovernanceRun + agent-compose Governance Runner 最小闭环（创建或恢复、幂等、步骤状态 + 所需 PostgreSQL 迁移）
+6. 客户文件正式摄取 + 云图 OctoBus 正式拉取 + SourceSnapshot
 7. Observation + Resource Resolution
 8. 资产检查 + 云图 SourceFinding 归一
-9. Finding 生命周期 + Evidence
+9. Finding 生命周期 + FindingOccurrence 来源引用
 10. 客户 Web 的 Run/资产/Finding 页面
-11. 单 PI StructuredReport + Validator
+11. 单 PI StructuredReport + EvidenceBundle + Validator
 12. Plan / Approval / ActionJob
 13. 10k / 100k / 1m 性能与故障恢复验收
 14. pi-workflow 兼容性和质量 PoC
-15. 离线交付与备份恢复验收
+15. 客户系统可达后：客户 SourceInstance + OctoBus 正式接入（生产交付前必做）
+16. 离线交付与备份恢复验收
 ```

@@ -15,8 +15,8 @@
 ## v0.1 定位
 
 ```text
-客户系统与云图
-→ OctoBus
+初期测试：CustomerUpload + CloudAtlas SourceInstance（云图经 OctoBus）
+最终交付：客户系统与云图 → OctoBus
 → 确定性资产和风险治理
 → Finding / Evidence
 → 受限 PI 报告 Agent
@@ -28,6 +28,7 @@
 - PostgreSQL 是业务事实库；
 - agent-compose 负责定时、触发和隔离执行；
 - OctoBus 负责外部系统能力接入；
+- 客户系统不可达期间使用受控文件上传完成初期测试，不把文件伪装成外部系统连接；
 - Python、SQL 和 Polars 负责确定性数据处理；
 - Agent 只基于有界 Evidence 生成结构化报告草稿；
 - 真实动作必须经过审批、计划 Hash 和幂等控制。
