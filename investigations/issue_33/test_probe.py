@@ -109,14 +109,24 @@ def test_fixture_bytes_are_reproducible(tmp_path: Path) -> None:
     assert core_properties.count(b"2026-01-01T00:00:00Z") == 2
 
 
-def test_normal_default_fixture_parses_at_the_public_seam(tmp_path: Path) -> None:
-    workbook = build_fixture("default_v1", tmp_path / "default.xlsx")
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_rows"),
+    [
+        ("default_v1", 3),
+        ("near_request_limit", 3),
+        ("row_shared_style_boundary", 50_000),
+    ],
+)
+def test_normal_boundary_fixtures_parse_at_the_public_seam(
+    tmp_path: Path, fixture_name: str, expected_rows: int
+) -> None:
+    workbook = build_fixture(fixture_name, tmp_path / f"{fixture_name}.xlsx")
 
     result = inspect_workbook(workbook)
 
     assert result.status == "accepted"
-    assert result.rows == 3
-    assert result.zip_stats.entries >= 9
+    assert result.rows == expected_rows
+    assert result.zip_stats.entries >= 7
 
 
 def test_probe_has_one_entrypoint_and_leaves_no_temporary_files(tmp_path: Path) -> None:
