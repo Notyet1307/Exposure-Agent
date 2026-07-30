@@ -23,7 +23,7 @@
 | 对应 OctoBus 源码快照 | `45e25a2606b583ad997e8948850edbf429e9d776` |
 | chaitin-cli | Dockerfile 固定 `v2606.0.4`；二进制 SHA-256 `b91fcfa9e9d3d324bab694333f4dcbead779291cae5a1d7590156046baa09954` |
 | 调查 Service | `cloudatlas-read`，声明版本 `0.1.0`，`@chaitin-ai/octobus-sdk@0.5.0` |
-| 调查 Service 内容 | Package SHA-256 `49b96cc6ed7e1dfd3464c83553fa86898584706276ee2e97f99195a6ee86e5ec`；Descriptor SHA-256 `3fada7cb00f3bca132c28d316ea61158522a1a07d3e80a83f9e68010d1a588e0` |
+| 调查 Service 内容 | Package SHA-256 `8f00df903b303ab9bb830b2a3df701c09d47dacc050860ea117ba44ed96ca913`；Descriptor SHA-256 `3fada7cb00f3bca132c28d316ea61158522a1a07d3e80a83f9e68010d1a588e0` |
 
 OctoBus 导入结果的 `PackageVersion` 为空，因此后续不能只依赖显示版本；至少固定 Package 与 Descriptor 的内容 Hash。
 
@@ -37,7 +37,7 @@ python3 investigations/issue_29/probe.py
 
 探针会：
 
-1. 在内存生成仅含 TEST-NET 地址的 `.xlsx`，启动 demo 的最高层认证上传 HTTP 入口，并调用 demo 的确定性 parser；
+1. 在内存生成仅含 TEST-NET 地址的 `.xlsx`，启动 demo 的最高层认证上传 HTTP 入口，再把该入口实际保存的 artifact 交给 demo 的确定性 parser；
 2. 启动使用全新临时数据目录的 OctoBus 容器，导入调查 Service、创建 Instance 和单方法 Capset，再从公共 Connect HTTP 调用；
 3. 验证成功、失败分类、只读 OpenAPI surface 与指纹变化，最后删除临时容器和临时文件。
 
@@ -56,13 +56,13 @@ python3 investigations/issue_29/probe.py
 | 结构真实 `.xlsx` | 201、流式保存、SHA 正确、parser 成功 | 是，需加结构校验 |
 | `.csv` | 415，无接受产物 | 是 |
 | 伪造 `.xlsx` | 415，临时文件删除 | 分类需调整为结构/内容错误 |
-| 大于 20 MiB | 413，无接受产物 | 是 |
+| 声明大于 20 MiB | 依据 `Content-Length` 返回 413，无接受产物 | 结果可复用，但产品不能只信任声明长度 |
 | 缺少必需列 | **201、parser exit 0、文件被保留** | 否，直接复用 NO-GO |
 | 同 Project 重复相同内容 | **生成第二份产物** | 否，直接复用 NO-GO |
 
 现有 demo 还接受 `.xls`，但当前 parser 镜像没有验证对应读取依赖；它把清洗后的原始文件名写入存储路径，并且只做浅层 OOXML 容器检查。这些行为都不进入产品契约。
 
-为验证目标失败行为，调查探针在同一个 demo Handler seam 上仅覆写结构判断：缺少必需列时返回 415，父流程删除临时文件，最终接受目录为空。该 gate 只证明“校验后再发布”可复用现有流式路径；产品 API 仍应按下表改用稳定的 422 类别。
+为验证目标失败行为，调查探针在同一个 demo Handler seam 上增加两个最小 gate：缺少必需列时返回 415；实际流式读取 20,971,521 bytes 后返回 413。两种情况都先关闭并删除临时文件，再写 HTTP 响应，最终接受目录为空。该 gate 只证明“校验后再发布”可复用现有流式路径；产品 API 仍应按下表改用稳定类别。
 
 ### 3.2 候选接受契约
 
@@ -155,7 +155,7 @@ Content-Type: application/json
 - Capset：ID、enabled、Instance bindings（含 `include_all_methods`）、已选择方法、Capset token binding 的 ID 与 TokenHash；
 - 完整 selected method 名。
 
-只把最终 fingerprint 存入 Exposure-Agent；不复制原始 Instance secret、Capset token 或完整管理面 material。探针证明：material 不变时 fingerprint 稳定；Instance 绑定、config、credential、Capset 授权或 selected-method contract 任一变化都会改变 fingerprint。
+只把最终 fingerprint 存入 Exposure-Agent；不复制原始 Instance secret、Capset token 或完整管理面 material。探针逐项修改并恢复临时 Runtime 的真实控制面状态：解绑/重绑 Instance、更新/恢复 config、更新/恢复 secret、增加/删除 Capset token、取消/恢复 selected method。每项变更都会改变 fingerprint，恢复后都回到同一 baseline。
 
 验证不设置时间 TTL。fingerprint 变化立即失效；material 未变时保持已验证，直到后续真实读取失败，失败后必须把连接视为无效并重新验证。
 
@@ -188,12 +188,12 @@ Content-Type: application/json
 | AC | 结果 | 证据/结论 |
 | --- | --- | --- |
 | 1 | 满足 | 第 3 节定义候选格式、大小、结构、Hash、文件名、去重和错误契约 |
-| 2 | 满足 | 探针走 demo 认证上传 + 真实 parser；仅使用内存生成脱敏 fixture |
-| 3 | 满足；直接复用仍 NO-GO | unsupported/oversized/malformed 无接受产物；调查结构 gate 拒绝 missing structure 且无残留，同时保留 demo 错误接受的对照证据 |
+| 2 | 满足 | 探针走 demo 认证上传，并把该入口保存的 artifact 交给真实 parser；仅使用内存生成脱敏 fixture |
+| 3 | 满足；直接复用仍 NO-GO | unsupported/malformed 无接受产物；调查 gate 实际读取 20 MiB + 1 byte 后拒绝并先删临时文件，missing structure 同样无残留；同时保留 demo 错误接受缺列的对照证据 |
 | 4 | 满足 | 第 4.1 节固定 Package、Service、method、Instance 与单方法 Capset |
 | 5 | 满足 | 临时 Runtime + Instance + Capset + 公共 Connect + 确定性 upstream fixture 成功 |
 | 6 | 满足 | OpenAPI 仅一个读取路径；实际 CLI 为 GET list；未导入 Action |
-| 7 | 满足 | 探针断言稳定性与五类变更失效 |
+| 7 | 满足 | 探针对临时 OctoBus 控制面逐项实施五类真实变更、断言失效，并逐项恢复 baseline |
 | 8 | 满足 | 第 3.3、4.2 节及探针失败注入 |
 | 9 | 满足 | 第 5 节定义 readiness、pinning 与 Retry |
 | 10 | 满足 | 第 6 节分别给出初期 GO 与生产/最终集成 NO-GO |
@@ -203,6 +203,7 @@ Content-Type: application/json
 ## 8. 泄露检查
 
 - fixture 只含 `192.0.2.10`、测试 ID 和测试 token；不读取或提交真实客户 workbook。
-- 上游日志只记录 method/path/query 及 token 是否存在/匹配，不记录 token 值。
+- 上游完整 fixture 日志只记录 method/path/query 及 token 是否存在/匹配，不记录 token 值，并由探针扫描确认不含测试 token 或记录内容。
+- 所有 CustomerUpload 拒绝响应、parser stdout/stderr、Capset 认证失败和 CloudAtlas 五类失败响应均由探针扫描；不含测试 token、客户 fixture 字段值或记录内容。
 - 探针输出只含状态、错误类别和非秘密 Hash；不会打印 Instance SecretSHA、Capset TokenHash 或 CLI 原始 stderr。
 - 临时上传目录、parser 工作区、OctoBus 数据目录和容器均在运行结束后删除；仓库中不生成上传 artifact。

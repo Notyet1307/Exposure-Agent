@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import hashlib
 import http.client
 import importlib.util
 import io
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -30,6 +30,10 @@ CAPSET_ID = "cloudatlas-readonly"
 METHOD = "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets"
 UPSTREAM_TOKEN = "fixture-upstream-token"
 CAPSET_TOKEN = "fixture-capset-token"
+INSTANCE_CONFIG = {
+    "baseUrl": "http://127.0.0.1:18080/openapi/",
+    "spaceId": "fixture-space",
+}
 CUSTOMER_HEADERS = [
     "序号",
     "资产IP",
@@ -50,10 +54,20 @@ REQUIRED_CUSTOMER_HEADERS = {
     "是否web界面",
     "web界面url",
 }
+CUSTOMER_FIXTURE_VALUES = (
+    "192.0.2.10",
+    "测试负责人",
+    "测试部门",
+    "fixture-upload-token",
+)
 
 
 def run(
-    command: list[str], *, input_text: str | None = None, timeout: int = 120
+    command: list[str],
+    *,
+    input_text: str | None = None,
+    timeout: int = 120,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
@@ -62,7 +76,14 @@ def run(
         capture_output=True,
         check=True,
         timeout=timeout,
+        env=env,
     )
+
+
+def assert_omits(value: object, forbidden: tuple[str, ...]) -> None:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    for item in forbidden:
+        assert item not in text
 
 
 def wait_for_runtime(base_url: str) -> None:
@@ -184,7 +205,9 @@ def upload(base_url: str, filename: str, body: bytes, token: str) -> tuple[int, 
         return error.code, json.loads(error.read() or b"{}")
 
 
-def oversized_upload(base_url: str, filename: str, size: int, token: str) -> int:
+def oversized_upload(
+    base_url: str, filename: str, size: int, token: str
+) -> tuple[int, dict]:
     parsed = urllib.parse.urlparse(base_url)
     connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=10)
     connection.putrequest(
@@ -194,12 +217,14 @@ def oversized_upload(base_url: str, filename: str, size: int, token: str) -> int
     connection.putheader("Content-Length", str(size))
     connection.endheaders()
     response = connection.getresponse()
-    response.read()
+    payload = json.loads(response.read() or b"{}")
     connection.close()
-    return response.status
+    return response.status, payload
 
 
-def run_demo_parser(demo_root: Path, guest_image: str, workbook: bytes) -> int:
+def run_demo_parser(
+    demo_root: Path, guest_image: str, workbook: Path
+) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory(prefix="exposure-issue29-parser-") as directory:
         root = Path(directory)
         script = root / "tools/reconciliation/compare_customer_report.py"
@@ -209,7 +234,7 @@ def run_demo_parser(demo_root: Path, guest_image: str, workbook: bytes) -> int:
         )
         customer = root / "attachments/customer-fixture.xlsx"
         customer.parent.mkdir()
-        customer.write_bytes(workbook)
+        shutil.copy2(workbook, customer)
         run_dir = root / "data/raw/cloudatlas/fixture-run"
         run_dir.mkdir(parents=True)
         result = subprocess.run(
@@ -236,7 +261,7 @@ def run_demo_parser(demo_root: Path, guest_image: str, workbook: bytes) -> int:
             text=True,
             timeout=60,
         )
-        return result.returncode
+        return result
 
 
 def probe_customer_upload(demo_root: Path, guest_image: str) -> dict:
@@ -290,7 +315,7 @@ def probe_customer_upload(demo_root: Path, guest_image: str) -> dict:
             malformed_status, malformed = upload(
                 base_url, "customer-fixture.xlsx", b"not-a-workbook", token
             )
-            oversized_status = oversized_upload(
+            oversized_status, oversized = oversized_upload(
                 base_url,
                 "customer-fixture.xlsx",
                 Handler.upload_max_bytes + 1,
@@ -302,9 +327,7 @@ def probe_customer_upload(demo_root: Path, guest_image: str) -> dict:
                 413,
             )
             assert len(list(attachments.iterdir())) == rejected_start
-            rejected_errors = json.dumps([unsupported, malformed], ensure_ascii=False)
-            assert "192.0.2.10" not in rejected_errors
-            assert token not in rejected_errors
+            assert_omits([unsupported, malformed, oversized], CUSTOMER_FIXTURE_VALUES)
 
             missing_status, missing = upload(
                 base_url, "missing-structure.xlsx", missing_structure, token
@@ -318,9 +341,22 @@ def probe_customer_upload(demo_root: Path, guest_image: str) -> dict:
             server.server_close()
             thread.join(timeout=5)
 
-    parser_status = run_demo_parser(demo_root, guest_image, valid_workbook)
-    missing_parser_status = run_demo_parser(demo_root, guest_image, missing_structure)
-    assert parser_status == 0
+        accepted_workbook = attachments / success["filename"]
+        missing_workbook = attachments / missing["filename"]
+        parser_result = run_demo_parser(demo_root, guest_image, accepted_workbook)
+        missing_parser_result = run_demo_parser(
+            demo_root, guest_image, missing_workbook
+        )
+        assert parser_result.returncode == 0
+        assert_omits(
+            parser_result.stdout
+            + parser_result.stderr
+            + missing_parser_result.stdout
+            + missing_parser_result.stderr,
+            CUSTOMER_FIXTURE_VALUES,
+        )
+        parser_status = parser_result.returncode
+        missing_parser_status = missing_parser_result.returncode
 
     with tempfile.TemporaryDirectory(
         prefix="exposure-issue29-validated-upload-"
@@ -331,6 +367,50 @@ def probe_customer_upload(demo_root: Path, guest_image: str) -> dict:
             attachments_directory = validated_attachments
             upload_token = token
             upload_max_bytes = report_server.ReportHandler.upload_max_bytes
+            oversized_bytes_read = 0
+
+            def receive_customer_file(self, parsed: urllib.parse.ParseResult) -> None:
+                try:
+                    length = int(self.headers.get("Content-Length") or "0")
+                except ValueError:
+                    length = 0
+                if length <= self.upload_max_bytes:
+                    super().receive_customer_file(parsed)
+                    return
+                if not self.upload_token:
+                    self.api_response(503, {"error": "customer upload is disabled"})
+                    return
+                if not self.upload_authorized():
+                    self.api_response(401, {"error": "invalid upload token"})
+                    return
+
+                self.attachments_directory.mkdir(parents=True, exist_ok=True)
+                temp_path: Path | None = None
+                response_status = 400
+                response_error = "incomplete upload"
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        prefix=".upload-",
+                        dir=self.attachments_directory,
+                        delete=False,
+                    ) as target:
+                        temp_path = Path(target.name)
+                        remaining = length
+                        while remaining:
+                            chunk = self.rfile.read(min(64 * 1024, remaining))
+                            if not chunk:
+                                break
+                            target.write(chunk)
+                            remaining -= len(chunk)
+                            type(self).oversized_bytes_read += len(chunk)
+                            if self.oversized_bytes_read > self.upload_max_bytes:
+                                response_status = 413
+                                response_error = "file is too large"
+                                break
+                finally:
+                    if temp_path:
+                        temp_path.unlink(missing_ok=True)
+                self.api_response(response_status, {"error": response_error})
 
             @staticmethod
             def valid_excel(path: Path, suffix: str) -> bool:
@@ -352,14 +432,28 @@ def probe_customer_upload(demo_root: Path, guest_image: str) -> dict:
         validated_thread.start()
         validated_base_url = f"http://127.0.0.1:{validated_server.server_address[1]}"
         try:
-            validated_status, _ = upload(
+            validated_status, validated_error = upload(
                 validated_base_url,
                 "missing-structure.xlsx",
                 missing_structure,
                 token,
             )
             assert validated_status == 415
+            streamed_oversized_status, streamed_oversized_error = upload(
+                validated_base_url,
+                "oversized.xlsx",
+                b"x" * (ValidatedHandler.upload_max_bytes + 1),
+                token,
+            )
+            assert streamed_oversized_status == 413
+            assert (
+                ValidatedHandler.oversized_bytes_read
+                == ValidatedHandler.upload_max_bytes + 1
+            )
             assert not list(validated_attachments.iterdir())
+            assert_omits(
+                [validated_error, streamed_oversized_error], CUSTOMER_FIXTURE_VALUES
+            )
         finally:
             validated_server.shutdown()
             validated_server.server_close()
@@ -370,6 +464,7 @@ def probe_customer_upload(demo_root: Path, guest_image: str) -> dict:
             "http_status": success_status,
             "sha256_matches": True,
             "parser_exit": parser_status,
+            "parser_used_saved_artifact": True,
         },
         "max_bytes": Handler.upload_max_bytes,
         "rejections": {
@@ -387,6 +482,8 @@ def probe_customer_upload(demo_root: Path, guest_image: str) -> dict:
         },
         "candidate_structure_gate": {
             "missing_structure_http_status": validated_status,
+            "streamed_oversized_http_status": streamed_oversized_status,
+            "streamed_oversized_bytes": ValidatedHandler.oversized_bytes_read,
             "accepted_partial_artifacts": 0,
         },
     }
@@ -426,9 +523,9 @@ def fingerprint_material(base_url: str) -> tuple[dict, dict]:
     service = get_json(f"{admin}/services/{SERVICE_ID}")
     instance = get_json(f"{admin}/instances/{INSTANCE_ID}")
     capset = get_json(f"{admin}/capsets/{CAPSET_ID}")
-    instances = get_json(f"{admin}/capsets/{CAPSET_ID}/instances")["instances"]
-    methods = get_json(f"{admin}/capsets/{CAPSET_ID}/methods")["methods"]
-    tokens = get_json(f"{admin}/capsets/{CAPSET_ID}/tokens")["tokens"]
+    instances = get_json(f"{admin}/capsets/{CAPSET_ID}/instances")["instances"] or []
+    methods = get_json(f"{admin}/capsets/{CAPSET_ID}/methods")["methods"] or []
+    tokens = get_json(f"{admin}/capsets/{CAPSET_ID}/tokens")["tokens"] or []
     material = {
         "schema": "exposure-agent.cloudatlas-source-fingerprint.v1",
         "service": {
@@ -478,32 +575,96 @@ def fingerprint_material(base_url: str) -> tuple[dict, dict]:
     return material, service
 
 
-def demonstrate_fingerprint(base_url: str) -> tuple[dict, dict]:
+def demonstrate_fingerprint(base_url: str, container: str) -> tuple[dict, dict]:
     material, service = fingerprint_material(base_url)
     baseline = source_fingerprint(material)
-    assert source_fingerprint(copy.deepcopy(material)) == baseline
-    variants = {
-        "instance_binding": ("instance", "id", "another-instance"),
-        "config": ("instance", "config_sha256", "different-config-hash"),
-        "credential": ("instance", "secret_sha256", "different-secret-hash"),
-        "capset_authorization": (
-            "capset",
-            "token_bindings",
-            [{"id": "probe", "token_hash": "rotated"}],
-        ),
-        "selected_method_contract": (
-            None,
-            "selected_method",
-            "cloudatlas.read.v2.CloudAtlasReadService/ListIPAssets",
-        ),
-    }
+    assert source_fingerprint(fingerprint_material(base_url)[0]) == baseline
     changed = []
-    for name, (section, key, value) in variants.items():
-        variant = copy.deepcopy(material)
-        target = variant if section is None else variant[section]
-        target[key] = value
-        assert source_fingerprint(variant) != baseline, name
-        changed.append(name)
+
+    octobus(container, "capset", "remove-instance", CAPSET_ID, INSTANCE_ID)
+    assert source_fingerprint(fingerprint_material(base_url)[0]) != baseline
+    changed.append("instance_binding")
+    octobus(
+        container,
+        "capset",
+        "add-instance",
+        CAPSET_ID,
+        INSTANCE_ID,
+        "--no-all-methods",
+    )
+    octobus(container, "capset", "select-method", CAPSET_ID, INSTANCE_ID, f"/{METHOD}")
+    assert source_fingerprint(fingerprint_material(base_url)[0]) == baseline
+
+    changed_config = {**INSTANCE_CONFIG, "spaceId": "changed-fixture-space"}
+    octobus(
+        container,
+        "instance",
+        "update-config",
+        INSTANCE_ID,
+        "--config-json",
+        json.dumps(changed_config),
+    )
+    assert source_fingerprint(fingerprint_material(base_url)[0]) != baseline
+    changed.append("config")
+    octobus(
+        container,
+        "instance",
+        "update-config",
+        INSTANCE_ID,
+        "--config-json",
+        json.dumps(INSTANCE_CONFIG),
+    )
+    assert source_fingerprint(fingerprint_material(base_url)[0]) == baseline
+
+    octobus(
+        container,
+        "instance",
+        "update-secret",
+        INSTANCE_ID,
+        "--secret-json",
+        json.dumps({"token": "changed-fixture-upstream-token"}),
+    )
+    assert source_fingerprint(fingerprint_material(base_url)[0]) != baseline
+    changed.append("credential")
+    octobus(
+        container,
+        "instance",
+        "update-secret",
+        INSTANCE_ID,
+        "--secret-json",
+        json.dumps({"token": UPSTREAM_TOKEN}),
+    )
+    assert source_fingerprint(fingerprint_material(base_url)[0]) == baseline
+
+    octobus(
+        container,
+        "capset",
+        "add-token",
+        CAPSET_ID,
+        "probe-extra",
+        "--name",
+        "Issue29ExtraProbe",
+        "--token-stdin",
+        input_text="fixture-extra-capset-token",
+    )
+    assert source_fingerprint(fingerprint_material(base_url)[0]) != baseline
+    changed.append("capset_authorization")
+    octobus(container, "capset", "remove-token", CAPSET_ID, "probe-extra")
+    assert source_fingerprint(fingerprint_material(base_url)[0]) == baseline
+
+    octobus(
+        container,
+        "capset",
+        "unselect-method",
+        CAPSET_ID,
+        INSTANCE_ID,
+        f"/{METHOD}",
+    )
+    assert source_fingerprint(fingerprint_material(base_url)[0]) != baseline
+    changed.append("selected_method_contract")
+    octobus(container, "capset", "select-method", CAPSET_ID, INSTANCE_ID, f"/{METHOD}")
+    assert source_fingerprint(fingerprint_material(base_url)[0]) == baseline
+
     return {"stable": True, "invalidations": changed}, service
 
 
@@ -539,7 +700,7 @@ def probe_octobus(image: str) -> dict:
                 "--publish",
                 "127.0.0.1::9000",
                 "--env",
-                f"FIXTURE_CLOUDATLAS_TOKEN={UPSTREAM_TOKEN}",
+                "FIXTURE_CLOUDATLAS_TOKEN",
                 "--env",
                 "PATH=/app/tools/octobus/bin:/app/tools/octobus/runtime/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                 "--volume",
@@ -550,7 +711,8 @@ def probe_octobus(image: str) -> dict:
                 "python3 /investigation/fixture_upstream.py --port 18080 & "
                 "exec /app/tools/octobus/runtime/node_modules/.bin/octobus serve "
                 "--data-dir /tmp/octobus --addr 0.0.0.0:9000",
-            ]
+            ],
+            env={**os.environ, "FIXTURE_CLOUDATLAS_TOKEN": UPSTREAM_TOKEN},
         )
         started = True
         port_output = run(["docker", "port", container, "9000/tcp"]).stdout.strip()
@@ -572,12 +734,7 @@ def probe_octobus(image: str) -> dict:
             "--service",
             SERVICE_ID,
             "--config-json",
-            json.dumps(
-                {
-                    "baseUrl": "http://127.0.0.1:18080/openapi/",
-                    "spaceId": "fixture-space",
-                }
-            ),
+            json.dumps(INSTANCE_CONFIG),
             "--secret",
             "-",
             input_text=json.dumps({"token": UPSTREAM_TOKEN}),
@@ -624,10 +781,10 @@ def probe_octobus(image: str) -> dict:
         ).stdout
         requests = [json.loads(line) for line in log.splitlines() if line]
         assert requests[-1]["token_matches"] is True
-        missing_auth_status, _ = post_json(
+        missing_auth_status, missing_auth = post_json(
             endpoint, {"status": "valid", "page": 1, "size": 1}, ""
         )
-        wrong_auth_status, _ = post_json(
+        wrong_auth_status, wrong_auth = post_json(
             endpoint, {"status": "valid", "page": 1, "size": 1}, "wrong-token"
         )
         assert missing_auth_status == 401
@@ -649,6 +806,7 @@ def probe_octobus(image: str) -> dict:
             "upstream": (93, 503, "unavailable", "cloudatlas_upstream_failed"),
         }
         failures = {}
+        failure_bodies = []
         for failure_name, expected in failure_expectations.items():
             page, expected_status, expected_code, expected_message = expected
             failure_status, failure = post_json(
@@ -665,6 +823,7 @@ def probe_octobus(image: str) -> dict:
                 "http_status": failure_status,
                 "category": failure["message"],
             }
+            failure_bodies.append(failure)
 
         contract_status, contract_failure = post_json(
             endpoint,
@@ -685,6 +844,29 @@ def probe_octobus(image: str) -> dict:
         assert (
             connectivity_failure.get("message") == "cloudatlas_connectivity_failed"
         ), connectivity_failure
+        log = run(
+            ["docker", "exec", container, "cat", "/tmp/cloudatlas-fixture.jsonl"]
+        ).stdout
+        requests = [json.loads(line) for line in log.splitlines() if line]
+        cloud_forbidden = (
+            UPSTREAM_TOKEN,
+            CAPSET_TOKEN,
+            "wrong-token",
+            "changed-fixture-upstream-token",
+            "fixture-extra-capset-token",
+            "192.0.2.10",
+        )
+        assert_omits(
+            [
+                missing_auth,
+                wrong_auth,
+                *failure_bodies,
+                contract_failure,
+                connectivity_failure,
+            ],
+            cloud_forbidden,
+        )
+        assert_omits(requests, cloud_forbidden)
         openapi = get_json(f"{base_url}/admin/v1/catalog/{CAPSET_ID}/openapi.json")
         expected_path = f"/capsets/{CAPSET_ID}/connect/{INSTANCE_ID}/{METHOD}"
         assert set(openapi["paths"]) == {expected_path}, openapi["paths"]
@@ -699,7 +881,7 @@ def probe_octobus(image: str) -> dict:
             ]
         ).stdout.splitlines()
         assert not temporary_configs
-        fingerprint, service = demonstrate_fingerprint(base_url)
+        fingerprint, service = demonstrate_fingerprint(base_url, container)
         return {
             "capset_auth": {"missing": missing_auth_status, "wrong": wrong_auth_status},
             "connect_status": status,
@@ -707,6 +889,7 @@ def probe_octobus(image: str) -> dict:
             "fingerprint": fingerprint,
             "connectivity_failure": connectivity_failure["message"],
             "credential_handling": {"temporary_config_removed": True},
+            "leakage_checks": {"errors": True, "fixture_logs": True},
             "method": METHOD,
             "read_only_capset_paths": sorted(openapi["paths"]),
             "upstream_method": requests[-1]["method"],

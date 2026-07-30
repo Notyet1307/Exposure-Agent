@@ -27,7 +27,7 @@ function cliFailure(result) {
     return grpcPermissionDeniedError("cloudatlas_authorization_failed");
   }
   if (
-    /timed out|timeout|connection refused|connection reset|could not connect|no such host|network is unreachable|\beof\b/.test(
+    /timed out|timeout|etimedout|connection refused|econnrefused|connection reset|econnreset|could not connect|no such host|enotfound|network is unreachable|enetunreach|\beof\b/.test(
       detail,
     )
   ) {
