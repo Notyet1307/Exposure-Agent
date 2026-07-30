@@ -322,7 +322,18 @@ def _is_xml_content_type(content_type: str) -> bool:
 
 def _is_formula_element(local_name: str) -> bool:
     normalized = local_name.casefold()
-    return normalized == "f" or normalized.startswith("formula")
+    return (
+        normalized == "f"
+        or normalized.startswith("formula")
+        or normalized.endswith("formula")
+    )
+
+
+def _looks_like_xml_part(archive: ZipFile, name: str) -> bool:
+    """Identify XML by its bounded leading bytes, not a spoofable package declaration."""
+    with archive.open(name) as part:
+        leading = part.read(4_096).lstrip(b"\xef\xbb\xbf \t\r\n")
+    return leading.startswith(b"<")
 
 
 def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
@@ -405,6 +416,7 @@ def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
             for name in names
             if name in declared_xml_parts
             or any(name.casefold().endswith(extension) for extension in xml_extensions)
+            or _looks_like_xml_part(archive, name)
         )
         for xml_name in xml_names:
             with archive.open(xml_name) as xml_file:
@@ -704,6 +716,25 @@ def _relocate_first_worksheet(path: Path) -> None:
     replacement.replace(path)
 
 
+def _remove_content_type_override(path: Path, part_name: str) -> None:
+    replacement = path.with_suffix(".without-content-type.xlsx")
+    part_pattern = re.compile(
+        rb'<Override PartName="/' + re.escape(part_name.encode()) + rb'"[^>]*/>'
+    )
+    with (
+        ZipFile(path) as source,
+        ZipFile(replacement, "w", compression=ZIP_DEFLATED, compresslevel=9) as target,
+    ):
+        for source_info in source.infolist():
+            source_data = source.read(source_info)
+            if source_info.filename == "[Content_Types].xml":
+                source_data, replacements = part_pattern.subn(b"", source_data)
+                if replacements != 1:
+                    raise ValueError(f"expected one Content Type override for {part_name}")
+            target.writestr(_fixed_zip_info(source_info.filename), source_data)
+    replacement.replace(path)
+
+
 def _create_png(width: int = 2_048, height: int = 3_300) -> bytes:
     signature = b"\x89PNG\r\n\x1a\n"
 
@@ -929,11 +960,22 @@ def build_fixture(name: str, path: Path) -> Path:
                 archive.writestr(_fixed_zip_info(f"fixture/{index:04d}.bin"), b"")
         return path
 
-    _save_default_workbook(path, formula=name in {"formula", "relocated_formula"})
+    _save_default_workbook(
+        path,
+        formula=name in {
+            "formula",
+            "relocated_formula",
+            "relocated_formula_without_content_type",
+        },
+    )
     if name in {"default_v1", "formula"}:
         return path
     if name == "relocated_formula":
         _relocate_first_worksheet(path)
+        return path
+    if name == "relocated_formula_without_content_type":
+        _relocate_first_worksheet(path)
+        _remove_content_type_override(path, "xl/fixture/worksheet.dat")
         return path
     if name == "near_request_limit":
         _add_near_limit_static_image(path)
@@ -960,6 +1002,24 @@ def build_fixture(name: str, path: Path) -> Path:
         workbook.save(path)
         workbook.close()
         _normalize_zip(path)
+    elif name == "table_formula":
+        _append_declared_part(
+            path,
+            name="xl/tables/table1.xml",
+            data=(
+                b"<table><tableColumns><tableColumn>"
+                b"<calculatedColumnFormula>A1+1</calculatedColumnFormula>"
+                b"<totalsRowFormula>SUM(A:A)</totalsRowFormula>"
+                b"</tableColumn></tableColumns></table>"
+            ),
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.table+xml"
+            ),
+            relationships_name="xl/worksheets/_rels/sheet1.xml.rels",
+            relationship_type=f"{OFFICE_REL_NS}/table",
+            relationship_target="../tables/table1.xml",
+        )
     elif name == "hidden_sheet":
         workbook = load_workbook(path)
         hidden = workbook.create_sheet("Hidden fixture")

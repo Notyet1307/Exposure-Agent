@@ -27,6 +27,8 @@ def test_fixed_resource_limits_are_the_measured_global_contract() -> None:
     ("fixture_name", "reason"),
     [
         ("formula", "formula"),
+        ("relocated_formula_without_content_type", "formula"),
+        ("table_formula", "formula"),
         ("conditional_format_formula", "formula"),
         ("data_validation_formula", "formula"),
         ("external_link", "external_link"),
