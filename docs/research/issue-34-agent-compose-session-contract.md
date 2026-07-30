@@ -21,7 +21,7 @@ Guest 只执行三个固定 shell command：`printf issue34-success`、`exit 17`
 
 ```bash
 python3 investigations/issue_34/probe.py
-python3 -m unittest -v investigations/issue_34/test_probe.py
+python3 -m unittest discover -s investigations/issue_34 -p test_probe.py -v
 ```
 
 `--output <path>` 可把与 stdout 相同的脱敏 JSON 写到调用方指定位置。输出只保留 image/revision、随机但稳定的本次 `session_id`、状态、exit code 和 resume return code；不会输出临时路径、Docker container ID、Guest transcript、完整 command output、凭据或 token。自动检查同时锁定镜像 digest、fail-closed 映射和输出脱敏规则。
