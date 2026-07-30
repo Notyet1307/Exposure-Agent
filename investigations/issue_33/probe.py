@@ -425,18 +425,19 @@ def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
             or _looks_like_xml_part(archive, name)
         )
         for xml_name in xml_names:
+            workbook_sheet_count = 0
             with archive.open(xml_name) as xml_file:
                 for _event, element in ElementTree.iterparse(xml_file, events=("end",)):
                     local_name = element.tag.rsplit("}", maxsplit=1)[-1]
                     if (
                         xml_name == "xl/workbook.xml"
                         and local_name == "sheet"
-                        and element.attrib.get("state", "visible").casefold()
-                        != "visible"
                     ):
-                        raise WorkbookRejected(
-                            "unsupported_workbook_feature", "hidden_sheet", "ooxml_xml"
-                        )
+                        workbook_sheet_count += 1
+                        if element.attrib.get("state", "visible").casefold() != "visible":
+                            raise WorkbookRejected(
+                                "unsupported_workbook_feature", "hidden_sheet", "ooxml_xml"
+                            )
                     if _is_formula_element(local_name):
                         raise WorkbookRejected(
                             "unsupported_workbook_feature", "formula", "ooxml_xml"
@@ -451,6 +452,10 @@ def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
                             "ooxml_xml",
                         )
                     element.clear()
+            if xml_name == "xl/workbook.xml" and workbook_sheet_count != 1:
+                raise WorkbookRejected(
+                    "unsupported_workbook_feature", "multiple_worksheets", "ooxml_xml"
+                )
     except (ElementTree.ParseError, DefusedXmlException) as exc:
         raise WorkbookRejected(
             "malformed_workbook", "invalid_ooxml_xml", "ooxml_structure"
@@ -731,7 +736,7 @@ def _relocate_first_worksheet(path: Path) -> None:
     replacement.replace(path)
 
 
-def _add_hidden_chartsheet(path: Path) -> None:
+def _add_chartsheet(path: Path, *, hidden: bool) -> None:
     _append_declared_part(
         path,
         name="xl/chartsheets/sheet1.xml",
@@ -741,8 +746,9 @@ def _add_hidden_chartsheet(path: Path) -> None:
         relationship_type=f"{OFFICE_REL_NS}/chartsheet",
         relationship_target="chartsheets/sheet1.xml",
     )
-    replacement = path.with_suffix(".hidden-chartsheet.xlsx")
-    hidden_sheet = b'<sheet name="Hidden chart" sheetId="2" state="hidden" r:id="rIdFixture"/>'
+    replacement = path.with_suffix(".chartsheet.xlsx")
+    state = b' state="hidden"' if hidden else b""
+    chart_sheet = b'<sheet name="Chart" sheetId="2"' + state + b' r:id="rIdFixture"/>'
     with (
         ZipFile(path) as source,
         ZipFile(replacement, "w", compression=ZIP_DEFLATED, compresslevel=9) as target,
@@ -750,7 +756,7 @@ def _add_hidden_chartsheet(path: Path) -> None:
         for source_info in source.infolist():
             source_data = source.read(source_info)
             if source_info.filename == "xl/workbook.xml":
-                source_data = source_data.replace(b"</sheets>", hidden_sheet + b"</sheets>")
+                source_data = source_data.replace(b"</sheets>", chart_sheet + b"</sheets>")
             target.writestr(_fixed_zip_info(source_info.filename), source_data)
     replacement.replace(path)
 
@@ -1088,7 +1094,9 @@ def build_fixture(name: str, path: Path) -> Path:
         workbook.close()
         _normalize_zip(path)
     elif name == "hidden_chartsheet":
-        _add_hidden_chartsheet(path)
+        _add_chartsheet(path, hidden=True)
+    elif name == "visible_chartsheet":
+        _add_chartsheet(path, hidden=False)
     elif name == "external_link":
         _append_declared_part(
             path,

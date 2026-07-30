@@ -36,6 +36,7 @@ def test_fixed_resource_limits_are_the_measured_global_contract() -> None:
         ("data_connection", "data_connection"),
         ("hidden_sheet", "hidden_sheet"),
         ("hidden_chartsheet", "hidden_sheet"),
+        ("visible_chartsheet", "multiple_worksheets"),
         ("embedded_object", "embedded_active_object"),
         ("vml_button", "embedded_active_object"),
     ],
