@@ -60,7 +60,7 @@ def classify_session(
     """Classify only from a successful authoritative control-plane response."""
     if not control_plane_reachable:
         return SessionObservation.UNKNOWN
-    if sandbox_status in {"stopped", "failed"}:
+    if sandbox_status == "stopped":
         return SessionObservation.TERMINAL
     if sandbox_status == "running":
         return SessionObservation.RUNNING
@@ -166,18 +166,26 @@ def _daemon_command(
     )
 
 
-def _external_status(port: str) -> CommandResult:
+def _external_sandbox_query(root: Path, port: str) -> CommandResult:
+    """Query Sessions from an independent client over the published endpoint."""
     return _run(
         [
             "docker",
             "run",
             "--rm",
+            "--add-host",
+            "host.docker.internal:host-gateway",
+            "--volume",
+            f"{root}:/probe:ro",
             "--entrypoint",
             "agent-compose",
             CONTROL_IMAGE,
             "--host",
             f"http://host.docker.internal:{port}",
-            "status",
+            "--file",
+            "/probe/agent-compose.yml",
+            "ps",
+            "--all",
             "--json",
         ],
         check=False,
@@ -270,10 +278,19 @@ def _resume(container: str, sandbox_id: str) -> CommandResult:
     )
 
 
+def _require_authoritative_query_success(result: CommandResult) -> None:
+    """Ensure the independent client can query the authoritative Session list."""
+    if result.returncode != 0:
+        raise RuntimeError("authoritative session query unexpectedly failed")
+    sandboxes = _json(result).get("sandboxes")
+    if not isinstance(sandboxes, list):
+        raise RuntimeError("authoritative session query had no sandboxes list")
+
+
 def _require_outage_query_failure(result: CommandResult) -> None:
-    """Ensure the injected outage rejected the authoritative query."""
+    """Ensure the injected outage rejected the authoritative Session query."""
     if result.returncode == 0:
-        raise RuntimeError("outage status query unexpectedly succeeded")
+        raise RuntimeError("outage session query unexpectedly succeeded")
 
 
 def _resumed_session_id(result: CommandResult) -> str:
@@ -343,14 +360,10 @@ def run_probe() -> dict[str, Any]:
             )
 
             succeeded = _start_detached_run(control, "printf issue34-success")
-            success_sandbox = _wait_for_status(
-                control, succeeded["id"], {"stopped", "failed"}
-            )
+            success_sandbox = _wait_for_status(control, succeeded["id"], {"stopped"})
             success_run = _run_summary(control, succeeded["id"])
             failed = _start_detached_run(control, "exit 17")
-            failed_sandbox = _wait_for_status(
-                control, failed["id"], {"stopped", "failed"}
-            )
+            failed_sandbox = _wait_for_status(control, failed["id"], {"stopped"})
             failed_run = _run_summary(control, failed["id"])
 
             caller_lost = _start_detached_run(
@@ -359,13 +372,13 @@ def run_probe() -> dict[str, Any]:
             running_sandbox = _wait_for_status(control, caller_lost["id"], {"running"})
             session_count_before_outage = len(_sandboxes(control))
             port = _mapped_port(control)
+            external_query_before_outage = _external_sandbox_query(root, port)
+            _require_authoritative_query_success(external_query_before_outage)
             _stop_control_plane(control)
-            outage = _external_status(port)
+            outage = _external_sandbox_query(root, port)
             _require_outage_query_failure(outage)
             control = _start_control_plane(root, second_control)
-            recovered_running = _wait_for_status(
-                control, caller_lost["id"], {"running", "stopped", "failed"}
-            )
+            recovered_running = _wait_for_status(control, caller_lost["id"], {"running"})
             session_count_after_restart = len(_sandboxes(control))
             unknown_event = {
                 "control_plane_reachable": False,
@@ -386,9 +399,7 @@ def run_probe() -> dict[str, Any]:
                 first_resumed_session_id,
                 call="first terminal resume",
             )
-            resumed = _wait_for_status(
-                control, succeeded["id"], {"running", "stopped", "failed"}
-            )
+            resumed = _sandbox_for_run(control, succeeded["id"])
             resumed_session_id = resumed.get("sandbox_id")
             if not isinstance(resumed_session_id, str):
                 raise RuntimeError("resumed session was not returned by authoritative query")
@@ -468,6 +479,7 @@ def run_probe() -> dict[str, Any]:
                     "terminal_values_observed": sorted(
                         {success_sandbox["status"], failed_sandbox["status"]}
                     ),
+                    "outage_query_entrypoint": "agent-compose ps --all --json",
                 },
                 "scenarios": {
                     "guest_success": _event(success_sandbox, reachable=True)
@@ -497,7 +509,7 @@ def run_probe() -> dict[str, Any]:
                     },
                 },
                 "minimal_mapping": {
-                    "stopped_or_failed_from_successful_query": "terminal; resume same session may be attempted",
+                    "stopped_from_successful_query": "terminal; resume same session may be attempted",
                     "running_from_successful_query": "still executing; retain the Project single-Run slot",
                     "control_plane_error_or_unrecognized_status": "unknown; retain the Project single-Run slot and do not start a replacement session",
                 },

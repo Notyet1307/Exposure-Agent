@@ -14,6 +14,7 @@ from probe import (
     classify_session,
     recovery_action,
     redact_report,
+    _require_authoritative_query_success,
     _require_outage_query_failure,
     _require_same_session,
     _resumed_session_id,
@@ -51,7 +52,7 @@ class ProbeContractTests(unittest.TestCase):
         )
         self.assertIs(
             classify_session("failed", control_plane_reachable=True),
-            SessionObservation.TERMINAL,
+            SessionObservation.UNKNOWN,
         )
         self.assertIs(
             classify_session("pending", control_plane_reachable=True),
@@ -82,10 +83,19 @@ class ProbeContractTests(unittest.TestCase):
             RecoveryAction.HOLD_PROJECT_RUN_SLOT,
         )
 
+    def test_independent_authoritative_query_must_work_before_outage(self) -> None:
+        _require_authoritative_query_success(
+            CommandResult(0, '{"sandboxes": []}', "")
+        )
+        with self.assertRaisesRegex(RuntimeError, "unexpectedly failed"):
+            _require_authoritative_query_success(CommandResult(1, "", "unavailable"))
+        with self.assertRaisesRegex(RuntimeError, "no sandboxes"):
+            _require_authoritative_query_success(CommandResult(0, "{}", ""))
+
     def test_outage_must_reject_the_authoritative_query(self) -> None:
         _require_outage_query_failure(CommandResult(1, "", "unavailable"))
         with self.assertRaisesRegex(RuntimeError, "unexpectedly succeeded"):
-            _require_outage_query_failure(CommandResult(0, "{}", ""))
+            _require_outage_query_failure(CommandResult(0, '{"sandboxes": []}', ""))
 
     def test_terminal_resume_requires_a_successful_same_id_response(self) -> None:
         resumed_id = _resumed_session_id(

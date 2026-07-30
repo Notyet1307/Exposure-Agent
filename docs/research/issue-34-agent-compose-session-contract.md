@@ -26,7 +26,7 @@ python3 -m unittest discover -s investigations/issue_34 -p test_probe.py -v
 
 `--output <path>` 可把与 stdout 相同的脱敏 JSON 写到调用方指定位置。输出只保留 image/revision、随机但稳定的本次 `session_id`、状态、exit code 和 resume return code；不会输出临时路径、Docker container ID、Guest transcript、完整 command output、凭据或 token。自动检查同时锁定镜像 digest、fail-closed 映射、outage 必须使 authoritative query 非零，以及 Resume JSON 的成功、`resumed` 状态与同 ID 响应。
 
-本次固定对象的实际脱敏证据已提交为 [`investigations/issue_34/evidence/probe-v2607.10.0.json`](../../investigations/issue_34/evidence/probe-v2607.10.0.json)（SHA-256：`ce1f00771e79166c79c8ba3e4cc01fb3ee8e4844b918c7bb1405b4a86de35457`）。它记录每个场景的匿名本次 Session ID、查询状态、outage query 的非零 exit code，以及首次、重复和失败 Guest 终态 Resume 的返回 ID；不含临时运行目录、凭据或 Guest 输出。
+本次固定对象的实际脱敏证据已提交为 [`investigations/issue_34/evidence/probe-v2607.10.0.json`](../../investigations/issue_34/evidence/probe-v2607.10.0.json)（SHA-256：`c2d3599904d84b47c679fd0570933e96c77f99735e5a72d4895eb6a37b5654b9`）。它记录每个场景的匿名本次 Session ID、查询状态、outage query 的非零 exit code，以及首次、重复和失败 Guest 终态 Resume 的返回 ID；不含临时运行目录、凭据或 Guest 输出。
 
 ## 3. 实测控制面入口与字段语义
 
@@ -51,7 +51,7 @@ agent-compose resume <sandbox-id> --json
 | Guest 成功 | `ps --all` 返回相同 Session ID，`stopped`；`inspect run` 为 `succeeded/0` | 已确认 Session 终态；可按原 ID 尝试 Resume |
 | Guest 失败 | `ps --all` 返回相同 Session ID，`stopped`；`inspect run` 为 `failed/17` | 已确认 Session 终态；可按原 ID 尝试 Resume，业务 Run 是否可 Retry 仍由 PostgreSQL 前置条件决定 |
 | 调用方失联 | detached CLI 返回后，长命令 Session 仍由 `ps --all` 返回为 `running` | 不释放同 Project 单 Run 资格；不能据 CLI 已退出或经过时间判断终止 |
-| 控制面短暂不可达 | 停止控制面后，独立 client 的 `status --json` 必须非零，否则探针失败；没有成功的 `ps` 查询 | 状态是 `unknown`，不以 Docker 本地进程、TTL、心跳或上次状态推断终止 |
+| 控制面短暂不可达 | 停止控制面前，独立 client 的 `ps --all --json` 必须成功；停止后同一 authoritative Session query 必须非零，否则探针失败 | 状态是 `unknown`，不以 Docker 本地进程、TTL、心跳或上次状态推断终止 |
 | 控制面重启 | 用同一 `/data` 重启同一 pinned image 后，原 caller-loss ID 仍可查询并为 `running` | 仍执行，继续持有资格；没有第二个 Session |
 | Resume 已终态 ID | 成功及 Guest-failure 两个 `stopped` ID 的第一次 Resume 都返回 0 和 `results[0].status: "resumed"`，并解析 `results[0].sandbox_id` 与原 ID 比较 | Resume 的前置状态在本次固定版本中是 `stopped`；恢复的是原 Session ID |
 | 重复 Resume | 对已恢复 ID 再次调用返回 0、`resumed` 和同一 response ID，Session 数没有增加 | 本版本观测为幂等，不创建替代 Session |
@@ -65,9 +65,9 @@ agent-compose resume <sandbox-id> --json
 
 | 成功控制面查询结果 | Session 分类 | 对 Project 单 Run 资格 | 后续调用 |
 | --- | --- | --- | --- |
-| `sandboxes[].status == "stopped"` 或 `"failed"` | `terminal` | 可以按事务性业务规则收敛旧 Run | 仅 `ResumeSession(session_id)`；不得创建替代 Session |
+| `sandboxes[].status == "stopped"` | `terminal` | 可以按事务性业务规则收敛旧 Run | 仅 `ResumeSession(session_id)`；不得创建替代 Session |
 | `sandboxes[].status == "running"` | `running` | 保留 | 不 Resume，不启动第二个 Session |
-| 请求失败、响应缺失、或未识别状态 | `unknown` | 保留 | 不 Resume，不启动第二个 Session，不用 TTL 推断 |
+| 请求失败、响应缺失、或未识别状态（包括本次未实测为终态的 `failed`） | `unknown` | 保留 | 不 Resume，不启动第二个 Session，不用 TTL 推断 |
 
 建议调用顺序：
 

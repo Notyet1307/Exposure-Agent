@@ -11,10 +11,11 @@
   "minimal_mapping": {
     "control_plane_error_or_unrecognized_status": "unknown; retain the Project single-Run slot and do not start a replacement session",
     "running_from_successful_query": "still executing; retain the Project single-Run slot",
-    "stopped_or_failed_from_successful_query": "terminal; resume same session may be attempted"
+    "stopped_from_successful_query": "terminal; resume same session may be attempted"
   },
   "query": {
     "entrypoint": "agent-compose ps --all --json",
+    "outage_query_entrypoint": "agent-compose ps --all --json",
     "run_entrypoint": "agent-compose inspect run <run-id> --json",
     "run_fields": [
       "status",
@@ -30,13 +31,13 @@
       "observation": "running",
       "recovery_action": "hold_project_run_slot",
       "sandbox_status": "running",
-      "session_id": "6b687dc118bfe6f38187d5f1d6cbc9dc840fb7d6c105de5f2077da31b5f3c58f"
+      "session_id": "21dec066db41101f8569819d74e5f34305609ae2b7491b33ad5667cc0b027af7"
     },
     "caller_loss": {
       "observation": "running",
       "recovery_action": "hold_project_run_slot",
       "sandbox_status": "running",
-      "session_id": "6b687dc118bfe6f38187d5f1d6cbc9dc840fb7d6c105de5f2077da31b5f3c58f"
+      "session_id": "21dec066db41101f8569819d74e5f34305609ae2b7491b33ad5667cc0b027af7"
     },
     "control_plane_outage": {
       "control_plane_reachable": false,
@@ -53,7 +54,7 @@
       "recovery_action": "resume_same_session",
       "run_status": "failed",
       "sandbox_status": "stopped",
-      "session_id": "1d8414a0b052ac4af9a66bc47f9954fdcca7406273c060bca6ab52eaaea531d3"
+      "session_id": "3474925664f2a2ef8b45fad32fc7ce60a2ded39b63a1187358e6f83405018d82"
     },
     "guest_success": {
       "exit_code": 0,
@@ -61,21 +62,21 @@
       "recovery_action": "resume_same_session",
       "run_status": "succeeded",
       "sandbox_status": "stopped",
-      "session_id": "341a893951b0b124b60adc65ffc75f86c30e2d029da7d12b690cd1f6430f2f01"
+      "session_id": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e"
     },
     "resume": {
       "failure_terminal_call_returncode": 0,
-      "failure_terminal_response_session_id": "1d8414a0b052ac4af9a66bc47f9954fdcca7406273c060bca6ab52eaaea531d3",
+      "failure_terminal_response_session_id": "3474925664f2a2ef8b45fad32fc7ce60a2ded39b63a1187358e6f83405018d82",
       "first_call_returncode": 0,
-      "first_response_session_id": "341a893951b0b124b60adc65ffc75f86c30e2d029da7d12b690cd1f6430f2f01",
+      "first_response_session_id": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e",
       "missing_session_call_returncode": 2,
-      "original_session_id": "341a893951b0b124b60adc65ffc75f86c30e2d029da7d12b690cd1f6430f2f01",
+      "original_session_id": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e",
       "repeated_call_returncode": 0,
-      "repeated_response_session_id": "341a893951b0b124b60adc65ffc75f86c30e2d029da7d12b690cd1f6430f2f01",
+      "repeated_response_session_id": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e",
       "resume_source_status": "stopped",
       "same_session_id": true,
       "session_count_unchanged_by_retries": true,
-      "session_id_after_first_resume": "341a893951b0b124b60adc65ffc75f86c30e2d029da7d12b690cd1f6430f2f01"
+      "session_id_after_first_resume": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e"
     }
   }
 }
