@@ -63,7 +63,7 @@ def test_package_features_are_declared_not_orphan_parts(
     assert b"fixture/" in relationships
 
 
-def test_formula_is_found_when_worksheet_uses_a_noncanonical_target(
+def test_formula_is_found_in_mixed_case_relationship_targeted_xml_part(
     tmp_path: Path,
 ) -> None:
     workbook = build_fixture("relocated_formula", tmp_path / "relocated.xlsx")
