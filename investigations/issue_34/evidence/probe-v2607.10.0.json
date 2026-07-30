@@ -1,0 +1,82 @@
+{
+  "control_plane": {
+    "image": "ghcr.io/chaitin/agent-compose@sha256:838452756fe1f71b0f4239c02068700c3f15c8cf8ffade1a09ba08837669f89e",
+    "source_revision": "e14c4dbd5e3b0dec6178073902d67d2765390427",
+    "version": "v2607.10.0"
+  },
+  "guest": {
+    "image": "ghcr.io/chaitin/agent-compose-guest@sha256:99a031b38be9e6afc5b7ce5161a4c5ee6f93c9990f3b39a3fbd8c9b29044ee32",
+    "runtime_version": "0.7.0"
+  },
+  "minimal_mapping": {
+    "control_plane_error_or_unrecognized_status": "unknown; retain the Project single-Run slot and do not start a replacement session",
+    "running_from_successful_query": "still executing; retain the Project single-Run slot",
+    "stopped_from_successful_query": "terminal; resume same session may be attempted"
+  },
+  "query": {
+    "entrypoint": "agent-compose ps --all --json",
+    "outage_query_entrypoint": "agent-compose ps --all --json",
+    "run_entrypoint": "agent-compose inspect run <run-id> --json",
+    "run_fields": [
+      "status",
+      "exit_code"
+    ],
+    "status_field": "sandboxes[].status",
+    "terminal_values_observed": [
+      "stopped"
+    ]
+  },
+  "scenarios": {
+    "after_control_plane_restart": {
+      "observation": "running",
+      "recovery_action": "hold_project_run_slot",
+      "sandbox_status": "running",
+      "session_id": "21dec066db41101f8569819d74e5f34305609ae2b7491b33ad5667cc0b027af7"
+    },
+    "caller_loss": {
+      "observation": "running",
+      "recovery_action": "hold_project_run_slot",
+      "sandbox_status": "running",
+      "session_id": "21dec066db41101f8569819d74e5f34305609ae2b7491b33ad5667cc0b027af7"
+    },
+    "control_plane_outage": {
+      "control_plane_reachable": false,
+      "observation": "unknown",
+      "outage_query_returncode": 3,
+      "recovery_action": "hold_project_run_slot",
+      "replacement_session_started": false,
+      "session_count_after_restart": 3,
+      "session_count_before_outage": 3
+    },
+    "guest_failure": {
+      "exit_code": 17,
+      "observation": "terminal",
+      "recovery_action": "resume_same_session",
+      "run_status": "failed",
+      "sandbox_status": "stopped",
+      "session_id": "3474925664f2a2ef8b45fad32fc7ce60a2ded39b63a1187358e6f83405018d82"
+    },
+    "guest_success": {
+      "exit_code": 0,
+      "observation": "terminal",
+      "recovery_action": "resume_same_session",
+      "run_status": "succeeded",
+      "sandbox_status": "stopped",
+      "session_id": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e"
+    },
+    "resume": {
+      "failure_terminal_call_returncode": 0,
+      "failure_terminal_response_session_id": "3474925664f2a2ef8b45fad32fc7ce60a2ded39b63a1187358e6f83405018d82",
+      "first_call_returncode": 0,
+      "first_response_session_id": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e",
+      "missing_session_call_returncode": 2,
+      "original_session_id": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e",
+      "repeated_call_returncode": 0,
+      "repeated_response_session_id": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e",
+      "resume_source_status": "stopped",
+      "same_session_id": true,
+      "session_count_unchanged_by_retries": true,
+      "session_id_after_first_resume": "1b775953fdbd384acc9b7b1dc629ec9e3de15fbd40f7319fcb1f457860ecc64e"
+    }
+  }
+}
