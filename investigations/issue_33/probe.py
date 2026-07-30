@@ -330,10 +330,16 @@ def _is_formula_element(local_name: str) -> bool:
 
 
 def _looks_like_xml_part(archive: ZipFile, name: str) -> bool:
-    """Identify XML by its bounded leading bytes, not a spoofable package declaration."""
+    """Identify XML after any legal leading whitespace under ZIP resource bounds."""
     with archive.open(name) as part:
-        leading = part.read(4_096).lstrip(b"\xef\xbb\xbf \t\r\n")
-    return leading.startswith(b"<")
+        first_chunk = True
+        while chunk := part.read(64 * 1024):
+            whitespace = b"\xef\xbb\xbf \t\r\n" if first_chunk else b" \t\r\n"
+            leading = chunk.lstrip(whitespace)
+            if leading:
+                return leading.startswith(b"<")
+            first_chunk = False
+    return False
 
 
 def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
@@ -768,6 +774,20 @@ def _remove_content_type_override(path: Path, part_name: str) -> None:
     replacement.replace(path)
 
 
+def _prefix_part(path: Path, name: str, prefix: bytes) -> None:
+    replacement = path.with_suffix(".prefixed.xlsx")
+    with (
+        ZipFile(path) as source,
+        ZipFile(replacement, "w", compression=ZIP_DEFLATED, compresslevel=9) as target,
+    ):
+        for source_info in source.infolist():
+            source_data = source.read(source_info)
+            if source_info.filename == name:
+                source_data = prefix + source_data
+            target.writestr(_fixed_zip_info(source_info.filename), source_data)
+    replacement.replace(path)
+
+
 def _create_png(width: int = 2_048, height: int = 3_300) -> bytes:
     signature = b"\x89PNG\r\n\x1a\n"
 
@@ -999,6 +1019,7 @@ def build_fixture(name: str, path: Path) -> Path:
             "formula",
             "relocated_formula",
             "relocated_formula_without_content_type",
+            "padded_relocated_formula",
         },
     )
     if name in {"default_v1", "formula"}:
@@ -1009,6 +1030,11 @@ def build_fixture(name: str, path: Path) -> Path:
     if name == "relocated_formula_without_content_type":
         _relocate_first_worksheet(path)
         _remove_content_type_override(path, "xl/fixture/worksheet.dat")
+        return path
+    if name == "padded_relocated_formula":
+        _relocate_first_worksheet(path)
+        _remove_content_type_override(path, "xl/fixture/worksheet.dat")
+        _prefix_part(path, "xl/fixture/worksheet.dat", b" " * 5_000)
         return path
     if name == "near_request_limit":
         _add_near_limit_static_image(path)
