@@ -422,6 +422,15 @@ def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
             with archive.open(xml_name) as xml_file:
                 for _event, element in ElementTree.iterparse(xml_file, events=("end",)):
                     local_name = element.tag.rsplit("}", maxsplit=1)[-1]
+                    if (
+                        xml_name == "xl/workbook.xml"
+                        and local_name == "sheet"
+                        and element.attrib.get("state", "visible").casefold()
+                        != "visible"
+                    ):
+                        raise WorkbookRejected(
+                            "unsupported_workbook_feature", "hidden_sheet", "ooxml_xml"
+                        )
                     if _is_formula_element(local_name):
                         raise WorkbookRejected(
                             "unsupported_workbook_feature", "formula", "ooxml_xml"
@@ -713,6 +722,30 @@ def _relocate_first_worksheet(path: Path) -> None:
                 )
             target.writestr(_fixed_zip_info(source_info.filename), source_data)
         target.writestr(_fixed_zip_info(relocated_name), worksheet_data)
+    replacement.replace(path)
+
+
+def _add_hidden_chartsheet(path: Path) -> None:
+    _append_declared_part(
+        path,
+        name="xl/chartsheets/sheet1.xml",
+        data=f'<chartsheet xmlns="{MAIN_NS}"/>'.encode(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.chartsheet+xml",
+        relationships_name="xl/_rels/workbook.xml.rels",
+        relationship_type=f"{OFFICE_REL_NS}/chartsheet",
+        relationship_target="chartsheets/sheet1.xml",
+    )
+    replacement = path.with_suffix(".hidden-chartsheet.xlsx")
+    hidden_sheet = b'<sheet name="Hidden chart" sheetId="2" state="hidden" r:id="rIdFixture"/>'
+    with (
+        ZipFile(path) as source,
+        ZipFile(replacement, "w", compression=ZIP_DEFLATED, compresslevel=9) as target,
+    ):
+        for source_info in source.infolist():
+            source_data = source.read(source_info)
+            if source_info.filename == "xl/workbook.xml":
+                source_data = source_data.replace(b"</sheets>", hidden_sheet + b"</sheets>")
+            target.writestr(_fixed_zip_info(source_info.filename), source_data)
     replacement.replace(path)
 
 
@@ -1028,6 +1061,8 @@ def build_fixture(name: str, path: Path) -> Path:
         workbook.save(path)
         workbook.close()
         _normalize_zip(path)
+    elif name == "hidden_chartsheet":
+        _add_hidden_chartsheet(path)
     elif name == "external_link":
         _append_declared_part(
             path,
