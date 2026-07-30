@@ -31,6 +31,7 @@ def test_fixed_resource_limits_are_the_measured_global_contract() -> None:
         ("data_connection", "data_connection"),
         ("hidden_sheet", "hidden_sheet"),
         ("embedded_object", "embedded_active_object"),
+        ("vml_button", "embedded_active_object"),
     ],
 )
 def test_forbidden_workbook_features_are_reliably_identified(
@@ -61,6 +62,39 @@ def test_package_features_are_declared_not_orphan_parts(
 
     assert b"fixture/" in content_types
     assert b"fixture/" in relationships
+
+
+def test_vml_button_fixture_contains_legacy_form_control_markup(tmp_path: Path) -> None:
+    workbook = build_fixture("vml_button", tmp_path / "vml-button.xlsx")
+
+    with ZipFile(workbook) as archive:
+        vml = archive.read("xl/drawings/vmlDrawing1.vml")
+        relationships = archive.read("xl/worksheets/_rels/sheet1.xml.rels")
+
+    assert b'ObjectType="Button"' in vml
+    assert b"/vmlDrawing" in relationships
+
+
+def test_vml_button_markup_is_detected_without_vml_declarations(tmp_path: Path) -> None:
+    workbook = build_fixture("vml_button", tmp_path / "vml-button.xlsx")
+    rewritten = tmp_path / "vml-button-disguised.xlsx"
+    with ZipFile(workbook) as source, ZipFile(rewritten, "w") as target:
+        for info in source.infolist():
+            data = source.read(info)
+            if info.filename == "[Content_Types].xml":
+                data = data.replace(
+                    b"application/vnd.openxmlformats-officedocument.vmlDrawing",
+                    b"application/xml",
+                )
+            elif info.filename == "xl/worksheets/_rels/sheet1.xml.rels":
+                data = data.replace(b"/vmlDrawing", b"/drawing")
+            target.writestr(info, data)
+
+    with pytest.raises(WorkbookRejected) as caught:
+        inspect_workbook(rewritten)
+
+    assert caught.value.category == "unsupported_workbook_feature"
+    assert caught.value.reason == "embedded_active_object"
 
 
 def test_formula_is_found_in_mixed_case_relationship_targeted_xml_part(

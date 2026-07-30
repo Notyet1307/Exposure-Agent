@@ -64,6 +64,7 @@ FORBIDDEN_FIXTURES: Final = (
     "data_connection",
     "hidden_sheet",
     "embedded_object",
+    "vml_button",
 )
 ALL_FIXTURES: Final = NORMAL_FIXTURES + RESOURCE_FIXTURES + FORBIDDEN_FIXTURES
 
@@ -283,6 +284,7 @@ def _relationship_rejection(relationship_type: str) -> str | None:
         "oleObject",
         "package",
         "vbaProject",
+        "vmlDrawing",
     }:
         return "embedded_active_object"
     return None
@@ -302,6 +304,7 @@ def _content_type_rejection(content_type: str) -> str | None:
             "ctrlprop",
             "oleobject",
             "vbaproject",
+            "vmldrawing",
         )
     ):
         return "embedded_active_object"
@@ -370,13 +373,25 @@ def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
                             )
                     element.clear()
 
-        xml_names = sorted(name for name in names if name.lower().endswith(".xml"))
+        xml_names = sorted(
+            name for name in names if name.lower().endswith((".xml", ".vml"))
+        )
         for xml_name in xml_names:
             with archive.open(xml_name) as xml_file:
                 for _event, element in ElementTree.iterparse(xml_file, events=("end",)):
-                    if element.tag.rsplit("}", maxsplit=1)[-1] == "f":
+                    local_name = element.tag.rsplit("}", maxsplit=1)[-1]
+                    if local_name == "f":
                         raise WorkbookRejected(
                             "unsupported_workbook_feature", "formula", "ooxml_xml"
+                        )
+                    if (
+                        local_name == "ClientData"
+                        and element.attrib.get("ObjectType", "").casefold() != "note"
+                    ):
+                        raise WorkbookRejected(
+                            "unsupported_workbook_feature",
+                            "embedded_active_object",
+                            "ooxml_xml",
                         )
                     element.clear()
     except (ElementTree.ParseError, DefusedXmlException) as exc:
@@ -591,6 +606,41 @@ def _append_declared_part(
                 ),
             )
         target.writestr(_fixed_zip_info(name), data)
+    replacement.replace(path)
+
+
+def _add_vml_button(path: Path) -> None:
+    _append_declared_part(
+        path,
+        name="xl/drawings/vmlDrawing1.vml",
+        data=(
+            b'<xml xmlns:v="urn:schemas-microsoft-com:vml" '
+            b'xmlns:x="urn:schemas-microsoft-com:office:excel">'
+            b'<v:shape id="_x0000_s1025"><x:ClientData ObjectType="Button">'
+            b"<x:PrintObject>False</x:PrintObject>"
+            b"</x:ClientData></v:shape></xml>"
+        ),
+        content_type="application/vnd.openxmlformats-officedocument.vmlDrawing",
+        relationships_name="xl/worksheets/_rels/sheet1.xml.rels",
+        relationship_type=f"{OFFICE_REL_NS}/vmlDrawing",
+        relationship_target="../drawings/vmlDrawing1.vml",
+    )
+    replacement = path.with_suffix(".vml-button.xlsx")
+    with (
+        ZipFile(path) as source,
+        ZipFile(replacement, "w", compression=ZIP_DEFLATED, compresslevel=9) as target,
+    ):
+        for source_info in source.infolist():
+            source_data = source.read(source_info)
+            if source_info.filename == "xl/worksheets/sheet1.xml":
+                source_data = source_data.replace(
+                    b"</worksheet>",
+                    (
+                        f'<legacyDrawing xmlns:r="{OFFICE_REL_NS}" '
+                        'r:id="rIdFixture"/></worksheet>'
+                    ).encode(),
+                )
+            target.writestr(_fixed_zip_info(source_info.filename), source_data)
     replacement.replace(path)
 
 
@@ -895,6 +945,8 @@ def build_fixture(name: str, path: Path) -> Path:
             relationship_type=f"{OFFICE_REL_NS}/oleObject",
             relationship_target="../fixture/object.bin",
         )
+    elif name == "vml_button":
+        _add_vml_button(path)
     elif name == "compression_bomb":
         with ZipFile(path, "a", compression=ZIP_DEFLATED, compresslevel=9) as archive:
             info = _fixed_zip_info("xl/sharedStrings.xml")

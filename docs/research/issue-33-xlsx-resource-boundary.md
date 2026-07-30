@@ -63,6 +63,7 @@ uv run mypy ../investigations/issue_33/probe.py ../investigations/issue_33/test_
 | `data_connection` | content type + relationship 声明的非固定路径 connections part | 拒绝 `data_connection` |
 | `hidden_sheet` | 额外 hidden worksheet | 拒绝 `hidden_sheet` |
 | `embedded_object` | content type + relationship 声明的非固定路径 OLE part | 拒绝 `embedded_active_object` |
+| `vml_button` | worksheet `vmlDrawing` relationship + VML `ClientData ObjectType="Button"` | 拒绝 `embedded_active_object` |
 
 `near_request_limit` 中的静态图片符合架构允许范围，只保留在原始 Artifact，不参与行解析。高行数样例只使用 `192.0.2.0/24`、`198.51.100.0/24` 和 `203.0.113.0/24`，责任字符串统一为 `Example` / `Fixture` 命名。
 
@@ -89,7 +90,7 @@ uv run mypy ../investigations/issue_33/probe.py ../investigations/issue_33/test_
 - 对全部 OOXML XML part 的本地名 `<f>` 节点识别公式，不依赖固定 worksheet 路径或缓存值；自动检查还把公式 worksheet 移到 relationship 指定的非标准路径，并确认 `openpyxl` 能打开而预检仍会拒绝；
 - `externalLinks` part 或 external-link relationship 识别外部链接；
 - `connections.xml` 或 connections relationship 识别数据连接；
-- `activeX`、`ctrlProps`、`embeddings`、VBA/toolbars part 及对应 relationship type 识别嵌入主动对象；
+- `activeX`、`ctrlProps`、`embeddings`、VBA/toolbars part 及对应 relationship type 识别嵌入主动对象；`vmlDrawing` content type/relationship 和 `.vml` 中非 Note 的 `ClientData ObjectType` 识别 legacy form control；
 - `openpyxl` worksheet state 识别 `hidden` / `veryHidden`，并拒绝多 worksheet。
 
 `defusedxml` 同时用于调查预检并被 `openpyxl` 实际启用。探针对五类拒绝能力都有自动测试；本阶段没有静默降级或已知无法识别的必拒类别。
