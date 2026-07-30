@@ -53,16 +53,16 @@ uv run mypy ../investigations/issue_33/probe.py ../investigations/issue_33/test_
 | fixture | 形态 | 预期 |
 | --- | --- | --- |
 | `default_v1` | 默认 v1 表头，3 条数据，仅 TEST-NET 地址和虚构责任信息 | 接受 |
-| `near_request_limit` | 默认 v1 + 静态 PNG，归档 20,286,601 bytes（请求上限的 96.73%） | 接受 |
+| `near_request_limit` | 默认 v1 + 静态 PNG，归档 20,286,591 bytes（请求上限的 96.73%） | 接受 |
 | `row_shared_style_boundary` | 50,000 行、1,798 个 shared strings、64 个 style XF | 接受 |
 | `entry_count_bomb` | 2,049 个 ZIP entries | `workbook_resource_limit` |
-| `compression_bomb` | 70,638-byte 归档内含 67,108,865-byte 高压缩 entry | `workbook_resource_limit` |
+| `compression_bomb` | 70,626-byte 归档内含 67,108,865-byte 高压缩 entry | `workbook_resource_limit` |
 | `total_size_bomb` | 5 个各 53,687,092-byte entries，总解压 268,454,113 bytes | `workbook_resource_limit` |
 | `formula` | worksheet 公式节点 | 拒绝 `formula` |
-| `external_link` | externalLinks OOXML part | 拒绝 `external_link` |
-| `data_connection` | connections OOXML part | 拒绝 `data_connection` |
+| `external_link` | content type + relationship 声明的非固定路径 external-link part | 拒绝 `external_link` |
+| `data_connection` | content type + relationship 声明的非固定路径 connections part | 拒绝 `data_connection` |
 | `hidden_sheet` | 额外 hidden worksheet | 拒绝 `hidden_sheet` |
-| `embedded_object` | OLE embedding part | 拒绝 `embedded_active_object` |
+| `embedded_object` | content type + relationship 声明的非固定路径 OLE part | 拒绝 `embedded_active_object` |
 
 `near_request_limit` 中的静态图片符合架构允许范围，只保留在原始 Artifact，不参与行解析。高行数样例只使用 `192.0.2.0/24`、`198.51.100.0/24` 和 `203.0.113.0/24`，责任字符串统一为 `Example` / `Fixture` 命名。
 
@@ -72,9 +72,9 @@ uv run mypy ../investigations/issue_33/probe.py ../investigations/issue_33/test_
 
 | 正常 fixture | 请求 bytes | entries | 最大 entry 解压 bytes | 总解压 bytes | 行数 | 解析耗时 | 峰值内存 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `default_v1` | 5,287 | 9 | 10,140 | 18,653 | 3 | 0.004 s | 364,318 bytes |
-| `near_request_limit` | 20,286,601 | 13 | 20,280,113 | 20,300,099 | 3 | 0.006 s | 377,731 bytes |
-| `row_shared_style_boundary` | 1,794,373 | 7 | 19,468,856 | 19,541,470 | 50,000 | 6.018 s | 4,691,403 bytes |
+| `default_v1` | 5,277 | 9 | 10,140 | 18,653 | 3 | 0.007 s | 406,168 bytes |
+| `near_request_limit` | 20,286,591 | 13 | 20,280,113 | 20,300,099 | 3 | 0.008 s | 346,512 bytes |
+| `row_shared_style_boundary` | 1,794,373 | 7 | 19,468,856 | 19,541,470 | 50,000 | 6.176 s | 4,667,303 bytes |
 
 耗时与内存会随硬件和 Python patch 版本变化；决定阈值的是可复现 shape 和 ZIP 统计，而不是把本机时间写成 SLA。
 
@@ -84,9 +84,9 @@ uv run mypy ../investigations/issue_33/probe.py ../investigations/issue_33/test_
 
 探针只从文件尾读取最多 65,557 bytes 定位 EOCD。它先验证单磁盘、非 ZIP64、entry count、中央目录长度与文件内边界；只有声明值通过后才按中央目录的精确长度读取，逐项累计压缩/解压大小并验证名称、重复项、加密和压缩方法。任一资源值超限即在正式解析前停止。
 
-随后以受限 entry stream 读取 OOXML relationships 和 worksheet XML：
+随后以受限 entry stream 读取 OOXML content types、relationships 和 XML parts：
 
-- worksheet `<f>` 节点识别公式，不依赖缓存值；
+- 对全部 OOXML XML part 的本地名 `<f>` 节点识别公式，不依赖固定 worksheet 路径或缓存值；自动检查还把公式 worksheet 移到 relationship 指定的非标准路径，并确认 `openpyxl` 能打开而预检仍会拒绝；
 - `externalLinks` part 或 external-link relationship 识别外部链接；
 - `connections.xml` 或 connections relationship 识别数据连接；
 - `activeX`、`ctrlProps`、`embeddings`、VBA/toolbars part 及对应 relationship type 识别嵌入主动对象；

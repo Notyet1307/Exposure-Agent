@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
+from openpyxl import load_workbook  # type: ignore[import-untyped]
 from probe import (
     MAX_ENTRY_UNCOMPRESSED_BYTES,
     MAX_TOTAL_UNCOMPRESSED_BYTES,
@@ -44,6 +46,39 @@ def test_forbidden_workbook_features_are_reliably_identified(
 
 
 @pytest.mark.parametrize(
+    "fixture_name", ["external_link", "data_connection", "embedded_object"]
+)
+def test_package_features_are_declared_not_orphan_parts(
+    tmp_path: Path, fixture_name: str
+) -> None:
+    workbook = build_fixture(fixture_name, tmp_path / f"{fixture_name}.xlsx")
+
+    with ZipFile(workbook) as archive:
+        content_types = archive.read("[Content_Types].xml")
+        relationships = b"".join(
+            archive.read(name) for name in archive.namelist() if name.endswith(".rels")
+        )
+
+    assert b"fixture/" in content_types
+    assert b"fixture/" in relationships
+
+
+def test_formula_is_found_when_worksheet_uses_a_noncanonical_target(
+    tmp_path: Path,
+) -> None:
+    workbook = build_fixture("relocated_formula", tmp_path / "relocated.xlsx")
+    parsed = load_workbook(workbook, read_only=True, data_only=False, keep_links=True)
+    assert parsed.worksheets[0]["K2"].value == "=1+1"
+    parsed.close()
+
+    with pytest.raises(WorkbookRejected) as caught:
+        inspect_workbook(workbook)
+
+    assert caught.value.category == "unsupported_workbook_feature"
+    assert caught.value.reason == "formula"
+
+
+@pytest.mark.parametrize(
     ("fixture_name", "reason"),
     [
         ("entry_count_bomb", "zip_entry_count"),
@@ -69,6 +104,9 @@ def test_fixture_bytes_are_reproducible(tmp_path: Path) -> None:
     second = build_fixture("default_v1", tmp_path / "second.xlsx")
 
     assert first.read_bytes() == second.read_bytes()
+    with ZipFile(first) as archive:
+        core_properties = archive.read("docProps/core.xml")
+    assert core_properties.count(b"2026-01-01T00:00:00Z") == 2
 
 
 def test_normal_default_fixture_parses_at_the_public_seam(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import struct
 import sys
 import tempfile
@@ -369,19 +370,13 @@ def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
                             )
                     element.clear()
 
-        worksheet_names = sorted(
-            name
-            for name in names
-            if name.startswith("xl/worksheets/") and name.endswith(".xml")
-        )
-        for worksheet_name in worksheet_names:
-            with archive.open(worksheet_name) as worksheet_file:
-                for _event, element in ElementTree.iterparse(
-                    worksheet_file, events=("end",)
-                ):
+        xml_names = sorted(name for name in names if name.endswith(".xml"))
+        for xml_name in xml_names:
+            with archive.open(xml_name) as xml_file:
+                for _event, element in ElementTree.iterparse(xml_file, events=("end",)):
                     if element.tag.rsplit("}", maxsplit=1)[-1] == "f":
                         raise WorkbookRejected(
-                            "unsupported_workbook_feature", "formula", "worksheet_xml"
+                            "unsupported_workbook_feature", "formula", "ooxml_xml"
                         )
                     element.clear()
     except (ElementTree.ParseError, DefusedXmlException) as exc:
@@ -540,23 +535,92 @@ def _normalize_zip(path: Path) -> None:
         ZipFile(replacement, "w", compression=ZIP_DEFLATED, compresslevel=9) as target,
     ):
         for source_info in source.infolist():
-            target.writestr(
-                _fixed_zip_info(source_info.filename), source.read(source_info)
-            )
+            source_data = source.read(source_info)
+            if source_info.filename == "docProps/core.xml":
+                source_data = re.sub(
+                    rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)",
+                    rb"\g<1>2026-01-01T00:00:00Z\g<2>",
+                    source_data,
+                )
+            target.writestr(_fixed_zip_info(source_info.filename), source_data)
     replacement.replace(path)
 
 
-def _append_member(path: Path, name: str, data: bytes) -> None:
+def _append_declared_part(
+    path: Path,
+    *,
+    name: str,
+    data: bytes,
+    content_type: str,
+    relationships_name: str,
+    relationship_type: str,
+    relationship_target: str,
+) -> None:
     replacement = path.with_suffix(".rewritten.xlsx")
+    relationship_written = False
+    declaration = (
+        f'<Override PartName="/{name}" ContentType="{content_type}"/>'
+    ).encode()
+    relationship = (
+        f'<Relationship Id="rIdFixture" Type="{relationship_type}" '
+        f'Target="{relationship_target}"/>'
+    ).encode()
     with (
         ZipFile(path) as source,
         ZipFile(replacement, "w", compression=ZIP_DEFLATED, compresslevel=9) as target,
     ):
         for source_info in source.infolist():
+            source_data = source.read(source_info)
+            if source_info.filename == "[Content_Types].xml":
+                source_data = source_data.replace(
+                    b"</Types>", declaration + b"</Types>"
+                )
+            elif source_info.filename == relationships_name:
+                source_data = source_data.replace(
+                    b"</Relationships>", relationship + b"</Relationships>"
+                )
+                relationship_written = True
+            target.writestr(_fixed_zip_info(source_info.filename), source_data)
+        if not relationship_written:
             target.writestr(
-                _fixed_zip_info(source_info.filename), source.read(source_info)
+                _fixed_zip_info(relationships_name),
+                (
+                    f'<Relationships xmlns="{REL_NS}">'.encode()
+                    + relationship
+                    + b"</Relationships>"
+                ),
             )
         target.writestr(_fixed_zip_info(name), data)
+    replacement.replace(path)
+
+
+def _relocate_first_worksheet(path: Path) -> None:
+    original_name = "xl/worksheets/sheet1.xml"
+    relocated_name = "xl/fixture/worksheet.xml"
+    replacement = path.with_suffix(".relocated.xlsx")
+    with (
+        ZipFile(path) as source,
+        ZipFile(replacement, "w", compression=ZIP_DEFLATED, compresslevel=9) as target,
+    ):
+        worksheet_data = source.read(original_name)
+        for source_info in source.infolist():
+            if source_info.filename == original_name:
+                continue
+            source_data = source.read(source_info)
+            if source_info.filename == "[Content_Types].xml":
+                source_data = source_data.replace(
+                    b"/xl/worksheets/sheet1.xml", b"/xl/fixture/worksheet.xml"
+                )
+            elif source_info.filename == "xl/_rels/workbook.xml.rels":
+                source_data = source_data.replace(
+                    b'Target="/xl/worksheets/sheet1.xml"',
+                    b'Target="/xl/fixture/worksheet.xml"',
+                ).replace(
+                    b'Target="worksheets/sheet1.xml"',
+                    b'Target="fixture/worksheet.xml"',
+                )
+            target.writestr(_fixed_zip_info(source_info.filename), source_data)
+        target.writestr(_fixed_zip_info(relocated_name), worksheet_data)
     replacement.replace(path)
 
 
@@ -785,8 +849,11 @@ def build_fixture(name: str, path: Path) -> Path:
                 archive.writestr(_fixed_zip_info(f"fixture/{index:04d}.bin"), b"")
         return path
 
-    _save_default_workbook(path, formula=name == "formula")
-    if name == "default_v1" or name == "formula":
+    _save_default_workbook(path, formula=name in {"formula", "relocated_formula"})
+    if name in {"default_v1", "formula"}:
+        return path
+    if name == "relocated_formula":
+        _relocate_first_worksheet(path)
         return path
     if name == "near_request_limit":
         _add_near_limit_static_image(path)
@@ -799,19 +866,35 @@ def build_fixture(name: str, path: Path) -> Path:
         workbook.close()
         _normalize_zip(path)
     elif name == "external_link":
-        _append_member(
+        _append_declared_part(
             path,
-            "xl/externalLinks/externalLink1.xml",
-            f'<externalLink xmlns="{MAIN_NS}"/>'.encode(),
+            name="xl/fixture/external-link.xml",
+            data=f'<externalLink xmlns="{MAIN_NS}"/>'.encode(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.externalLink+xml",
+            relationships_name="xl/_rels/workbook.xml.rels",
+            relationship_type=f"{OFFICE_REL_NS}/externalLink",
+            relationship_target="fixture/external-link.xml",
         )
     elif name == "data_connection":
-        _append_member(
+        _append_declared_part(
             path,
-            "xl/connections.xml",
-            f'<connections xmlns="{MAIN_NS}" count="0"/>'.encode(),
+            name="xl/fixture/connections.xml",
+            data=f'<connections xmlns="{MAIN_NS}" count="0"/>'.encode(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.connections+xml",
+            relationships_name="xl/_rels/workbook.xml.rels",
+            relationship_type=f"{OFFICE_REL_NS}/connections",
+            relationship_target="fixture/connections.xml",
         )
     elif name == "embedded_object":
-        _append_member(path, "xl/embeddings/oleObject1.bin", b"fixture-active-object")
+        _append_declared_part(
+            path,
+            name="xl/fixture/object.bin",
+            data=b"fixture-active-object",
+            content_type="application/vnd.openxmlformats-officedocument.oleObject",
+            relationships_name="xl/worksheets/_rels/sheet1.xml.rels",
+            relationship_type=f"{OFFICE_REL_NS}/oleObject",
+            relationship_target="../fixture/object.bin",
+        )
     elif name == "compression_bomb":
         with ZipFile(path, "a", compression=ZIP_DEFLATED, compresslevel=9) as archive:
             info = _fixed_zip_info("xl/sharedStrings.xml")
