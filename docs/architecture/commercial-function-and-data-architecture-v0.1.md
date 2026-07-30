@@ -250,23 +250,23 @@ CustomerUpload 的数据行粒度是一个 IP 的一个端口。同一 IP 可以
 
 上传阶段不按 IP 或 IP + 端口合并，也不执行行级去重。所有通过校验的数据行及其顺序都原样保存在不可变 XLSX Artifact 中，完全相同的重复行也不改写；SourceSnapshot 只记录来源批次、Artifact 引用、内容 Hash、Profile/Schema 版本和记录数。逐行结构化及来源行号属于后续 Observation，资产归并、冲突判断和去重属于再后的 Resource Resolution，均不进入第三交付阶段。当前阶段只做整份文件级幂等。
 
-不同客户文件的表头差异通过不可变、版本化的 CustomerUploadProfile 适配。每个 Profile 只归属于一个 Project，各 Project 独立维护版本链，不建设跨 Project 共享 Profile 库；新 Project 根据系统内置默认结构形成自己的 v1。Project 选择用于后续上传的版本；已接受的 CustomerUpload 固定 Profile ID 与版本，Project 后续切换版本不重新解释历史上传。
+不同客户文件的表头差异最终通过不可变、版本化的 CustomerUploadProfile 适配。每个 Profile 只归属于一个 Project，各 Project 独立维护版本链，不建设跨 Project 共享 Profile 库；新 Project 根据系统内置默认结构形成自己的 v1。当前第三交付阶段只使用并展示默认 v1，Project 的当前 Profile 指针初始化为该版本；已接受的 CustomerUpload 固定 Profile ID 与版本。只有真实客户表头证明默认 v1 不足时，才另行交付新版本创建与切换，且该可选能力不阻塞默认 v1 的 Run 主链路。
 
-整份文件级幂等键是 Project ID、上传原始字节 SHA-256、Profile ID 与 Profile 版本的组合。相同组合再次上传时返回既有 CustomerUpload，不创建第二份业务记录或 Artifact；切换 Profile 版本后再次上传相同字节时创建新的 CustomerUpload，因为校验契约已经变化。
+整份文件级幂等键是 Project ID、上传原始字节 SHA-256、Profile ID 与 Profile 版本的组合。相同组合再次上传时返回既有 CustomerUpload 及其 Artifact；不同 Profile 版本下的相同字节形成新的 CustomerUpload 和新的 1:1 Artifact，因为校验契约已经变化。本阶段不建设跨上传内容寻址或共享 Artifact。
 
 每个 Project 只保存一个当前选定 CustomerUpload 指针。上传成功只进入可选列表，不自动改变该指针；Operator 必须显式选择且动作必须审计。定时、手动和 API Trigger 都统一使用当前指针，不允许按单次 Trigger 临时覆盖；未选择时启动前拒绝且不创建 GovernanceRun。Run 创建后固定当时的 CustomerUpload，后续切换只影响未来 Run。
 
 为清理误上传的敏感文件，只有 Admin 可以删除当前未被选中、且从未被 GovernanceRun 或 SourceSnapshot 引用的 CustomerUpload；删除业务记录和 Artifact，并保留不含文件内容的 AuditEvent。当前选中或已经被引用的 CustomerUpload 不提供手工删除能力，后续只受统一 Artifact 保留策略约束。
 
-CustomerUploadProfile 的配置面只包含列名映射、别名、必填或可选，以及缺失时的拒绝或 warning 分类。IP、端口、Web 标识、URL 等字段的值语义与核心字段不可降级约束仍由确定性 Python 代码负责；初期不提供任意表达式、可视化规则编辑器或通用规则 DSL。
+未来确有真实客户表头差异时，CustomerUploadProfile 的可配置面最多包含列名映射、别名、必填或可选，以及缺失时的拒绝或 warning 分类。IP、端口、Web 标识、URL 等字段的值语义与核心字段不可降级约束仍由确定性 Python 代码负责；当前默认 v1 校验器不接受 Profile JSON 或可选 Schema 参数，初期不提供任意表达式、可视化规则编辑器或通用规则 DSL。
 
-系统在创建 Project 时自动形成默认 CustomerUploadProfile v1。第三交付阶段不实现 Profile 编辑 UI；需要适配真实客户表头时，Admin 只能通过受严格 Schema 校验的窄 JSON API 创建新的不可变版本并切换，页面只展示当前版本及版本标识。
+系统在创建 Project 时自动形成 Project 专属的默认 CustomerUploadProfile v1，并把不可变定义快照保存到 PostgreSQL；已有 Project 通过迁移补齐。第三交付阶段当前只提供当前 Profile 的只读结构摘要，不实现 Profile 创建、切换或编辑 UI。真实客户表头需要适配时，再由独立、非阻塞票决定 Admin 的窄 JSON API，不提前建设通用 validator。
 
-默认 Profile v1 的必需表头是 `资产IP`、`起始端口`、`结束端口`、`是否web界面` 和 `web界面url`；`web界面url` 表头始终存在，但行值只在 Web 标识为“是”时必填。`服务类型`、`资产负责人`、`资产所属部门`、`端口负责人` 和 `部门` 是可选责任信息，缺失只产生 warning；`序号` 可有可无，只作为来源字段保留，不参与校验和匹配。默认 v1 不要求其他列。
+默认 Profile v1 的必需表头是 `资产IP`、`起始端口`、`结束端口`、`是否web界面` 和 `web界面url`；`web界面url` 表头始终存在，但行值只在 Web 标识为“是”时必填。表头必须精确匹配，不做首尾空格、大小写、全半角或近似归一；显式别名留给未来 Profile 版本。`服务类型`、`资产负责人`、`资产所属部门`、`端口负责人` 和 `部门` 是可选责任信息，缺失只产生 warning；`序号` 可有可无，只作为来源字段保留，不参与校验和匹配。默认 v1 不要求其他列。
 
 Profile 未定义的额外列不导致拒绝，原样留在不可变 XLSX Artifact 中，但第三交付阶段不解析、不匹配，也不写入结构化事实。上传结果只返回 `extra_columns_ignored` warning 和额外列数量，不回显列名或内容；需要使用这些列时再通过新的 Profile 版本显式映射。
 
-接受时产生的 warning 只作为 CustomerUpload 上的不可变汇总保存，包含稳定 code、规范字段标识和数量；不创建逐行 warning 表，不保存单元格内容、原始列名或行号，也不增加 `ACCEPTED_WITH_WARNINGS` 状态。页面只展示汇总，详细来源仍是原始 Artifact。
+接受时产生的 warning 只作为 CustomerUpload 上的不可变汇总保存，包含稳定 code、规范字段标识和数量。五个责任字段按受影响的数据行计数：整列缺失时数量等于非空数据行数，表头存在时数量等于该列空值行数；`序号` 缺失或为空不产生 warning；`extra_columns_ignored` 是唯一按额外列数量计数的 warning。不创建逐行 warning 表，不保存单元格内容、原始列名或行号，也不增加 `ACCEPTED_WITH_WARNINGS` 状态。页面只展示汇总，详细来源仍是原始 Artifact。
 
 第三交付阶段只接收 `.xlsx` CustomerUpload，并同时校验文件扩展名与实际 ZIP/OOXML 结构；`.xls`、`.csv`、`.xlsm` 或扩展名与内容不一致的文件直接拒绝，不在服务端自动转换格式。
 
@@ -280,7 +280,7 @@ XLSX 只作为静态数据载体。任意列出现公式，或工作簿包含外
 
 CustomerUpload 实际接收内容统一限制为 20 MiB（20 × 1024 × 1024 字节），不按 Project 配置不同上限，也不只信任客户端声明的 `Content-Length`。服务端流式计数，超限后立即停止、删除临时文件并返回稳定脱敏错误，不创建 CustomerUpload。
 
-Artifact 存储键只使用服务端生成的 UUID 或 Hash，原始文件名不得进入存储路径或临时路径。原始文件名最多作为 CustomerUpload 的受保护展示元数据保存，只接受不含路径与控制字符、长度不超过 128 个字符的 `.xlsx` basename；不合法时返回 `invalid_filename`。文件名不得进入日志或错误响应。
+每个 CustomerUpload 独占一个 Artifact，Artifact 存储键只使用服务端生成的 UUID，原始文件名不得进入存储路径或临时路径。原始文件名最多作为 CustomerUpload 的受保护展示元数据保存，只接受不含路径与控制字符、长度不超过 128 个字符的 `.xlsx` basename；不合法时返回 `invalid_filename`。文件名不得进入日志或错误响应。
 
 由于 XLSX 是 ZIP 容器，20 MiB 请求上限不能单独约束解压后的 CPU、内存和磁盘占用。实现验收前必须使用最终确定性 parser 对正常边界样例做最小资源基准，据此在代码和测试中固定全局 ZIP 条目数、单条目解压量和总解压量上限，不按 Project 配置。解析前先检查 ZIP 目录并使用受限读取；正常边界 fixture 必须通过，压缩炸弹 fixture 必须以 `workbook_resource_limit` 拒绝、删除临时文件且不创建 CustomerUpload。
 
@@ -289,12 +289,12 @@ Artifact 存储键只使用服务端生成的 UUID 或 Hash，原始文件名不
 | HTTP | 稳定类别 |
 |---:|---|
 | 400 | `invalid_filename`、`incomplete_upload` |
-| 401 | `upload_authentication_failed` |
-| 403 | `upload_authorization_failed` |
 | 413 | `upload_too_large`、`workbook_resource_limit` |
 | 415 | `unsupported_workbook_type` |
-| 422 | `malformed_workbook`、`missing_required_structure`、`invalid_required_value` |
+| 422 | `malformed_workbook`、`unsupported_workbook_feature`、`missing_required_structure`、`invalid_required_value` |
 | 500 | `upload_storage_failed` |
+
+认证、Project 授权、归档和资源存在性错误复用控制面既有的 401、403、404 和 409 契约，不为上传端点重写认证依赖或增加第二套授权错误码。
 
 最终交付仍以客户系统 API 经 OctoBus 接入为目标。客户提供 API 文档后，不让 Agent 在生产运行时临时理解文档并直接调用接口。
 
@@ -897,7 +897,7 @@ Endpoint
 
 Viewer、Operator 和 Approver 通过 `ProjectMembership` 按项目授权。Admin 是全局身份，不写入 `ProjectMembership`。
 
-只有 Admin 可以为 Project 创建新的不可变 CustomerUploadProfile 版本或切换当前版本。Operator 使用 Project 当前版本接收 CustomerUpload，并为 GovernanceRun 选择已接受的上传；Viewer 和仅拥有 Approver 的成员只能查看。不为该职责新增角色。
+当前第三交付阶段由系统为 Project 建立默认 CustomerUploadProfile v1，不提供人工创建或切换。未来真实客户表头证明需要新版本时，只有 Admin 可以创建新的不可变版本或切换当前版本。Operator 使用 Project 当前版本接收 CustomerUpload，并为 GovernanceRun 选择已接受的上传；Viewer 和仅拥有 Approver 的成员只能查看。不为该职责新增角色。
 
 ### 12.2 系统身份
 
@@ -982,7 +982,7 @@ ip_address
 occurred_at
 ```
 
-CustomerUploadProfile 版本创建与切换、CustomerUpload 接收与选择、数据源变更、Run Trigger/Retry/Rerun、人工确认、Plan 变更、审批、Apply、Policy 变更、角色变更和 Artifact 下载必须审计。
+CustomerUpload 接收与选择、数据源变更、Run Trigger/Retry/Rerun、人工确认、Plan 变更、审批、Apply、Policy 变更、角色变更和 Artifact 下载必须审计；CustomerUploadProfile 版本创建与切换在未来实际引入时沿用同一最小审计机制。
 
 ### 13.4 指标
 
@@ -1096,7 +1096,7 @@ Elasticsearch
 1. 固定版本模板基线导入并证明上游检查可运行
 2. 模板清理与私有化控制面收敛
 3. Project + ProjectMembership 三个项目角色 + AuditEvent
-4. CustomerUpload 输入契约（含版本化 Profile）+ 云图 SourceInstance 控制面与 OctoBus 读取验证
+4. CustomerUpload 默认 Profile v1 输入契约 + 云图 SourceInstance 控制面与 OctoBus 读取验证；Profile v2 仅在真实表头需要时另行交付且不阻塞本阶段主链路
 5. GovernanceRun + agent-compose Governance Runner 最小闭环（创建或恢复、幂等、步骤状态 + 所需 PostgreSQL 迁移）
 6. 客户文件正式摄取 + 云图 OctoBus 正式拉取 + SourceSnapshot
 7. Observation + Resource Resolution
