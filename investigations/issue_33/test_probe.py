@@ -97,7 +97,7 @@ def test_vml_button_markup_is_detected_without_vml_declarations(tmp_path: Path) 
     assert caught.value.reason == "embedded_active_object"
 
 
-def test_formula_is_found_in_mixed_case_relationship_targeted_xml_part(
+def test_formula_is_found_in_relationship_targeted_non_xml_part(
     tmp_path: Path,
 ) -> None:
     workbook = build_fixture("relocated_formula", tmp_path / "relocated.xlsx")

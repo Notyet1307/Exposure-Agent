@@ -311,8 +311,19 @@ def _content_type_rejection(content_type: str) -> str | None:
     return None
 
 
+def _is_xml_content_type(content_type: str) -> bool:
+    lowered = content_type.casefold()
+    return (
+        lowered == "application/xml"
+        or lowered.endswith("+xml")
+        or lowered == "application/vnd.openxmlformats-officedocument.vmldrawing"
+    )
+
+
 def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
     names = set(archive.namelist())
+    declared_xml_parts: set[str] = set()
+    xml_extensions: set[str] = set()
     if "[Content_Types].xml" not in names:
         raise WorkbookRejected(
             "malformed_workbook", "missing_content_types", "ooxml_structure"
@@ -322,13 +333,24 @@ def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
             for _event, element in ElementTree.iterparse(
                 content_types_file, events=("end",)
             ):
-                reason = _content_type_rejection(element.attrib.get("ContentType", ""))
+                content_type = element.attrib.get("ContentType", "")
+                reason = _content_type_rejection(content_type)
                 if reason is not None:
                     raise WorkbookRejected(
                         "unsupported_workbook_feature",
                         reason,
                         "ooxml_content_types",
                     )
+                local_name = element.tag.rsplit("}", maxsplit=1)[-1]
+                if _is_xml_content_type(content_type):
+                    if local_name == "Override":
+                        part_name = element.attrib.get("PartName", "").lstrip("/")
+                        if part_name:
+                            declared_xml_parts.add(part_name)
+                    elif local_name == "Default":
+                        extension = element.attrib.get("Extension", "").casefold()
+                        if extension:
+                            xml_extensions.add(f".{extension}")
                 element.clear()
     except (ElementTree.ParseError, DefusedXmlException) as exc:
         raise WorkbookRejected(
@@ -374,7 +396,10 @@ def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
                     element.clear()
 
         xml_names = sorted(
-            name for name in names if name.lower().endswith((".xml", ".vml"))
+            name
+            for name in names
+            if name in declared_xml_parts
+            or any(name.casefold().endswith(extension) for extension in xml_extensions)
         )
         for xml_name in xml_names:
             with archive.open(xml_name) as xml_file:
@@ -646,7 +671,7 @@ def _add_vml_button(path: Path) -> None:
 
 def _relocate_first_worksheet(path: Path) -> None:
     original_name = "xl/worksheets/sheet1.xml"
-    relocated_name = "xl/fixture/worksheet.XML"
+    relocated_name = "xl/fixture/worksheet.dat"
     replacement = path.with_suffix(".relocated.xlsx")
     with (
         ZipFile(path) as source,
@@ -659,15 +684,15 @@ def _relocate_first_worksheet(path: Path) -> None:
             source_data = source.read(source_info)
             if source_info.filename == "[Content_Types].xml":
                 source_data = source_data.replace(
-                    b"/xl/worksheets/sheet1.xml", b"/xl/fixture/worksheet.XML"
+                    b"/xl/worksheets/sheet1.xml", b"/xl/fixture/worksheet.dat"
                 )
             elif source_info.filename == "xl/_rels/workbook.xml.rels":
                 source_data = source_data.replace(
                     b'Target="/xl/worksheets/sheet1.xml"',
-                    b'Target="/xl/fixture/worksheet.XML"',
+                    b'Target="/xl/fixture/worksheet.dat"',
                 ).replace(
                     b'Target="worksheets/sheet1.xml"',
-                    b'Target="fixture/worksheet.XML"',
+                    b'Target="fixture/worksheet.dat"',
                 )
             target.writestr(_fixed_zip_info(source_info.filename), source_data)
         target.writestr(_fixed_zip_info(relocated_name), worksheet_data)
