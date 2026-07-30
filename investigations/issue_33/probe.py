@@ -320,6 +320,11 @@ def _is_xml_content_type(content_type: str) -> bool:
     )
 
 
+def _is_formula_element(local_name: str) -> bool:
+    normalized = local_name.casefold()
+    return normalized == "f" or normalized.startswith("formula")
+
+
 def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
     names = set(archive.namelist())
     declared_xml_parts: set[str] = set()
@@ -405,7 +410,7 @@ def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
             with archive.open(xml_name) as xml_file:
                 for _event, element in ElementTree.iterparse(xml_file, events=("end",)):
                     local_name = element.tag.rsplit("}", maxsplit=1)[-1]
-                    if local_name == "f":
+                    if _is_formula_element(local_name):
                         raise WorkbookRejected(
                             "unsupported_workbook_feature", "formula", "ooxml_xml"
                         )
@@ -932,6 +937,29 @@ def build_fixture(name: str, path: Path) -> Path:
         return path
     if name == "near_request_limit":
         _add_near_limit_static_image(path)
+    elif name == "conditional_format_formula":
+        workbook = load_workbook(path)
+        worksheet = workbook.active
+        worksheet.conditional_formatting.add(
+            "A2:A4",
+            openpyxl.formatting.rule.FormulaRule(formula=["A2=1"]),
+        )
+        _set_reproducible_properties(workbook)
+        workbook.save(path)
+        workbook.close()
+        _normalize_zip(path)
+    elif name == "data_validation_formula":
+        workbook = load_workbook(path)
+        worksheet = workbook.active
+        validation = openpyxl.worksheet.datavalidation.DataValidation(
+            type="whole", operator="between", formula1="1", formula2="9"
+        )
+        worksheet.add_data_validation(validation)
+        validation.add("A2:A4")
+        _set_reproducible_properties(workbook)
+        workbook.save(path)
+        workbook.close()
+        _normalize_zip(path)
     elif name == "hidden_sheet":
         workbook = load_workbook(path)
         hidden = workbook.create_sheet("Hidden fixture")
