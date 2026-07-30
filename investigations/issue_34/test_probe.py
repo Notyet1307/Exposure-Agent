@@ -8,11 +8,15 @@ from probe import (
     CONTROL_VERSION,
     GUEST_IMAGE,
     GUEST_RUNTIME_VERSION,
+    CommandResult,
     RecoveryAction,
     SessionObservation,
     classify_session,
     recovery_action,
     redact_report,
+    _require_outage_query_failure,
+    _require_same_session,
+    _resumed_session_id,
 )
 
 
@@ -77,6 +81,35 @@ class ProbeContractTests(unittest.TestCase):
             recovery_action(SessionObservation.UNKNOWN),
             RecoveryAction.HOLD_PROJECT_RUN_SLOT,
         )
+
+    def test_outage_must_reject_the_authoritative_query(self) -> None:
+        _require_outage_query_failure(CommandResult(1, "", "unavailable"))
+        with self.assertRaisesRegex(RuntimeError, "unexpectedly succeeded"):
+            _require_outage_query_failure(CommandResult(0, "{}", ""))
+
+    def test_terminal_resume_requires_a_successful_same_id_response(self) -> None:
+        resumed_id = _resumed_session_id(
+            CommandResult(
+                0,
+                '{"results":[{"sandbox_id":"original-id","status":"resumed"}]}',
+                "",
+            )
+        )
+        self.assertEqual(resumed_id, "original-id")
+        _require_same_session("original-id", resumed_id, call="first terminal resume")
+
+        with self.assertRaisesRegex(RuntimeError, "resume failed"):
+            _resumed_session_id(CommandResult(2, "", "not found"))
+        with self.assertRaisesRegex(RuntimeError, "did not report resumed"):
+            _resumed_session_id(
+                CommandResult(
+                    0,
+                    '{"results":[{"sandbox_id":"original-id","status":"running"}]}',
+                    "",
+                )
+            )
+        with self.assertRaisesRegex(RuntimeError, "replaced the original"):
+            _require_same_session("original-id", "replacement-id", call="retry")
 
     def test_redaction_removes_machine_paths_credentials_and_guest_output(self) -> None:
         report = redact_report(

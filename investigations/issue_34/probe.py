@@ -270,6 +270,35 @@ def _resume(container: str, sandbox_id: str) -> CommandResult:
     )
 
 
+def _require_outage_query_failure(result: CommandResult) -> None:
+    """Ensure the injected outage rejected the authoritative query."""
+    if result.returncode == 0:
+        raise RuntimeError("outage status query unexpectedly succeeded")
+
+
+def _resumed_session_id(result: CommandResult) -> str:
+    """Parse and validate the one same-session resume result."""
+    if result.returncode != 0:
+        raise RuntimeError(f"resume failed with exit code {result.returncode}")
+    results = _json(result).get("results")
+    if not isinstance(results, list) or len(results) != 1:
+        raise RuntimeError("resume response did not contain exactly one result")
+    resumed = results[0]
+    if not isinstance(resumed, dict):
+        raise RuntimeError("resume result was not an object")
+    session_id = resumed.get("sandbox_id")
+    if not isinstance(session_id, str) or not session_id:
+        raise RuntimeError("resume result did not contain a sandbox_id")
+    if resumed.get("status") != "resumed":
+        raise RuntimeError("resume result did not report resumed status")
+    return session_id
+
+
+def _require_same_session(original: str, resumed: str, *, call: str) -> None:
+    if resumed != original:
+        raise RuntimeError(f"{call} replaced the original session")
+
+
 def _event(
     sandbox: dict[str, Any],
     *,
@@ -332,13 +361,15 @@ def run_probe() -> dict[str, Any]:
             port = _mapped_port(control)
             _stop_control_plane(control)
             outage = _external_status(port)
+            _require_outage_query_failure(outage)
             control = _start_control_plane(root, second_control)
             recovered_running = _wait_for_status(
                 control, caller_lost["id"], {"running", "stopped", "failed"}
             )
             session_count_after_restart = len(_sandboxes(control))
             unknown_event = {
-                "control_plane_reachable": outage.returncode == 0,
+                "control_plane_reachable": False,
+                "outage_query_returncode": outage.returncode,
                 "observation": SessionObservation.UNKNOWN,
                 "recovery_action": recovery_action(SessionObservation.UNKNOWN),
                 "session_count_before_outage": session_count_before_outage,
@@ -349,11 +380,37 @@ def run_probe() -> dict[str, Any]:
 
             session_count_before_resume = session_count_after_restart
             resume_once = _resume(control, success_sandbox["sandbox_id"])
+            first_resumed_session_id = _resumed_session_id(resume_once)
+            _require_same_session(
+                success_sandbox["sandbox_id"],
+                first_resumed_session_id,
+                call="first terminal resume",
+            )
             resumed = _wait_for_status(
                 control, succeeded["id"], {"running", "stopped", "failed"}
             )
+            resumed_session_id = resumed.get("sandbox_id")
+            if not isinstance(resumed_session_id, str):
+                raise RuntimeError("resumed session was not returned by authoritative query")
+            _require_same_session(
+                first_resumed_session_id,
+                resumed_session_id,
+                call="post-resume authoritative query",
+            )
             resume_twice = _resume(control, success_sandbox["sandbox_id"])
+            repeated_resumed_session_id = _resumed_session_id(resume_twice)
+            _require_same_session(
+                success_sandbox["sandbox_id"],
+                repeated_resumed_session_id,
+                call="repeated terminal resume",
+            )
             resume_failed = _resume(control, failed_sandbox["sandbox_id"])
+            failure_resumed_session_id = _resumed_session_id(resume_failed)
+            _require_same_session(
+                failed_sandbox["sandbox_id"],
+                failure_resumed_session_id,
+                call="failed-session terminal resume",
+            )
             session_count_after_retries = len(_sandboxes(control))
             _daemon_command(
                 control,
@@ -388,6 +445,10 @@ def run_probe() -> dict[str, Any]:
                 ],
             )
             resume_missing = _resume(control, failed_sandbox["sandbox_id"])
+            if resume_missing.returncode != 2:
+                raise RuntimeError(
+                    "missing session resume did not return the expected stable failure"
+                )
 
             return {
                 "control_plane": {
@@ -420,9 +481,12 @@ def run_probe() -> dict[str, Any]:
                     ),
                     "resume": {
                         "original_session_id": success_sandbox["sandbox_id"],
-                        "session_id_after_first_resume": resumed["sandbox_id"],
+                        "first_response_session_id": first_resumed_session_id,
+                        "session_id_after_first_resume": resumed_session_id,
+                        "repeated_response_session_id": repeated_resumed_session_id,
+                        "failure_terminal_response_session_id": failure_resumed_session_id,
                         "same_session_id": success_sandbox["sandbox_id"]
-                        == resumed["sandbox_id"],
+                        == resumed_session_id,
                         "first_call_returncode": resume_once.returncode,
                         "repeated_call_returncode": resume_twice.returncode,
                         "failure_terminal_call_returncode": resume_failed.returncode,
