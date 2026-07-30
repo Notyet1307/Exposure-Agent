@@ -13,12 +13,20 @@ Project 对一个外部系统 OctoBus Instance 的业务引用，标明其为客
 _Avoid_: Connector、凭据副本、SourceSnapshot、CustomerUpload
 
 **CustomerUpload**:
-客户系统不可达期间用于初期测试的客户侧输入文件版本，由授权用户上传并经过确定性校验，以不可变内容 Hash 标识并归属于一个 Project；GovernanceRun 明确固定其中一个版本。它是过渡输入，不冒充 SourceInstance，也不改变客户系统最终经 OctoBus 接入的目标。
-_Avoid_: 客户系统、SourceInstance、可变附件路径、最终集成方式
+客户系统不可达期间用于初期测试的客户侧输入文件版本，只有通过确定性校验后才成立，具有不可变 ID 与内容 Hash、归属于一个 Project，并固定校验时使用的 CustomerUploadProfile 版本；GovernanceRun 明确固定其中一个版本。它是过渡输入，不冒充 SourceInstance，也不改变客户系统最终经 OctoBus 接入的目标。
+_Avoid_: 上传尝试、校验失败文件、客户系统、SourceInstance、可变附件路径、最终集成方式
+
+**CustomerUploadProfile**:
+归属于一个 Project 的不可变、版本化表格结构契约，定义后续 CustomerUpload 的列名映射、别名、必填或可选，以及缺失时的拒绝或 warning 分类；每个 Project 独立维护版本链，每个 CustomerUpload 固定校验时使用的版本。IP、端口、Web 标识、URL 等值语义及核心字段不可降级约束仍由确定性代码定义。
+_Avoid_: 跨 Project 共享 Profile、通用规则 DSL、可视化规则编辑器、历史上传重解释、值校验脚本
 
 **GovernanceRun**:
 在一个 Project 内由 Runner 实际开始执行的一次有边界的对账周期，固定客户侧输入、暴露面 SourceInstance、已验证连接配置版本和实际参与计算的 Runner 版本，并记录本轮各数据源的快照、观察结果和差异。初期测试的客户侧输入是一个 CustomerUpload 内容 Hash；客户系统可达后的最终输入是客户 SourceInstance。同一 Project 可以持续产生多轮 GovernanceRun，但同一时间最多执行一轮；尚未启动 Runner 的触发请求不是 GovernanceRun。规范化、字段映射或 Policy 功能引入后，其实际版本也随 Run 固定。
 _Avoid_: Project、长期资产范围、排队中的触发请求
+
+**SourceSnapshot**:
+GovernanceRun 对一个输入来源实际读取结果的不可变批次记录，固定来源版本、原始 Artifact 引用、内容 Hash、Schema 或连接指纹及记录数。它不保存后续规范化的 Observation，也不是统一资产 Resource。
+_Avoid_: CustomerUpload、SourceInstance、Observation、Resource、可变行表
 
 **GovernanceRun Status**:
 v0.1 只使用 `RUNNING`、`FAILED_DATA`、`FAILED_PROCESSING`、`COMPLETED` 和 `COMPLETED_WITH_WARNINGS`。失败状态表示执行已停止且可能 Retry；完成状态不可变。
