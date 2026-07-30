@@ -229,10 +229,72 @@ agent-compose 的 Run 成功不等于业务 Run 完成；客户业务状态始�
 → 类型、大小和结构校验
 → 计算内容 Hash 并保存不可变 Artifact
 → 形成 CustomerUpload
-→ Operator 为 GovernanceRun 选择该版本
+→ Operator 显式设为 Project 当前 CustomerUpload
 ```
 
 CustomerUpload 只是过渡输入，不是 Source Instance，也不通过伪造 Instance、Credential 或 Capset 复用 OctoBus。上传不自动触发 GovernanceRun；原始文件由确定性代码校验和解析，PI 不读取完整客户文件。客户系统可达后，新 Run 改用客户 Source Instance，历史 CustomerUpload 和基于它完成的 Run 继续保留。
+
+该路径只服务于客户系统尚未完成或不可达期间的短期初期测试，不建设长期通用导入平台。第三交付阶段只实现上传、确定性校验、不可变保存和 Run 选择所必需的最小能力，不增加上传预览、历史对比、生命周期状态、按 Project 保留策略、格式转换链路、数据清洗工作流或可视化 Profile 编辑器；完成下列最小契约后不再扩展文件上传能力。
+
+只有通过全部拒绝级校验的文件才创建 CustomerUpload。校验失败时删除临时文件并返回脱敏稳定类别，不创建 CustomerUpload，也不为失败尝试增加 `PENDING`、`REJECTED` 状态或独立 UploadAttempt 业务表；失败尝试只进入不含文件名、单元格内容和解析器原文的安全操作日志。
+
+任何参与资产匹配的核心字段无效时拒绝整份文件，不静默丢弃单行，也不创建部分有效的 CustomerUpload。初期核心字段包括资产 IP、起始端口与结束端口、Web 标识，以及 Web 标识为“是”时的 URL；部门、负责人、服务类型等责任描述字段缺失时接受文件并记录 warning，避免因非匹配字段不完整阻断对账。
+
+`资产IP` 去除首尾空格后必须是单个合法 IPv4 或 IPv6 字面值，私网地址允许。CIDR、IP 范围、逗号分隔列表、主机名、公式及其他表示均为拒绝级错误；服务端不自动拆分网段或执行 DNS 解析。
+
+`是否web界面` 去除首尾空格后接受 `是`、`否` 或 `无`；`无` 只是 `否` 的输入别名，不形成第三种业务状态。值为 `是` 时，`web界面url` 必须是单个非空文本，但可以不带 `http://` 或 `https://`；值为 `否` 或 `无` 时 URL 必须为空，否则整份拒绝。上传阶段不请求 URL，不做严格 URL 解析，也不强制它与本行资产 IP 或端口一致；原值保留在 Artifact，规范化留到后续 Observation。
+
+CustomerUpload 的数据行粒度是一个 IP 的一个端口。同一 IP 可以因开放多个端口出现多行，这些行不是重复资产；部门、负责人等责任字段在这些行中重复属于正常输入。为兼容现有表头，起始端口与结束端口继续同时存在，但两者必须相等；不相等表示端口范围，第三交付阶段拒绝整份文件而不展开范围。
+
+起始端口和结束端口必须分别表示 `1–65535` 的整数并且相等。接受 Excel 整数数值单元格或去除首尾空格后的纯十进制数字文本；`0`、负数、小数、公式、范围文本、十六进制及其他表示均为拒绝级错误，任一行不合法都拒绝整份文件。
+
+上传阶段不按 IP 或 IP + 端口合并，也不执行行级去重。所有通过校验的数据行及其顺序都原样保存在不可变 XLSX Artifact 中，完全相同的重复行也不改写；SourceSnapshot 只记录来源批次、Artifact 引用、内容 Hash、Profile/Schema 版本和记录数。逐行结构化及来源行号属于后续 Observation，资产归并、冲突判断和去重属于再后的 Resource Resolution，均不进入第三交付阶段。当前阶段只做整份文件级幂等。
+
+不同客户文件的表头差异通过不可变、版本化的 CustomerUploadProfile 适配。每个 Profile 只归属于一个 Project，各 Project 独立维护版本链，不建设跨 Project 共享 Profile 库；新 Project 根据系统内置默认结构形成自己的 v1。Project 选择用于后续上传的版本；已接受的 CustomerUpload 固定 Profile ID 与版本，Project 后续切换版本不重新解释历史上传。
+
+整份文件级幂等键是 Project ID、上传原始字节 SHA-256、Profile ID 与 Profile 版本的组合。相同组合再次上传时返回既有 CustomerUpload，不创建第二份业务记录或 Artifact；切换 Profile 版本后再次上传相同字节时创建新的 CustomerUpload，因为校验契约已经变化。
+
+每个 Project 只保存一个当前选定 CustomerUpload 指针。上传成功只进入可选列表，不自动改变该指针；Operator 必须显式选择且动作必须审计。定时、手动和 API Trigger 都统一使用当前指针，不允许按单次 Trigger 临时覆盖；未选择时启动前拒绝且不创建 GovernanceRun。Run 创建后固定当时的 CustomerUpload，后续切换只影响未来 Run。
+
+为清理误上传的敏感文件，只有 Admin 可以删除当前未被选中、且从未被 GovernanceRun 或 SourceSnapshot 引用的 CustomerUpload；删除业务记录和 Artifact，并保留不含文件内容的 AuditEvent。当前选中或已经被引用的 CustomerUpload 不提供手工删除能力，后续只受统一 Artifact 保留策略约束。
+
+CustomerUploadProfile 的配置面只包含列名映射、别名、必填或可选，以及缺失时的拒绝或 warning 分类。IP、端口、Web 标识、URL 等字段的值语义与核心字段不可降级约束仍由确定性 Python 代码负责；初期不提供任意表达式、可视化规则编辑器或通用规则 DSL。
+
+系统在创建 Project 时自动形成默认 CustomerUploadProfile v1。第三交付阶段不实现 Profile 编辑 UI；需要适配真实客户表头时，Admin 只能通过受严格 Schema 校验的窄 JSON API 创建新的不可变版本并切换，页面只展示当前版本及版本标识。
+
+默认 Profile v1 的必需表头是 `资产IP`、`起始端口`、`结束端口`、`是否web界面` 和 `web界面url`；`web界面url` 表头始终存在，但行值只在 Web 标识为“是”时必填。`服务类型`、`资产负责人`、`资产所属部门`、`端口负责人` 和 `部门` 是可选责任信息，缺失只产生 warning；`序号` 可有可无，只作为来源字段保留，不参与校验和匹配。默认 v1 不要求其他列。
+
+Profile 未定义的额外列不导致拒绝，原样留在不可变 XLSX Artifact 中，但第三交付阶段不解析、不匹配，也不写入结构化事实。上传结果只返回 `extra_columns_ignored` warning 和额外列数量，不回显列名或内容；需要使用这些列时再通过新的 Profile 版本显式映射。
+
+接受时产生的 warning 只作为 CustomerUpload 上的不可变汇总保存，包含稳定 code、规范字段标识和数量；不创建逐行 warning 表，不保存单元格内容、原始列名或行号，也不增加 `ACCEPTED_WITH_WARNINGS` 状态。页面只展示汇总，详细来源仍是原始 Artifact。
+
+第三交付阶段只接收 `.xlsx` CustomerUpload，并同时校验文件扩展名与实际 ZIP/OOXML 结构；`.xls`、`.csv`、`.xlsm` 或扩展名与内容不一致的文件直接拒绝，不在服务端自动转换格式。
+
+XLSX 只作为静态数据载体。任意列出现公式，或工作簿包含外部链接、数据连接、嵌入对象、OLE 或控件时整份拒绝；服务端不执行公式，也不读取公式缓存结果。普通样式和静态图片可以保留在原始 Artifact 中，但不解析、不参与校验或后续结构化结果。
+
+工作簿必须只包含一个可见工作表，不允许额外的可见、隐藏或 `veryHidden` 工作表；否则整份拒绝。服务端不自动选择第一个工作表，也不增加工作表名称配置。
+
+第一行固定为唯一表头，第二行开始为数据；不支持标题行、说明行、多行表头或合并表头。表头为空、重复，或多个列映射到同一规范字段时整份拒绝，不自动猜测表头位置。
+
+表头后必须至少有一条非空数据行，否则整份拒绝。完全空白的行直接忽略且不产生 warning，SourceSnapshot 记录数只统计非空行；只要一行中有任意内容，就必须作为数据行完成全部拒绝级校验，不能因核心字段缺失而被当作空行跳过。原始 XLSX Artifact 不因这些判断被改写。
+
+CustomerUpload 实际接收内容统一限制为 20 MiB（20 × 1024 × 1024 字节），不按 Project 配置不同上限，也不只信任客户端声明的 `Content-Length`。服务端流式计数，超限后立即停止、删除临时文件并返回稳定脱敏错误，不创建 CustomerUpload。
+
+Artifact 存储键只使用服务端生成的 UUID 或 Hash，原始文件名不得进入存储路径或临时路径。原始文件名最多作为 CustomerUpload 的受保护展示元数据保存，只接受不含路径与控制字符、长度不超过 128 个字符的 `.xlsx` basename；不合法时返回 `invalid_filename`。文件名不得进入日志或错误响应。
+
+由于 XLSX 是 ZIP 容器，20 MiB 请求上限不能单独约束解压后的 CPU、内存和磁盘占用。实现验收前必须使用最终确定性 parser 对正常边界样例做最小资源基准，据此在代码和测试中固定全局 ZIP 条目数、单条目解压量和总解压量上限，不按 Project 配置。解析前先检查 ZIP 目录并使用受限读取；正常边界 fixture 必须通过，压缩炸弹 fixture 必须以 `workbook_resource_limit` 拒绝、删除临时文件且不创建 CustomerUpload。
+
+拒绝级校验发现第一个错误后即停止，只向已授权 Operator 返回稳定 code、公开说明，以及适用时的首个工作表行号和规范字段标识。响应、业务审计和操作日志都不得包含原始单元格值、客户 IP、URL、文件名、原始列名、解析器异常或临时路径。
+
+| HTTP | 稳定类别 |
+|---:|---|
+| 400 | `invalid_filename`、`incomplete_upload` |
+| 401 | `upload_authentication_failed` |
+| 403 | `upload_authorization_failed` |
+| 413 | `upload_too_large`、`workbook_resource_limit` |
+| 415 | `unsupported_workbook_type` |
+| 422 | `malformed_workbook`、`missing_required_structure`、`invalid_required_value` |
+| 500 | `upload_storage_failed` |
 
 最终交付仍以客户系统 API 经 OctoBus 接入为目标。客户提供 API 文档后，不让 Agent 在生产运行时临时理解文档并直接调用接口。
 
@@ -273,9 +335,15 @@ Source Instance 的“连接有效”只表示当前 Instance 绑定和连接配
 
 OctoBus 当前提供 Instance 的 `ConfigSHA256` 和 `SecretSHA256`，可作为连接配置指纹的一部分，但二者不能单独证明 Capset 授权和实际读取方法可用。连接验证仍须通过对应 Service Package 的最小只读方法完成。初期先验证云图读取、Capset 与方法选择的稳定版本指纹和脱敏结果；客户系统侧的同类契约在其可达后验证，不以 CustomerUpload 结果冒充。
 
+第三交付阶段只把 #29 已验证的 `cloudatlas-read` 提升为产品拥有的 OctoBus Service Package，唯一暴露方法是 `cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets`。正式包固定 Package 与 Descriptor 内容 Hash，Capset 只绑定当前 CloudAtlas Instance 和该方法；不增加其他读取方法、Action 方法或通用 CloudAtlas Connector。
+
+CI 使用 #29 的确定性上游 fixture 验证该精确调用链、失败分类和指纹失效。真实 CloudAtlas 环境的单方法只读 canary 是部署前门槛；canary 通过前不得把 fixture 结果表述为真实授权、网络或生产数据契约已经验收。
+
 同一 Project 对每类外部系统最多启用一个 Source Instance，可以保留已停用的历史引用。初期只有一个云图 Source Instance，并可保留多个不可变 CustomerUpload 版本；每个 GovernanceRun 只固定其中一个。客户系统可达后再启用一个客户 Source Instance。启用同类新外部来源前必须停用旧来源；同侧多来源所需的优先级、冲突合并、部分失败和步骤扇出语义不进入 v0.1。
 
 Agent 可以协助生成 Service Package 草稿，但草稿必须经过代码审查、契约测试和人工启用。
+
+第三交付阶段的管理页面只包含：Project 输入页的 CustomerUpload 上传、列表、选择和 warning 汇总；CloudAtlas 来源页的 Instance 绑定、验证状态、指纹及 Admin 配置、验证、启停操作；Run 页的 Trigger、Retry/Rerun、三步状态、固定输入和两个 SourceSnapshot 的 Hash 与记录数。该阶段不提供资产明细、比对结果、Finding、报告或原始数据预览；依赖项 10 的客户 Web 是后续包含资产和 Finding 的完整页面，不由此处提前实现。
 
 ## 6. 端到端数据流
 
@@ -305,13 +373,13 @@ Cron / 手动 / API
 
 `GovernanceRun` 不表示排队中的触发请求。只有 Runner 真正开始执行后，才按 `project_id + trigger_id` 原子地创建或恢复业务 Run；Runner 启动前的失败不创建空 Run，由 agent-compose 的触发或 Session 历史以及必要的 `AuditEvent` 记录。
 
-Runner 在创建或恢复 `GovernanceRun` 前检查 Project 的来源前置条件。初期测试要求一个已通过校验的 CustomerUpload 和唯一一个启用且连接有效的云图 Source Instance；客户系统可达后，客户 Source Instance 替代 CustomerUpload。缺少任一输入、文件未通过校验、外部来源未启用或连接尚未验证时，启动前拒绝且不创建业务 Run；输入就绪后开始执行、但实际读取失败时，才创建并保留 `FAILED_DATA` Run。
+Runner 在创建或恢复 `GovernanceRun` 前检查 Project 的来源前置条件。初期测试要求一个当前选定且已通过校验的 CustomerUpload，以及唯一一个启用且连接有效的云图 Source Instance；客户系统可达后，客户 Source Instance 替代 CustomerUpload。缺少任一输入、文件未通过校验、外部来源未启用或连接尚未验证时，启动前拒绝且不创建业务 Run；输入就绪后开始执行、但实际读取失败时，才创建并保留 `FAILED_DATA` Run。
 
 创建 `GovernanceRun` 时，初期固定 CustomerUpload ID 与内容 Hash、云图 Source Instance 的已验证连接配置版本，以及实际 Runner 镜像摘要或构建版本；最终固定客户系统与云图两侧 Source Instance。Retry 始终复用原 CustomerUpload，选择不同上传版本必须创建新 Run。网络抖动、限流等配置与处理版本均未变化的失败可以 Retry；任一已固定的 Instance 绑定、地址、凭据、Capset 或 Runner 版本变化后，旧 Run 不再可恢复，必须通过 `Run Rerun` 创建新 Run。规范化规则、字段映射或 Policy 功能实际引入后再固定其版本，不为尚不存在的模块预建空字段。
 
 同一 Project 同时最多执行一个 GovernanceRun。相同 `trigger_id` 进入恢复逻辑；不同 `trigger_id` 在已有执行中 Run 时启动前拒绝且不创建空 Run，不同 Project 可以并行。该边界必须由 PostgreSQL 事务或约束兜底，不能只依赖 agent-compose 的调度行为。
 
-有执行中 GovernanceRun 时，归档 Project 必须返回冲突，不自动停止 Session，也不增加 `CANCELLED` 状态。Run 停止后才能归档；Archived Project 不接受 Trigger、Retry、Rerun、新 CustomerUpload 或 Source Instance 变更，重新启用后才恢复这些操作。归档与重新启用不改变既有 Run；重新启用后，只要输入版本、来源配置、处理版本、原 Session、最新 Run 等既定条件仍全部成立，最新失败 Run 仍可 Retry。
+有执行中 GovernanceRun 时，归档 Project 必须返回冲突，不自动停止 Session，也不增加 `CANCELLED` 状态。Run 停止后才能归档；Archived Project 不接受 Trigger、Retry、Rerun、新 CustomerUpload、CustomerUpload 选择或 Source Instance 变更，重新启用后才恢复这些操作。归档与重新启用不改变既有 Run；重新启用后，只要输入版本、来源配置、处理版本、原 Session、最新 Run 等既定条件仍全部成立，最新失败 Run 仍可 Retry。
 
 ### 6.2 数据拉取
 
@@ -330,6 +398,7 @@ flowchart LR
 
 - API 来源使用分页和游标，文件上传采用流式保存；
 - 每页原始响应或上传文件立即写入 Artifact；
+- 客户侧 SourceSnapshot 直接引用既有不可变 CustomerUpload Artifact，不复制上传文件；云图侧为本轮拉取写入独立原始 Artifact；
 - 记录 Schema 版本、记录数、游标和 SHA-256；
 - 不把完整 API 响应一次性放入内存；
 - 原始快照创建后不可覆盖。
@@ -469,18 +538,19 @@ Runner 失联或经过一段时间本身不能释放 Project 的执行资格。�
 
 ### 7.2 Run 步骤
 
+第三交付阶段只实际创建三个步骤：
+
 ```text
 LOAD_CUSTOMER
 → PULL_CLOUDATLAS
-→ NORMALIZE
-→ RESOLVE
-→ CHECK_FINDINGS
-→ BUILD_REPORT
-→ VALIDATE_REPORT
 → PUBLISH
 ```
 
-`PUBLISH` 是真实的最终步骤，不使用重复顶层状态的 `COMPLETE` 步骤。它在一个事务中把 GovernanceRun 写为 `COMPLETED` 或 `COMPLETED_WITH_WARNINGS`，并更新 `projects.latest_completed_run_id`；任一写入失败时整个发布事务回滚，随后把本轮收敛为 `FAILED_PROCESSING`。Retry 只重试失败的 `PUBLISH`，不重复输入未变化且已经成功的步骤。
+`PUBLISH` 必须同时看到客户侧和云图侧两个不可变 SourceSnapshot。任一读取失败时 Run 进入 `FAILED_DATA` 且不发布，已经成功写入的 Snapshot 与 Artifact 保留在该失败 Run 中供 Retry 复用，但不进入默认客户视图。
+
+`PUBLISH` 是真实的最终步骤，不使用重复顶层状态的 `COMPLETE` 步骤。第三交付阶段只会在一个事务中把 GovernanceRun 写为 `COMPLETED` 并更新 `projects.latest_completed_run_id`；CustomerUpload warning 仍属于上传，不产生 `COMPLETED_WITH_WARNINGS`。任一发布写入失败时整个事务回滚，随后把本轮收敛为 `FAILED_PROCESSING`；Retry 只重试失败的 `PUBLISH`，不重复输入未变化且已经成功的步骤。
+
+`NORMALIZE`、`RESOLVE`、`CHECK_FINDINGS`、`BUILD_REPORT` 和 `VALIDATE_REPORT` 只在对应后续交付阶段实现时才加入，不为尚不存在的步骤预建记录。
 
 每个 `run_step` 保存：
 
@@ -821,11 +891,13 @@ Endpoint
 | 角色 | 主要权限 |
 |---|---|
 | Viewer | 查看资产、Finding 和报告 |
-| Operator | Trigger、Retry 或 Rerun、确认 Finding、创建 Plan |
+| Operator | 接收 CustomerUpload、为 Run 选择上传版本、Trigger、Retry 或 Rerun、确认 Finding、创建 Plan |
 | Approver | 审批或拒绝固定 Plan |
-| Admin | 全局管理数据源、用户、项目、成员角色和 Policy；复用模板 `is_superuser` |
+| Admin | 全局管理数据源、CustomerUploadProfile、用户、项目、成员角色和 Policy；复用模板 `is_superuser` |
 
 Viewer、Operator 和 Approver 通过 `ProjectMembership` 按项目授权。Admin 是全局身份，不写入 `ProjectMembership`。
+
+只有 Admin 可以为 Project 创建新的不可变 CustomerUploadProfile 版本或切换当前版本。Operator 使用 Project 当前版本接收 CustomerUpload，并为 GovernanceRun 选择已接受的上传；Viewer 和仅拥有 Approver 的成员只能查看。不为该职责新增角色。
 
 ### 12.2 系统身份
 
@@ -910,7 +982,7 @@ ip_address
 occurred_at
 ```
 
-CustomerUpload 接收与选择、数据源变更、Run Trigger/Retry/Rerun、人工确认、Plan 变更、审批、Apply、Policy 变更、角色变更和 Artifact 下载必须审计。
+CustomerUploadProfile 版本创建与切换、CustomerUpload 接收与选择、数据源变更、Run Trigger/Retry/Rerun、人工确认、Plan 变更、审批、Apply、Policy 变更、角色变更和 Artifact 下载必须审计。
 
 ### 13.4 指标
 
@@ -1003,26 +1075,28 @@ Elasticsearch
 
 以下内容依赖真实客户环境，不能在架构阶段臆定：
 
-- CustomerUpload 的支持格式、大小、字段结构、恶意文件防护和脱敏校验错误契约；
+- CustomerUpload 最终 parser 的资源基准及据此固定的 ZIP 防护阈值；
 - 客户系统可达后的 API 认证、分页、限流、增量能力及 OctoBus 只读方法；
 - 云图与客户系统的实际数据规模；
 - 交付服务器 CPU、内存、磁盘和网络规格；
 - 客户身份源及登录集成方式；
 - Artifact 和审计数据保留周期；
-- OctoBus 云图读取 Service Package 的最小验证方法、脱敏失败契约，以及包含 Instance 配置、凭据、Capset 和方法选择的稳定版本指纹；
+- 真实 CloudAtlas 环境对正式 `cloudatlas-read` Package/Descriptor 修订及单方法只读 canary 的部署验收；
 - agent-compose Session 终态的可靠查询或通知契约；
 - agent-compose 商业交付版本的生产硬化项；
 - 客户对备份恢复时间和数据恢复点的要求。
 
 ## 18. 推荐实施顺序
 
-以下顺序只表示依赖关系，不代表第 3 步及之后已经达到 agent-ready。每个业务阶段仍需经过调查或针对性 grilling，再进入 `/to-spec`、`/to-tickets` 和 factory。
+以下编号只表示依赖关系，不与交付阶段编号一一对应，也不代表第 3 项及之后已经达到 agent-ready。每个交付阶段仍需经过调查或针对性 grilling，再进入 `/to-spec`、`/to-tickets` 和 factory。
+
+当前第三交付阶段由下列依赖项 4–6 组成，验收边界是从已验证输入产生不可变 `SourceSnapshot`：CustomerUpload 与云图 SourceInstance 控制面、GovernanceRun 最小闭环、客户文件正式摄取和云图 OctoBus 正式拉取。该阶段不包含依赖项 7 及之后的 Observation、Resource Resolution、Finding、报告、处置，也不把 CustomerUpload 当作最终客户系统接入。
 
 ```text
 1. 固定版本模板基线导入并证明上游检查可运行
 2. 模板清理与私有化控制面收敛
 3. Project + ProjectMembership 三个项目角色 + AuditEvent
-4. CustomerUpload 输入契约 + 云图 SourceInstance 控制面与 OctoBus 读取验证
+4. CustomerUpload 输入契约（含版本化 Profile）+ 云图 SourceInstance 控制面与 OctoBus 读取验证
 5. GovernanceRun + agent-compose Governance Runner 最小闭环（创建或恢复、幂等、步骤状态 + 所需 PostgreSQL 迁移）
 6. 客户文件正式摄取 + 云图 OctoBus 正式拉取 + SourceSnapshot
 7. Observation + Resource Resolution
