@@ -35,6 +35,14 @@ export type Body_login_login_access_token = {
     client_secret?: (string | null);
 };
 
+export type CustomerUploadProfilePublic = {
+    required_headers: Array<(string)>;
+    warning_headers: Array<(string)>;
+    optional_headers: Array<(string)>;
+    id: string;
+    version: number;
+};
+
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
@@ -226,6 +234,12 @@ export type ProjectsRenameProjectData = {
 };
 
 export type ProjectsRenameProjectResponse = (ProjectPublic);
+
+export type ProjectsReadCurrentCustomerUploadProfileData = {
+    projectId: string;
+};
+
+export type ProjectsReadCurrentCustomerUploadProfileResponse = (CustomerUploadProfilePublic);
 
 export type ProjectsArchiveProjectData = {
     projectId: string;

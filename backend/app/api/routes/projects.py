@@ -13,6 +13,9 @@ from app.api.project_authorization import (
 from app.api.request import get_request_ip_address
 from app.domain import projects as project_service
 from app.domain.models import (
+    CustomerUploadProfile,
+    CustomerUploadProfileDefinition,
+    CustomerUploadProfilePublic,
     Project,
     ProjectCreate,
     ProjectPublic,
@@ -78,6 +81,34 @@ def read_project(
         user=current_user,
         project_id=project_id,
         allowed_roles=PROJECT_READ_ROLES,
+    )
+
+
+@router.get(
+    "/{project_id}/customer-upload-profile",
+    response_model=CustomerUploadProfilePublic,
+)
+def read_current_customer_upload_profile(
+    *, session: SessionDep, project_id: uuid.UUID, current_user: CurrentUser
+) -> Any:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=PROJECT_READ_ROLES,
+    )
+    profile = session.exec(
+        select(CustomerUploadProfile).where(
+            CustomerUploadProfile.id
+            == project.current_customer_upload_profile_id,
+            CustomerUploadProfile.project_id == project.id,
+        )
+    ).one()
+    definition = CustomerUploadProfileDefinition.model_validate(profile.definition)
+    return CustomerUploadProfilePublic(
+        id=profile.id,
+        version=profile.version,
+        **definition.model_dump(),
     )
 
 

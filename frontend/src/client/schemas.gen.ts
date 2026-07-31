@@ -177,6 +177,45 @@ export const Body_login_login_access_tokenSchema = {
     title: 'Body_login-login_access_token'
 } as const;
 
+export const CustomerUploadProfilePublicSchema = {
+    properties: {
+        required_headers: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Required Headers'
+        },
+        warning_headers: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Warning Headers'
+        },
+        optional_headers: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Optional Headers'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        version: {
+            type: 'integer',
+            title: 'Version'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['required_headers', 'warning_headers', 'optional_headers', 'id', 'version'],
+    title: 'CustomerUploadProfilePublic'
+} as const;
+
 export const HTTPValidationErrorSchema = {
     properties: {
         detail: {
