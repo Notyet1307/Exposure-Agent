@@ -119,12 +119,22 @@ class CustomerUploadProfile(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(
+        default=DEPLOYMENT_TENANT_ID,
+        foreign_key="tenants.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
     project_id: uuid.UUID = Field(
         foreign_key="projects.id", ondelete="RESTRICT", index=True
     )
     version: int
     definition: dict[str, Any] = Field(sa_type=JSONB)
     created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )

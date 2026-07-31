@@ -39,6 +39,7 @@ def upgrade() -> None:
     op.create_table(
         "customer_upload_profiles",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("project_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("version", sa.Integer(), nullable=False),
         sa.Column("definition", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
@@ -48,10 +49,17 @@ def upgrade() -> None:
             server_default=sa.func.now(),
             nullable=False,
         ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.CheckConstraint(
             "version > 0", name="ck_customer_upload_profiles_version_positive"
         ),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
             "id", "project_id", name="uq_customer_upload_profiles_id_project"
@@ -64,6 +72,12 @@ def upgrade() -> None:
         op.f("ix_customer_upload_profiles_project_id"),
         "customer_upload_profiles",
         ["project_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_customer_upload_profiles_tenant_id"),
+        "customer_upload_profiles",
+        ["tenant_id"],
         unique=False,
     )
     op.add_column(
@@ -80,8 +94,15 @@ def upgrade() -> None:
         sa.text(
             """
             INSERT INTO customer_upload_profiles
-                (id, project_id, version, definition, created_at)
-            SELECT gen_random_uuid(), p.id, 1, CAST(:definition AS jsonb), now()
+                (id, tenant_id, project_id, version, definition, created_at, updated_at)
+            SELECT
+                gen_random_uuid(),
+                p.tenant_id,
+                p.id,
+                1,
+                CAST(:definition AS jsonb),
+                now(),
+                now()
             FROM projects AS p
             WHERE NOT EXISTS (
                 SELECT 1
@@ -158,6 +179,10 @@ def downgrade() -> None:
         type_="foreignkey",
     )
     op.drop_column("projects", "current_customer_upload_profile_id")
+    op.drop_index(
+        op.f("ix_customer_upload_profiles_tenant_id"),
+        table_name="customer_upload_profiles",
+    )
     op.drop_index(
         op.f("ix_customer_upload_profiles_project_id"),
         table_name="customer_upload_profiles",

@@ -210,7 +210,8 @@ def test_existing_projects_receive_independent_default_profiles_once(
 
     with connect(template_baseline_database) as connection:
         profiles = connection.execute(
-            "SELECT id, project_id, version, definition "
+            "SELECT id, project_id, tenant_id, version, definition, "
+            "created_at, updated_at "
             "FROM customer_upload_profiles ORDER BY project_id"
         ).fetchall()
         assert len(profiles) == 2
@@ -219,8 +220,11 @@ def test_existing_projects_receive_independent_default_profiles_once(
             second_project_id,
         }
         assert profiles[0][0] != profiles[1][0]
-        assert all(profile[2] == 1 for profile in profiles)
-        assert all(profile[3] == DEFAULT_PROFILE_DEFINITION for profile in profiles)
+        assert all(profile[2] == DEPLOYMENT_TENANT_ID for profile in profiles)
+        assert all(profile[3] == 1 for profile in profiles)
+        assert all(profile[4] == DEFAULT_PROFILE_DEFINITION for profile in profiles)
+        assert all(profile[5] is not None for profile in profiles)
+        assert all(profile[6] is not None for profile in profiles)
         assert connection.execute(
             "SELECT count(*) FROM projects p "
             "JOIN customer_upload_profiles cup "
@@ -232,10 +236,12 @@ def test_existing_projects_receive_independent_default_profiles_once(
         with connect(template_baseline_database) as connection:
             connection.execute(
                 "INSERT INTO customer_upload_profiles "
-                "(id, project_id, version, definition, created_at) "
-                "VALUES (%s, %s, 1, %s::jsonb, now())",
+                "(id, tenant_id, project_id, version, definition, "
+                "created_at, updated_at) "
+                "VALUES (%s, %s, %s, 1, %s::jsonb, now(), now())",
                 (
                     uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
                     first_project_id,
                     json.dumps(DEFAULT_PROFILE_DEFINITION, ensure_ascii=False),
                 ),
@@ -294,6 +300,20 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             ("customer_upload_profiles",),
             ("project_memberships",),
             ("projects",),
+        ]
+        assert connection.execute(
+            """
+            SELECT column_name, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'customer_upload_profiles'
+              AND column_name IN ('tenant_id', 'created_at', 'updated_at')
+            ORDER BY column_name
+            """
+        ).fetchall() == [
+            ("created_at", "NO"),
+            ("tenant_id", "NO"),
+            ("updated_at", "NO"),
         ]
         assert connection.execute(
             """

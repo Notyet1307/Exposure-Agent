@@ -76,6 +76,7 @@ def create_project(
     )
     profile = CustomerUploadProfile(
         id=profile_id,
+        tenant_id=project.tenant_id,
         project_id=project.id,
         version=1,
         definition=default_customer_upload_profile_definition().model_dump(),
