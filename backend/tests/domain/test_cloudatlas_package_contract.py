@@ -57,6 +57,7 @@ def test_product_package_and_backend_pin_the_single_read_method() -> None:
     assert "55be61691bb71420a1c849e8f7acb12934452d354f790a5125c8e2f5fff54e95" in octobus_image
     assert "fake-chaitin-cli" not in fixture_compose
     assert "dockerfile: octobus/Dockerfile" in deployment_compose
+    assert "${DOCKER_IMAGE_OCTOBUS?Variable not set}" in deployment_compose
     assert "octobus-data:/var/lib/octobus" in deployment_compose
     assert "octobus-package-init:" in deployment_compose
     assert package_image_path in deployment_compose

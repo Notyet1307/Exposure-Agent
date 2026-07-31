@@ -88,7 +88,7 @@ def _required_list(payload: dict[str, Any], name: str) -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], value)
 
 
-def _sha256(value: str) -> str:
+def _require_sha256(value: str) -> str:
     if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
         _boundary_error("cloudatlas_response_contract_failed")
     return value
@@ -120,6 +120,7 @@ class OctobusCloudAtlasClient:
         *,
         token: str | None = None,
         body: dict[str, Any] | None = None,
+        missing_is_material_change: bool = False,
     ) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {token}"} if token is not None else None
         try:
@@ -132,6 +133,8 @@ class OctobusCloudAtlasClient:
             _boundary_error("cloudatlas_connectivity_failed")
 
         if response.status_code != 200:
+            if response.status_code == 404 and missing_is_material_change:
+                _material_error("cloudatlas_response_contract_failed")
             try:
                 error_payload = response.json()
             except ValueError:
@@ -160,27 +163,34 @@ class OctobusCloudAtlasClient:
             _boundary_error("cloudatlas_response_contract_failed")
         return cast(dict[str, Any], payload)
 
+    def _request_material(self, path: str) -> dict[str, Any]:
+        return self._request_json(
+            "GET", path, missing_is_material_change=True
+        )
+
     def current_fingerprint(self, source: SourceInstance) -> CloudAtlasFingerprint:
         admin = "/admin/v1"
-        service = self._request_json("GET", f"{admin}/services/{SERVICE_ID}")
-        instance = self._request_json(
-            "GET", f"{admin}/instances/{source.instance_id}"
+        service = self._request_material(f"{admin}/services/{SERVICE_ID}")
+        instance = self._request_material(
+            f"{admin}/instances/{source.instance_id}"
         )
-        capset = self._request_json("GET", f"{admin}/capsets/{source.capset_id}")
-        instances_payload = self._request_json(
-            "GET", f"{admin}/capsets/{source.capset_id}/instances"
+        capset = self._request_material(f"{admin}/capsets/{source.capset_id}")
+        instances_payload = self._request_material(
+            f"{admin}/capsets/{source.capset_id}/instances"
         )
-        methods_payload = self._request_json(
-            "GET", f"{admin}/capsets/{source.capset_id}/methods"
+        methods_payload = self._request_material(
+            f"{admin}/capsets/{source.capset_id}/methods"
         )
-        tokens_payload = self._request_json(
-            "GET", f"{admin}/capsets/{source.capset_id}/tokens"
+        tokens_payload = self._request_material(
+            f"{admin}/capsets/{source.capset_id}/tokens"
         )
 
         service_id = _required_string(service, "ID")
-        package_sha256 = _sha256(_required_string(service, "PackageSHA256"))
+        package_sha256 = _require_sha256(
+            _required_string(service, "PackageSHA256")
+        )
         package_version = service.get("PackageVersion")
-        descriptor_sha256 = _sha256(
+        descriptor_sha256 = _require_sha256(
             _required_string(service, "DescriptorSHA256")
         )
         if (
@@ -233,7 +243,9 @@ class OctobusCloudAtlasClient:
             [
                 {
                     "id": _required_string(item, "ID"),
-                    "token_hash": _sha256(_required_string(item, "TokenHash")),
+                    "token_hash": _require_sha256(
+                        _required_string(item, "TokenHash")
+                    ),
                 }
                 for item in _required_list(tokens_payload, "tokens")
             ],
@@ -253,10 +265,10 @@ class OctobusCloudAtlasClient:
             "instance": {
                 "id": instance_id,
                 "service_id": instance_service_id,
-                "config_sha256": _sha256(
+                "config_sha256": _require_sha256(
                     _required_string(instance, "ConfigSHA256")
                 ),
-                "secret_sha256": _sha256(
+                "secret_sha256": _require_sha256(
                     _required_string(instance, "SecretSHA256")
                 ),
             },
@@ -550,8 +562,6 @@ def set_source_enabled(
         if current.value != source.validated_fingerprint:
             _invalidate_material_validation(session=session, source=source)
             raise CloudAtlasStateError("cloudatlas_validation_required")
-    if source.enabled == enabled:
-        return source
     before = _audit_snapshot(source, status=_stored_validation_status(source))
     source.enabled = enabled
     source.updated_at = get_datetime_utc()

@@ -40,9 +40,12 @@ class _OctobusState:
         self.token_hash = hashlib.sha256(CAPSET_TOKEN.encode()).hexdigest()
         self.connect_status = 200
         self.connect_error = "cloudatlas_authentication_failed"
+        self.missing_path: str | None = None
         self.requests: list[dict[str, Any]] = []
 
     def response(self, path: str) -> dict[str, Any] | None:
+        if path == self.missing_path:
+            return None
         admin = "/admin/v1"
         if path == f"{admin}/services/{SERVICE_ID}":
             return {
@@ -346,6 +349,54 @@ def test_admin_configures_validates_and_enables_cloudatlas_source(
     assert "TokenHash" not in serialized_audits
 
 
+def test_repeated_state_operations_are_audited(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project = _create_project(client, superuser_token_headers)
+    with _octobus_server() as (base_url, octobus):
+        monkeypatch.setattr(settings, "OCTOBUS_URL", base_url)
+        collection_url = (
+            f"{settings.API_V1_STR}/projects/{project['id']}"
+            "/cloudatlas-source-instances"
+        )
+        source = client.post(
+            collection_url,
+            headers=superuser_token_headers,
+            json={
+                "instance_id": octobus.instance_id,
+                "capset_id": octobus.capset_id,
+            },
+        ).json()
+        source_url = f"{collection_url}/{source['id']}"
+        assert client.post(
+            f"{source_url}/validate",
+            headers=superuser_token_headers,
+            json={"capset_token": CAPSET_TOKEN},
+        ).status_code == 200
+
+        for action in ("enable", "enable", "disable", "disable"):
+            assert client.post(
+                f"{source_url}/{action}", headers=superuser_token_headers
+            ).status_code == 200
+
+    actions = db.exec(
+        select(AuditEvent.action)
+        .where(AuditEvent.target_id == uuid.UUID(source["id"]))
+        .order_by(col(AuditEvent.occurred_at))
+    ).all()
+    assert actions == [
+        "source_instance.created",
+        "source_instance.validated",
+        "source_instance.enabled",
+        "source_instance.enabled",
+        "source_instance.disabled",
+        "source_instance.disabled",
+    ]
+
+
 def test_project_roles_only_receive_safe_summaries_for_their_own_project(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -501,6 +552,55 @@ def test_fingerprint_drift_and_binding_changes_invalidate_validation(
         )
     ).one()
     assert invalidation_actor == ("system", "octobus-control-plane")
+
+
+def test_deleted_control_plane_material_requires_fresh_validation(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project = _create_project(client, superuser_token_headers)
+    with _octobus_server() as (base_url, octobus):
+        monkeypatch.setattr(settings, "OCTOBUS_URL", base_url)
+        collection_url = (
+            f"{settings.API_V1_STR}/projects/{project['id']}"
+            "/cloudatlas-source-instances"
+        )
+        source = client.post(
+            collection_url,
+            headers=superuser_token_headers,
+            json={
+                "instance_id": octobus.instance_id,
+                "capset_id": octobus.capset_id,
+            },
+        ).json()
+        source_url = f"{collection_url}/{source['id']}"
+        assert client.post(
+            f"{source_url}/validate",
+            headers=superuser_token_headers,
+            json={"capset_token": CAPSET_TOKEN},
+        ).status_code == 200
+
+        octobus.missing_path = f"/admin/v1/instances/{octobus.instance_id}"
+        missing_response = client.get(
+            collection_url, headers=superuser_token_headers
+        )
+        octobus.missing_path = None
+        restored_response = client.get(
+            collection_url, headers=superuser_token_headers
+        )
+        revalidated_response = client.post(
+            f"{source_url}/validate",
+            headers=superuser_token_headers,
+            json={"capset_token": CAPSET_TOKEN},
+        )
+
+    assert missing_response.status_code == 200
+    assert missing_response.json()["data"][0]["validation_status"] == "invalid"
+    assert restored_response.status_code == 200
+    assert restored_response.json()["data"][0]["validation_status"] == "invalid"
+    assert revalidated_response.status_code == 200
+    assert revalidated_response.json()["validation_status"] == "validated"
 
 
 def test_control_plane_outage_does_not_claim_configuration_drift(

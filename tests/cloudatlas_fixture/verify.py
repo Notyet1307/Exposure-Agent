@@ -77,7 +77,15 @@ def main() -> None:
     missing_status, missing_body = post_json(
         endpoint, {"status": "valid", "page": 1, "size": 1}, None
     )
-    assert missing_status == 401
+    wrong_status, wrong_body = post_json(
+        endpoint,
+        {"status": "valid", "page": 1, "size": 1},
+        "wrong-capset-token",
+    )
+    assert missing_status == wrong_status == 401
+    assert missing_body.get("code") == wrong_body.get("code") == "unauthenticated"
+    assert "capset token is required" in str(missing_body.get("message"))
+    assert "capset token is required" in str(wrong_body.get("message"))
     failures = {
         91: (401, "unauthenticated", "cloudatlas_authentication_failed"),
         92: (403, "permission_denied", "cloudatlas_authorization_failed"),
@@ -85,7 +93,7 @@ def main() -> None:
         98: (503, "unavailable", "cloudatlas_connectivity_failed"),
         99: (500, "data_loss", "cloudatlas_response_contract_failed"),
     }
-    failure_bodies: list[dict[str, Any]] = [missing_body]
+    failure_bodies: list[dict[str, Any]] = [missing_body, wrong_body]
     for page, expected in failures.items():
         failure_status, failure_body = post_json(
             endpoint,

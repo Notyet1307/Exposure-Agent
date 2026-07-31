@@ -19,7 +19,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB?Variable not set}
 
   octobus:
-    image: '${DOCKER_IMAGE_OCTOBUS-exposure-agent-octobus}:${TAG-latest}'
+    image: '${DOCKER_IMAGE_OCTOBUS?Variable not set}:${TAG-latest}'
     restart: always
     build:
       context: .
@@ -41,7 +41,7 @@ services:
       start_period: 30s
 
   octobus-package-init:
-    image: '${DOCKER_IMAGE_OCTOBUS-exposure-agent-octobus}:${TAG-latest}'
+    image: '${DOCKER_IMAGE_OCTOBUS?Variable not set}:${TAG-latest}'
     build:
       context: .
       dockerfile: octobus/Dockerfile

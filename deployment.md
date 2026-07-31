@@ -15,10 +15,11 @@ customer network
             -> governance-web (Nginx, container port 80)
                  -> static React application
                  -> /api -> governance-api (FastAPI, internal port 8000)
-            -> PostgreSQL (internal only)
+                      -> PostgreSQL (internal only)
+                      -> OctoBus (internal only) -> CloudAtlas
 ```
 
-Only the customer-managed HTTPS ingress exposes port 443 to the customer network. The supplied Compose file binds Nginx's unencrypted listener to host loopback only (`127.0.0.1:${WEB_HTTP_PORT:-8080}`); it must never be forwarded or rebound directly to a customer-network interface. PostgreSQL and FastAPI remain on the Compose network. Set `WEB_HTTP_PORT` only when the ingress needs a different loopback port.
+Only the customer-managed HTTPS ingress exposes port 443 to the customer network. The supplied Compose file binds Nginx's unencrypted listener to host loopback only (`127.0.0.1:${WEB_HTTP_PORT:-8080}`); it must never be forwarded or rebound directly to a customer-network interface. PostgreSQL, FastAPI, and OctoBus remain on the Compose network. Set `WEB_HTTP_PORT` only when the ingress needs a different loopback port.
 
 Nginx forwards the original host, client address, and protocol headers. The customer ingress terminates TLS, proxies to the loopback listener, replaces `X-Real-IP` with the validated client address, sets the other trusted forwarding headers, and restricts access to the host.
 
@@ -34,6 +35,7 @@ Before starting a deployed installation, provide installation-specific values fo
 - `POSTGRES_DB`
 - `DOCKER_IMAGE_BACKEND`
 - `DOCKER_IMAGE_FRONTEND`
+- `DOCKER_IMAGE_OCTOBUS`
 - `TAG`
 
 Generate independent random values for secrets, for example:
@@ -55,7 +57,7 @@ docker compose -f compose.yml pull
 docker compose -f compose.yml up -d --wait
 ```
 
-The `prestart` service waits for PostgreSQL, applies Alembic migrations, and creates the initial Admin before FastAPI starts. This same path supports both a fresh database and an existing database from the imported template baseline.
+The `prestart` service waits for PostgreSQL, applies Alembic migrations, and creates the initial Admin before FastAPI starts. In parallel, `octobus-package-init` waits for OctoBus and idempotently imports the product-owned `cloudatlas-read` package baked into the OctoBus image; the backend starts only after both initialization paths succeed. This same path supports fresh and existing PostgreSQL and OctoBus volumes.
 
 Verify the private ingress upstream from the deployment host (the customer-facing check must use its HTTPS URL):
 
@@ -72,7 +74,7 @@ Inspect startup state without exposing internal services:
 
 ```bash
 docker compose -f compose.yml ps
-docker compose -f compose.yml logs backend frontend prestart
+docker compose -f compose.yml logs backend frontend prestart octobus octobus-package-init
 ```
 
 ## Build and release handoff
@@ -91,17 +93,17 @@ Release orchestration belongs to the customer's delivery environment and must no
 
 ## Persistence and backup
 
-The current application persists authoritative business records in the `app-db-data` volume and immutable CustomerUpload files in the `app-artifact-data` volume. Treat both volumes as one recovery set: a database backup without its matching Artifact backup can restore metadata that points to missing customer files. Compose prefixes the actual volume names with the deployment project name, so confirm the resolved names with `docker compose -f compose.yml config` or the customer backup tooling.
+The current application persists authoritative business records in `app-db-data`, immutable CustomerUpload files in `app-artifact-data`, and OctoBus Instance configuration, credentials, Capsets, and imported package state in `octobus-data`. Treat all three volumes as one coordinated recovery set: a database backup without its matching Artifact backup can point to missing customer files, while a mismatched OctoBus backup can invalidate stored SourceInstance fingerprints or lose the credentials needed to revalidate them. Because `octobus-data` contains credentials, its backup must receive the same encryption and access controls as other secret-bearing deployment material. Compose prefixes the actual volume names with the deployment project name, so confirm the resolved names with `docker compose -f compose.yml config` or the customer backup tooling.
 
-Before an upgrade or backup, stop API writes and capture both volumes at the same recovery point. One deployment-shaped sequence is:
+Before an upgrade or backup, stop API writes and OctoBus control-plane changes, then capture all three volumes at the same recovery point. One deployment-shaped sequence is:
 
 ```bash
-docker compose -f compose.yml stop backend
-# Use customer-managed backup tooling to capture app-db-data and
-# app-artifact-data as one named, versioned recovery set.
-docker compose -f compose.yml start backend
+docker compose -f compose.yml stop backend octobus
+# Use customer-managed backup tooling to capture app-db-data,
+# app-artifact-data, and octobus-data as one named, versioned recovery set.
+docker compose -f compose.yml start octobus backend
 ```
 
-Restore both volumes from the same recovery set before starting the application. Verify the database migration revision, CustomerUpload list access, and a sample of stored Artifact SHA-256 values after restoration. Do not remove either volume during a normal upgrade, and record backup completion and restore verification in the release handoff.
+Restore all three volumes from the same recovery set before starting the application. Use the normal Compose startup so `octobus-package-init` confirms the product package import, then verify the database migration revision, CustomerUpload list access, a sample of stored Artifact SHA-256 values, and the expected OctoBus Service/Instance/Capset inventory. Any SourceInstance whose restored material differs from its stored fingerprint remains invalid until the material is corrected and the single read-only validation succeeds. Do not remove any persistent volume during a normal upgrade, and record backup completion and restore verification in the release handoff.
 
-OctoBus and agent-compose persistence must be added to the same coordinated backup procedure when those services enter the delivered Compose stack.
+agent-compose persistence must join this coordinated backup procedure when that service enters the delivered Compose stack.
