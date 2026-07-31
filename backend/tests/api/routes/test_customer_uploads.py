@@ -12,10 +12,12 @@ import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook  # type: ignore[import-untyped]
 from pytest import LogCaptureFixture, MonkeyPatch
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, func, select
 
 from app.core.config import settings
+from app.core.db import engine
 from app.domain.models import Artifact, AuditEvent, CustomerUpload
 from app.main import app
 from tests.utils.user import user_authentication_headers
@@ -112,6 +114,29 @@ def _reject_customer_upload_inserts(db: Session) -> Iterator[None]:
         )
         db.execute(text("DROP FUNCTION IF EXISTS fail_test_customer_upload_insert()"))
         db.commit()
+
+
+@contextmanager
+def _reject_customer_upload_reads() -> Iterator[None]:
+    def reject_customer_upload_select(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        if (
+            statement.lstrip().startswith("SELECT")
+            and "FROM customer_uploads" in statement
+        ):
+            raise SQLAlchemyError("test customer upload read failure")
+
+    event.listen(engine, "before_cursor_execute", reject_customer_upload_select)
+    try:
+        yield
+    finally:
+        event.remove(engine, "before_cursor_execute", reject_customer_upload_select)
 
 
 def test_admin_can_accept_and_list_an_immutable_customer_upload(
@@ -507,6 +532,33 @@ def test_transaction_failure_removes_promoted_artifact_and_rolls_back_audit(
     audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
 
     with _reject_customer_upload_inserts(db):
+        response = client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+            headers=superuser_token_headers,
+            files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"]["code"] == "upload_storage_failed"
+    db.expire_all()
+    assert db.exec(select(func.count()).select_from(Artifact)).one() == artifact_count
+    assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
+    assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
+def test_deduplication_read_failure_removes_temporary_upload(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    artifact_count = db.exec(select(func.count()).select_from(Artifact)).one()
+    audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with _reject_customer_upload_reads():
         response = client.post(
             f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
             headers=superuser_token_headers,

@@ -176,14 +176,18 @@ def accept_customer_upload(
 
     try:
         record_count, warnings = _validate_workbook(temporary_path)
-        existing = session.exec(
-            select(CustomerUpload).where(
-                CustomerUpload.project_id == project.id,
-                CustomerUpload.raw_sha256 == raw_sha256,
-                CustomerUpload.profile_id == profile.id,
-                CustomerUpload.profile_version == profile.version,
-            )
-        ).one_or_none()
+        try:
+            existing = session.exec(
+                select(CustomerUpload).where(
+                    CustomerUpload.project_id == project.id,
+                    CustomerUpload.raw_sha256 == raw_sha256,
+                    CustomerUpload.profile_id == profile.id,
+                    CustomerUpload.profile_version == profile.version,
+                )
+            ).one_or_none()
+        except SQLAlchemyError:
+            session.rollback()
+            _raise("upload_storage_failed")
         if existing is not None:
             _remove_file(temporary_path)
             return existing, False

@@ -35,12 +35,39 @@ export type Body_login_login_access_token = {
     client_secret?: (string | null);
 };
 
+export type Body_projects_create_customer_upload = {
+    file: string;
+};
+
 export type CustomerUploadProfilePublic = {
     required_headers: Array<(string)>;
     warning_headers: Array<(string)>;
     optional_headers: Array<(string)>;
     id: string;
     version: number;
+};
+
+export type CustomerUploadPublic = {
+    id: string;
+    display_filename: string;
+    raw_sha256: string;
+    record_count: number;
+    profile_id: string;
+    profile_version: number;
+    warnings: Array<CustomerUploadWarningPublic>;
+    created_at: string;
+};
+
+export type CustomerUploadsPublic = {
+    data: Array<CustomerUploadPublic>;
+    count: number;
+    can_upload: boolean;
+};
+
+export type CustomerUploadWarningPublic = {
+    code: string;
+    field: (string | null);
+    count: number;
 };
 
 export type HTTPValidationError = {
@@ -240,6 +267,21 @@ export type ProjectsReadCurrentCustomerUploadProfileData = {
 };
 
 export type ProjectsReadCurrentCustomerUploadProfileResponse = (CustomerUploadProfilePublic);
+
+export type ProjectsCreateCustomerUploadData = {
+    formData: Body_projects_create_customer_upload;
+    projectId: string;
+};
+
+export type ProjectsCreateCustomerUploadResponse = (CustomerUploadPublic);
+
+export type ProjectsReadCustomerUploadsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+};
+
+export type ProjectsReadCustomerUploadsResponse = (CustomerUploadsPublic);
 
 export type ProjectsArchiveProjectData = {
     projectId: string;

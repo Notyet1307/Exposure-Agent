@@ -91,6 +91,17 @@ Release orchestration belongs to the customer's delivery environment and must no
 
 ## Persistence and backup
 
-The current application database is stored in the `app-db-data` volume. Back it up before upgrades and verify restore procedures in the target environment. Do not remove volumes during a normal upgrade.
+The current application persists authoritative business records in the `app-db-data` volume and immutable CustomerUpload files in the `app-artifact-data` volume. Treat both volumes as one recovery set: a database backup without its matching Artifact backup can restore metadata that points to missing customer files. Compose prefixes the actual volume names with the deployment project name, so confirm the resolved names with `docker compose -f compose.yml config` or the customer backup tooling.
 
-The broader architecture also requires persistent artifact and integration state when those later services are implemented. They are not part of issue #5 and must not be added to this application shell early.
+Before an upgrade or backup, stop API writes and capture both volumes at the same recovery point. One deployment-shaped sequence is:
+
+```bash
+docker compose -f compose.yml stop backend
+# Use customer-managed backup tooling to capture app-db-data and
+# app-artifact-data as one named, versioned recovery set.
+docker compose -f compose.yml start backend
+```
+
+Restore both volumes from the same recovery set before starting the application. Verify the database migration revision, CustomerUpload list access, and a sample of stored Artifact SHA-256 values after restoration. Do not remove either volume during a normal upgrade, and record backup completion and restore verification in the release handoff.
+
+OctoBus and agent-compose persistence must be added to the same coordinated backup procedure when those services enter the delivered Compose stack.
