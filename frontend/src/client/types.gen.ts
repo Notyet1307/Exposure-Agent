@@ -266,7 +266,7 @@ export type ProjectsReadCurrentCustomerUploadProfileResponse = (CustomerUploadPr
 
 export type ProjectsCreateCustomerUploadData = {
     formData: {
-        file: string;
+        file: (Blob | File);
     };
     projectId: string;
 };

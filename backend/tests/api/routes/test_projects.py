@@ -553,9 +553,15 @@ def test_openapi_exposes_supported_project_and_read_only_audit_contracts(
             f"{settings.API_V1_STR}/projects/{{project_id}}/customer-upload-profile"
         ]
     ) == {"get"}
-    assert set(
-        paths[f"{settings.API_V1_STR}/projects/{{project_id}}/customer-uploads"]
-    ) == {"get", "post"}
+    customer_uploads_path = (
+        f"{settings.API_V1_STR}/projects/{{project_id}}/customer-uploads"
+    )
+    assert set(paths[customer_uploads_path]) == {"get", "post"}
+    upload_file_schema = paths[customer_uploads_path]["post"]["requestBody"][
+        "content"
+    ]["multipart/form-data"]["schema"]["properties"]["file"]
+    assert upload_file_schema["type"] == "string"
+    assert upload_file_schema["format"] == "binary"
     assert set(paths[f"{settings.API_V1_STR}/projects/{{project_id}}/archive"]) == {
         "post"
     }

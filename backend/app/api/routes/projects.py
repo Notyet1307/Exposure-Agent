@@ -186,6 +186,7 @@ def read_current_customer_upload_profile(
                         "properties": {
                             "file": {
                                 "type": "string",
+                                "format": "binary",
                                 "contentMediaType": "application/octet-stream",
                             }
                         },

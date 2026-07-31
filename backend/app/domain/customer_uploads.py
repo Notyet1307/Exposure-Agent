@@ -210,8 +210,8 @@ async def stream_customer_upload_request(
         _raise("upload_storage_failed")
     temporary_path = upload_directory / f".{uuid.uuid4()}.tmp.xlsx"
     stream = _CustomerUploadMultipartStream(temporary_path)
-    parser = MultipartParser(boundary, stream.callbacks)
     try:
+        parser = MultipartParser(boundary, stream.callbacks)
         async for chunk in request.stream():
             if chunk:
                 parser.write(chunk)

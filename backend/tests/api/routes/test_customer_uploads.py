@@ -568,6 +568,33 @@ def test_incomplete_multipart_upload_is_stable_and_removes_temporary_file(
     assert not list((tmp_path / "customer_uploads").glob("*"))
 
 
+def test_overlong_multipart_boundary_is_stable_and_removes_temporary_file(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    boundary = "b" * 257
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers={
+            **superuser_token_headers,
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        content=b"",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "incomplete_upload",
+        "message": "The upload was incomplete.",
+    }
+    assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
 def test_validator_rejection_is_sanitized_and_compensated(
     client: TestClient,
     db: Session,
