@@ -150,6 +150,22 @@ def test_headers_must_match_default_v1_exactly_and_be_unique(
     )
 
 
+def test_explicit_trailing_blank_header_is_rejected(tmp_path: Path) -> None:
+    path = _save_workbook(
+        tmp_path / "blank-header.xlsx",
+        [DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
+    )
+    _rewrite_zip_member(
+        path,
+        "xl/worksheets/sheet1.xml",
+        lambda data: data.replace(
+            b"</row>", b'<c r="K1" t="n"></c></row>', 1
+        ),
+    )
+
+    _assert_rejected(path, "missing_required_structure", row=1)
+
+
 def test_workbook_requires_one_visible_sheet(tmp_path: Path) -> None:
     path = _save_workbook(
         tmp_path / "sheets.xlsx",
@@ -446,7 +462,19 @@ def test_issue_33_active_content_has_one_stable_rejection(
 ) -> None:
     path = build_fixture(fixture_name, tmp_path / "active.xlsx")
 
-    _assert_rejected(path, "unsupported_workbook_feature")
+    formula_row = (
+        2
+        if fixture_name
+        in {
+            "formula",
+            "relocated_formula_without_content_type",
+            "padded_relocated_formula",
+        }
+        else None
+    )
+    _assert_rejected(
+        path, "unsupported_workbook_feature", row=formula_row
+    )
 
 
 def test_utf16_undeclared_worksheet_formula_is_rejected(tmp_path: Path) -> None:
@@ -459,7 +487,12 @@ def test_utf16_undeclared_worksheet_formula_is_rejected(tmp_path: Path) -> None:
         lambda data: _move_formula_to_responsibility_field(data, "utf-16"),
     )
 
-    _assert_rejected(path, "unsupported_workbook_feature")
+    _assert_rejected(
+        path,
+        "unsupported_workbook_feature",
+        field="service_type",
+        row=2,
+    )
 
 
 def test_defined_name_formula_is_rejected(tmp_path: Path) -> None:
@@ -517,7 +550,44 @@ def test_declared_dimensions_do_not_control_parser_iteration(
     assert observed_bounds == [(2, len(DEFAULT_HEADERS))]
 
 
-def test_sparse_far_cell_is_rejected_before_parser_expansion(tmp_path: Path) -> None:
+def test_sparse_valid_row_outside_audit_rectangle_is_accepted(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "sparse-valid-row.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    headers = [*DEFAULT_HEADERS, *(f"Extra {index}" for index in range(10))]
+    for column, header in enumerate(headers, start=1):
+        worksheet.cell(row=1, column=column, value=header)
+    values: list[object] = [
+        "192.0.2.1",
+        443,
+        443,
+        "否",
+        None,
+        "Service",
+        "Owner",
+        "Department",
+        "Port Owner",
+        "Operations",
+        *range(10),
+    ]
+    for column, value in enumerate(values, start=1):
+        worksheet.cell(row=100_001, column=column, value=value)
+    workbook.save(path)
+    workbook.close()
+
+    result = validate_customer_upload_workbook(path)
+
+    assert result.record_count == 1
+    assert result.warnings == (
+        CustomerUploadWarning("extra_columns_ignored", None, 10),
+    )
+
+
+def test_sparse_data_without_a_header_is_rejected_at_header_row(
+    tmp_path: Path,
+) -> None:
     path = _save_workbook(
         tmp_path / "sparse-cell.xlsx",
         [DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
@@ -531,7 +601,7 @@ def test_sparse_far_cell_is_rejected_before_parser_expansion(tmp_path: Path) -> 
         ),
     )
 
-    _assert_rejected(path, "workbook_resource_limit")
+    _assert_rejected(path, "missing_required_structure", row=1)
 
 
 def test_actual_file_size_over_twenty_mib_is_rejected_first(tmp_path: Path) -> None:

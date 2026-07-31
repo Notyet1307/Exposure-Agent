@@ -53,6 +53,10 @@ _KNOWN_HEADERS: Final = (
     | set(_RESPONSIBILITY_FIELDS.values())
     | _OPTIONAL_HEADERS
 )
+_CANONICAL_FIELDS_BY_HEADER: Final = {
+    header: field
+    for field, header in _REQUIRED_FIELDS.items() | _RESPONSIBILITY_FIELDS.items()
+}
 _DECIMAL_PORT = re.compile(r"[0-9]+", flags=re.ASCII)
 
 
@@ -159,11 +163,13 @@ def _validate_required_row(
 def _parse_rows(
     worksheet: Any, bounds: PreflightResult
 ) -> CustomerUploadValidationResult:
+    if bounds.max_column > bounds.max_header_column:
+        raise _reject("missing_required_structure", row=1)
     rows = worksheet.iter_rows(
         min_row=1,
         max_row=max(1, bounds.max_row),
         min_col=1,
-        max_col=max(1, bounds.max_column),
+        max_col=max(1, bounds.max_column, bounds.max_header_column),
         values_only=True,
     )
     header_row: Sequence[Any] | None
@@ -175,8 +181,6 @@ def _parse_rows(
         raise _reject("missing_required_structure")
 
     header_values = list(header_row)
-    while header_values and header_values[-1] is None:
-        header_values.pop()
 
     headers: list[str] = []
     for value in header_values:
@@ -244,6 +248,38 @@ def _check_parser_contract() -> None:
         raise RuntimeError("XLSX parser runtime contract is not satisfied")
 
 
+def _canonical_field_for_column(path: Path, column: int | None) -> str | None:
+    if column is None:
+        return None
+    workbook: Any | None = None
+    try:
+        workbook = load_workbook(
+            path, read_only=True, data_only=False, keep_links=False
+        )
+        if len(workbook.worksheets) != 1:
+            return None
+        header_cell = next(
+            workbook.worksheets[0].iter_rows(
+                min_row=1,
+                max_row=1,
+                min_col=column,
+                max_col=column,
+                values_only=True,
+            )
+        )[0]
+        if not isinstance(header_cell, str):
+            return None
+        return _CANONICAL_FIELDS_BY_HEADER.get(header_cell)
+    except Exception:
+        return None
+    finally:
+        if workbook is not None:
+            try:
+                workbook.close()
+            except Exception:
+                pass
+
+
 def validate_customer_upload_workbook(
     path: Path,
 ) -> CustomerUploadValidationResult:
@@ -267,7 +303,12 @@ def validate_customer_upload_workbook(
     except PreflightError as error:
         preflight_error = error
     if preflight_error is not None:
-        raise _reject(preflight_error.code, row=preflight_error.row)
+        field = _canonical_field_for_column(path, preflight_error.column)
+        raise _reject(
+            preflight_error.code,
+            field=field,
+            row=preflight_error.row,
+        )
     if preflight_result is None:
         raise _reject("malformed_workbook")
 

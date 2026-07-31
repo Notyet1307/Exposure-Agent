@@ -14,9 +14,6 @@ MAX_ZIP_ENTRIES: Final = 2_048
 MAX_ENTRY_UNCOMPRESSED_BYTES: Final = 64 * 1024 * 1024
 MAX_TOTAL_UNCOMPRESSED_BYTES: Final = 256 * 1024 * 1024
 MAX_CENTRAL_DIRECTORY_BYTES: Final = 4 * 1024 * 1024
-# Supports the 100k-row v1 delivery boundary at 20 columns without allowing
-# sparse coordinates to make openpyxl synthesize an unbounded rectangle.
-MAX_WORKSHEET_ITERATED_CELLS: Final = 2_000_000
 _MAX_EOCD_TAIL_BYTES: Final = 65_557
 _ZIP64_SENTINEL_16: Final = 0xFFFF
 _ZIP64_SENTINEL_32: Final = 0xFFFFFFFF
@@ -65,13 +62,21 @@ _XML_BOMS: Final = (
 class PreflightResult:
     max_row: int
     max_column: int
+    max_header_column: int
 
 
 class PreflightError(Exception):
-    def __init__(self, code: str, *, row: int | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        row: int | None = None,
+        column: int | None = None,
+    ) -> None:
         super().__init__(code)
         self.code = code
         self.row = row
+        self.column = column
 
 
 def _resource_limit() -> PreflightError:
@@ -382,7 +387,7 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
             or _looks_like_xml_part(archive, name)
         )
         workbook_found = False
-        worksheet_bounds: list[tuple[int, int]] = []
+        worksheet_bounds: list[tuple[int, int, int]] = []
         for xml_name in xml_names:
             workbook_sheet_count = 0
             root_name: str | None = None
@@ -393,6 +398,7 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
             cell_has_value = False
             max_row = 0
             max_column = 0
+            max_header_column = 0
             with archive.open(xml_name) as xml_file:
                 for event, element in ElementTree.iterparse(
                     xml_file, events=("start", "end")
@@ -424,6 +430,10 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                                 cell_row, cell_column = _column_number(cell_reference)
                                 current_column = cell_column
                             cell_has_value = False
+                            if cell_row == 1 and cell_column is not None:
+                                max_header_column = max(
+                                    max_header_column, cell_column
+                                )
                         elif cell_row is not None and local_name in {"f", "is", "v"}:
                             cell_has_value = True
                     if event == "end":
@@ -438,7 +448,11 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                         if _is_formula_element(
                             local_name
                         ) or _element_has_formula_attribute(element.attrib):
-                            raise PreflightError("unsupported_workbook_feature")
+                            raise PreflightError(
+                                "unsupported_workbook_feature",
+                                row=cell_row,
+                                column=cell_column,
+                            )
                         if local_name == "c":
                             if (
                                 cell_has_value
@@ -464,15 +478,19 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
             if xml_name == "xl/workbook.xml" and workbook_sheet_count != 1:
                 raise PreflightError("unsupported_workbook_feature")
             if root_name == "worksheet":
-                worksheet_bounds.append((max_row, max_column))
+                worksheet_bounds.append(
+                    (max_row, max_column, max_header_column)
+                )
         if not workbook_found:
             raise PreflightError("malformed_workbook")
         if len(worksheet_bounds) != 1:
             raise PreflightError("unsupported_workbook_feature")
-        max_row, max_column = worksheet_bounds[0]
-        if max_row * max_column > MAX_WORKSHEET_ITERATED_CELLS:
-            raise _resource_limit()
-        return PreflightResult(max_row=max_row, max_column=max_column)
+        max_row, max_column, max_header_column = worksheet_bounds[0]
+        return PreflightResult(
+            max_row=max_row,
+            max_column=max_column,
+            max_header_column=max_header_column,
+        )
     except PreflightError:
         raise
     except (ElementTree.ParseError, DefusedXmlException, KeyError, OSError) as exc:
