@@ -53,6 +53,10 @@ _KNOWN_HEADERS: Final = (
     | set(_RESPONSIBILITY_FIELDS.values())
     | _OPTIONAL_HEADERS
 )
+_CANONICAL_FIELDS_BY_HEADER: Final = {
+    header: field
+    for field, header in _REQUIRED_FIELDS.items() | _RESPONSIBILITY_FIELDS.items()
+}
 _DECIMAL_PORT = re.compile(r"[0-9]+", flags=re.ASCII)
 
 
@@ -267,11 +271,15 @@ def validate_customer_upload_workbook(
     preflight_error: PreflightError | None = None
     preflight_result: PreflightResult | None = None
     try:
-        preflight_result = preflight_xlsx(path)
+        preflight_result = preflight_xlsx(path, _CANONICAL_FIELDS_BY_HEADER)
     except PreflightError as error:
         preflight_error = error
     if preflight_error is not None:
-        raise _reject(preflight_error.code, row=preflight_error.row)
+        raise _reject(
+            preflight_error.code,
+            field=preflight_error.field,
+            row=preflight_error.row,
+        )
     if preflight_result is None:
         raise _reject("malformed_workbook")
 

@@ -440,6 +440,16 @@ def test_issue_33_zip_bombs_have_one_stable_rejection(
     _assert_rejected(path, "workbook_resource_limit")
 
 
+def test_zip_resource_limit_stops_before_later_malformed_entry(
+    tmp_path: Path,
+) -> None:
+    path = build_fixture("compression_bomb", tmp_path / "bomb.xlsx")
+    with ZipFile(path, "a", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("../after-limit", b"fixture")
+
+    _assert_rejected(path, "workbook_resource_limit")
+
+
 @pytest.mark.parametrize(
     "fixture_name",
     [
@@ -478,10 +488,17 @@ def test_issue_33_active_content_has_one_stable_rejection(
     )
 
 
-def test_preflight_rejection_does_not_call_openpyxl(
+def test_preflight_rejection_preserves_field_without_calling_openpyxl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = build_fixture("formula", tmp_path / "formula.xlsx")
+    path = build_fixture(
+        "relocated_formula_without_content_type", tmp_path / "formula.xlsx"
+    )
+    _rewrite_zip_member(
+        path,
+        "xl/fixture/worksheet.dat",
+        lambda data: _move_formula_to_responsibility_field(data, "utf-16"),
+    )
     openpyxl_calls = 0
 
     def unexpected_openpyxl_call(*_args: object, **_kwargs: object) -> None:
@@ -493,7 +510,42 @@ def test_preflight_rejection_does_not_call_openpyxl(
         unexpected_openpyxl_call,
     )
 
-    _assert_rejected(path, "unsupported_workbook_feature", row=2)
+    _assert_rejected(
+        path,
+        "unsupported_workbook_feature",
+        field="service_type",
+        row=2,
+    )
+    assert openpyxl_calls == 0
+
+
+def test_macro_enabled_main_content_type_is_rejected_before_openpyxl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _save_workbook(
+        tmp_path / "macro-type.xlsx",
+        [DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
+    )
+    _rewrite_zip_member(
+        path,
+        "[Content_Types].xml",
+        lambda data: data.replace(
+            b"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+            b"application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+        ),
+    )
+    openpyxl_calls = 0
+
+    def unexpected_openpyxl_call(*_args: object, **_kwargs: object) -> None:
+        nonlocal openpyxl_calls
+        openpyxl_calls += 1
+
+    monkeypatch.setattr(
+        "app.domain.customer_upload_validator.load_workbook",
+        unexpected_openpyxl_call,
+    )
+
+    _assert_rejected(path, "unsupported_workbook_feature")
     assert openpyxl_calls == 0
 
 
@@ -507,7 +559,12 @@ def test_utf16_undeclared_worksheet_formula_is_rejected(tmp_path: Path) -> None:
         lambda data: _move_formula_to_responsibility_field(data, "utf-16"),
     )
 
-    _assert_rejected(path, "unsupported_workbook_feature", row=2)
+    _assert_rejected(
+        path,
+        "unsupported_workbook_feature",
+        field="service_type",
+        row=2,
+    )
 
 
 def test_defined_name_formula_is_rejected(tmp_path: Path) -> None:

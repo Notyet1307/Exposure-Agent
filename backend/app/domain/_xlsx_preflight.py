@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import struct
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
@@ -72,11 +73,13 @@ class PreflightError(Exception):
         *,
         row: int | None = None,
         column: int | None = None,
+        field: str | None = None,
     ) -> None:
         super().__init__(code)
         self.code = code
         self.row = row
         self.column = column
+        self.field = field
 
 
 def _resource_limit() -> PreflightError:
@@ -147,7 +150,6 @@ def _check_central_directory(path: Path) -> None:
 
     cursor = 0
     total_uncompressed = 0
-    largest_entry = 0
     names: set[str] = set()
     parsed_entries = 0
     while cursor < len(central):
@@ -194,17 +196,16 @@ def _check_central_directory(path: Path) -> None:
         if name in names:
             raise PreflightError("malformed_workbook")
         names.add(name)
+        if uncompressed_size > MAX_ENTRY_UNCOMPRESSED_BYTES:
+            raise _resource_limit()
         total_uncompressed += uncompressed_size
-        largest_entry = max(largest_entry, uncompressed_size)
+        if total_uncompressed > MAX_TOTAL_UNCOMPRESSED_BYTES:
+            raise _resource_limit()
         cursor = next_cursor
         parsed_entries += 1
 
     if parsed_entries != total_entries or cursor != central_size:
         raise PreflightError("malformed_workbook")
-    if largest_entry > MAX_ENTRY_UNCOMPRESSED_BYTES:
-        raise _resource_limit()
-    if total_uncompressed > MAX_TOTAL_UNCOMPRESSED_BYTES:
-        raise _resource_limit()
 
 
 def _relationship_is_forbidden(relationship_type: str) -> bool:
@@ -235,6 +236,7 @@ def _content_type_is_forbidden(content_type: str) -> bool:
             "connections+xml",
             "ctrlprop",
             "externallink",
+            "macroenabled",
             "oleobject",
             "vbaproject",
             "vmldrawing",
@@ -325,9 +327,33 @@ def _column_number(reference: str) -> tuple[int, int]:
     return row, column
 
 
-def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
+def _read_shared_strings(
+    archive: ZipFile, shared_string_parts: set[str]
+) -> tuple[str, ...]:
+    shared_strings: list[str] = []
+    for name in sorted(shared_string_parts):
+        with archive.open(name) as shared_strings_file:
+            for _event, element in ElementTree.iterparse(
+                shared_strings_file, events=("end",)
+            ):
+                if element.tag.rsplit("}", maxsplit=1)[-1] == "si":
+                    shared_strings.append(
+                        "".join(
+                            child.text or ""
+                            for child in element.iter()
+                            if child.tag.rsplit("}", maxsplit=1)[-1] == "t"
+                        )
+                    )
+                    element.clear()
+    return tuple(shared_strings)
+
+
+def _inspect_ooxml(
+    archive: ZipFile, canonical_fields_by_header: Mapping[str, str]
+) -> PreflightResult:
     names = set(archive.namelist())
     declared_xml_parts: set[str] = set()
+    shared_string_parts: set[str] = set()
     xml_extensions: set[str] = set()
     if "[Content_Types].xml" not in names:
         raise PreflightError("malformed_workbook")
@@ -346,6 +372,8 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                         part_name = element.attrib.get("PartName", "").lstrip("/")
                         if part_name:
                             declared_xml_parts.add(part_name)
+                            if "sharedstrings" in content_type.casefold():
+                                shared_string_parts.add(part_name)
                     elif local_name == "Default":
                         extension = element.attrib.get("Extension", "").casefold()
                         if extension:
@@ -379,6 +407,7 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                         raise PreflightError("unsupported_workbook_feature")
                     element.clear()
 
+        shared_strings = _read_shared_strings(archive, shared_string_parts)
         xml_names = sorted(
             name
             for name in names
@@ -395,6 +424,10 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
             current_column = 0
             cell_row: int | None = None
             cell_column: int | None = None
+            cell_type: str | None = None
+            cell_value: str | None = None
+            inline_text: list[str] = []
+            canonical_fields_by_column: dict[int, str] = {}
             cell_has_value = False
             max_row = 0
             max_column = 0
@@ -429,6 +462,9 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                             else:
                                 cell_row, cell_column = _column_number(cell_reference)
                                 current_column = cell_column
+                            cell_type = element.attrib.get("t")
+                            cell_value = None
+                            inline_text = []
                             cell_has_value = False
                             if cell_row == 1 and cell_column is not None:
                                 max_header_column = max(
@@ -437,6 +473,19 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                         elif cell_row is not None and local_name in {"f", "is", "v"}:
                             cell_has_value = True
                     if event == "end":
+                        if (
+                            root_name == "worksheet"
+                            and cell_row == 1
+                            and local_name == "t"
+                            and cell_type == "inlineStr"
+                        ):
+                            inline_text.append(element.text or "")
+                        elif (
+                            root_name == "worksheet"
+                            and cell_row == 1
+                            and local_name == "v"
+                        ):
+                            cell_value = element.text
                         if xml_name == "xl/workbook.xml" and local_name == "sheet":
                             workbook_found = True
                             workbook_sheet_count += 1
@@ -452,6 +501,11 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                                 "unsupported_workbook_feature",
                                 row=cell_row,
                                 column=cell_column,
+                                field=(
+                                    canonical_fields_by_column.get(cell_column)
+                                    if cell_column is not None
+                                    else None
+                                ),
                             )
                         if local_name == "c":
                             if (
@@ -461,8 +515,32 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                             ):
                                 max_row = max(max_row, cell_row)
                                 max_column = max(max_column, cell_column)
+                            if cell_row == 1 and cell_column is not None:
+                                header: str | None = None
+                                if cell_type == "inlineStr":
+                                    header = "".join(inline_text)
+                                elif cell_type == "str":
+                                    header = cell_value
+                                elif (
+                                    cell_type == "s"
+                                    and cell_value is not None
+                                    and cell_value.isdecimal()
+                                ):
+                                    shared_string_index = int(cell_value)
+                                    if shared_string_index < len(shared_strings):
+                                        header = shared_strings[shared_string_index]
+                                if (
+                                    header is not None
+                                    and header in canonical_fields_by_header
+                                ):
+                                    canonical_fields_by_column[cell_column] = (
+                                        canonical_fields_by_header[header]
+                                    )
                             cell_row = None
                             cell_column = None
+                            cell_type = None
+                            cell_value = None
+                            inline_text = []
                             cell_has_value = False
                         if local_name == "mergeCell" and _merged_range_includes_header(
                             element.attrib.get("ref", "")
@@ -497,11 +575,13 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
         raise PreflightError("malformed_workbook") from exc
 
 
-def preflight_xlsx(path: Path) -> PreflightResult:
+def preflight_xlsx(
+    path: Path, canonical_fields_by_header: Mapping[str, str]
+) -> PreflightResult:
     _check_central_directory(path)
     try:
         with ZipFile(path) as archive:
-            return _inspect_ooxml(archive)
+            return _inspect_ooxml(archive, canonical_fields_by_header)
     except PreflightError:
         raise
     except (BadZipFile, OSError, RuntimeError, ValueError) as exc:
