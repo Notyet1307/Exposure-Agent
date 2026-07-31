@@ -98,7 +98,12 @@ def read_cloudatlas_sources(
     ).one()
     return CloudAtlasSourcesPublic(
         data=[
-            source_service.source_public(source, session=session) for source in sources
+            source_service.source_public(
+                source,
+                check_current=project.archived_at is None,
+                session=session,
+            )
+            for source in sources
         ],
         count=count,
         can_manage=current_user.is_superuser and project.archived_at is None,

@@ -468,6 +468,64 @@ def test_project_roles_only_receive_safe_summaries_for_their_own_project(
     ]
 
 
+def test_archived_project_read_keeps_stored_validation_after_material_drifts(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project = _create_project(client, superuser_token_headers)
+    with _octobus_server() as (base_url, octobus):
+        monkeypatch.setattr(settings, "OCTOBUS_URL", base_url)
+        collection_url = (
+            f"{settings.API_V1_STR}/projects/{project['id']}"
+            "/cloudatlas-source-instances"
+        )
+        source = client.post(
+            collection_url,
+            headers=superuser_token_headers,
+            json={
+                "instance_id": octobus.instance_id,
+                "capset_id": octobus.capset_id,
+            },
+        ).json()
+        source_url = f"{collection_url}/{source['id']}"
+        assert client.post(
+            f"{source_url}/validate",
+            headers=superuser_token_headers,
+            json={"capset_token": CAPSET_TOKEN},
+        ).status_code == 200
+        assert client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/archive",
+            headers=superuser_token_headers,
+        ).status_code == 200
+        request_count = len(octobus.requests)
+
+        octobus.secret_sha256 = "3" * 64
+        archived_response = client.get(
+            collection_url, headers=superuser_token_headers
+        )
+
+        assert archived_response.status_code == 200
+        assert archived_response.json()["data"][0]["validation_status"] == "validated"
+        assert archived_response.json()["can_manage"] is False
+        assert len(octobus.requests) == request_count
+
+    audit_response = client.get(
+        f"{settings.API_V1_STR}/audit-events/",
+        headers=superuser_token_headers,
+    )
+    assert audit_response.status_code == 200
+    source_actions = [
+        event["action"]
+        for event in audit_response.json()["data"]
+        if event["target_id"] == source["id"]
+    ]
+    assert source_actions == [
+        "source_instance.validated",
+        "source_instance.created",
+    ]
+
+
 def test_fingerprint_drift_and_binding_changes_invalidate_validation(
     client: TestClient,
     db: Session,
