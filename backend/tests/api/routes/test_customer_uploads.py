@@ -25,6 +25,7 @@ from app.core.db import engine
 from app.domain import customer_uploads as customer_upload_service
 from app.domain.models import Artifact, AuditEvent, CustomerUpload, Project
 from app.main import app
+from tests.utils.audit import reject_audit_inserts
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
 
@@ -233,12 +234,270 @@ def test_admin_can_accept_and_list_an_immutable_customer_upload(
     assert list_response.json() == {
         "data": [upload],
         "count": 1,
+        "current_customer_upload_id": None,
         "can_upload": True,
+        "can_select": True,
     }
     artifacts = list((tmp_path / "customer_uploads").glob("*.xlsx"))
     assert len(artifacts) == 1
     assert artifacts[0].name != "customer.xlsx"
     assert artifacts[0].read_bytes() == content
+
+
+def test_admin_selects_current_upload_and_list_reports_selection(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    uploads_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    )
+    upload_response = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    )
+    assert upload_response.status_code == 201
+    upload = upload_response.json()
+
+    initial_list_response = client.get(
+        uploads_url, headers=superuser_token_headers
+    )
+    assert initial_list_response.status_code == 200
+    assert initial_list_response.json()["current_customer_upload_id"] is None
+    assert initial_list_response.json()["can_select"] is True
+
+    select_response = client.post(
+        f"{uploads_url}/{upload['id']}/select",
+        headers=superuser_token_headers,
+    )
+
+    assert select_response.status_code == 200
+    assert select_response.json() == upload
+    selected_list_response = client.get(
+        uploads_url, headers=superuser_token_headers
+    )
+    assert selected_list_response.status_code == 200
+    assert (
+        selected_list_response.json()["current_customer_upload_id"] == upload["id"]
+    )
+    db.expire_all()
+    audit_event = db.exec(
+        select(AuditEvent).where(
+            AuditEvent.project_id == uuid.UUID(str(project["id"])),
+            AuditEvent.action == "customer_upload.selected",
+        )
+    ).one()
+    assert audit_event.target_type == "customer_upload"
+    assert audit_event.target_id == uuid.UUID(upload["id"])
+    assert audit_event.before_data == {"current_customer_upload_id": None}
+    assert audit_event.after_data == {"current_customer_upload_id": upload["id"]}
+
+
+def test_operator_can_select_but_viewer_and_approver_cannot(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    uploads_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    )
+    upload_response = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    )
+    upload_id = upload_response.json()["id"]
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    read_only_headers = [
+        _create_member(
+            client,
+            superuser_token_headers,
+            project_id=project["id"],
+            roles=[role],
+        )
+        for role in ("viewer", "approver")
+    ]
+
+    select_url = f"{uploads_url}/{upload_id}/select"
+    operator_response = client.post(select_url, headers=operator_headers)
+    read_only_responses = [
+        client.post(select_url, headers=headers) for headers in read_only_headers
+    ]
+
+    assert operator_response.status_code == 200
+    assert [response.status_code for response in read_only_responses] == [404, 404]
+    operator_list_response = client.get(uploads_url, headers=operator_headers)
+    assert operator_list_response.status_code == 200
+    assert operator_list_response.json()["can_select"] is True
+    db.expire_all()
+    project_record = db.get(Project, uuid.UUID(str(project["id"])))
+    assert project_record is not None
+    assert project_record.current_customer_upload_id == uuid.UUID(upload_id)
+    assert db.exec(
+        select(func.count())
+        .select_from(AuditEvent)
+        .where(
+            AuditEvent.project_id == project_record.id,
+            AuditEvent.action == "customer_upload.selected",
+        )
+    ).one() == 1
+
+
+def test_cross_project_missing_and_archived_selection_do_not_change_pointer(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    other_project = _create_project(client, superuser_token_headers)
+    uploads_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    )
+    own_upload = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("own.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    ).json()
+    other_upload = client.post(
+        f"{settings.API_V1_STR}/projects/{other_project['id']}/customer-uploads",
+        headers=superuser_token_headers,
+        files={
+            "file": (
+                "other.xlsx",
+                _workbook_bytes(asset_ip="192.0.2.20"),
+                XLSX_MEDIA_TYPE,
+            )
+        },
+    ).json()
+    assert client.post(
+        f"{uploads_url}/{own_upload['id']}/select",
+        headers=superuser_token_headers,
+    ).status_code == 200
+
+    cross_project_response = client.post(
+        f"{uploads_url}/{other_upload['id']}/select",
+        headers=superuser_token_headers,
+    )
+    missing_response = client.post(
+        f"{uploads_url}/{uuid.uuid4()}/select",
+        headers=superuser_token_headers,
+    )
+    archive_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/archive",
+        headers=superuser_token_headers,
+    )
+    archived_response = client.post(
+        f"{uploads_url}/{own_upload['id']}/select",
+        headers=superuser_token_headers,
+    )
+
+    assert cross_project_response.status_code == 404
+    assert missing_response.status_code == 404
+    assert archive_response.status_code == 200
+    assert archived_response.status_code == 409
+    db.expire_all()
+    project_record = db.get(Project, uuid.UUID(str(project["id"])))
+    assert project_record is not None
+    assert project_record.current_customer_upload_id == uuid.UUID(own_upload["id"])
+    assert db.exec(
+        select(func.count())
+        .select_from(AuditEvent)
+        .where(
+            AuditEvent.project_id == project_record.id,
+            AuditEvent.action == "customer_upload.selected",
+        )
+    ).one() == 1
+
+
+def test_repeated_selection_is_idempotent_without_duplicate_audit(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    uploads_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    )
+    upload = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    ).json()
+    select_url = f"{uploads_url}/{upload['id']}/select"
+
+    first_response = client.post(select_url, headers=superuser_token_headers)
+    repeated_response = client.post(select_url, headers=superuser_token_headers)
+
+    assert first_response.status_code == 200
+    assert repeated_response.status_code == 200
+    assert repeated_response.json() == first_response.json()
+    db.expire_all()
+    assert db.exec(
+        select(func.count())
+        .select_from(AuditEvent)
+        .where(
+            AuditEvent.project_id == uuid.UUID(str(project["id"])),
+            AuditEvent.action == "customer_upload.selected",
+        )
+    ).one() == 1
+
+
+def test_selection_rolls_back_when_audit_insert_fails(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    uploads_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    )
+    upload = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    ).json()
+    audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
+
+    with reject_audit_inserts(db):
+        with TestClient(
+            app,
+            raise_server_exceptions=False,
+            client=("127.0.0.1", 50102),
+        ) as failure_client:
+            response = failure_client.post(
+                f"{uploads_url}/{upload['id']}/select",
+                headers=superuser_token_headers,
+            )
+        assert response.status_code == 500
+
+    db.expire_all()
+    project_record = db.get(Project, uuid.UUID(str(project["id"])))
+    assert project_record is not None
+    assert project_record.current_customer_upload_id is None
+    assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
 
 
 def test_repeated_upload_returns_existing_record_without_duplicate_side_effects(
@@ -390,7 +649,13 @@ def test_non_operator_cannot_upload_but_can_list_with_can_upload_false(
 
     assert upload_response.status_code == 404
     assert list_response.status_code == 200
-    assert list_response.json() == {"data": [], "count": 0, "can_upload": False}
+    assert list_response.json() == {
+        "data": [],
+        "count": 0,
+        "current_customer_upload_id": None,
+        "can_upload": False,
+        "can_select": False,
+    }
 
 
 def test_operator_can_upload_only_to_own_active_project(
@@ -451,7 +716,13 @@ def test_archived_project_is_readable_but_cannot_accept_uploads(
 
     assert upload_response.status_code == 409
     assert list_response.status_code == 200
-    assert list_response.json() == {"data": [], "count": 0, "can_upload": False}
+    assert list_response.json() == {
+        "data": [],
+        "count": 0,
+        "current_customer_upload_id": None,
+        "can_upload": False,
+        "can_select": False,
+    }
 
 
 @pytest.mark.parametrize(

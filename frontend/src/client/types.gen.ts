@@ -57,7 +57,9 @@ export type CustomerUploadPublic = {
 export type CustomerUploadsPublic = {
     data: Array<CustomerUploadPublic>;
     count: number;
+    current_customer_upload_id: (string | null);
     can_upload: boolean;
+    can_select: boolean;
 };
 
 export type CustomerUploadWarningPublic = {
@@ -280,6 +282,13 @@ export type ProjectsReadCustomerUploadsData = {
 };
 
 export type ProjectsReadCustomerUploadsResponse = (CustomerUploadsPublic);
+
+export type ProjectsSelectCurrentCustomerUploadData = {
+    projectId: string;
+    uploadId: string;
+};
+
+export type ProjectsSelectCurrentCustomerUploadResponse = (CustomerUploadPublic);
 
 export type ProjectsArchiveProjectData = {
     projectId: string;

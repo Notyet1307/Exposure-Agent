@@ -57,6 +57,12 @@ class Project(ProjectBase, table=True):
             deferrable=True,
             initially="DEFERRED",
         ),
+        ForeignKeyConstraint(
+            ["current_customer_upload_id", "id"],
+            ["customer_uploads.id", "customer_uploads.project_id"],
+            name="fk_projects_current_customer_upload",
+            ondelete="RESTRICT",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -79,6 +85,7 @@ class Project(ProjectBase, table=True):
         sa_type=DateTime(timezone=True),  # type: ignore
     )
     current_customer_upload_profile_id: uuid.UUID = Field(index=True)
+    current_customer_upload_id: uuid.UUID | None = Field(default=None, index=True)
 
 
 class ProjectPublic(ProjectBase):
@@ -212,6 +219,9 @@ class CustomerUpload(SQLModel, table=True):
             ondelete="RESTRICT",
         ),
         UniqueConstraint(
+            "id", "project_id", name="uq_customer_uploads_id_project"
+        ),
+        UniqueConstraint(
             "project_id",
             "raw_sha256",
             "profile_id",
@@ -263,7 +273,9 @@ class CustomerUploadPublic(SQLModel):
 class CustomerUploadsPublic(SQLModel):
     data: list[CustomerUploadPublic]
     count: int
+    current_customer_upload_id: uuid.UUID | None
     can_upload: bool
+    can_select: bool
 
 
 class ProjectRole(StrEnum):

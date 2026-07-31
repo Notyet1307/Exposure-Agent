@@ -123,7 +123,19 @@ function WarningSummary({
   )
 }
 
-function UploadRows({ uploads }: { uploads: CustomerUploadPublic[] }) {
+function UploadRows({
+  uploads,
+  currentUploadId,
+  canSelect,
+  selectingUploadId,
+  onSelect,
+}: {
+  uploads: CustomerUploadPublic[]
+  currentUploadId: string | null
+  canSelect: boolean
+  selectingUploadId: string | null
+  onSelect: (uploadId: string) => void
+}) {
   if (uploads.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">No accepted uploads yet.</p>
@@ -139,32 +151,58 @@ function UploadRows({ uploads }: { uploads: CustomerUploadPublic[] }) {
           <TableHead>Profile</TableHead>
           <TableHead>Warnings</TableHead>
           <TableHead>Accepted</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Action</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {uploads.map((upload) => (
-          <TableRow key={upload.id}>
-            <TableCell className="font-medium">
-              {upload.display_filename}
-            </TableCell>
-            <TableCell className="max-w-72 whitespace-normal break-all font-mono text-xs">
-              {upload.raw_sha256}
-            </TableCell>
-            <TableCell>{upload.record_count}</TableCell>
-            <TableCell>
-              <div>v{upload.profile_version}</div>
-              <div className="max-w-48 break-all text-xs text-muted-foreground">
-                {upload.profile_id}
-              </div>
-            </TableCell>
-            <TableCell className="whitespace-normal">
-              <WarningSummary warnings={upload.warnings} />
-            </TableCell>
-            <TableCell>
-              {new Date(upload.created_at).toLocaleString()}
-            </TableCell>
-          </TableRow>
-        ))}
+        {uploads.map((upload) => {
+          const isCurrent = upload.id === currentUploadId
+          return (
+            <TableRow key={upload.id}>
+              <TableCell className="font-medium">
+                {upload.display_filename}
+              </TableCell>
+              <TableCell className="max-w-72 whitespace-normal break-all font-mono text-xs">
+                {upload.raw_sha256}
+              </TableCell>
+              <TableCell>{upload.record_count}</TableCell>
+              <TableCell>
+                <div>v{upload.profile_version}</div>
+                <div className="max-w-48 break-all text-xs text-muted-foreground">
+                  {upload.profile_id}
+                </div>
+              </TableCell>
+              <TableCell className="whitespace-normal">
+                <WarningSummary warnings={upload.warnings} />
+              </TableCell>
+              <TableCell>
+                {new Date(upload.created_at).toLocaleString()}
+              </TableCell>
+              <TableCell>
+                {isCurrent ? (
+                  <Badge>Current</Badge>
+                ) : (
+                  <span className="text-muted-foreground">Available</span>
+                )}
+              </TableCell>
+              <TableCell>
+                {canSelect && !isCurrent && (
+                  <LoadingButton
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    loading={selectingUploadId === upload.id}
+                    disabled={selectingUploadId !== null}
+                    onClick={() => onSelect(upload.id)}
+                  >
+                    Set as current input
+                  </LoadingButton>
+                )}
+              </TableCell>
+            </TableRow>
+          )
+        })}
       </TableBody>
     </Table>
   )
@@ -175,10 +213,12 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [page, setPage] = useState(0)
   const [fileMessage, setFileMessage] = useState<string | null>(null)
+  const [selectionMessage, setSelectionMessage] = useState<string | null>(null)
 
   useEffect(() => {
     setPage(0)
     setFileMessage(null)
+    setSelectionMessage(null)
   }, [])
 
   const profileQuery = useQuery({
@@ -212,6 +252,21 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       })
     },
     onError: (error: Error) => setFileMessage(safeUploadErrorMessage(error)),
+  })
+  const selectionMutation = useMutation({
+    mutationFn: (uploadId: string) =>
+      ProjectsService.selectCurrentCustomerUpload({
+        projectId: project.id,
+        uploadId,
+      }),
+    onSuccess: async () => {
+      setSelectionMessage("Current Project input updated successfully.")
+      await queryClient.invalidateQueries({
+        queryKey: ["customer-uploads", project.id],
+      })
+    },
+    onError: () =>
+      setSelectionMessage("The current Project input could not be changed."),
   })
 
   if (profileQuery.isPending || uploadsQuery.isPending) {
@@ -280,6 +335,38 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Current Project input</CardTitle>
+          <CardDescription>
+            Governance uses one explicitly selected accepted CustomerUpload.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {uploads.current_customer_upload_id ? (
+            <p>
+              Current CustomerUpload ID{" "}
+              <span className="break-all font-mono text-sm">
+                {uploads.current_customer_upload_id}
+              </span>
+            </p>
+          ) : (
+            <Alert>
+              <AlertCircle />
+              <AlertTitle>Not ready</AlertTitle>
+              <AlertDescription>
+                Project input is not ready. Select one accepted CustomerUpload.
+              </AlertDescription>
+            </Alert>
+          )}
+          {selectionMessage && (
+            <p className="text-sm" role="status">
+              {selectionMessage}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {uploads.can_upload ? (
         <Card>
           <CardHeader>
@@ -331,7 +418,20 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
           <CardDescription>{uploads.count} total</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <UploadRows uploads={uploads.data} />
+          <UploadRows
+            uploads={uploads.data}
+            currentUploadId={uploads.current_customer_upload_id}
+            canSelect={uploads.can_select}
+            selectingUploadId={
+              selectionMutation.isPending
+                ? (selectionMutation.variables ?? null)
+                : null
+            }
+            onSelect={(uploadId) => {
+              setSelectionMessage(null)
+              selectionMutation.mutate(uploadId)
+            }}
+          />
           {(canGoBack || canGoForward) && (
             <div className="flex items-center justify-end gap-2">
               <Button
