@@ -429,6 +429,7 @@ def _inspect_ooxml(
             inline_text: list[str] = []
             canonical_fields_by_column: dict[int, str] = {}
             cell_has_value = False
+            cell_has_style = False
             max_row = 0
             max_column = 0
             max_header_column = 0
@@ -466,10 +467,7 @@ def _inspect_ooxml(
                             cell_value = None
                             inline_text = []
                             cell_has_value = False
-                            if cell_row == 1 and cell_column is not None:
-                                max_header_column = max(
-                                    max_header_column, cell_column
-                                )
+                            cell_has_style = "s" in element.attrib
                         elif cell_row is not None and local_name in {"f", "is", "v"}:
                             cell_has_value = True
                     if event == "end":
@@ -515,7 +513,14 @@ def _inspect_ooxml(
                             ):
                                 max_row = max(max_row, cell_row)
                                 max_column = max(max_column, cell_column)
-                            if cell_row == 1 and cell_column is not None:
+                            if (
+                                cell_row == 1
+                                and cell_column is not None
+                                and (cell_has_value or not cell_has_style)
+                            ):
+                                max_header_column = max(
+                                    max_header_column, cell_column
+                                )
                                 header: str | None = None
                                 if cell_type == "inlineStr":
                                     header = "".join(inline_text)
@@ -542,6 +547,7 @@ def _inspect_ooxml(
                             cell_value = None
                             inline_text = []
                             cell_has_value = False
+                            cell_has_style = False
                         if local_name == "mergeCell" and _merged_range_includes_header(
                             element.attrib.get("ref", "")
                         ):

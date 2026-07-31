@@ -351,7 +351,7 @@ def test_multiline_undefined_header_is_counted_as_an_extra_column(
     )
 
 
-@pytest.mark.parametrize("coordinate", ["Z2", "XFD2000"])
+@pytest.mark.parametrize("coordinate", ["Z1", "Z2", "XFD2000"])
 def test_style_only_cells_outside_data_columns_are_ignored(
     tmp_path: Path, coordinate: str
 ) -> None:
