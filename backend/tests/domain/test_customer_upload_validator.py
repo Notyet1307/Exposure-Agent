@@ -413,7 +413,6 @@ def test_workbook_requires_a_non_empty_data_row(tmp_path: Path) -> None:
     ("fixture_name", "expected_records"),
     [
         ("default_v1", 3),
-        ("near_request_limit", 3),
         ("row_shared_style_boundary", 50_000),
     ],
 )
@@ -425,6 +424,15 @@ def test_issue_33_normal_boundaries_are_accepted(
     result = validate_customer_upload_workbook(path)
 
     assert result.record_count == expected_records
+    assert result.warnings == ()
+
+
+def test_issue_33_near_limit_static_image_is_accepted(tmp_path: Path) -> None:
+    path = build_fixture("near_request_limit", tmp_path / "static-image.xlsx")
+
+    result = validate_customer_upload_workbook(path)
+
+    assert result.record_count == 3
     assert result.warnings == ()
 
 
