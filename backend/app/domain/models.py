@@ -4,7 +4,14 @@ from enum import StrEnum
 from typing import Any, ClassVar
 
 from pydantic import field_validator
-from sqlalchemy import CheckConstraint, Column, DateTime, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKeyConstraint,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, SQLModel
 
@@ -41,6 +48,16 @@ class ProjectUpdate(ProjectBase):
 
 class Project(ProjectBase, table=True):
     __tablename__: ClassVar[str] = "projects"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["current_customer_upload_profile_id", "id"],
+            ["customer_upload_profiles.id", "customer_upload_profiles.project_id"],
+            name="fk_projects_current_customer_upload_profile",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(
@@ -61,6 +78,7 @@ class Project(ProjectBase, table=True):
         default=None,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
+    current_customer_upload_profile_id: uuid.UUID = Field(index=True)
 
 
 class ProjectPublic(ProjectBase):
@@ -74,6 +92,47 @@ class ProjectPublic(ProjectBase):
 class ProjectsPublic(SQLModel):
     data: list[ProjectPublic]
     count: int
+
+
+class CustomerUploadProfileDefinition(SQLModel):
+    model_config = SQLModel.model_config | {"extra": "forbid"}
+
+    required_headers: list[str]
+    warning_headers: list[str]
+    optional_headers: list[str]
+
+
+class CustomerUploadProfile(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "customer_upload_profiles"
+    __table_args__ = (
+        CheckConstraint(
+            "version > 0", name="ck_customer_upload_profiles_version_positive"
+        ),
+        UniqueConstraint(
+            "id", "project_id", name="uq_customer_upload_profiles_id_project"
+        ),
+        UniqueConstraint(
+            "project_id",
+            "version",
+            name="uq_customer_upload_profiles_project_version",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    project_id: uuid.UUID = Field(
+        foreign_key="projects.id", ondelete="RESTRICT", index=True
+    )
+    version: int
+    definition: dict[str, Any] = Field(sa_type=JSONB)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class CustomerUploadProfilePublic(CustomerUploadProfileDefinition):
+    id: uuid.UUID
+    version: int
 
 
 class ProjectRole(StrEnum):

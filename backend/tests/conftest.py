@@ -19,7 +19,10 @@ def db() -> Generator[Session]:
         init_db(session)
         yield session
         session.execute(
-            text("TRUNCATE TABLE project_memberships, audit_events, projects")
+            text(
+                "TRUNCATE TABLE project_memberships, audit_events, "
+                "customer_upload_profiles, projects CASCADE"
+            )
         )
         statement = delete(User)
         session.execute(statement)

@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -17,7 +18,25 @@ CLEANUP_REVISION = "a7d4c9e0b1f2"
 PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
+CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+DEFAULT_PROFILE_DEFINITION = {
+    "required_headers": [
+        "资产IP",
+        "起始端口",
+        "结束端口",
+        "是否web界面",
+        "web界面url",
+    ],
+    "warning_headers": [
+        "服务类型",
+        "资产负责人",
+        "资产所属部门",
+        "端口负责人",
+        "部门",
+    ],
+    "optional_headers": ["序号"],
+}
 
 
 def connect(database: str) -> psycopg.Connection:
@@ -101,7 +120,7 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (PROJECT_MEMBERSHIP_REVISION,)
+        ).fetchone() == (CUSTOMER_UPLOAD_PROFILE_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -160,6 +179,91 @@ def test_existing_projects_and_audit_events_survive_lifecycle_upgrade(
         ).fetchone() == (audit_event_id, "project.created")
 
 
+def test_existing_projects_receive_independent_default_profiles_once(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, PROJECT_MEMBERSHIP_REVISION)
+
+    first_project_id = uuid.uuid4()
+    second_project_id = uuid.uuid4()
+    with connect(template_baseline_database) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO projects (id, tenant_id, name, created_at, updated_at) "
+                "VALUES (%s, %s, %s, now(), now())",
+                [
+                    (
+                        first_project_id,
+                        DEPLOYMENT_TENANT_ID,
+                        "First Existing Project",
+                    ),
+                    (
+                        second_project_id,
+                        DEPLOYMENT_TENANT_ID,
+                        "Second Existing Project",
+                    ),
+                ],
+            )
+
+    run_migration(template_baseline_database, "head")
+    run_migration(template_baseline_database, "head")
+
+    with connect(template_baseline_database) as connection:
+        profiles = connection.execute(
+            "SELECT id, project_id, version, definition "
+            "FROM customer_upload_profiles ORDER BY project_id"
+        ).fetchall()
+        assert len(profiles) == 2
+        assert {profile[1] for profile in profiles} == {
+            first_project_id,
+            second_project_id,
+        }
+        assert profiles[0][0] != profiles[1][0]
+        assert all(profile[2] == 1 for profile in profiles)
+        assert all(profile[3] == DEFAULT_PROFILE_DEFINITION for profile in profiles)
+        assert connection.execute(
+            "SELECT count(*) FROM projects p "
+            "JOIN customer_upload_profiles cup "
+            "ON cup.id = p.current_customer_upload_profile_id "
+            "AND cup.project_id = p.id"
+        ).fetchone() == (2,)
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO customer_upload_profiles "
+                "(id, project_id, version, definition, created_at) "
+                "VALUES (%s, %s, 1, %s::jsonb, now())",
+                (
+                    uuid.uuid4(),
+                    first_project_id,
+                    json.dumps(DEFAULT_PROFILE_DEFINITION, ensure_ascii=False),
+                ),
+            )
+
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        with connect(template_baseline_database) as connection:
+            second_profile_row = connection.execute(
+                "SELECT id FROM customer_upload_profiles WHERE project_id = %s",
+                (second_project_id,),
+            ).fetchone()
+            assert second_profile_row is not None
+            second_profile_id = second_profile_row[0]
+            connection.execute(
+                "UPDATE projects SET current_customer_upload_profile_id = %s "
+                "WHERE id = %s",
+                (second_profile_id, first_project_id),
+            )
+
+    with pytest.raises(psycopg.errors.RaiseException, match="immutable"):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "UPDATE customer_upload_profiles SET definition = %s::jsonb "
+                "WHERE project_id = %s",
+                (json.dumps({"required_headers": []}), first_project_id),
+            )
+
+
 def test_fresh_database_migrates_to_project_and_audit_schema(
     template_baseline_database: str,
 ) -> None:
@@ -168,7 +272,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (PROJECT_MEMBERSHIP_REVISION,)
+        ).fetchone() == (CUSTOMER_UPLOAD_PROFILE_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -177,23 +281,36 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema = 'public'
-              AND table_name IN ('projects', 'project_memberships', 'audit_events')
+              AND table_name IN (
+                'projects',
+                'project_memberships',
+                'audit_events',
+                'customer_upload_profiles'
+              )
             ORDER BY table_name
             """
         ).fetchall() == [
             ("audit_events",),
+            ("customer_upload_profiles",),
             ("project_memberships",),
             ("projects",),
         ]
         assert connection.execute(
             """
-            SELECT is_nullable
+            SELECT column_name, is_nullable
             FROM information_schema.columns
             WHERE table_schema = 'public'
               AND table_name = 'projects'
-              AND column_name = 'archived_at'
+              AND column_name IN (
+                'archived_at',
+                'current_customer_upload_profile_id'
+              )
+            ORDER BY column_name
             """
-        ).fetchone() == ("YES",)
+        ).fetchall() == [
+            ("archived_at", "YES"),
+            ("current_customer_upload_profile_id", "NO"),
+        ]
         assert connection.execute(
             """
             SELECT is_nullable
@@ -218,7 +335,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
 def test_membership_migration_preserves_revoked_history_and_rejects_duplicates(
     template_baseline_database: str,
 ) -> None:
-    run_migration(template_baseline_database, "head")
+    run_migration(template_baseline_database, PROJECT_MEMBERSHIP_REVISION)
 
     user_id = uuid.uuid4()
     project_id = uuid.uuid4()

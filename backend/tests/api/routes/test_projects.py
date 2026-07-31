@@ -548,6 +548,11 @@ def test_openapi_exposes_supported_project_and_read_only_audit_contracts(
         "get",
         "patch",
     }
+    assert set(
+        paths[
+            f"{settings.API_V1_STR}/projects/{{project_id}}/customer-upload-profile"
+        ]
+    ) == {"get"}
     assert set(paths[f"{settings.API_V1_STR}/projects/{{project_id}}/archive"]) == {
         "post"
     }

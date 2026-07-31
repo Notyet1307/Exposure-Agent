@@ -1,9 +1,16 @@
+import uuid
+
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
 from app.core.time import get_datetime_utc
 from app.domain.audit import commit_with_audit
+from app.domain.customer_upload_profiles import (
+    default_customer_upload_profile_definition,
+)
 from app.domain.models import (
     AuditEvent,
+    CustomerUploadProfile,
     Project,
     ProjectCreate,
     ProjectUpdate,
@@ -62,7 +69,17 @@ def create_project(
     actor_subject: str,
     ip_address: str | None,
 ) -> Project:
-    project = Project.model_validate(project_in)
+    profile_id = uuid.uuid4()
+    project = Project.model_validate(
+        project_in,
+        update={"current_customer_upload_profile_id": profile_id},
+    )
+    profile = CustomerUploadProfile(
+        id=profile_id,
+        project_id=project.id,
+        version=1,
+        definition=default_customer_upload_profile_definition().model_dump(),
+    )
     audit_event = _project_audit_event(
         project=project,
         actor_subject=actor_subject,
@@ -70,9 +87,19 @@ def create_project(
         before_name=None,
         ip_address=ip_address,
     )
-    return commit_with_audit(
-        session=session, record=project, audit_event=audit_event
-    )
+
+    try:
+        session.add(project)
+        session.flush()
+        session.add(profile)
+        session.flush()
+        session.add(audit_event)
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+    session.refresh(project)
+    return project
 
 
 def archive_project(
