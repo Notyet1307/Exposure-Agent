@@ -15,24 +15,35 @@ from openpyxl.xml.functions import (  # type: ignore[import-untyped]
 )
 
 from app.domain._xlsx_preflight import PreflightError, preflight_xlsx
+from app.domain.customer_upload_profiles import (
+    OPTIONAL_HEADERS,
+    REQUIRED_HEADERS,
+    WARNING_HEADERS,
+)
 
 MAX_WORKBOOK_BYTES: Final = 20 * 1024 * 1024
 
-_REQUIRED_FIELDS: Final = {
-    "asset_ip": "资产IP",
-    "start_port": "起始端口",
-    "end_port": "结束端口",
-    "is_web": "是否web界面",
-    "web_url": "web界面url",
-}
-_RESPONSIBILITY_FIELDS: Final = {
-    "service_type": "服务类型",
-    "asset_owner": "资产负责人",
-    "asset_department": "资产所属部门",
-    "port_owner": "端口负责人",
-    "department": "部门",
-}
-_OPTIONAL_HEADERS: Final = {"序号"}
+_REQUIRED_FIELDS: Final = dict(
+    zip(
+        ("asset_ip", "start_port", "end_port", "is_web", "web_url"),
+        REQUIRED_HEADERS,
+        strict=True,
+    )
+)
+_RESPONSIBILITY_FIELDS: Final = dict(
+    zip(
+        (
+            "service_type",
+            "asset_owner",
+            "asset_department",
+            "port_owner",
+            "department",
+        ),
+        WARNING_HEADERS,
+        strict=True,
+    )
+)
+_OPTIONAL_HEADERS: Final = set(OPTIONAL_HEADERS)
 _KNOWN_HEADERS: Final = (
     set(_REQUIRED_FIELDS.values())
     | set(_RESPONSIBILITY_FIELDS.values())
@@ -84,12 +95,13 @@ def _validate_ip(value: object, row_number: int) -> None:
     if not isinstance(value, str):
         raise _reject("invalid_required_value", field="asset_ip", row=row_number)
     candidate = value.strip()
+    valid_ip = True
     try:
         ipaddress.ip_address(candidate)
-    except ValueError as exc:
-        raise _reject(
-            "invalid_required_value", field="asset_ip", row=row_number
-        ) from exc
+    except ValueError:
+        valid_ip = False
+    if not valid_ip:
+        raise _reject("invalid_required_value", field="asset_ip", row=row_number)
 
 
 def _parse_port(value: object, field: str, row_number: int) -> int:
@@ -136,19 +148,17 @@ def _validate_required_row(
 
 def _parse_rows(worksheet: Any) -> CustomerUploadValidationResult:
     rows = worksheet.iter_rows(values_only=True)
+    header_row: Sequence[Any] | None
     try:
         header_row = next(rows)
-    except StopIteration as exc:
-        raise _reject("missing_required_structure") from exc
+    except StopIteration:
+        header_row = None
+    if header_row is None:
+        raise _reject("missing_required_structure")
 
     headers: list[str] = []
     for value in header_row:
-        if (
-            not isinstance(value, str)
-            or not value.strip()
-            or "\n" in value
-            or "\r" in value
-        ):
+        if not isinstance(value, str) or not value.strip():
             raise _reject("missing_required_structure", row=1)
         headers.append(value)
     if len(headers) != len(set(headers)):
@@ -168,7 +178,7 @@ def _parse_rows(worksheet: Any) -> CustomerUploadValidationResult:
     warning_counts = dict.fromkeys(_RESPONSIBILITY_FIELDS, 0)
     record_count = 0
     for row_number, row in enumerate(rows, start=2):
-        if all(_is_blank(value) for value in row):
+        if all(value is None for value in row):
             continue
         _validate_required_row(row, field_indexes, row_number)
         record_count += 1
@@ -212,20 +222,28 @@ def validate_customer_upload_workbook(
 ) -> CustomerUploadValidationResult:
     """Validate one local XLSX path against the fixed default CustomerUpload v1."""
     _check_parser_contract()
+    stat_failed = False
     try:
-        if path.stat().st_size > MAX_WORKBOOK_BYTES:
-            raise _reject("upload_too_large")
-    except CustomerUploadValidationError:
-        raise
-    except OSError as exc:
-        raise _reject("malformed_workbook") from exc
+        file_size = path.stat().st_size
+    except OSError:
+        stat_failed = True
+        file_size = 0
+    if stat_failed:
+        raise _reject("malformed_workbook")
+    if file_size > MAX_WORKBOOK_BYTES:
+        raise _reject("upload_too_large")
 
+    preflight_error: PreflightError | None = None
     try:
         preflight_xlsx(path)
-    except PreflightError as exc:
-        raise _reject(exc.code) from exc
+    except PreflightError as error:
+        preflight_error = error
+    if preflight_error is not None:
+        raise _reject(preflight_error.code, row=preflight_error.row)
 
     workbook: Any | None = None
+    result: CustomerUploadValidationResult | None = None
+    parser_failed = False
     try:
         workbook = load_workbook(
             path, read_only=True, data_only=False, keep_links=True
@@ -235,11 +253,17 @@ def validate_customer_upload_workbook(
         worksheet = workbook.worksheets[0]
         if worksheet.sheet_state != "visible":
             raise _reject("unsupported_workbook_feature")
-        return _parse_rows(worksheet)
+        result = _parse_rows(worksheet)
     except CustomerUploadValidationError:
         raise
-    except Exception as exc:
-        raise _reject("malformed_workbook") from exc
+    except Exception:
+        parser_failed = True
     finally:
         if workbook is not None:
-            workbook.close()
+            try:
+                workbook.close()
+            except Exception:
+                parser_failed = True
+    if parser_failed or result is None:
+        raise _reject("malformed_workbook")
+    return result

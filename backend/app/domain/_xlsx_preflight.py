@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import struct
 from pathlib import Path, PurePosixPath
 from typing import Final
@@ -23,12 +24,17 @@ _CENTRAL_SIGNATURE: Final = b"PK\x01\x02"
 _RELATIONSHIP_NS: Final = (
     "http://schemas.openxmlformats.org/package/2006/relationships"
 )
+_MERGED_RANGE: Final = re.compile(
+    r"\$?[A-Z]{1,3}\$?([1-9][0-9]*):\$?[A-Z]{1,3}\$?([1-9][0-9]*)",
+    flags=re.IGNORECASE,
+)
 
 
 class PreflightError(Exception):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, row: int | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.row = row
 
 
 def _resource_limit() -> PreflightError:
@@ -213,6 +219,14 @@ def _is_formula_element(local_name: str) -> bool:
     )
 
 
+def _merged_range_includes_header(reference: str) -> bool:
+    match = _MERGED_RANGE.fullmatch(reference)
+    if match is None:
+        raise PreflightError("malformed_workbook")
+    start_row, end_row = (int(value) for value in match.groups())
+    return min(start_row, end_row) <= 1 <= max(start_row, end_row)
+
+
 def _looks_like_xml_part(archive: ZipFile, name: str) -> bool:
     with archive.open(name) as part:
         first_chunk = True
@@ -299,6 +313,10 @@ def _inspect_ooxml(archive: ZipFile) -> None:
                             raise PreflightError("unsupported_workbook_feature")
                     if _is_formula_element(local_name):
                         raise PreflightError("unsupported_workbook_feature")
+                    if local_name == "mergeCell" and _merged_range_includes_header(
+                        element.attrib.get("ref", "")
+                    ):
+                        raise PreflightError("missing_required_structure", row=1)
                     if (
                         local_name == "ClientData"
                         and element.attrib.get("ObjectType", "").casefold() != "note"

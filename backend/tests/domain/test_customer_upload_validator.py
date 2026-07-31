@@ -103,7 +103,6 @@ def _assert_rejected(
         ([*DEFAULT_HEADERS, "资产IP"], None),
         ([*DEFAULT_HEADERS[:2], None, *DEFAULT_HEADERS[3:]], None),
         ([*DEFAULT_HEADERS, "   "], None),
-        ([*DEFAULT_HEADERS, "Multi\nLine"], None),
     ],
 )
 def test_headers_must_match_default_v1_exactly_and_be_unique(
@@ -130,15 +129,29 @@ def test_workbook_requires_one_visible_sheet(tmp_path: Path) -> None:
     _assert_rejected(path, "unsupported_workbook_feature")
 
 
-def test_merged_header_is_rejected(tmp_path: Path) -> None:
+@pytest.mark.parametrize("merged_range", ["A1:B1", "A1:A2"])
+def test_merged_header_is_rejected(
+    tmp_path: Path, merged_range: str
+) -> None:
     path = _save_workbook(
         tmp_path / "merged.xlsx",
         [DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
     )
     workbook = load_workbook(path)
-    workbook.active.merge_cells("A1:B1")
+    workbook.active.merge_cells(merged_range)
     workbook.save(path)
     workbook.close()
+
+    _assert_rejected(path, "missing_required_structure", row=1)
+
+
+def test_title_row_before_headers_is_rejected_as_multi_row_header(
+    tmp_path: Path,
+) -> None:
+    path = _save_workbook(
+        tmp_path / "title.xlsx",
+        [["Asset Inventory"], DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
+    )
 
     _assert_rejected(path, "missing_required_structure", row=1)
 
@@ -214,6 +227,51 @@ def test_blank_rows_are_ignored_but_partial_rows_fail_at_actual_xlsx_row(
 
     _assert_rejected(
         path, "invalid_required_value", field="asset_ip", row=4
+    )
+
+
+def test_whitespace_only_row_is_partial_not_physically_blank(tmp_path: Path) -> None:
+    path = _save_workbook(
+        tmp_path / "whitespace-row.xlsx",
+        [
+            DEFAULT_HEADERS,
+            ["192.0.2.1", 443, 443, "否", None],
+            ["   "] + [None] * (len(DEFAULT_HEADERS) - 1),
+        ],
+    )
+
+    _assert_rejected(
+        path, "invalid_required_value", field="asset_ip", row=3
+    )
+
+
+def test_multiline_undefined_header_is_counted_as_an_extra_column(
+    tmp_path: Path,
+) -> None:
+    path = _save_workbook(
+        tmp_path / "extra.xlsx",
+        [
+            [*DEFAULT_HEADERS, "Extra\nDescription"],
+            [
+                "192.0.2.1",
+                443,
+                443,
+                "否",
+                None,
+                "Service",
+                "Owner",
+                "Department",
+                "Port Owner",
+                "Operations",
+                "Fixture",
+            ],
+        ],
+    )
+
+    result = validate_customer_upload_workbook(path)
+
+    assert result.warnings == (
+        CustomerUploadWarning("extra_columns_ignored", None, 1),
     )
 
 
@@ -337,7 +395,23 @@ def test_malformed_rejection_does_not_expose_path_or_parser_details(
         "field": None,
         "row": None,
     }
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
     public_text = str(caught.value)
     assert "customer-secret-name" not in public_text
     assert "192.0.2.123" not in public_text
     assert "XLSX" not in public_text
+
+
+def test_invalid_value_rejection_has_no_raw_exception_chain(tmp_path: Path) -> None:
+    path = _save_workbook(
+        tmp_path / "value.xlsx",
+        [DEFAULT_HEADERS, ["customer-secret.example", 443, 443, "否", None]],
+    )
+
+    with pytest.raises(CustomerUploadValidationError) as caught:
+        validate_customer_upload_workbook(path)
+
+    assert caught.value.code == "invalid_required_value"
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
