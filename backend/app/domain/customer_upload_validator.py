@@ -14,7 +14,11 @@ from openpyxl.xml.functions import (  # type: ignore[import-untyped]
     DEFUSEDXML as OPENPYXL_DEFUSEDXML,
 )
 
-from app.domain._xlsx_preflight import PreflightError, preflight_xlsx
+from app.domain._xlsx_preflight import (
+    PreflightError,
+    PreflightResult,
+    preflight_xlsx,
+)
 from app.domain.customer_upload_profiles import (
     OPTIONAL_HEADERS,
     REQUIRED_HEADERS,
@@ -152,8 +156,16 @@ def _validate_required_row(
         raise _reject("invalid_required_value", field="web_url", row=row_number)
 
 
-def _parse_rows(worksheet: Any) -> CustomerUploadValidationResult:
-    rows = worksheet.iter_rows(values_only=True)
+def _parse_rows(
+    worksheet: Any, bounds: PreflightResult
+) -> CustomerUploadValidationResult:
+    rows = worksheet.iter_rows(
+        min_row=1,
+        max_row=max(1, bounds.max_row),
+        min_col=1,
+        max_col=max(1, bounds.max_column),
+        values_only=True,
+    )
     header_row: Sequence[Any] | None
     try:
         header_row = next(rows)
@@ -249,12 +261,15 @@ def validate_customer_upload_workbook(
         raise _reject("upload_too_large")
 
     preflight_error: PreflightError | None = None
+    preflight_result: PreflightResult | None = None
     try:
-        preflight_xlsx(path)
+        preflight_result = preflight_xlsx(path)
     except PreflightError as error:
         preflight_error = error
     if preflight_error is not None:
         raise _reject(preflight_error.code, row=preflight_error.row)
+    if preflight_result is None:
+        raise _reject("malformed_workbook")
 
     workbook: Any | None = None
     result: CustomerUploadValidationResult | None = None
@@ -268,7 +283,7 @@ def validate_customer_upload_workbook(
         worksheet = workbook.worksheets[0]
         if worksheet.sheet_state != "visible":
             raise _reject("unsupported_workbook_feature")
-        result = _parse_rows(worksheet)
+        result = _parse_rows(worksheet, preflight_result)
     except CustomerUploadValidationError:
         raise
     except Exception:

@@ -1,9 +1,15 @@
+import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from openpyxl import Workbook, load_workbook  # type: ignore[import-untyped]
+from openpyxl.worksheet._read_only import (  # type: ignore[import-untyped]
+    ReadOnlyWorksheet,
+)
 
 from app.domain.customer_upload_validator import (
     MAX_WORKBOOK_BYTES,
@@ -39,6 +45,35 @@ def _save_workbook(path: Path, rows: Sequence[Sequence[object]]) -> Path:
     workbook.save(path)
     workbook.close()
     return path
+
+
+def _rewrite_zip_member(
+    path: Path, name: str, transform: Callable[[bytes], bytes]
+) -> None:
+    replacement = path.with_suffix(".rewritten.xlsx")
+    with (
+        ZipFile(path) as source,
+        ZipFile(replacement, "w", compression=ZIP_DEFLATED) as target,
+    ):
+        for info in source.infolist():
+            data = source.read(info)
+            if info.filename == name:
+                data = transform(data)
+            target.writestr(info, data)
+    replacement.replace(path)
+
+
+def _move_formula_to_responsibility_field(
+    data: bytes, encoding: str
+) -> bytes:
+    data = re.sub(rb'<c r="K2".*?</c>', b"", data, count=1)
+    data = re.sub(
+        rb'<c r="F2".*?</c>',
+        b'<c r="F2"><f>1+1</f><v /></c>',
+        data,
+        count=1,
+    )
+    return data.decode("utf-8").encode(encoding)
 
 
 def test_valid_default_v1_workbook_returns_record_count(tmp_path: Path) -> None:
@@ -411,6 +446,71 @@ def test_issue_33_active_content_has_one_stable_rejection(
     path = build_fixture(fixture_name, tmp_path / "active.xlsx")
 
     _assert_rejected(path, "unsupported_workbook_feature")
+
+
+def test_utf16_undeclared_worksheet_formula_is_rejected(tmp_path: Path) -> None:
+    path = build_fixture(
+        "relocated_formula_without_content_type", tmp_path / "utf16-formula.xlsx"
+    )
+    _rewrite_zip_member(
+        path,
+        "xl/fixture/worksheet.dat",
+        lambda data: _move_formula_to_responsibility_field(data, "utf-16"),
+    )
+
+    _assert_rejected(path, "unsupported_workbook_feature")
+
+
+def test_declared_dimensions_do_not_control_parser_iteration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _save_workbook(
+        tmp_path / "inflated-dimensions.xlsx",
+        [DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
+    )
+    _rewrite_zip_member(
+        path,
+        "xl/worksheets/sheet1.xml",
+        lambda data: re.sub(
+            rb'<dimension ref="[^"]*"',
+            b'<dimension ref="A1:XFD2000"',
+            data,
+            count=1,
+        ),
+    )
+
+    original_iter_rows = ReadOnlyWorksheet.iter_rows
+    observed_bounds: list[tuple[int | None, int | None]] = []
+
+    def iter_rows_with_bounds(
+        self: ReadOnlyWorksheet, *args: Any, **kwargs: Any
+    ) -> Any:
+        observed_bounds.append((kwargs.get("max_row"), kwargs.get("max_col")))
+        return original_iter_rows(self, *args, **kwargs)
+
+    monkeypatch.setattr(ReadOnlyWorksheet, "iter_rows", iter_rows_with_bounds)
+
+    result = validate_customer_upload_workbook(path)
+
+    assert result.record_count == 1
+    assert observed_bounds == [(2, len(DEFAULT_HEADERS))]
+
+
+def test_sparse_far_cell_is_rejected_before_parser_expansion(tmp_path: Path) -> None:
+    path = _save_workbook(
+        tmp_path / "sparse-cell.xlsx",
+        [DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
+    )
+    _rewrite_zip_member(
+        path,
+        "xl/worksheets/sheet1.xml",
+        lambda data: data.replace(
+            b"</sheetData>",
+            b'<row r="2000"><c r="XFD2000" t="n"><v>1</v></c></row></sheetData>',
+        ),
+    )
+
+    _assert_rejected(path, "workbook_resource_limit")
 
 
 def test_actual_file_size_over_twenty_mib_is_rejected_first(tmp_path: Path) -> None:

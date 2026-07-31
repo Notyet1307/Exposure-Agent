@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import struct
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Final
 from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile
@@ -13,6 +14,9 @@ MAX_ZIP_ENTRIES: Final = 2_048
 MAX_ENTRY_UNCOMPRESSED_BYTES: Final = 64 * 1024 * 1024
 MAX_TOTAL_UNCOMPRESSED_BYTES: Final = 256 * 1024 * 1024
 MAX_CENTRAL_DIRECTORY_BYTES: Final = 4 * 1024 * 1024
+# Supports the 100k-row v1 delivery boundary at 20 columns without allowing
+# sparse coordinates to make openpyxl synthesize an unbounded rectangle.
+MAX_WORKSHEET_ITERATED_CELLS: Final = 2_000_000
 _MAX_EOCD_TAIL_BYTES: Final = 65_557
 _ZIP64_SENTINEL_16: Final = 0xFFFF
 _ZIP64_SENTINEL_32: Final = 0xFFFFFFFF
@@ -28,6 +32,39 @@ _MERGED_RANGE: Final = re.compile(
     r"\$?[A-Z]{1,3}\$?([1-9][0-9]*):\$?[A-Z]{1,3}\$?([1-9][0-9]*)",
     flags=re.IGNORECASE,
 )
+_CELL_REFERENCE: Final = re.compile(
+    r"\$?([A-Z]{1,3})\$?([1-9][0-9]*)", flags=re.IGNORECASE
+)
+_MAX_XLSX_ROWS: Final = 1_048_576
+_MAX_XLSX_COLUMNS: Final = 16_384
+_XML_ENCODINGS: Final = {
+    "utf-8": (1, {b" ", b"\t", b"\r", b"\n"}, b"<"),
+    "utf-16-le": (2, {b" \x00", b"\t\x00", b"\r\x00", b"\n\x00"}, b"<\x00"),
+    "utf-16-be": (2, {b"\x00 ", b"\x00\t", b"\x00\r", b"\x00\n"}, b"\x00<"),
+    "utf-32-le": (
+        4,
+        {b" \x00\x00\x00", b"\t\x00\x00\x00", b"\r\x00\x00\x00", b"\n\x00\x00\x00"},
+        b"<\x00\x00\x00",
+    ),
+    "utf-32-be": (
+        4,
+        {b"\x00\x00\x00 ", b"\x00\x00\x00\t", b"\x00\x00\x00\r", b"\x00\x00\x00\n"},
+        b"\x00\x00\x00<",
+    ),
+}
+_XML_BOMS: Final = (
+    (b"\x00\x00\xfe\xff", "utf-32-be"),
+    (b"\xff\xfe\x00\x00", "utf-32-le"),
+    (b"\xef\xbb\xbf", "utf-8"),
+    (b"\xfe\xff", "utf-16-be"),
+    (b"\xff\xfe", "utf-16-le"),
+)
+
+
+@dataclass(frozen=True)
+class PreflightResult:
+    max_row: int
+    max_column: int
 
 
 class PreflightError(Exception):
@@ -229,17 +266,53 @@ def _merged_range_includes_header(reference: str) -> bool:
 
 def _looks_like_xml_part(archive: ZipFile, name: str) -> bool:
     with archive.open(name) as part:
-        first_chunk = True
-        while chunk := part.read(64 * 1024):
-            whitespace = b"\xef\xbb\xbf \t\r\n" if first_chunk else b" \t\r\n"
-            leading = chunk.lstrip(whitespace)
-            if leading:
-                return leading.startswith(b"<")
-            first_chunk = False
+        initial = part.read(4)
+        candidates = set(_XML_ENCODINGS)
+        for bom, encoding in _XML_BOMS:
+            if initial.startswith(bom):
+                candidates = {encoding}
+                initial = initial[len(bom) :]
+                break
+
+        pending = dict.fromkeys(candidates, b"")
+        chunk = initial
+        while chunk or (chunk := part.read(64 * 1024)):
+            for encoding in tuple(candidates):
+                width, whitespace, opening = _XML_ENCODINGS[encoding]
+                data = pending[encoding] + chunk
+                cursor = 0
+                while cursor + width <= len(data):
+                    token = data[cursor : cursor + width]
+                    if token in whitespace:
+                        cursor += width
+                        continue
+                    if token == opening:
+                        return True
+                    candidates.remove(encoding)
+                    break
+                else:
+                    pending[encoding] = data[cursor:]
+            if not candidates:
+                return False
+            chunk = b""
     return False
 
 
-def _inspect_ooxml(archive: ZipFile) -> None:
+def _column_number(reference: str) -> tuple[int, int]:
+    match = _CELL_REFERENCE.fullmatch(reference)
+    if match is None:
+        raise PreflightError("malformed_workbook")
+    letters, row_text = match.groups()
+    column = 0
+    for letter in letters.upper():
+        column = column * 26 + ord(letter) - ord("A") + 1
+    row = int(row_text)
+    if row > _MAX_XLSX_ROWS or column > _MAX_XLSX_COLUMNS:
+        raise PreflightError("malformed_workbook")
+    return row, column
+
+
+def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
     names = set(archive.namelist())
     declared_xml_parts: set[str] = set()
     xml_extensions: set[str] = set()
@@ -301,43 +374,91 @@ def _inspect_ooxml(archive: ZipFile) -> None:
             or _looks_like_xml_part(archive, name)
         )
         workbook_found = False
+        worksheet_bounds: list[tuple[int, int]] = []
         for xml_name in xml_names:
             workbook_sheet_count = 0
+            root_name: str | None = None
+            current_row = 0
+            current_column = 0
+            max_row = 0
+            max_column = 0
             with archive.open(xml_name) as xml_file:
-                for _event, element in ElementTree.iterparse(xml_file, events=("end",)):
+                for event, element in ElementTree.iterparse(
+                    xml_file, events=("start", "end")
+                ):
                     local_name = element.tag.rsplit("}", maxsplit=1)[-1]
-                    if xml_name == "xl/workbook.xml" and local_name == "sheet":
-                        workbook_found = True
-                        workbook_sheet_count += 1
-                        if element.attrib.get("state", "visible").casefold() != "visible":
+                    if root_name is None and event == "start":
+                        root_name = local_name
+                    if root_name == "worksheet" and event == "start":
+                        if local_name == "row":
+                            row_reference = element.attrib.get("r")
+                            if row_reference is None:
+                                current_row += 1
+                            elif not row_reference.isdecimal():
+                                raise PreflightError("malformed_workbook")
+                            else:
+                                current_row = int(row_reference)
+                                if not 1 <= current_row <= _MAX_XLSX_ROWS:
+                                    raise PreflightError("malformed_workbook")
+                            current_column = 0
+                        elif local_name == "c":
+                            cell_reference = element.attrib.get("r")
+                            if cell_reference is None:
+                                if current_row == 0:
+                                    raise PreflightError("malformed_workbook")
+                                cell_row = current_row
+                                current_column += 1
+                                cell_column = current_column
+                            else:
+                                cell_row, cell_column = _column_number(cell_reference)
+                                current_column = cell_column
+                            max_row = max(max_row, cell_row)
+                            max_column = max(max_column, cell_column)
+                    if event == "end":
+                        if xml_name == "xl/workbook.xml" and local_name == "sheet":
+                            workbook_found = True
+                            workbook_sheet_count += 1
+                            if (
+                                element.attrib.get("state", "visible").casefold()
+                                != "visible"
+                            ):
+                                raise PreflightError("unsupported_workbook_feature")
+                        if _is_formula_element(local_name):
                             raise PreflightError("unsupported_workbook_feature")
-                    if _is_formula_element(local_name):
-                        raise PreflightError("unsupported_workbook_feature")
-                    if local_name == "mergeCell" and _merged_range_includes_header(
-                        element.attrib.get("ref", "")
-                    ):
-                        raise PreflightError("missing_required_structure", row=1)
-                    if (
-                        local_name == "ClientData"
-                        and element.attrib.get("ObjectType", "").casefold() != "note"
-                    ):
-                        raise PreflightError("unsupported_workbook_feature")
-                    element.clear()
+                        if local_name == "mergeCell" and _merged_range_includes_header(
+                            element.attrib.get("ref", "")
+                        ):
+                            raise PreflightError("missing_required_structure", row=1)
+                        if (
+                            local_name == "ClientData"
+                            and element.attrib.get("ObjectType", "").casefold()
+                            != "note"
+                        ):
+                            raise PreflightError("unsupported_workbook_feature")
+                        element.clear()
             if xml_name == "xl/workbook.xml" and workbook_sheet_count != 1:
                 raise PreflightError("unsupported_workbook_feature")
+            if root_name == "worksheet":
+                worksheet_bounds.append((max_row, max_column))
         if not workbook_found:
             raise PreflightError("malformed_workbook")
+        if len(worksheet_bounds) != 1:
+            raise PreflightError("unsupported_workbook_feature")
+        max_row, max_column = worksheet_bounds[0]
+        if max_row * max_column > MAX_WORKSHEET_ITERATED_CELLS:
+            raise _resource_limit()
+        return PreflightResult(max_row=max_row, max_column=max_column)
     except PreflightError:
         raise
     except (ElementTree.ParseError, DefusedXmlException, KeyError, OSError) as exc:
         raise PreflightError("malformed_workbook") from exc
 
 
-def preflight_xlsx(path: Path) -> None:
+def preflight_xlsx(path: Path) -> PreflightResult:
     _check_central_directory(path)
     try:
         with ZipFile(path) as archive:
-            _inspect_ooxml(archive)
+            return _inspect_ooxml(archive)
     except PreflightError:
         raise
     except (BadZipFile, OSError, RuntimeError, ValueError) as exc:
