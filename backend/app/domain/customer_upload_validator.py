@@ -95,6 +95,10 @@ def _is_blank(value: object) -> bool:
     return value is None or isinstance(value, str) and not value.strip()
 
 
+def _is_empty_url(value: object) -> bool:
+    return value is None or value == ""
+
+
 def _row_value(row: Sequence[Any], index: int) -> object:
     return row[index] if index < len(row) else None
 
@@ -156,7 +160,7 @@ def _validate_required_row(
             raise _reject(
                 "invalid_required_value", field="web_url", row=row_number
             )
-    elif not _is_blank(url_value):
+    elif not _is_empty_url(url_value):
         raise _reject("invalid_required_value", field="web_url", row=row_number)
 
 

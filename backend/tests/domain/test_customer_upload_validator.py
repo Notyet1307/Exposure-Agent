@@ -274,6 +274,7 @@ def test_port_range_is_rejected(tmp_path: Path) -> None:
         ("是", None, "web_url"),
         ("否", "fixture.example.invalid", "web_url"),
         ("无", "fixture.example.invalid", "web_url"),
+        ("否", "   ", "web_url"),
     ],
 )
 def test_web_flag_and_url_combination_is_strict(
