@@ -11,7 +11,7 @@ services:
   octobus:
     build:
       context: .
-      dockerfile: tests/cloudatlas_fixture/Dockerfile.octobus
+      dockerfile: octobus/Dockerfile
     command: ["serve", "--data-dir", "/var/lib/octobus", "--addr", "0.0.0.0:9000"]
     volumes:
       - cloudatlas-octobus-data:/var/lib/octobus
@@ -35,7 +35,7 @@ services:
   cloudatlas-fixture-init:
     build:
       context: .
-      dockerfile: tests/cloudatlas_fixture/Dockerfile.octobus
+      dockerfile: octobus/Dockerfile
     entrypoint: ["/bin/sh", "/fixture-init.sh"]
     depends_on:
       octobus:

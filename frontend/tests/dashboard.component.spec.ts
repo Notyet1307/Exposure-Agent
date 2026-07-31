@@ -456,6 +456,52 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   expect(requests[0].body).toEqual({ capset_token: "transient-test-token" })
 })
 
+test("lets an Admin manage an older enabled source from disabled history", async ({
+  page,
+}) => {
+  const newerDisabled = { ...cloudatlasSources[projects[0].id].data[0] }
+  let olderEnabled = {
+    ...newerDisabled,
+    id: "50000000-0000-0000-0000-000000000002",
+    instance_id: "cloudatlas-older-enabled",
+    enabled: true,
+    validation_status: "validated",
+    fingerprint_summary: "123456789abc",
+  }
+  let disablePath: string | null = null
+  const sourceUrl = `**/api/v1/projects/${projects[0].id}/cloudatlas-source-instances`
+  await page.route(sourceUrl, (route) =>
+    route.fulfill({
+      json: {
+        data: [newerDisabled, olderEnabled],
+        count: 2,
+        can_manage: true,
+      },
+    }),
+  )
+  await page.route(`${sourceUrl}/**`, async (route) => {
+    disablePath = new URL(route.request().url()).pathname
+    olderEnabled = { ...olderEnabled, enabled: false }
+    await route.fulfill({ json: olderEnabled })
+  })
+  await page.goto("/")
+
+  await expect(page.getByLabel("OctoBus Instance ID")).toHaveValue(
+    "cloudatlas-older-enabled",
+  )
+  await page.getByRole("button", { name: "Disable source" }).click()
+  await expect(page.getByText("CloudAtlas source disabled.")).toBeVisible()
+  expect(disablePath).toMatch(/50000000-0000-0000-0000-000000000002\/disable$/)
+
+  const newerRow = page
+    .getByRole("row")
+    .filter({ hasText: newerDisabled.instance_id })
+  await newerRow.getByRole("button", { name: "Manage source" }).click()
+  await expect(page.getByLabel("OctoBus Instance ID")).toHaveValue(
+    newerDisabled.instance_id,
+  )
+})
+
 test("shows only the server safe upload explanation", async ({ page }) => {
   await page.route(
     `**/api/v1/projects/${projects[0].id}/customer-uploads*`,

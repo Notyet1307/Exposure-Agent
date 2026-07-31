@@ -7,7 +7,7 @@ INSTANCE_ID="cloudatlas-fixture"
 CAPSET_ID="cloudatlas-readonly"
 METHOD="cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets"
 
-instance_config='{"baseUrl":"http://cloudatlas-fixture:18080","spaceId":"fixture-space"}'
+instance_config='{"baseUrl":"http://cloudatlas-fixture:18080/openapi/","spaceId":"fixture-space"}'
 instance_secret="$(printf '{"token":"%s"}' "$FIXTURE_CLOUDATLAS_TOKEN")"
 
 octobus --addr "$OCTOBUS_ADDR" service import "$SERVICE_ID" /service-package

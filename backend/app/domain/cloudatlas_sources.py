@@ -43,6 +43,10 @@ class CloudAtlasBoundaryError(Exception):
         self.status_code = _SAFE_ERROR_STATUS[code]
 
 
+class CloudAtlasMaterialMismatchError(CloudAtlasBoundaryError):
+    """Current control-plane material proves the stored validation is stale."""
+
+
 class CloudAtlasStateError(Exception):
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -55,6 +59,10 @@ class ActiveSourceConflictError(Exception):
 
 def _boundary_error(code: str) -> NoReturn:
     raise CloudAtlasBoundaryError(code)
+
+
+def _material_error(code: str) -> NoReturn:
+    raise CloudAtlasMaterialMismatchError(code)
 
 
 def _required_string(payload: dict[str, Any], name: str) -> str:
@@ -174,17 +182,17 @@ class OctobusCloudAtlasClient:
             or descriptor_sha256 != DESCRIPTOR_SHA256
             or not isinstance(package_version, str)
         ):
-            _boundary_error("cloudatlas_response_contract_failed")
+            _material_error("cloudatlas_response_contract_failed")
 
         instance_id = _required_string(instance, "ID")
         instance_service_id = _required_string(instance, "ServiceID")
         if instance_id != source.instance_id or instance_service_id != SERVICE_ID:
-            _boundary_error("cloudatlas_response_contract_failed")
+            _material_error("cloudatlas_response_contract_failed")
 
         capset_id = _required_string(capset, "ID")
         capset_enabled = _required_bool(capset, "Enabled")
         if capset_id != source.capset_id or not capset_enabled:
-            _boundary_error("cloudatlas_authorization_failed")
+            _material_error("cloudatlas_authorization_failed")
 
         instance_bindings = [
             {
@@ -202,7 +210,7 @@ class OctobusCloudAtlasClient:
             "include_all_methods": False,
         }
         if instance_bindings != [expected_binding]:
-            _boundary_error("cloudatlas_authorization_failed")
+            _material_error("cloudatlas_authorization_failed")
 
         method_bindings = []
         for item in _required_list(methods_payload, "methods"):
@@ -212,7 +220,7 @@ class OctobusCloudAtlasClient:
             )
         expected_method = {"name": METHOD, "enabled": True}
         if method_bindings != [expected_method]:
-            _boundary_error("cloudatlas_authorization_failed")
+            _material_error("cloudatlas_authorization_failed")
 
         token_bindings: list[dict[str, str]] = sorted(
             [
@@ -225,7 +233,7 @@ class OctobusCloudAtlasClient:
             key=lambda item: item["id"],
         )
         if not token_bindings:
-            _boundary_error("cloudatlas_authorization_failed")
+            _material_error("cloudatlas_authorization_failed")
 
         material = {
             "schema": FINGERPRINT_SCHEMA,
@@ -345,8 +353,10 @@ def source_public(
     elif check_current:
         try:
             current = OctobusCloudAtlasClient().current_fingerprint(source)
-        except CloudAtlasBoundaryError:
+        except CloudAtlasMaterialMismatchError:
             status = "invalid"
+        except CloudAtlasBoundaryError:
+            status = "unavailable"
         else:
             status = (
                 "validated"

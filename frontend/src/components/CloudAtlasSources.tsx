@@ -7,6 +7,7 @@ import {
 } from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -32,12 +33,23 @@ function validationLabel(status: string): string {
       validated: "Validated",
       invalid: "Invalid",
       failed: "Failed",
+      unavailable: "Unavailable",
       not_validated: "Not validated",
     }[status] ?? "Unknown"
   )
 }
 
-function SourceRows({ sources }: { sources: CloudAtlasSourcePublic[] }) {
+function SourceRows({
+  sources,
+  canManage,
+  selectedSourceId,
+  onSelect,
+}: {
+  sources: CloudAtlasSourcePublic[]
+  canManage: boolean
+  selectedSourceId: string | null
+  onSelect: (sourceId: string) => void
+}) {
   if (sources.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -54,6 +66,7 @@ function SourceRows({ sources }: { sources: CloudAtlasSourcePublic[] }) {
           <TableHead>Validation</TableHead>
           <TableHead>Fingerprint</TableHead>
           <TableHead>State</TableHead>
+          {canManage && <TableHead>Action</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -84,6 +97,22 @@ function SourceRows({ sources }: { sources: CloudAtlasSourcePublic[] }) {
                 {source.enabled ? "Enabled" : "Disabled"}
               </Badge>
             </TableCell>
+            {canManage && (
+              <TableCell>
+                {source.id === selectedSourceId ? (
+                  <Badge variant="secondary">Managing</Badge>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onSelect(source.id)}
+                  >
+                    Manage source
+                  </Button>
+                )}
+              </TableCell>
+            )}
           </TableRow>
         ))}
       </TableBody>
@@ -97,6 +126,8 @@ export default function CloudAtlasSources({
   projectId: string
 }) {
   const queryClient = useQueryClient()
+  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
+  const [isAddingSource, setIsAddingSource] = useState(false)
   const [instanceId, setInstanceId] = useState("")
   const [capsetId, setCapsetId] = useState("")
   const [capsetToken, setCapsetToken] = useState("")
@@ -107,7 +138,25 @@ export default function CloudAtlasSources({
     queryFn: () =>
       CloudatlasSourceInstancesService.readCloudatlasSources({ projectId }),
   })
-  const source = sourcesQuery.data?.data[0]
+  const source = isAddingSource
+    ? undefined
+    : sourcesQuery.data?.data.find(
+        (candidate) => candidate.id === selectedSourceId,
+      )
+
+  useEffect(() => {
+    if (isAddingSource) return
+    const sources = sourcesQuery.data?.data
+    if (!sources || sources.length === 0) {
+      setSelectedSourceId(null)
+      return
+    }
+    if (selectedSourceId === null) {
+      setSelectedSourceId(
+        sources.find((candidate) => candidate.enabled)?.id ?? sources[0].id,
+      )
+    }
+  }, [sourcesQuery.data?.data, selectedSourceId, isAddingSource])
 
   useEffect(() => {
     setInstanceId(source?.instance_id ?? "")
@@ -133,7 +182,9 @@ export default function CloudAtlasSources({
             requestBody,
           })
     },
-    onSuccess: async () => {
+    onSuccess: async (savedSource) => {
+      setIsAddingSource(false)
+      setSelectedSourceId(savedSource.id)
       setMessage("CloudAtlas binding saved. Validation is required.")
       await refresh()
     },
@@ -206,10 +257,35 @@ export default function CloudAtlasSources({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <SourceRows sources={sources.data} />
+        <SourceRows
+          sources={sources.data}
+          canManage={sources.can_manage}
+          selectedSourceId={selectedSourceId}
+          onSelect={(sourceId) => {
+            setIsAddingSource(false)
+            setSelectedSourceId(sourceId)
+            setMessage(null)
+          }}
+        />
 
         {sources.can_manage ? (
           <div className="space-y-5 border-t pt-5">
+            {sources.data.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsAddingSource(true)
+                  setSelectedSourceId(null)
+                  setInstanceId("")
+                  setCapsetId("")
+                  setCapsetToken("")
+                  setMessage(null)
+                }}
+              >
+                Add source binding
+              </Button>
+            )}
             <form
               className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end"
               onSubmit={(event) => {
@@ -307,14 +383,25 @@ export default function CloudAtlasSources({
             {message}
           </p>
         )}
-        {source && source.validation_status !== "validated" && (
+        {source?.validation_status === "unavailable" ? (
           <Alert>
-            <AlertTitle>Source not ready</AlertTitle>
+            <AlertTitle>Validation check unavailable</AlertTitle>
             <AlertDescription>
-              The current binding must pass the single read-only method before
-              it can be enabled.
+              The stored validation was not invalidated, but the current OctoBus
+              material could not be confirmed.
             </AlertDescription>
           </Alert>
+        ) : (
+          source &&
+          source.validation_status !== "validated" && (
+            <Alert>
+              <AlertTitle>Source not ready</AlertTitle>
+              <AlertDescription>
+                The current binding must pass the single read-only method before
+                it can be enabled.
+              </AlertDescription>
+            </Alert>
+          )
         )}
       </CardContent>
     </Card>

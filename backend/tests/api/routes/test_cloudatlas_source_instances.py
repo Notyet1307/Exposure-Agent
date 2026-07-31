@@ -10,10 +10,10 @@ from typing import Any, cast
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
 from sqlalchemy import text
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, func, select
 
 from app.core.config import settings
-from app.domain.models import AuditEvent
+from app.domain.models import AuditEvent, SourceInstance
 from app.main import app
 from tests.utils.audit import reject_audit_inserts
 from tests.utils.user import user_authentication_headers
@@ -495,6 +495,50 @@ def test_fingerprint_drift_and_binding_changes_invalidate_validation(
     ]
 
 
+def test_control_plane_outage_does_not_claim_configuration_drift(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project = _create_project(client, superuser_token_headers)
+    with _octobus_server() as (base_url, octobus):
+        monkeypatch.setattr(settings, "OCTOBUS_URL", base_url)
+        collection_url = (
+            f"{settings.API_V1_STR}/projects/{project['id']}"
+            "/cloudatlas-source-instances"
+        )
+        source = client.post(
+            collection_url,
+            headers=superuser_token_headers,
+            json={
+                "instance_id": octobus.instance_id,
+                "capset_id": octobus.capset_id,
+            },
+        ).json()
+        assert client.post(
+            f"{collection_url}/{source['id']}/validate",
+            headers=superuser_token_headers,
+            json={"capset_token": CAPSET_TOKEN},
+        ).status_code == 200
+
+    outage_response = client.get(
+        collection_url, headers=superuser_token_headers
+    )
+
+    assert outage_response.status_code == 200
+    assert outage_response.json()["data"][0]["validation_status"] == "unavailable"
+    db.expire_all()
+    source_row = db.execute(
+        text(
+            "SELECT validated_fingerprint, validation_error_code "
+            "FROM source_instances WHERE id = :source_id"
+        ),
+        {"source_id": uuid.UUID(source["id"])},
+    ).one()
+    assert source_row == (octobus.fingerprint(), None)
+
+
 def test_every_constrained_material_change_invalidates_the_fingerprint(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -716,3 +760,115 @@ def test_validation_state_rolls_back_when_audit_insert_fails(
         {"source_id": uuid.UUID(source["id"])},
     ).one()
     assert source_row == (None, None, None)
+
+
+def test_every_source_mutation_rolls_back_when_its_audit_insert_fails(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project = _create_project(client, superuser_token_headers)
+    project_id = uuid.UUID(project["id"])
+    collection_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}"
+        "/cloudatlas-source-instances"
+    )
+
+    def request_with_rejected_audit(
+        method: str, url: str, *, json_body: dict[str, str] | None = None
+    ) -> int:
+        with reject_audit_inserts(db):
+            with TestClient(
+                app,
+                raise_server_exceptions=False,
+                client=("127.0.0.1", 50111),
+            ) as failure_client:
+                response = failure_client.request(
+                    method,
+                    url,
+                    headers=superuser_token_headers,
+                    json=json_body,
+                )
+        return int(response.status_code)
+
+    create_body = {
+        "instance_id": "cloudatlas-fixture",
+        "capset_id": "cloudatlas-readonly",
+    }
+    assert request_with_rejected_audit(
+        "POST", collection_url, json_body=create_body
+    ) == 500
+    db.expire_all()
+    assert db.exec(
+        select(func.count())
+        .select_from(SourceInstance)
+        .where(SourceInstance.project_id == project_id)
+    ).one() == 0
+
+    with _octobus_server() as (base_url, _octobus):
+        monkeypatch.setattr(settings, "OCTOBUS_URL", base_url)
+        source = client.post(
+            collection_url,
+            headers=superuser_token_headers,
+            json=create_body,
+        ).json()
+        source_url = f"{collection_url}/{source['id']}"
+        assert client.post(
+            f"{source_url}/validate",
+            headers=superuser_token_headers,
+            json={"capset_token": CAPSET_TOKEN},
+        ).status_code == 200
+
+        assert request_with_rejected_audit("POST", f"{source_url}/enable") == 500
+        db.expire_all()
+        source_record = db.get(SourceInstance, uuid.UUID(source["id"]))
+        assert source_record is not None
+        assert source_record.enabled is False
+
+        assert client.post(
+            f"{source_url}/enable", headers=superuser_token_headers
+        ).status_code == 200
+        assert request_with_rejected_audit("POST", f"{source_url}/disable") == 500
+        db.expire_all()
+        source_record = db.get(SourceInstance, uuid.UUID(source["id"]))
+        assert source_record is not None
+        assert source_record.enabled is True
+
+        assert client.post(
+            f"{source_url}/disable", headers=superuser_token_headers
+        ).status_code == 200
+        assert request_with_rejected_audit(
+            "PATCH",
+            source_url,
+            json_body={
+                "instance_id": "replacement",
+                "capset_id": "replacement-readonly",
+            },
+        ) == 500
+
+    db.expire_all()
+    source_record = db.get(SourceInstance, uuid.UUID(source["id"]))
+    assert source_record is not None
+    assert (
+        source_record.instance_id,
+        source_record.capset_id,
+        source_record.enabled,
+        source_record.validated_fingerprint is not None,
+    ) == (
+        "cloudatlas-fixture",
+        "cloudatlas-readonly",
+        False,
+        True,
+    )
+    actions = db.exec(
+        select(AuditEvent.action)
+        .where(AuditEvent.target_id == source_record.id)
+        .order_by(col(AuditEvent.occurred_at))
+    ).all()
+    assert actions == [
+        "source_instance.created",
+        "source_instance.validated",
+        "source_instance.enabled",
+        "source_instance.disabled",
+    ]

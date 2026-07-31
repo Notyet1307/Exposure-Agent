@@ -18,6 +18,28 @@ services:
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_DB=${POSTGRES_DB?Variable not set}
 
+  octobus:
+    image: '${DOCKER_IMAGE_OCTOBUS-exposure-agent-octobus}:${TAG-latest}'
+    restart: always
+    build:
+      context: .
+      dockerfile: octobus/Dockerfile
+    command: ["serve", "--data-dir", "/var/lib/octobus", "--addr", "0.0.0.0:9000"]
+    volumes:
+      - octobus-data:/var/lib/octobus
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:9000/admin/v1/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   prestart:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
     build:
@@ -43,6 +65,9 @@ services:
     restart: always
     depends_on:
       db:
+        condition: service_healthy
+        restart: true
+      octobus:
         condition: service_healthy
         restart: true
       prestart:
@@ -86,3 +111,4 @@ services:
 volumes:
   app-db-data:
   app-artifact-data:
+  octobus-data:

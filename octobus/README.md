@@ -8,4 +8,4 @@ Run the deterministic public-Connect acceptance stack with:
 ./scripts/test-cloudatlas-fixture.sh
 ```
 
-The stack builds OctoBus `@chaitin-ai/octobus@0.1.0`, imports the product package, binds one fixture Instance to a Capset with `include_all_methods=false`, selects only `cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets`, and exercises a fixture upstream over read-only GET. It uses test-only tokens and does not contact a real CloudAtlas; the authorized real-environment read-only canary remains a deployment gate.
+The delivered OctoBus image pins `@chaitin-ai/octobus@0.1.0` and the architecture-specific release archive SHA-256 for the real `chaitin-cli@v2606.0.4`. The fixture stack uses that same image, imports the product package, binds one fixture Instance to a Capset with `include_all_methods=false`, selects only `cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets`, and exercises the exact Service Package → real CLI → fixture upstream read-only GET chain. It uses test-only tokens and does not contact a real CloudAtlas; the authorized real-environment read-only canary remains a deployment gate.
