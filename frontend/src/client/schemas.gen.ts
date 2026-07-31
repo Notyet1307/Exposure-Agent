@@ -177,19 +177,6 @@ export const Body_login_login_access_tokenSchema = {
     title: 'Body_login-login_access_token'
 } as const;
 
-export const Body_projects_create_customer_uploadSchema = {
-    properties: {
-        file: {
-            type: 'string',
-            contentMediaType: 'application/octet-stream',
-            title: 'File'
-        }
-    },
-    type: 'object',
-    required: ['file'],
-    title: 'Body_projects-create_customer_upload'
-} as const;
-
 export const CustomerUploadProfilePublicSchema = {
     properties: {
         required_headers: {

@@ -5,12 +5,10 @@ from typing import Annotated, Any
 from fastapi import (
     APIRouter,
     Depends,
-    File,
     HTTPException,
     Query,
     Request,
     Response,
-    UploadFile,
     status,
 )
 from sqlmodel import col, func, select
@@ -177,15 +175,33 @@ def read_current_customer_upload_profile(
     "/{project_id}/customer-uploads",
     response_model=CustomerUploadPublic,
     status_code=status.HTTP_201_CREATED,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["file"],
+                        "properties": {
+                            "file": {
+                                "type": "string",
+                                "contentMediaType": "application/octet-stream",
+                            }
+                        },
+                    }
+                }
+            },
+        }
+    },
 )
-def create_customer_upload(
+async def create_customer_upload(
     *,
     session: SessionDep,
     project_id: uuid.UUID,
     current_user: CurrentUser,
     request: Request,
     response: Response,
-    file: Annotated[UploadFile, File()],
 ) -> Any:
     project = get_authorized_project(
         session=session,
@@ -195,10 +211,14 @@ def create_customer_upload(
         writable=True,
     )
     try:
+        streamed_upload = await customer_upload_service.stream_customer_upload_request(
+            request=request,
+            artifact_root=settings.ARTIFACT_ROOT,
+        )
         upload, created = customer_upload_service.accept_customer_upload(
             session=session,
             project=project,
-            upload_file=file,
+            streamed_upload=streamed_upload,
             artifact_root=settings.ARTIFACT_ROOT,
             actor_subject=str(current_user.id),
             ip_address=get_request_ip_address(request),

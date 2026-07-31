@@ -6,7 +6,8 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
-from typing import cast
+from threading import Barrier, Lock
+from typing import NoReturn, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +19,8 @@ from sqlmodel import Session, func, select
 
 from app.core.config import settings
 from app.core.db import engine
-from app.domain.models import Artifact, AuditEvent, CustomerUpload
+from app.domain import customer_uploads as customer_upload_service
+from app.domain.models import Artifact, AuditEvent, CustomerUpload, Project
 from app.main import app
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
@@ -114,6 +116,39 @@ def _reject_customer_upload_inserts(db: Session) -> Iterator[None]:
         )
         db.execute(text("DROP FUNCTION IF EXISTS fail_test_customer_upload_insert()"))
         db.commit()
+
+
+@contextmanager
+def _synchronize_first_customer_upload_reads() -> Iterator[None]:
+    barrier = Barrier(2)
+    counter_lock = Lock()
+    read_count = 0
+
+    def synchronize_customer_upload_select(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        nonlocal read_count
+        if not (
+            statement.lstrip().startswith("SELECT")
+            and "FROM customer_uploads" in statement
+        ):
+            return
+        with counter_lock:
+            read_count += 1
+            should_wait = read_count <= 2
+        if should_wait:
+            barrier.wait(timeout=5)
+
+    event.listen(engine, "before_cursor_execute", synchronize_customer_upload_select)
+    try:
+        yield
+    finally:
+        event.remove(engine, "before_cursor_execute", synchronize_customer_upload_select)
 
 
 @contextmanager
@@ -258,21 +293,69 @@ def test_concurrent_uploads_are_idempotent(
     content = _workbook_bytes()
     url = f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
 
-    def upload() -> tuple[int, dict[str, object]]:
-        with TestClient(app, client=("127.0.0.1", 50100)) as concurrent_client:
-            response = concurrent_client.post(
-                url,
-                headers=superuser_token_headers,
-                files={"file": ("concurrent.xlsx", content, XLSX_MEDIA_TYPE)},
-            )
-            return response.status_code, response.json()
+    def upload(concurrent_client: TestClient) -> tuple[int, dict[str, object]]:
+        response = concurrent_client.post(
+            url,
+            headers=superuser_token_headers,
+            files={"file": ("concurrent.xlsx", content, XLSX_MEDIA_TYPE)},
+        )
+        return response.status_code, response.json()
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(executor.map(lambda _index: upload(), range(2)))
+    with (
+        TestClient(app, client=("127.0.0.1", 50100)) as first_client,
+        TestClient(app, client=("127.0.0.1", 50101)) as second_client,
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        results = list(executor.map(upload, (first_client, second_client)))
 
     assert sorted(status_code for status_code, _body in results) == [200, 201]
     assert results[0][1] == results[1][1]
     assert len(list((tmp_path / "customer_uploads").glob("*.xlsx"))) == 1
+
+
+def test_forced_concurrent_acceptance_returns_the_winner(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    project_data = _create_project(client, superuser_token_headers)
+    project_id = uuid.UUID(str(project_data["id"]))
+    content = _workbook_bytes()
+    upload_directory = tmp_path / "customer_uploads"
+    upload_directory.mkdir()
+
+    def accept(index: int) -> tuple[uuid.UUID, bool]:
+        temporary_path = upload_directory / f".{index}.tmp.xlsx"
+        temporary_path.write_bytes(content)
+        streamed_upload = customer_upload_service.StreamedCustomerUpload(
+            temporary_path=temporary_path,
+            display_filename="concurrent.xlsx",
+            byte_size=len(content),
+            raw_sha256=hashlib.sha256(content).hexdigest(),
+        )
+        with Session(engine) as session:
+            project = session.get(Project, project_id)
+            assert project is not None
+            upload, created = customer_upload_service.accept_customer_upload(
+                session=session,
+                project=project,
+                streamed_upload=streamed_upload,
+                artifact_root=tmp_path,
+                actor_subject=str(uuid.uuid4()),
+                ip_address="127.0.0.1",
+            )
+            return upload.id, created
+
+    with (
+        _synchronize_first_customer_upload_reads(),
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        results = list(executor.map(accept, range(2)))
+
+    assert sorted(created for _upload_id, created in results) == [False, True]
+    assert results[0][0] == results[1][0]
+    assert len(list(upload_directory.glob("*.xlsx"))) == 1
+    assert not list(upload_directory.glob("*.tmp.xlsx"))
 
 
 @pytest.mark.parametrize("role", ["viewer", "approver"])
@@ -420,6 +503,68 @@ def test_upload_transport_rejections_are_stable_and_leave_no_records(
         .where(CustomerUpload.project_id == project_id)
     ).one() == 0
     assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
+    assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
+def test_valid_upload_streams_without_framework_spooling(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+
+    def reject_framework_spooling(
+        *_args: object, **_kwargs: object
+    ) -> NoReturn:
+        raise AssertionError("framework upload spool must not be used")
+
+    monkeypatch.setattr(
+        "starlette.formparsers.SpooledTemporaryFile", reject_framework_spooling
+    )
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    )
+
+    assert response.status_code == 201
+    assert len(list((tmp_path / "customer_uploads").glob("*.xlsx"))) == 1
+
+
+def test_incomplete_multipart_upload_is_stable_and_removes_temporary_file(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    boundary = b"customer-upload-boundary"
+    body = (
+        b"--"
+        + boundary
+        + b'\r\nContent-Disposition: form-data; name="file"; '
+        + b'filename="customer.xlsx"\r\n'
+        + f"Content-Type: {XLSX_MEDIA_TYPE}\r\n\r\n".encode()
+        + _workbook_bytes()
+    )
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers={
+            **superuser_token_headers,
+            "Content-Type": f"multipart/form-data; boundary={boundary.decode()}",
+        },
+        content=body,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "incomplete_upload",
+        "message": "The upload was incomplete.",
+    }
     assert not list((tmp_path / "customer_uploads").glob("*"))
 
 

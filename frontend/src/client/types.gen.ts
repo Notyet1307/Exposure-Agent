@@ -35,10 +35,6 @@ export type Body_login_login_access_token = {
     client_secret?: (string | null);
 };
 
-export type Body_projects_create_customer_upload = {
-    file: string;
-};
-
 export type CustomerUploadProfilePublic = {
     required_headers: Array<(string)>;
     warning_headers: Array<(string)>;
@@ -269,7 +265,9 @@ export type ProjectsReadCurrentCustomerUploadProfileData = {
 export type ProjectsReadCurrentCustomerUploadProfileResponse = (CustomerUploadProfilePublic);
 
 export type ProjectsCreateCustomerUploadData = {
-    formData: Body_projects_create_customer_upload;
+    formData: {
+        file: string;
+    };
     projectId: string;
 };
 
