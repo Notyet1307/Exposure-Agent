@@ -249,6 +249,26 @@ def _create_member(
     return user_authentication_headers(client=client, email=email, password=password)
 
 
+def _assert_source_audit_actions(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    *,
+    source_id: str,
+    expected: list[str],
+) -> None:
+    response = client.get(
+        f"{settings.API_V1_STR}/audit-events/",
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
+    actions = [
+        event["action"]
+        for event in response.json()["data"]
+        if event["target_id"] == source_id
+    ]
+    assert actions == expected
+
+
 def test_admin_configures_validates_and_enables_cloudatlas_source(
     client: TestClient,
     db: Session,
@@ -468,7 +488,57 @@ def test_project_roles_only_receive_safe_summaries_for_their_own_project(
     ]
 
 
-def test_archived_project_read_keeps_stored_validation_after_material_drifts(
+def test_project_role_read_reports_drift_without_mutating_validation(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project = _create_project(client, superuser_token_headers)
+    viewer_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["viewer"],
+    )
+    with _octobus_server() as (base_url, octobus):
+        monkeypatch.setattr(settings, "OCTOBUS_URL", base_url)
+        collection_url = (
+            f"{settings.API_V1_STR}/projects/{project['id']}"
+            "/cloudatlas-source-instances"
+        )
+        source = client.post(
+            collection_url,
+            headers=superuser_token_headers,
+            json={
+                "instance_id": octobus.instance_id,
+                "capset_id": octobus.capset_id,
+            },
+        ).json()
+        source_url = f"{collection_url}/{source['id']}"
+        assert client.post(
+            f"{source_url}/validate",
+            headers=superuser_token_headers,
+            json={"capset_token": CAPSET_TOKEN},
+        ).status_code == 200
+
+        octobus.secret_sha256 = "3" * 64
+        drifted_response = client.get(collection_url, headers=viewer_headers)
+        octobus.secret_sha256 = "2" * 64
+        restored_response = client.get(collection_url, headers=viewer_headers)
+
+    assert drifted_response.status_code == 200
+    assert drifted_response.json()["data"][0]["validation_status"] == "invalid"
+    assert restored_response.status_code == 200
+    assert restored_response.json()["data"][0]["validation_status"] == "validated"
+    _assert_source_audit_actions(
+        client,
+        superuser_token_headers,
+        source_id=source["id"],
+        expected=["source_instance.validated", "source_instance.created"],
+    )
+
+
+def test_archived_project_read_reports_drift_without_mutating_validation(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     monkeypatch: MonkeyPatch,
@@ -498,32 +568,27 @@ def test_archived_project_read_keeps_stored_validation_after_material_drifts(
             f"{settings.API_V1_STR}/projects/{project['id']}/archive",
             headers=superuser_token_headers,
         ).status_code == 200
-        request_count = len(octobus.requests)
 
         octobus.secret_sha256 = "3" * 64
-        archived_response = client.get(
+        drifted_response = client.get(
+            collection_url, headers=superuser_token_headers
+        )
+        octobus.secret_sha256 = "2" * 64
+        restored_response = client.get(
             collection_url, headers=superuser_token_headers
         )
 
-        assert archived_response.status_code == 200
-        assert archived_response.json()["data"][0]["validation_status"] == "validated"
-        assert archived_response.json()["can_manage"] is False
-        assert len(octobus.requests) == request_count
-
-    audit_response = client.get(
-        f"{settings.API_V1_STR}/audit-events/",
-        headers=superuser_token_headers,
+    assert drifted_response.status_code == 200
+    assert drifted_response.json()["data"][0]["validation_status"] == "invalid"
+    assert drifted_response.json()["can_manage"] is False
+    assert restored_response.status_code == 200
+    assert restored_response.json()["data"][0]["validation_status"] == "validated"
+    _assert_source_audit_actions(
+        client,
+        superuser_token_headers,
+        source_id=source["id"],
+        expected=["source_instance.validated", "source_instance.created"],
     )
-    assert audit_response.status_code == 200
-    source_actions = [
-        event["action"]
-        for event in audit_response.json()["data"]
-        if event["target_id"] == source["id"]
-    ]
-    assert source_actions == [
-        "source_instance.validated",
-        "source_instance.created",
-    ]
 
 
 def test_fingerprint_drift_and_binding_changes_invalidate_validation(
@@ -824,6 +889,34 @@ def test_failed_validation_is_safe_audited_and_not_enableable(
         "source_instance.created",
         "source_instance.validation_failed",
     ]
+
+
+def test_invalid_capset_token_length_is_not_echoed(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    project = _create_project(client, superuser_token_headers)
+    collection_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}"
+        "/cloudatlas-source-instances"
+    )
+    source = client.post(
+        collection_url,
+        headers=superuser_token_headers,
+        json={"instance_id": "safe-instance", "capset_id": "safe-capset"},
+    ).json()
+    secret_marker = "TOKEN-MUST-NOT-LEAK"
+    oversized_token = secret_marker + "x" * 4096
+
+    response = client.post(
+        f"{collection_url}/{source['id']}/validate",
+        headers=superuser_token_headers,
+        json={"capset_token": oversized_token},
+    )
+
+    assert response.status_code == 422
+    assert secret_marker not in response.text
+    assert oversized_token not in response.text
 
 
 def test_wrong_capset_token_is_not_a_cloudatlas_authentication_failure(

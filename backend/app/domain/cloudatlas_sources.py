@@ -413,9 +413,7 @@ def source_public(
                 if current.value == source.validated_fingerprint
                 else "invalid"
             )
-        if status == "invalid":
-            if session is None:
-                raise RuntimeError("session is required to persist validation drift")
+        if status == "invalid" and session is not None:
             source = _invalidate_material_validation(session=session, source=source)
     return CloudAtlasSourcePublic(
         id=source.id,

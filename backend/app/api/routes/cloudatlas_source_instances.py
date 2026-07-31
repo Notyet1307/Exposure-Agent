@@ -100,8 +100,11 @@ def read_cloudatlas_sources(
         data=[
             source_service.source_public(
                 source,
-                check_current=project.archived_at is None,
-                session=session,
+                session=(
+                    session
+                    if current_user.is_superuser and project.archived_at is None
+                    else None
+                ),
             )
             for source in sources
         ],

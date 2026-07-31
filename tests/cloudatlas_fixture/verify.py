@@ -3,9 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
+
+from app.domain.cloudatlas_sources import OctobusCloudAtlasClient, source_public
+from app.domain.models import SourceInstance
 
 SERVICE_ID = "cloudatlas-read"
 INSTANCE_ID = "cloudatlas-fixture"
@@ -46,7 +51,18 @@ def post_json(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:19000")
+    parser.add_argument("--print-backend-fingerprint", action="store_true")
+    parser.add_argument("--stored-fingerprint")
+    parser.add_argument(
+        "--expected-validation-status", choices=("validated", "invalid")
+    )
     args = parser.parse_args()
+    if (args.stored_fingerprint is None) != (
+        args.expected_validation_status is None
+    ):
+        parser.error(
+            "--stored-fingerprint and --expected-validation-status must be used together"
+        )
     base_url = args.base_url.rstrip("/")
     service = get_json(f"{base_url}/admin/v1/services/{SERVICE_ID}")
     assert service["PackageSHA256"] == PACKAGE_SHA256
@@ -116,6 +132,22 @@ def main() -> None:
         "stderr",
     ):
         assert forbidden not in serialized_failures
+
+    source = SourceInstance(
+        project_id=uuid.uuid4(),
+        instance_id=INSTANCE_ID,
+        capset_id=CAPSET_ID,
+        validated_fingerprint=args.stored_fingerprint,
+    )
+    if args.stored_fingerprint is None:
+        fingerprint = OctobusCloudAtlasClient().validate_read(
+            source, capset_token=CAPSET_TOKEN
+        )
+        if args.print_backend_fingerprint:
+            sys.stdout.write(f"{fingerprint.value}\n")
+    else:
+        summary = source_public(source)
+        assert summary.validation_status == args.expected_validation_status
 
 
 if __name__ == "__main__":
