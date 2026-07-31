@@ -95,9 +95,10 @@ def _validate_ip(value: object, row_number: int) -> None:
     if not isinstance(value, str):
         raise _reject("invalid_required_value", field="asset_ip", row=row_number)
     candidate = value.strip()
-    valid_ip = True
+    valid_ip = "%" not in candidate
     try:
-        ipaddress.ip_address(candidate)
+        if valid_ip:
+            ipaddress.ip_address(candidate)
     except ValueError:
         valid_ip = False
     if not valid_ip:
@@ -110,7 +111,12 @@ def _parse_port(value: object, field: str, row_number: int) -> int:
     if isinstance(value, int):
         port = value
     elif isinstance(value, str) and _DECIMAL_PORT.fullmatch(value.strip()):
-        port = int(value.strip())
+        normalized = value.strip().lstrip("0") or "0"
+        if len(normalized) > 5 or (
+            len(normalized) == 5 and normalized > "65535"
+        ):
+            raise _reject("invalid_required_value", field=field, row=row_number)
+        port = int(normalized)
     else:
         raise _reject("invalid_required_value", field=field, row=row_number)
     if not 1 <= port <= 65_535:
@@ -156,8 +162,12 @@ def _parse_rows(worksheet: Any) -> CustomerUploadValidationResult:
     if header_row is None:
         raise _reject("missing_required_structure")
 
+    header_values = list(header_row)
+    while header_values and header_values[-1] is None:
+        header_values.pop()
+
     headers: list[str] = []
-    for value in header_row:
+    for value in header_values:
         if not isinstance(value, str) or not value.strip():
             raise _reject("missing_required_structure", row=1)
         headers.append(value)
@@ -165,6 +175,9 @@ def _parse_rows(worksheet: Any) -> CustomerUploadValidationResult:
         raise _reject("missing_required_structure", row=1)
 
     header_indexes = {header: index for index, header in enumerate(headers)}
+    if not any(header in header_indexes for header in _REQUIRED_FIELDS.values()):
+        raise _reject("missing_required_structure", row=1)
+
     field_indexes: dict[str, int] = {}
     for field, header in _REQUIRED_FIELDS.items():
         if header not in header_indexes:
@@ -180,6 +193,8 @@ def _parse_rows(worksheet: Any) -> CustomerUploadValidationResult:
     for row_number, row in enumerate(rows, start=2):
         if all(value is None for value in row):
             continue
+        if any(value is not None for value in row[len(headers) :]):
+            raise _reject("missing_required_structure", row=1)
         _validate_required_row(row, field_indexes, row_number)
         record_count += 1
         for field, index in responsibility_indexes.items():

@@ -181,6 +181,30 @@ def test_invalid_ip_and_port_values_are_rejected_with_canonical_field(
     _assert_rejected(path, "invalid_required_value", field=field, row=2)
 
 
+def test_scoped_ipv6_is_rejected_as_non_literal(tmp_path: Path) -> None:
+    path = _save_workbook(
+        tmp_path / "scoped-ipv6.xlsx",
+        [DEFAULT_HEADERS, ["fe80::1%eth0", 443, 443, "否", None]],
+    )
+
+    _assert_rejected(
+        path, "invalid_required_value", field="asset_ip", row=2
+    )
+
+
+def test_oversized_decimal_port_has_canonical_field_and_row(
+    tmp_path: Path,
+) -> None:
+    path = _save_workbook(
+        tmp_path / "oversized-port.xlsx",
+        [DEFAULT_HEADERS, ["192.0.2.1", "9" * 5_000, 443, "否", None]],
+    )
+
+    _assert_rejected(
+        path, "invalid_required_value", field="start_port", row=2
+    )
+
+
 def test_port_range_is_rejected(tmp_path: Path) -> None:
     path = _save_workbook(
         tmp_path / "range.xlsx",
@@ -273,6 +297,23 @@ def test_multiline_undefined_header_is_counted_as_an_extra_column(
     assert result.warnings == (
         CustomerUploadWarning("extra_columns_ignored", None, 1),
     )
+
+
+def test_style_only_cells_outside_data_columns_are_ignored(
+    tmp_path: Path,
+) -> None:
+    path = _save_workbook(
+        tmp_path / "styled.xlsx",
+        [DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
+    )
+    workbook = load_workbook(path)
+    workbook.active["Z2"].number_format = "0.00"
+    workbook.save(path)
+    workbook.close()
+
+    result = validate_customer_upload_workbook(path)
+
+    assert result.record_count == 1
 
 
 def test_warning_counts_cover_missing_columns_empty_values_and_extra_columns(
