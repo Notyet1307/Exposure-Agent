@@ -15,7 +15,6 @@ services:
     command: ["serve", "--data-dir", "/var/lib/octobus", "--addr", "0.0.0.0:9000"]
     volumes:
       - cloudatlas-octobus-data:/var/lib/octobus
-      - ./octobus/cloudatlas-read:/service-package:ro
     ports:
       - "127.0.0.1:${CLOUDATLAS_FIXTURE_PORT:-19000}:9000"
     healthcheck:
@@ -46,7 +45,6 @@ services:
       FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
       FIXTURE_CAPSET_TOKEN: fixture-capset-token
     volumes:
-      - ./octobus/cloudatlas-read:/service-package:ro
       - ./tests/cloudatlas_fixture/init.sh:/fixture-init.sh:ro
     networks:
       - cloudatlas-fixture

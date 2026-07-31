@@ -25,4 +25,6 @@ RUN apt-get update \
     && rm --recursive --force "/tmp/${archive}" \
          "/tmp/chaitin-cli_${CHAITIN_CLI_VERSION}_linux_${TARGETARCH}"
 
+COPY octobus/cloudatlas-read /opt/exposure-agent/service-packages/cloudatlas-read
+
 ENTRYPOINT ["octobus"]

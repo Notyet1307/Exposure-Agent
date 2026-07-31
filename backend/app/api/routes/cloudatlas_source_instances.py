@@ -20,6 +20,7 @@ from app.domain.models import (
 router = APIRouter(prefix="/projects", tags=["cloudatlas-source-instances"])
 
 _ERROR_MESSAGES = {
+    "octobus_authentication_failed": "OctoBus authentication failed.",
     "cloudatlas_authentication_failed": "CloudAtlas authentication failed.",
     "cloudatlas_authorization_failed": "CloudAtlas authorization failed.",
     "cloudatlas_connectivity_failed": "CloudAtlas could not be reached.",
@@ -96,7 +97,9 @@ def read_cloudatlas_sources(
         .where(SourceInstance.project_id == project.id)
     ).one()
     return CloudAtlasSourcesPublic(
-        data=[source_service.source_public(source) for source in sources],
+        data=[
+            source_service.source_public(source, session=session) for source in sources
+        ],
         count=count,
         can_manage=current_user.is_superuser and project.archived_at is None,
     )

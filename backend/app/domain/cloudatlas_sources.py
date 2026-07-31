@@ -26,8 +26,10 @@ METHOD = "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets"
 FINGERPRINT_SCHEMA = "exposure-agent.cloudatlas-source-fingerprint.v1"
 PACKAGE_SHA256 = "882a197f630497f00307be613f7c361a32dad156092726e35b2ce9855c0617e9"
 DESCRIPTOR_SHA256 = "3fada7cb00f3bca132c28d316ea61158522a1a07d3e80a83f9e68010d1a588e0"
+MATERIAL_CHANGED_ERROR = "cloudatlas_material_changed"
 
 _SAFE_ERROR_STATUS = {
+    "octobus_authentication_failed": 401,
     "cloudatlas_authentication_failed": 401,
     "cloudatlas_authorization_failed": 403,
     "cloudatlas_connectivity_failed": 503,
@@ -130,19 +132,24 @@ class OctobusCloudAtlasClient:
             _boundary_error("cloudatlas_connectivity_failed")
 
         if response.status_code != 200:
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = {}
+            safe_message = (
+                error_payload.get("message")
+                if isinstance(error_payload, dict)
+                else None
+            )
             if response.status_code == 401:
-                _boundary_error("cloudatlas_authentication_failed")
+                if safe_message == "cloudatlas_authentication_failed":
+                    _boundary_error("cloudatlas_authentication_failed")
+                _boundary_error("octobus_authentication_failed")
             if response.status_code == 403:
                 _boundary_error("cloudatlas_authorization_failed")
             if response.status_code >= 500:
-                try:
-                    error_payload = response.json()
-                except ValueError:
-                    error_payload = {}
-                if isinstance(error_payload, dict):
-                    safe_message = error_payload.get("message")
-                    if safe_message in _SAFE_ERROR_STATUS:
-                        _boundary_error(cast(str, safe_message))
+                if safe_message in _SAFE_ERROR_STATUS:
+                    _boundary_error(cast(str, safe_message))
                 _boundary_error("cloudatlas_upstream_failed")
             _boundary_error("cloudatlas_response_contract_failed")
         try:
@@ -330,12 +337,13 @@ def _audit_event(
     before_data: dict[str, Any] | None,
     after_status: str,
     ip_address: str | None,
+    actor_type: str = "user",
 ) -> AuditEvent:
     return AuditEvent(
         tenant_id=source.tenant_id,
         project_id=source.project_id,
         actor_subject=actor_subject,
-        actor_type="user",
+        actor_type=actor_type,
         action=action,
         target_type="source_instance",
         target_id=source.id,
@@ -345,12 +353,42 @@ def _audit_event(
     )
 
 
+def _stored_validation_status(source: SourceInstance) -> str:
+    if source.validation_error_code == MATERIAL_CHANGED_ERROR:
+        return "invalid"
+    if source.validated_fingerprint is not None:
+        return "validated"
+    return "failed" if source.validation_error_code else "not_validated"
+
+
+def _invalidate_material_validation(
+    *, session: Session, source: SourceInstance
+) -> SourceInstance:
+    if source.validation_error_code == MATERIAL_CHANGED_ERROR:
+        return source
+    before = _audit_snapshot(source, status=_stored_validation_status(source))
+    source.validation_error_code = MATERIAL_CHANGED_ERROR
+    source.updated_at = get_datetime_utc()
+    event = _audit_event(
+        source=source,
+        actor_subject="octobus-control-plane",
+        actor_type="system",
+        action="source_instance.validation_invalidated",
+        before_data=before,
+        after_status="invalid",
+        ip_address=None,
+    )
+    return commit_with_audit(session=session, record=source, audit_event=event)
+
+
 def source_public(
-    source: SourceInstance, *, check_current: bool = True
+    source: SourceInstance,
+    *,
+    check_current: bool = True,
+    session: Session | None = None,
 ) -> CloudAtlasSourcePublic:
-    if source.validated_fingerprint is None:
-        status = "failed" if source.validation_error_code else "not_validated"
-    elif check_current:
+    status = _stored_validation_status(source)
+    if status == "validated" and check_current:
         try:
             current = OctobusCloudAtlasClient().current_fingerprint(source)
         except CloudAtlasMaterialMismatchError:
@@ -363,8 +401,10 @@ def source_public(
                 if current.value == source.validated_fingerprint
                 else "invalid"
             )
-    else:
-        status = "validated"
+        if status == "invalid":
+            if session is None:
+                raise RuntimeError("session is required to persist validation drift")
+            source = _invalidate_material_validation(session=session, source=source)
     return CloudAtlasSourcePublic(
         id=source.id,
         source_type=source.source_type,
@@ -424,10 +464,7 @@ def update_source(
         and source.capset_id == source_in.capset_id
     ):
         return source
-    before = _audit_snapshot(
-        source,
-        status="validated" if source.validated_fingerprint else "not_validated",
-    )
+    before = _audit_snapshot(source, status=_stored_validation_status(source))
     source.instance_id = source_in.instance_id
     source.capset_id = source_in.capset_id
     source.enabled = False
@@ -454,10 +491,7 @@ def validate_source(
     actor_subject: str,
     ip_address: str | None,
 ) -> SourceInstance:
-    before = _audit_snapshot(
-        source,
-        status="validated" if source.validated_fingerprint else "not_validated",
-    )
+    before = _audit_snapshot(source, status=_stored_validation_status(source))
     try:
         fingerprint = OctobusCloudAtlasClient().validate_read(
             source, capset_token=capset_token
@@ -502,18 +536,23 @@ def set_source_enabled(
     actor_subject: str,
     ip_address: str | None,
 ) -> SourceInstance:
+    if enabled:
+        if (
+            source.validated_fingerprint is None
+            or source.validation_error_code == MATERIAL_CHANGED_ERROR
+        ):
+            raise CloudAtlasStateError("cloudatlas_validation_required")
+        try:
+            current = OctobusCloudAtlasClient().current_fingerprint(source)
+        except CloudAtlasMaterialMismatchError:
+            _invalidate_material_validation(session=session, source=source)
+            raise CloudAtlasStateError("cloudatlas_validation_required")
+        if current.value != source.validated_fingerprint:
+            _invalidate_material_validation(session=session, source=source)
+            raise CloudAtlasStateError("cloudatlas_validation_required")
     if source.enabled == enabled:
         return source
-    if enabled:
-        if source.validated_fingerprint is None:
-            raise CloudAtlasStateError("cloudatlas_validation_required")
-        current = OctobusCloudAtlasClient().current_fingerprint(source)
-        if current.value != source.validated_fingerprint:
-            raise CloudAtlasStateError("cloudatlas_validation_required")
-    before = _audit_snapshot(
-        source,
-        status="validated" if source.validated_fingerprint else "not_validated",
-    )
+    before = _audit_snapshot(source, status=_stored_validation_status(source))
     source.enabled = enabled
     source.updated_at = get_datetime_utc()
     event = _audit_event(
@@ -521,7 +560,7 @@ def set_source_enabled(
         actor_subject=actor_subject,
         action=f"source_instance.{'enabled' if enabled else 'disabled'}",
         before_data=before,
-        after_status="validated" if source.validated_fingerprint else "not_validated",
+        after_status=_stored_validation_status(source),
         ip_address=ip_address,
     )
     try:

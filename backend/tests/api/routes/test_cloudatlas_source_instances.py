@@ -491,8 +491,16 @@ def test_fingerprint_drift_and_binding_changes_invalidate_validation(
     assert actions == [
         "source_instance.created",
         "source_instance.validated",
+        "source_instance.validation_invalidated",
         "source_instance.configured",
     ]
+    invalidation_actor = db.exec(
+        select(AuditEvent.actor_type, AuditEvent.actor_subject).where(
+            AuditEvent.target_id == uuid.UUID(source["id"]),
+            AuditEvent.action == "source_instance.validation_invalidated",
+        )
+    ).one()
+    assert invalidation_actor == ("system", "octobus-control-plane")
 
 
 def test_control_plane_outage_does_not_claim_configuration_drift(
@@ -591,8 +599,13 @@ def test_every_constrained_material_change_invalidates_the_fingerprint(
             )
             assert restored_response.status_code == 200
             assert restored_response.json()["data"][0]["validation_status"] == (
-                "validated"
+                "invalid"
             )
+            assert client.post(
+                f"{collection_url}/{source['id']}/validate",
+                headers=superuser_token_headers,
+                json={"capset_token": CAPSET_TOKEN},
+            ).status_code == 200
 
 
 def test_failed_validation_is_safe_audited_and_not_enableable(
@@ -653,6 +666,50 @@ def test_failed_validation_is_safe_audited_and_not_enableable(
         "source_instance.created",
         "source_instance.validation_failed",
     ]
+
+
+def test_wrong_capset_token_is_not_a_cloudatlas_authentication_failure(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project = _create_project(client, superuser_token_headers)
+    with _octobus_server() as (base_url, octobus):
+        monkeypatch.setattr(settings, "OCTOBUS_URL", base_url)
+        collection_url = (
+            f"{settings.API_V1_STR}/projects/{project['id']}"
+            "/cloudatlas-source-instances"
+        )
+        source = client.post(
+            collection_url,
+            headers=superuser_token_headers,
+            json={
+                "instance_id": octobus.instance_id,
+                "capset_id": octobus.capset_id,
+            },
+        ).json()
+
+        validation_response = client.post(
+            f"{collection_url}/{source['id']}/validate",
+            headers=superuser_token_headers,
+            json={"capset_token": "wrong-capset-token"},
+        )
+
+    assert validation_response.status_code == 401
+    assert validation_response.json()["detail"] == {
+        "code": "octobus_authentication_failed",
+        "message": "OctoBus authentication failed.",
+    }
+    assert "wrong-capset-token" not in validation_response.text
+    source_row = db.execute(
+        text(
+            "SELECT validated_fingerprint, validation_error_code "
+            "FROM source_instances WHERE id = :source_id"
+        ),
+        {"source_id": uuid.UUID(source["id"])},
+    ).one()
+    assert source_row == (None, "octobus_authentication_failed")
 
 
 def test_database_constraint_rejects_a_second_enabled_cloudatlas_source(

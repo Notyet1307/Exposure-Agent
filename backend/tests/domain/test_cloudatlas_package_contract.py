@@ -44,7 +44,12 @@ def test_product_package_and_backend_pin_the_single_read_method() -> None:
     assert "--no-all-methods" in (
         REPOSITORY_ROOT / "tests" / "cloudatlas_fixture" / "init.sh"
     ).read_text()
-    assert "./octobus/cloudatlas-read:/service-package:ro" in fixture_compose
+    package_image_path = "/opt/exposure-agent/service-packages/cloudatlas-read"
+    assert f"COPY octobus/cloudatlas-read {package_image_path}" in octobus_image
+    assert "./octobus/cloudatlas-read:/service-package:ro" not in fixture_compose
+    assert package_image_path in (
+        REPOSITORY_ROOT / "tests" / "cloudatlas_fixture" / "init.sh"
+    ).read_text()
     assert "dockerfile: octobus/Dockerfile" in fixture_compose
     assert "investigations/issue_29" not in fixture_compose
     assert "CHAITIN_CLI_VERSION=v2606.0.4" in octobus_image
@@ -53,3 +58,6 @@ def test_product_package_and_backend_pin_the_single_read_method() -> None:
     assert "fake-chaitin-cli" not in fixture_compose
     assert "dockerfile: octobus/Dockerfile" in deployment_compose
     assert "octobus-data:/var/lib/octobus" in deployment_compose
+    assert "octobus-package-init:" in deployment_compose
+    assert package_image_path in deployment_compose
+    assert "service_completed_successfully" in deployment_compose
