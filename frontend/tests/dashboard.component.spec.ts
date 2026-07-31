@@ -146,6 +146,36 @@ test("selects the first Project and switches its Profile and upload list", async
   await expect(page.getByText("No accepted uploads yet.")).toBeVisible()
 })
 
+test("loads every page of accessible Projects into the dropdown", async ({
+  page,
+}) => {
+  const allProjects = [
+    ...projects,
+    ...Array.from({ length: 99 }, (_, index) => ({
+      ...projects[0],
+      id: `40000000-0000-0000-0000-${String(index).padStart(12, "0")}`,
+      name: `Paged Project ${index + 3}`,
+    })),
+  ]
+  await page.route("**/api/v1/projects/?*", (route) => {
+    const url = new URL(route.request().url())
+    const skip = Number(url.searchParams.get("skip") ?? 0)
+    const limit = Number(url.searchParams.get("limit") ?? 100)
+    return route.fulfill({
+      json: {
+        data: allProjects.slice(skip, skip + limit),
+        count: allProjects.length,
+      },
+    })
+  })
+  await page.goto("/")
+
+  await page.getByRole("combobox", { name: "Project" }).click()
+  await expect(
+    page.getByRole("option", { name: "Paged Project 101" }),
+  ).toBeVisible()
+})
+
 test("shows loading, empty, and failure states for Projects", async ({
   page,
 }) => {

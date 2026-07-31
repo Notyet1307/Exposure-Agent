@@ -8,6 +8,7 @@ import {
   type CustomerUploadPublic,
   type CustomerUploadWarningPublic,
   type ProjectPublic,
+  type ProjectsPublic,
   ProjectsService,
 } from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -41,6 +42,26 @@ import {
 import useAuth from "@/hooks/useAuth"
 
 const UPLOAD_PAGE_SIZE = 10
+const PROJECT_PAGE_SIZE = 100
+
+async function readAccessibleProjects(): Promise<ProjectsPublic> {
+  const firstPage = await ProjectsService.readProjects({
+    skip: 0,
+    limit: PROJECT_PAGE_SIZE,
+  })
+  const data = [...firstPage.data]
+
+  while (data.length < firstPage.count) {
+    const nextPage = await ProjectsService.readProjects({
+      skip: data.length,
+      limit: PROJECT_PAGE_SIZE,
+    })
+    if (nextPage.data.length === 0) break
+    data.push(...nextPage.data)
+  }
+
+  return { data, count: firstPage.count }
+}
 
 export const Route = createFileRoute("/_layout/")({
   component: Dashboard,
@@ -218,10 +239,6 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       setFileMessage("Choose one XLSX file to upload.")
       return
     }
-    if (!file.name.endsWith(".xlsx")) {
-      setFileMessage("Choose a file with the .xlsx extension.")
-      return
-    }
     setFileMessage(null)
     uploadMutation.mutate(file)
   }
@@ -349,7 +366,7 @@ function Dashboard() {
   )
   const projectsQuery = useQuery({
     queryKey: ["projects"],
-    queryFn: () => ProjectsService.readProjects({ skip: 0, limit: 100 }),
+    queryFn: readAccessibleProjects,
   })
 
   useEffect(() => {

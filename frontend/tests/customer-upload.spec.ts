@@ -30,6 +30,9 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
   const project = await ProjectsService.createProject({
     requestBody: { name: `Upload smoke ${crypto.randomUUID()}` },
   })
+  const otherProject = await ProjectsService.createProject({
+    requestBody: { name: `Other smoke ${crypto.randomUUID()}` },
+  })
   const email = randomEmail()
   const password = randomPassword()
   const operator = await UsersService.createUser({
@@ -37,6 +40,10 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
   })
   await ProjectMembershipsService.grantProjectMembership({
     projectId: project.id,
+    requestBody: { user_id: operator.id, roles: ["operator"] },
+  })
+  await ProjectMembershipsService.grantProjectMembership({
+    projectId: otherProject.id,
     requestBody: { user_id: operator.id, roles: ["operator"] },
   })
 
@@ -48,9 +55,10 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
   await page.getByRole("button", { name: "Log In" }).click()
   await page.waitForURL("/")
 
-  await expect(page.getByRole("combobox", { name: "Project" })).toContainText(
-    project.name,
-  )
+  const projectSelect = page.getByRole("combobox", { name: "Project" })
+  await projectSelect.click()
+  await page.getByRole("option", { name: project.name }).click()
+  await expect(projectSelect).toContainText(project.name)
   await page.getByLabel("XLSX file").setInputFiles(validWorkbook)
   await page.getByRole("button", { name: "Upload", exact: true }).click()
 
