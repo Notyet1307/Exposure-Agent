@@ -19,7 +19,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CUSTOMER_UPLOAD_REVISION = "e7c8d9a0b1f2"
+CURRENT_CUSTOMER_UPLOAD_REVISION = "f8d9e0a1b2c3"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 DEFAULT_PROFILE_DEFINITION = {
     "required_headers": [
@@ -121,7 +121,7 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CUSTOMER_UPLOAD_REVISION,)
+        ).fetchone() == (CURRENT_CUSTOMER_UPLOAD_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -171,9 +171,10 @@ def test_existing_projects_and_audit_events_survive_lifecycle_upgrade(
 
     with connect(template_baseline_database) as connection:
         assert connection.execute(
-            "SELECT id, name, archived_at FROM projects WHERE id = %s",
+            "SELECT id, name, archived_at, current_customer_upload_id "
+            "FROM projects WHERE id = %s",
             (project_id,),
-        ).fetchone() == (project_id, "Existing Project", None)
+        ).fetchone() == (project_id, "Existing Project", None, None)
         assert connection.execute(
             "SELECT id, action FROM audit_events WHERE id = %s",
             (audit_event_id,),
@@ -336,6 +337,40 @@ def test_customer_upload_schema_enforces_idempotency_immutability_and_deletion(
             ),
         )
 
+    second_project_id = uuid.uuid4()
+    second_profile_id = uuid.uuid4()
+    with connect(template_baseline_database) as connection:
+        connection.execute(
+            "INSERT INTO projects "
+            "(id, tenant_id, name, current_customer_upload_profile_id, "
+            "created_at, updated_at) VALUES (%s, %s, %s, %s, now(), now())",
+            (
+                second_project_id,
+                DEPLOYMENT_TENANT_ID,
+                "Other Upload Constraints",
+                second_profile_id,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO customer_upload_profiles "
+            "(id, tenant_id, project_id, version, definition, "
+            "created_at, updated_at) "
+            "VALUES (%s, %s, %s, 1, %s::jsonb, now(), now())",
+            (
+                second_profile_id,
+                DEPLOYMENT_TENANT_ID,
+                second_project_id,
+                json.dumps(DEFAULT_PROFILE_DEFINITION, ensure_ascii=False),
+            ),
+        )
+
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "UPDATE projects SET current_customer_upload_id = %s WHERE id = %s",
+                (upload_id, second_project_id),
+            )
+
     mismatched_artifact_id = uuid.uuid4()
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with connect(template_baseline_database) as connection:
@@ -418,6 +453,22 @@ def test_customer_upload_schema_enforces_idempotency_immutability_and_deletion(
             )
 
     with connect(template_baseline_database) as connection:
+        connection.execute(
+            "UPDATE projects SET current_customer_upload_id = %s WHERE id = %s",
+            (upload_id, project_id),
+        )
+
+    with pytest.raises(psycopg.errors.RestrictViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "DELETE FROM customer_uploads WHERE id = %s", (upload_id,)
+            )
+
+    with connect(template_baseline_database) as connection:
+        connection.execute(
+            "UPDATE projects SET current_customer_upload_id = NULL WHERE id = %s",
+            (project_id,),
+        )
         connection.execute("DELETE FROM customer_uploads WHERE id = %s", (upload_id,))
         connection.execute("DELETE FROM artifacts WHERE id = %s", (artifact_id,))
     with connect(template_baseline_database) as connection:
@@ -437,7 +488,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CUSTOMER_UPLOAD_REVISION,)
+        ).fetchone() == (CURRENT_CUSTOMER_UPLOAD_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -486,12 +537,14 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
               AND table_name = 'projects'
               AND column_name IN (
                 'archived_at',
+                'current_customer_upload_id',
                 'current_customer_upload_profile_id'
               )
             ORDER BY column_name
             """
         ).fetchall() == [
             ("archived_at", "YES"),
+            ("current_customer_upload_id", "YES"),
             ("current_customer_upload_profile_id", "NO"),
         ]
         assert connection.execute(

@@ -69,12 +69,16 @@ const uploads = {
       },
     ],
     count: 1,
+    current_customer_upload_id: null,
     can_upload: true,
+    can_select: true,
   },
   [projects[1].id]: {
     data: [],
     count: 0,
+    current_customer_upload_id: null,
     can_upload: false,
+    can_select: false,
   },
 }
 
@@ -203,14 +207,52 @@ test("shows loading, empty, and failure states for Projects", async ({
   })
 })
 
-test("keeps read-only and Archived Projects visible without upload controls", async ({
+test("selects an accepted upload as the current Project input", async ({
+  page,
+}) => {
+  let currentUploadId: string | null = null
+  let selectionRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads/${uploads[projects[0].id].data[0].id}/select`,
+    async (route) => {
+      selectionRequests += 1
+      currentUploadId = uploads[projects[0].id].data[0].id
+      await route.fulfill({ json: uploads[projects[0].id].data[0] })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...uploads[projects[0].id],
+          current_customer_upload_id: currentUploadId,
+        },
+      }),
+  )
+  await page.goto("/")
+
+  await expect(page.getByText("Project input is not ready.")).toBeVisible()
+  await page.getByRole("button", { name: "设为当前输入" }).click()
+
+  await expect(page.getByText("Current CustomerUpload ID")).toBeVisible()
+  await expect(page.getByText(uploads[projects[0].id].data[0].id)).toBeVisible()
+  await expect(page.getByText("Current", { exact: true })).toBeVisible()
+  expect(selectionRequests).toBe(1)
+})
+
+test("keeps read-only and Archived Projects visible without input controls", async ({
   page,
 }) => {
   await page.route(
     `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
     (route) =>
       route.fulfill({
-        json: { ...uploads[projects[0].id], can_upload: false },
+        json: {
+          ...uploads[projects[0].id],
+          can_upload: false,
+          can_select: false,
+        },
       }),
   )
   await page.goto("/")
@@ -221,6 +263,9 @@ test("keeps read-only and Archived Projects visible without upload controls", as
     ),
   ).toBeVisible()
   await expect(page.getByLabel("XLSX file")).not.toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "设为当前输入" }),
+  ).not.toBeVisible()
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })
   await projectSelect.click()
@@ -253,7 +298,13 @@ for (const status of [201, 200]) {
         }
         await route.fulfill({
           json: accepted
-            ? { data: [acceptedUpload], count: 1, can_upload: true }
+            ? {
+                data: [acceptedUpload],
+                count: 1,
+                current_customer_upload_id: null,
+                can_upload: true,
+                can_select: true,
+              }
             : uploads[projects[0].id],
         })
       },

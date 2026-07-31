@@ -562,6 +562,8 @@ def test_openapi_exposes_supported_project_and_read_only_audit_contracts(
     ]["multipart/form-data"]["schema"]["properties"]["file"]
     assert upload_file_schema["type"] == "string"
     assert upload_file_schema["format"] == "binary"
+    select_upload_path = f"{customer_uploads_path}/{{upload_id}}/select"
+    assert set(paths[select_upload_path]) == {"post"}
     assert set(paths[f"{settings.API_V1_STR}/projects/{{project_id}}/archive"]) == {
         "post"
     }

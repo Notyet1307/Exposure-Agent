@@ -302,13 +302,29 @@ export const CustomerUploadsPublicSchema = {
             type: 'integer',
             title: 'Count'
         },
+        current_customer_upload_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Customer Upload Id'
+        },
         can_upload: {
             type: 'boolean',
             title: 'Can Upload'
+        },
+        can_select: {
+            type: 'boolean',
+            title: 'Can Select'
         }
     },
     type: 'object',
-    required: ['data', 'count', 'can_upload'],
+    required: ['data', 'count', 'current_customer_upload_id', 'can_upload', 'can_select'],
     title: 'CustomerUploadsPublic'
 } as const;
 

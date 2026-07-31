@@ -19,6 +19,8 @@ from starlette.requests import Request
 if TYPE_CHECKING:
     from python_multipart.multipart import MultipartCallbacks
 
+from app.core.time import get_datetime_utc
+from app.domain.audit import commit_with_audit
 from app.domain.customer_upload_validator import (
     MAX_WORKBOOK_BYTES,
     CustomerUploadValidationError,
@@ -281,6 +283,40 @@ def _accepted_audit_event(
         },
         ip_address=ip_address,
     )
+
+
+def select_current_customer_upload(
+    *,
+    session: Session,
+    project: Project,
+    upload: CustomerUpload,
+    actor_subject: str,
+    ip_address: str | None,
+) -> CustomerUpload:
+    if project.current_customer_upload_id == upload.id:
+        return upload
+
+    previous_upload_id = project.current_customer_upload_id
+    project.current_customer_upload_id = upload.id
+    project.updated_at = get_datetime_utc()
+    audit_event = AuditEvent(
+        tenant_id=project.tenant_id,
+        project_id=project.id,
+        actor_subject=actor_subject,
+        actor_type="user",
+        action="customer_upload.selected",
+        target_type="customer_upload",
+        target_id=upload.id,
+        before_data={
+            "current_customer_upload_id": (
+                str(previous_upload_id) if previous_upload_id is not None else None
+            )
+        },
+        after_data={"current_customer_upload_id": str(upload.id)},
+        ip_address=ip_address,
+    )
+    commit_with_audit(session=session, record=project, audit_event=audit_event)
+    return upload
 
 
 def _find_existing_upload(

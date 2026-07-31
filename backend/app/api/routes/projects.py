@@ -287,10 +287,49 @@ def read_customer_uploads(
             ),
         )
     ).one()
+    can_change_inputs = project.archived_at is None and has_operator_access > 0
     return CustomerUploadsPublic(
         data=[CustomerUploadPublic.model_validate(upload) for upload in uploads],
         count=count,
-        can_upload=project.archived_at is None and has_operator_access > 0,
+        current_customer_upload_id=project.current_customer_upload_id,
+        can_upload=can_change_inputs,
+        can_select=can_change_inputs,
+    )
+
+
+@router.post(
+    "/{project_id}/customer-uploads/{upload_id}/select",
+    response_model=CustomerUploadPublic,
+)
+def select_current_customer_upload(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    upload_id: uuid.UUID,
+    current_user: CurrentUser,
+    request: Request,
+) -> Any:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=(ProjectRole.OPERATOR,),
+        writable=True,
+    )
+    upload = session.exec(
+        select(CustomerUpload).where(
+            CustomerUpload.id == upload_id,
+            CustomerUpload.project_id == project.id,
+        )
+    ).one_or_none()
+    if upload is None:
+        raise HTTPException(status_code=404, detail="CustomerUpload not found")
+    return customer_upload_service.select_current_customer_upload(
+        session=session,
+        project=project,
+        upload=upload,
+        actor_subject=str(current_user.id),
+        ip_address=get_request_ip_address(request),
     )
 
 
