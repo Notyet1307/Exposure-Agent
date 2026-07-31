@@ -1,0 +1,6 @@
+{
+  "service_id": "cloudatlas-read",
+  "package_sha256": "882a197f630497f00307be613f7c361a32dad156092726e35b2ce9855c0617e9",
+  "descriptor_sha256": "3fada7cb00f3bca132c28d316ea61158522a1a07d3e80a83f9e68010d1a588e0",
+  "selected_method": "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets"
+}

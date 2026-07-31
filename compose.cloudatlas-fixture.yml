@@ -1,0 +1,58 @@
+services:
+  cloudatlas-fixture:
+    build:
+      context: .
+      dockerfile: tests/cloudatlas_fixture/Dockerfile.upstream
+    environment:
+      FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
+    networks:
+      - cloudatlas-fixture
+
+  octobus:
+    build:
+      context: .
+      dockerfile: tests/cloudatlas_fixture/Dockerfile.octobus
+    command: ["serve", "--data-dir", "/var/lib/octobus", "--addr", "0.0.0.0:9000"]
+    volumes:
+      - cloudatlas-octobus-data:/var/lib/octobus
+      - ./octobus/cloudatlas-read:/service-package:ro
+    ports:
+      - "127.0.0.1:${CLOUDATLAS_FIXTURE_PORT:-19000}:9000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:9000/admin/v1/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      - cloudatlas-fixture
+
+  cloudatlas-fixture-init:
+    build:
+      context: .
+      dockerfile: tests/cloudatlas_fixture/Dockerfile.octobus
+    entrypoint: ["/bin/sh", "/fixture-init.sh"]
+    depends_on:
+      octobus:
+        condition: service_healthy
+      cloudatlas-fixture:
+        condition: service_started
+    environment:
+      FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
+      FIXTURE_CAPSET_TOKEN: fixture-capset-token
+    volumes:
+      - ./octobus/cloudatlas-read:/service-package:ro
+      - ./tests/cloudatlas_fixture/init.sh:/fixture-init.sh:ro
+    networks:
+      - cloudatlas-fixture
+
+volumes:
+  cloudatlas-octobus-data:
+
+networks:
+  cloudatlas-fixture:

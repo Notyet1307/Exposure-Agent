@@ -74,3 +74,5 @@ jobs:
           assert event["ip_address"] == os.environ["AUDIT_EXPECTED_IP"], event
           '
       - run: docker compose -f compose.yml down -v --remove-orphans
+      - name: Test the deterministic CloudAtlas OctoBus Connect fixture
+        run: ./scripts/test-cloudatlas-fixture.sh

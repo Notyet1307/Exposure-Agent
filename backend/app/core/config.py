@@ -53,6 +53,8 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str
     ARTIFACT_ROOT: Path = Path("/app/artifacts")
+    OCTOBUS_URL: str = "http://octobus:9000"
+    OCTOBUS_TIMEOUT_SECONDS: float = 15.0
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str

@@ -177,6 +177,142 @@ export const Body_login_login_access_tokenSchema = {
     title: 'Body_login-login_access_token'
 } as const;
 
+export const CloudAtlasSourceCreateSchema = {
+    properties: {
+        instance_id: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Instance Id'
+        },
+        capset_id: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Capset Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['instance_id', 'capset_id'],
+    title: 'CloudAtlasSourceCreate'
+} as const;
+
+export const CloudAtlasSourcePublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        source_type: {
+            type: 'string',
+            title: 'Source Type'
+        },
+        instance_id: {
+            type: 'string',
+            title: 'Instance Id'
+        },
+        capset_id: {
+            type: 'string',
+            title: 'Capset Id'
+        },
+        enabled: {
+            type: 'boolean',
+            title: 'Enabled'
+        },
+        validation_status: {
+            type: 'string',
+            title: 'Validation Status'
+        },
+        fingerprint_summary: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Fingerprint Summary'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'source_type', 'instance_id', 'capset_id', 'enabled', 'validation_status', 'fingerprint_summary', 'created_at', 'updated_at'],
+    title: 'CloudAtlasSourcePublic'
+} as const;
+
+export const CloudAtlasSourceUpdateSchema = {
+    properties: {
+        instance_id: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Instance Id'
+        },
+        capset_id: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Capset Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['instance_id', 'capset_id'],
+    title: 'CloudAtlasSourceUpdate'
+} as const;
+
+export const CloudAtlasSourceValidationRequestSchema = {
+    properties: {
+        capset_token: {
+            type: 'string',
+            maxLength: 4096,
+            minLength: 1,
+            format: 'password',
+            title: 'Capset Token',
+            writeOnly: true
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['capset_token'],
+    title: 'CloudAtlasSourceValidationRequest'
+} as const;
+
+export const CloudAtlasSourcesPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/CloudAtlasSourcePublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        can_manage: {
+            type: 'boolean',
+            title: 'Can Manage'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'can_manage'],
+    title: 'CloudAtlasSourcesPublic'
+} as const;
+
 export const CustomerUploadProfilePublicSchema = {
     properties: {
         required_headers: {

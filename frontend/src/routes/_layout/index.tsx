@@ -11,6 +11,7 @@ import {
   type ProjectsPublic,
   ProjectsService,
 } from "@/client"
+import CloudAtlasSources from "@/components/CloudAtlasSources"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -366,6 +367,8 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
           )}
         </CardContent>
       </Card>
+
+      <CloudAtlasSources projectId={project.id} />
 
       {uploads.can_upload ? (
         <Card>

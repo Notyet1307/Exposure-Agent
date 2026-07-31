@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+import type { AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
 
 export class AuditEventsService {
     /**
@@ -21,6 +21,145 @@ export class AuditEventsService {
             query: {
                 skip: data.skip,
                 limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class CloudatlasSourceInstancesService {
+    /**
+     * Read Cloudatlas Sources
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns CloudAtlasSourcesPublic Successful Response
+     * @throws ApiError
+     */
+    public static readCloudatlasSources(data: CloudatlasSourceInstancesReadCloudatlasSourcesData): CancelablePromise<CloudatlasSourceInstancesReadCloudatlasSourcesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/cloudatlas-source-instances',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Create Cloudatlas Source
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.requestBody
+     * @returns CloudAtlasSourcePublic Successful Response
+     * @throws ApiError
+     */
+    public static createCloudatlasSource(data: CloudatlasSourceInstancesCreateCloudatlasSourceData): CancelablePromise<CloudatlasSourceInstancesCreateCloudatlasSourceResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/cloudatlas-source-instances',
+            path: {
+                project_id: data.projectId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Cloudatlas Source
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.sourceId
+     * @param data.requestBody
+     * @returns CloudAtlasSourcePublic Successful Response
+     * @throws ApiError
+     */
+    public static updateCloudatlasSource(data: CloudatlasSourceInstancesUpdateCloudatlasSourceData): CancelablePromise<CloudatlasSourceInstancesUpdateCloudatlasSourceResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/projects/{project_id}/cloudatlas-source-instances/{source_id}',
+            path: {
+                project_id: data.projectId,
+                source_id: data.sourceId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Validate Cloudatlas Source
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.sourceId
+     * @param data.requestBody
+     * @returns CloudAtlasSourcePublic Successful Response
+     * @throws ApiError
+     */
+    public static validateCloudatlasSource(data: CloudatlasSourceInstancesValidateCloudatlasSourceData): CancelablePromise<CloudatlasSourceInstancesValidateCloudatlasSourceResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/cloudatlas-source-instances/{source_id}/validate',
+            path: {
+                project_id: data.projectId,
+                source_id: data.sourceId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Enable Cloudatlas Source
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.sourceId
+     * @returns CloudAtlasSourcePublic Successful Response
+     * @throws ApiError
+     */
+    public static enableCloudatlasSource(data: CloudatlasSourceInstancesEnableCloudatlasSourceData): CancelablePromise<CloudatlasSourceInstancesEnableCloudatlasSourceResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/cloudatlas-source-instances/{source_id}/enable',
+            path: {
+                project_id: data.projectId,
+                source_id: data.sourceId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Disable Cloudatlas Source
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.sourceId
+     * @returns CloudAtlasSourcePublic Successful Response
+     * @throws ApiError
+     */
+    public static disableCloudatlasSource(data: CloudatlasSourceInstancesDisableCloudatlasSourceData): CancelablePromise<CloudatlasSourceInstancesDisableCloudatlasSourceResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/cloudatlas-source-instances/{source_id}/disable',
+            path: {
+                project_id: data.projectId,
+                source_id: data.sourceId
             },
             errors: {
                 422: 'Validation Error'

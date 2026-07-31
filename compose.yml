@@ -57,6 +57,7 @@ services:
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
       ARTIFACT_ROOT: /app/artifacts
+      OCTOBUS_URL: ${OCTOBUS_URL:-http://octobus:9000}
     volumes:
       - app-artifact-data:/app/artifacts
     healthcheck:

@@ -1,0 +1,6 @@
+FROM python:3.14-slim
+
+COPY tests/cloudatlas_fixture/fixture_upstream.py /fixture_upstream.py
+
+USER 65532:65532
+ENTRYPOINT ["python", "/fixture_upstream.py", "--bind", "0.0.0.0", "--port", "18080"]

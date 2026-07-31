@@ -19,7 +19,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_CUSTOMER_UPLOAD_REVISION = "f8d9e0a1b2c3"
+CURRENT_SOURCE_INSTANCE_REVISION = "a9b8c7d6e5f4"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 DEFAULT_PROFILE_DEFINITION = {
     "required_headers": [
@@ -121,7 +121,7 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_CUSTOMER_UPLOAD_REVISION,)
+        ).fetchone() == (CURRENT_SOURCE_INSTANCE_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -488,7 +488,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_CUSTOMER_UPLOAD_REVISION,)
+        ).fetchone() == (CURRENT_SOURCE_INSTANCE_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -503,7 +503,8 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
                 'audit_events',
                 'artifacts',
                 'customer_upload_profiles',
-                'customer_uploads'
+                'customer_uploads',
+                'source_instances'
               )
             ORDER BY table_name
             """
@@ -514,7 +515,20 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             ("customer_uploads",),
             ("project_memberships",),
             ("projects",),
+            ("source_instances",),
         ]
+        source_index = connection.execute(
+            """
+            SELECT indexdef
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND indexname = 'uq_source_instances_one_enabled_type_per_project'
+            """
+        ).fetchone()
+        assert source_index is not None
+        assert "UNIQUE INDEX" in source_index[0]
+        assert "(project_id, source_type)" in source_index[0]
+        assert "WHERE enabled" in source_index[0]
         assert connection.execute(
             """
             SELECT column_name, is_nullable
