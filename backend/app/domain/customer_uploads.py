@@ -33,6 +33,7 @@ from app.domain.models import (
 )
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
 class CustomerUploadAcceptanceError(Exception):
@@ -210,10 +211,16 @@ async def stream_customer_upload_request(
         _raise("upload_storage_failed")
     temporary_path = upload_directory / f".{uuid.uuid4()}.tmp.xlsx"
     stream = _CustomerUploadMultipartStream(temporary_path)
+    received_bytes = 0
     try:
         parser = MultipartParser(boundary, stream.callbacks)
         async for chunk in request.stream():
             if chunk:
+                received_bytes += len(chunk)
+                if received_bytes > (
+                    MAX_WORKBOOK_BYTES + MAX_MULTIPART_OVERHEAD_BYTES
+                ):
+                    _raise("upload_too_large")
                 parser.write(chunk)
         parser.finalize()
         return stream.finish()
@@ -223,6 +230,9 @@ async def stream_customer_upload_request(
     except Exception:
         stream.abort()
         _raise("incomplete_upload")
+    except BaseException:
+        stream.abort()
+        raise
 
 
 def _validate_workbook(path: Path) -> tuple[int, list[dict[str, str | int | None]]]:
@@ -363,6 +373,8 @@ def accept_customer_upload(
             session.add(customer_upload)
             session.flush()
             session.add(audit_event)
+            session.flush()
+            session.expunge(customer_upload)
             session.commit()
         except IntegrityError:
             session.rollback()
@@ -382,10 +394,6 @@ def accept_customer_upload(
         except SQLAlchemyError:
             session.rollback()
             _remove_file(final_path)
-            _raise("upload_storage_failed")
-        try:
-            session.refresh(customer_upload)
-        except SQLAlchemyError:
             _raise("upload_storage_failed")
         return customer_upload, True
     except CustomerUploadAcceptanceError:

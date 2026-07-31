@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import io
 import logging
@@ -16,6 +17,8 @@ from pytest import LogCaptureFixture, MonkeyPatch
 from sqlalchemy import event, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, func, select
+from starlette.requests import Request
+from starlette.types import Message, Scope
 
 from app.core.config import settings
 from app.core.db import engine
@@ -595,6 +598,84 @@ def test_overlong_multipart_boundary_is_stable_and_removes_temporary_file(
     assert not list((tmp_path / "customer_uploads").glob("*"))
 
 
+def test_oversized_non_file_multipart_content_is_rejected(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    boundary = b"customer-upload-boundary"
+    body = (
+        b"--"
+        + boundary
+        + b'\r\nContent-Disposition: form-data; name="metadata"\r\n\r\n'
+        + b"x" * (20 * 1024 * 1024 + 64 * 1024)
+        + b"\r\n--"
+        + boundary
+        + b"--\r\n"
+    )
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers={
+            **superuser_token_headers,
+            "Content-Type": f"multipart/form-data; boundary={boundary.decode()}",
+        },
+        content=body,
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == {
+        "code": "upload_too_large",
+        "message": "The upload exceeds the allowed size.",
+    }
+    assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
+def test_cancelled_multipart_stream_removes_temporary_file(tmp_path: Path) -> None:
+    boundary = b"customer-upload-boundary"
+    first_chunk = (
+        b"--"
+        + boundary
+        + b'\r\nContent-Disposition: form-data; name="file"; '
+        + b'filename="customer.xlsx"\r\n'
+        + f"Content-Type: {XLSX_MEDIA_TYPE}\r\n\r\n".encode()
+        + b"partial workbook bytes"
+    )
+    messages: list[Message] = [
+        {"type": "http.request", "body": first_chunk, "more_body": True}
+    ]
+
+    async def receive() -> Message:
+        if messages:
+            return messages.pop()
+        raise asyncio.CancelledError
+
+    scope: Scope = {
+        "type": "http",
+        "method": "POST",
+        "headers": [
+            (
+                b"content-type",
+                b"multipart/form-data; boundary=" + boundary,
+            )
+        ],
+    }
+    request = Request(scope, receive)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            customer_upload_service.stream_customer_upload_request(
+                request=request,
+                artifact_root=tmp_path,
+            )
+        )
+
+    assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
 def test_validator_rejection_is_sanitized_and_compensated(
     client: TestClient,
     db: Session,
@@ -716,6 +797,38 @@ def test_transaction_failure_removes_promoted_artifact_and_rolls_back_audit(
     assert db.exec(select(func.count()).select_from(Artifact)).one() == artifact_count
     assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
     assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
+def test_accepted_upload_does_not_depend_on_a_post_commit_refresh(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    project_id = uuid.UUID(str(project["id"]))
+
+    def reject_refresh(*_args: object, **_kwargs: object) -> NoReturn:
+        raise SQLAlchemyError("test post-commit refresh failure")
+
+    monkeypatch.setattr(Session, "refresh", reject_refresh)
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["display_filename"] == "customer.xlsx"
+    db.expire_all()
+    assert db.exec(
+        select(func.count())
+        .select_from(CustomerUpload)
+        .where(CustomerUpload.project_id == project_id)
+    ).one() == 1
+    assert len(list((tmp_path / "customer_uploads").glob("*.xlsx"))) == 1
 
 
 def test_deduplication_read_failure_removes_temporary_upload(
