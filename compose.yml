@@ -56,6 +56,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
+      ARTIFACT_ROOT: /app/artifacts
+    volumes:
+      - app-artifact-data:/app/artifacts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
       interval: 10s
@@ -81,3 +84,4 @@ services:
 
 volumes:
   app-db-data:
+  app-artifact-data:

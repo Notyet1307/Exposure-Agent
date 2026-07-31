@@ -112,6 +112,12 @@ class CustomerUploadProfile(SQLModel, table=True):
             "id", "project_id", name="uq_customer_upload_profiles_id_project"
         ),
         UniqueConstraint(
+            "id",
+            "project_id",
+            "version",
+            name="uq_customer_upload_profiles_id_project_version",
+        ),
+        UniqueConstraint(
             "project_id",
             "version",
             name="uq_customer_upload_profiles_project_version",
@@ -143,6 +149,121 @@ class CustomerUploadProfile(SQLModel, table=True):
 class CustomerUploadProfilePublic(CustomerUploadProfileDefinition):
     id: uuid.UUID
     version: int
+
+
+class Artifact(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "artifacts"
+    __table_args__ = (
+        CheckConstraint("byte_size > 0", name="ck_artifacts_byte_size_positive"),
+        CheckConstraint(
+            "sha256 ~ '^[0-9a-f]{64}$'", name="ck_artifacts_sha256_format"
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(
+        default=DEPLOYMENT_TENANT_ID,
+        foreign_key="tenants.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
+    storage_key: str = Field(max_length=255, unique=True)
+    media_type: str = Field(max_length=255)
+    byte_size: int
+    sha256: str = Field(max_length=64, index=True)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class CustomerUploadWarningPublic(SQLModel):
+    code: str
+    field: str | None
+    count: int
+
+
+class CustomerUpload(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "customer_uploads"
+    __table_args__ = (
+        CheckConstraint(
+            "raw_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_customer_uploads_raw_sha256_format",
+        ),
+        CheckConstraint(
+            "profile_version > 0",
+            name="ck_customer_uploads_profile_version_positive",
+        ),
+        CheckConstraint(
+            "record_count > 0", name="ck_customer_uploads_record_count_positive"
+        ),
+        ForeignKeyConstraint(
+            ["profile_id", "project_id", "profile_version"],
+            [
+                "customer_upload_profiles.id",
+                "customer_upload_profiles.project_id",
+                "customer_upload_profiles.version",
+            ],
+            name="fk_customer_uploads_profile_project_version",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "raw_sha256",
+            "profile_id",
+            "profile_version",
+            name="uq_customer_uploads_idempotency",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(
+        default=DEPLOYMENT_TENANT_ID,
+        foreign_key="tenants.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
+    project_id: uuid.UUID = Field(
+        foreign_key="projects.id", ondelete="RESTRICT", index=True
+    )
+    artifact_id: uuid.UUID = Field(
+        foreign_key="artifacts.id", ondelete="RESTRICT", unique=True
+    )
+    display_filename: str = Field(max_length=128)
+    raw_sha256: str = Field(max_length=64, index=True)
+    profile_id: uuid.UUID = Field(index=True)
+    profile_version: int
+    record_count: int
+    warnings: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class CustomerUploadPublic(SQLModel):
+    id: uuid.UUID
+    display_filename: str
+    raw_sha256: str
+    record_count: int
+    profile_id: uuid.UUID
+    profile_version: int
+    warnings: list[CustomerUploadWarningPublic]
+    created_at: datetime
+
+
+class CustomerUploadsPublic(SQLModel):
+    data: list[CustomerUploadPublic]
+    count: int
+    can_upload: bool
 
 
 class ProjectRole(StrEnum):

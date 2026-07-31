@@ -1,5 +1,6 @@
 import secrets
 import warnings
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import AnyUrl, BeforeValidator, EmailStr, PostgresDsn, computed_field
@@ -51,6 +52,7 @@ class Settings(BaseSettings):
         ]
 
     PROJECT_NAME: str
+    ARTIFACT_ROOT: Path = Path("/app/artifacts")
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str
