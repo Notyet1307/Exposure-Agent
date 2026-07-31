@@ -66,9 +66,15 @@ def _display_filename(filename: str | None) -> str:
     return filename
 
 
-def _remove_file(path: Path) -> None:
-    with suppress(OSError):
-        path.unlink(missing_ok=True)
+def _remove_files(*paths: Path) -> None:
+    cleanup_failed = False
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            cleanup_failed = True
+    if cleanup_failed:
+        _raise("upload_storage_failed")
 
 
 @dataclass(frozen=True)
@@ -193,7 +199,7 @@ class _CustomerUploadMultipartStream:
         if self.destination is not None:
             with suppress(OSError):
                 self.destination.close()
-        _remove_file(self.temporary_path)
+        _remove_files(self.temporary_path)
 
 
 async def stream_customer_upload_request(
@@ -329,7 +335,7 @@ def accept_customer_upload(
             session.rollback()
             _raise("upload_storage_failed")
         if existing is not None:
-            _remove_file(temporary_path)
+            _remove_files(temporary_path)
             return existing, False
 
         artifact_id = uuid.uuid4()
@@ -339,8 +345,7 @@ def accept_customer_upload(
             os.replace(temporary_path, final_path)
             final_path.chmod(0o440)
         except OSError:
-            _remove_file(temporary_path)
-            _remove_file(final_path)
+            _remove_files(temporary_path, final_path)
             _raise("upload_storage_failed")
 
         artifact = Artifact(
@@ -378,7 +383,7 @@ def accept_customer_upload(
             session.commit()
         except IntegrityError:
             session.rollback()
-            _remove_file(final_path)
+            _remove_files(final_path)
             try:
                 existing = _find_existing_upload(
                     session=session,
@@ -393,9 +398,9 @@ def accept_customer_upload(
             return existing, False
         except SQLAlchemyError:
             session.rollback()
-            _remove_file(final_path)
+            _remove_files(final_path)
             _raise("upload_storage_failed")
         return customer_upload, True
     except CustomerUploadAcceptanceError:
-        _remove_file(temporary_path)
+        _remove_files(temporary_path)
         raise

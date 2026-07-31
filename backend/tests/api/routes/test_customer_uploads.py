@@ -719,6 +719,39 @@ def test_validator_rejection_is_sanitized_and_compensated(
     assert not list((tmp_path / "customer_uploads").glob("*"))
 
 
+def test_validator_rejection_cleanup_failure_returns_storage_error(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+
+    def reject_unlink(_path: Path, *, missing_ok: bool = False) -> None:
+        del missing_ok
+        raise OSError("test cleanup failure")
+
+    monkeypatch.setattr(Path, "unlink", reject_unlink)
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers=superuser_token_headers,
+        files={
+            "file": (
+                "customer.xlsx",
+                _workbook_bytes(asset_ip="invalid.example"),
+                XLSX_MEDIA_TYPE,
+            )
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == {
+        "code": "upload_storage_failed",
+        "message": "The upload could not be stored.",
+    }
+
+
 def test_active_content_maps_to_unsupported_workbook_feature(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -856,3 +889,41 @@ def test_deduplication_read_failure_removes_temporary_upload(
     assert db.exec(select(func.count()).select_from(Artifact)).one() == artifact_count
     assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
     assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
+def test_deduplication_cleanup_failure_returns_storage_error(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    content = _workbook_bytes()
+    url = f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    first_response = client.post(
+        url,
+        headers=superuser_token_headers,
+        files={"file": ("first.xlsx", content, XLSX_MEDIA_TYPE)},
+    )
+    assert first_response.status_code == 201
+
+    original_unlink = Path.unlink
+
+    def reject_temporary_unlink(path: Path, *, missing_ok: bool = False) -> None:
+        if path.name.startswith("."):
+            raise OSError("test cleanup failure")
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", reject_temporary_unlink)
+    repeated_response = client.post(
+        url,
+        headers=superuser_token_headers,
+        files={"file": ("second.xlsx", content, XLSX_MEDIA_TYPE)},
+    )
+
+    assert repeated_response.status_code == 500
+    assert repeated_response.json()["detail"] == {
+        "code": "upload_storage_failed",
+        "message": "The upload could not be stored.",
+    }
