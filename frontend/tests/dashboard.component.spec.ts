@@ -233,7 +233,7 @@ test("selects an accepted upload as the current Project input", async ({
   await page.goto("/")
 
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
-  await page.getByRole("button", { name: "Set as current input" }).click()
+  await page.getByRole("button", { name: "设为当前输入" }).click()
 
   await expect(page.getByText("Current CustomerUpload ID")).toBeVisible()
   await expect(page.getByText(uploads[projects[0].id].data[0].id)).toBeVisible()
@@ -264,7 +264,7 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).toBeVisible()
   await expect(page.getByLabel("XLSX file")).not.toBeVisible()
   await expect(
-    page.getByRole("button", { name: "Set as current input" }),
+    page.getByRole("button", { name: "设为当前输入" }),
   ).not.toBeVisible()
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })

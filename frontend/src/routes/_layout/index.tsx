@@ -196,7 +196,7 @@ function UploadRows({
                     disabled={selectingUploadId !== null}
                     onClick={() => onSelect(upload.id)}
                   >
-                    Set as current input
+                    设为当前输入
                   </LoadingButton>
                 )}
               </TableCell>
