@@ -251,8 +251,16 @@ def _is_formula_element(local_name: str) -> bool:
     normalized = local_name.casefold()
     return (
         normalized == "f"
+        or normalized == "definedname"
         or normalized.startswith("formula")
         or normalized.endswith("formula")
+    )
+
+
+def _element_has_formula_attribute(attributes: dict[str, str]) -> bool:
+    return any(
+        _is_formula_element(name.rsplit("}", maxsplit=1)[-1])
+        for name in attributes
     )
 
 
@@ -380,6 +388,9 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
             root_name: str | None = None
             current_row = 0
             current_column = 0
+            cell_row: int | None = None
+            cell_column: int | None = None
+            cell_has_value = False
             max_row = 0
             max_column = 0
             with archive.open(xml_name) as xml_file:
@@ -412,8 +423,9 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                             else:
                                 cell_row, cell_column = _column_number(cell_reference)
                                 current_column = cell_column
-                            max_row = max(max_row, cell_row)
-                            max_column = max(max_column, cell_column)
+                            cell_has_value = False
+                        elif cell_row is not None and local_name in {"f", "is", "v"}:
+                            cell_has_value = True
                     if event == "end":
                         if xml_name == "xl/workbook.xml" and local_name == "sheet":
                             workbook_found = True
@@ -423,8 +435,21 @@ def _inspect_ooxml(archive: ZipFile) -> PreflightResult:
                                 != "visible"
                             ):
                                 raise PreflightError("unsupported_workbook_feature")
-                        if _is_formula_element(local_name):
+                        if _is_formula_element(
+                            local_name
+                        ) or _element_has_formula_attribute(element.attrib):
                             raise PreflightError("unsupported_workbook_feature")
+                        if local_name == "c":
+                            if (
+                                cell_has_value
+                                and cell_row is not None
+                                and cell_column is not None
+                            ):
+                                max_row = max(max_row, cell_row)
+                                max_column = max(max_column, cell_column)
+                            cell_row = None
+                            cell_column = None
+                            cell_has_value = False
                         if local_name == "mergeCell" and _merged_range_includes_header(
                             element.attrib.get("ref", "")
                         ):

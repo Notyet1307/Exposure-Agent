@@ -334,15 +334,16 @@ def test_multiline_undefined_header_is_counted_as_an_extra_column(
     )
 
 
+@pytest.mark.parametrize("coordinate", ["Z2", "XFD2000"])
 def test_style_only_cells_outside_data_columns_are_ignored(
-    tmp_path: Path,
+    tmp_path: Path, coordinate: str
 ) -> None:
     path = _save_workbook(
         tmp_path / "styled.xlsx",
         [DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
     )
     workbook = load_workbook(path)
-    workbook.active["Z2"].number_format = "0.00"
+    workbook.active[coordinate].number_format = "0.00"
     workbook.save(path)
     workbook.close()
 
@@ -456,6 +457,26 @@ def test_utf16_undeclared_worksheet_formula_is_rejected(tmp_path: Path) -> None:
         path,
         "xl/fixture/worksheet.dat",
         lambda data: _move_formula_to_responsibility_field(data, "utf-16"),
+    )
+
+    _assert_rejected(path, "unsupported_workbook_feature")
+
+
+def test_defined_name_formula_is_rejected(tmp_path: Path) -> None:
+    path = _save_workbook(
+        tmp_path / "defined-name-formula.xlsx",
+        [DEFAULT_HEADERS, ["192.0.2.1", 443, 443, "否", None]],
+    )
+    _rewrite_zip_member(
+        path,
+        "xl/workbook.xml",
+        lambda data: data.replace(
+            b"</workbook>",
+            (
+                b'<definedNames><definedName name="FixtureFormula">'
+                b"OFFSET(Sheet!$A$1,0,0)</definedName></definedNames></workbook>"
+            ),
+        ),
     )
 
     _assert_rejected(path, "unsupported_workbook_feature")
