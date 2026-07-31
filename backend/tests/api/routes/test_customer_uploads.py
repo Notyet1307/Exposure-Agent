@@ -1,5 +1,6 @@
 import hashlib
 import io
+import logging
 import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -10,7 +11,7 @@ from typing import cast
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook  # type: ignore[import-untyped]
-from pytest import MonkeyPatch
+from pytest import LogCaptureFixture, MonkeyPatch
 from sqlalchemy import text
 from sqlmodel import Session, func, select
 
@@ -403,17 +404,19 @@ def test_validator_rejection_is_sanitized_and_compensated(
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
+    caplog: LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     project = _create_project(client, superuser_token_headers)
     content = _workbook_bytes(asset_ip="customer-secret.invalid")
     audit_count = db.exec(select(func.count()).select_from(AuditEvent)).one()
 
-    response = client.post(
-        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
-        headers=superuser_token_headers,
-        files={"file": ("customer-secret.xlsx", content, XLSX_MEDIA_TYPE)},
-    )
+    with caplog.at_level(logging.INFO, logger="app.api.routes.projects"):
+        response = client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+            headers=superuser_token_headers,
+            files={"file": ("customer-secret.xlsx", content, XLSX_MEDIA_TYPE)},
+        )
 
     assert response.status_code == 422
     assert response.json()["detail"] == {
@@ -424,6 +427,16 @@ def test_validator_rejection_is_sanitized_and_compensated(
     }
     assert "customer-secret" not in response.text
     assert str(tmp_path) not in response.text
+    rejection_records = [
+        record
+        for record in caplog.records
+        if record.message == "Customer upload rejected"
+    ]
+    assert len(rejection_records) == 1
+    assert rejection_records[0].__dict__["upload_error_code"] == "invalid_required_value"
+    assert rejection_records[0].__dict__["project_id"] == str(project["id"])
+    assert "customer-secret" not in caplog.text
+    assert str(tmp_path) not in caplog.text
     assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
     assert not list((tmp_path / "customer_uploads").glob("*"))
 

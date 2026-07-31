@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Annotated, Any
 
@@ -39,31 +40,50 @@ from app.domain.models import (
     ProjectUpdate,
 )
 
-_UPLOAD_ERROR_STATUS = {
-    "invalid_filename": status.HTTP_400_BAD_REQUEST,
-    "incomplete_upload": status.HTTP_400_BAD_REQUEST,
-    "upload_too_large": status.HTTP_413_CONTENT_TOO_LARGE,
-    "workbook_resource_limit": status.HTTP_413_CONTENT_TOO_LARGE,
-    "unsupported_workbook_type": status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-    "malformed_workbook": status.HTTP_422_UNPROCESSABLE_CONTENT,
-    "unsupported_workbook_feature": status.HTTP_422_UNPROCESSABLE_CONTENT,
-    "missing_required_structure": status.HTTP_422_UNPROCESSABLE_CONTENT,
-    "invalid_required_value": status.HTTP_422_UNPROCESSABLE_CONTENT,
-    "upload_storage_failed": status.HTTP_500_INTERNAL_SERVER_ERROR,
-}
-_UPLOAD_ERROR_MESSAGES = {
-    "invalid_filename": "The upload filename is invalid.",
-    "incomplete_upload": "The upload was incomplete.",
-    "upload_too_large": "The upload exceeds the allowed size.",
-    "workbook_resource_limit": "The workbook exceeds safe resource limits.",
-    "unsupported_workbook_type": "Only XLSX workbooks are supported.",
-    "malformed_workbook": "The workbook is malformed.",
-    "unsupported_workbook_feature": "The workbook contains an unsupported feature.",
-    "missing_required_structure": "The workbook is missing required structure.",
-    "invalid_required_value": "The workbook contains an invalid required value.",
-    "upload_storage_failed": "The upload could not be stored.",
+_UPLOAD_ERRORS = {
+    "invalid_filename": (
+        status.HTTP_400_BAD_REQUEST,
+        "The upload filename is invalid.",
+    ),
+    "incomplete_upload": (
+        status.HTTP_400_BAD_REQUEST,
+        "The upload was incomplete.",
+    ),
+    "upload_too_large": (
+        status.HTTP_413_CONTENT_TOO_LARGE,
+        "The upload exceeds the allowed size.",
+    ),
+    "workbook_resource_limit": (
+        status.HTTP_413_CONTENT_TOO_LARGE,
+        "The workbook exceeds safe resource limits.",
+    ),
+    "unsupported_workbook_type": (
+        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        "Only XLSX workbooks are supported.",
+    ),
+    "malformed_workbook": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The workbook is malformed.",
+    ),
+    "unsupported_workbook_feature": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The workbook contains an unsupported feature.",
+    ),
+    "missing_required_structure": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The workbook is missing required structure.",
+    ),
+    "invalid_required_value": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The workbook contains an invalid required value.",
+    ),
+    "upload_storage_failed": (
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "The upload could not be stored.",
+    ),
 }
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
@@ -184,15 +204,20 @@ def create_customer_upload(
             ip_address=get_request_ip_address(request),
         )
     except customer_upload_service.CustomerUploadAcceptanceError as error:
+        logger.info(
+            "Customer upload rejected",
+            extra={"project_id": str(project.id), "upload_error_code": error.code},
+        )
+        error_status, error_message = _UPLOAD_ERRORS[error.code]
         detail: dict[str, Any] = {
             "code": error.code,
-            "message": _UPLOAD_ERROR_MESSAGES[error.code],
+            "message": error_message,
         }
         if error.field is not None:
             detail["field"] = error.field
         if error.row is not None:
             detail["row"] = error.row
-        raise HTTPException(status_code=_UPLOAD_ERROR_STATUS[error.code], detail=detail)
+        raise HTTPException(status_code=error_status, detail=detail)
     response.status_code = (
         status.HTTP_201_CREATED if created else status.HTTP_200_OK
     )
