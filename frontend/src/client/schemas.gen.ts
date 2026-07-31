@@ -216,6 +216,102 @@ export const CustomerUploadProfilePublicSchema = {
     title: 'CustomerUploadProfilePublic'
 } as const;
 
+export const CustomerUploadPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        display_filename: {
+            type: 'string',
+            title: 'Display Filename'
+        },
+        raw_sha256: {
+            type: 'string',
+            title: 'Raw Sha256'
+        },
+        record_count: {
+            type: 'integer',
+            title: 'Record Count'
+        },
+        profile_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Profile Id'
+        },
+        profile_version: {
+            type: 'integer',
+            title: 'Profile Version'
+        },
+        warnings: {
+            items: {
+                '$ref': '#/components/schemas/CustomerUploadWarningPublic'
+            },
+            type: 'array',
+            title: 'Warnings'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'display_filename', 'raw_sha256', 'record_count', 'profile_id', 'profile_version', 'warnings', 'created_at'],
+    title: 'CustomerUploadPublic'
+} as const;
+
+export const CustomerUploadWarningPublicSchema = {
+    properties: {
+        code: {
+            type: 'string',
+            title: 'Code'
+        },
+        field: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Field'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['code', 'field', 'count'],
+    title: 'CustomerUploadWarningPublic'
+} as const;
+
+export const CustomerUploadsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/CustomerUploadPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        can_upload: {
+            type: 'boolean',
+            title: 'Can Upload'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'can_upload'],
+    title: 'CustomerUploadsPublic'
+} as const;
+
 export const HTTPValidationErrorSchema = {
     properties: {
         detail: {

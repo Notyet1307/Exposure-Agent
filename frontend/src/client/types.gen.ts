@@ -43,6 +43,29 @@ export type CustomerUploadProfilePublic = {
     version: number;
 };
 
+export type CustomerUploadPublic = {
+    id: string;
+    display_filename: string;
+    raw_sha256: string;
+    record_count: number;
+    profile_id: string;
+    profile_version: number;
+    warnings: Array<CustomerUploadWarningPublic>;
+    created_at: string;
+};
+
+export type CustomerUploadsPublic = {
+    data: Array<CustomerUploadPublic>;
+    count: number;
+    can_upload: boolean;
+};
+
+export type CustomerUploadWarningPublic = {
+    code: string;
+    field: (string | null);
+    count: number;
+};
+
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
@@ -240,6 +263,23 @@ export type ProjectsReadCurrentCustomerUploadProfileData = {
 };
 
 export type ProjectsReadCurrentCustomerUploadProfileResponse = (CustomerUploadProfilePublic);
+
+export type ProjectsCreateCustomerUploadData = {
+    formData: {
+        file: (Blob | File);
+    };
+    projectId: string;
+};
+
+export type ProjectsCreateCustomerUploadResponse = (CustomerUploadPublic);
+
+export type ProjectsReadCustomerUploadsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+};
+
+export type ProjectsReadCustomerUploadsResponse = (CustomerUploadsPublic);
 
 export type ProjectsArchiveProjectData = {
     projectId: string;

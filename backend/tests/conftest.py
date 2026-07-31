@@ -21,7 +21,8 @@ def db() -> Generator[Session]:
         session.execute(
             text(
                 "TRUNCATE TABLE project_memberships, audit_events, "
-                "customer_upload_profiles, projects CASCADE"
+                "customer_uploads, artifacts, customer_upload_profiles, "
+                "projects CASCADE"
             )
         )
         statement = delete(User)

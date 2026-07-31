@@ -19,6 +19,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
+CUSTOMER_UPLOAD_REVISION = "e7c8d9a0b1f2"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 DEFAULT_PROFILE_DEFINITION = {
     "required_headers": [
@@ -120,7 +121,7 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CUSTOMER_UPLOAD_PROFILE_REVISION,)
+        ).fetchone() == (CUSTOMER_UPLOAD_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -270,6 +271,164 @@ def test_existing_projects_receive_independent_default_profiles_once(
             )
 
 
+def test_customer_upload_schema_enforces_idempotency_immutability_and_deletion(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+
+    project_id = uuid.uuid4()
+    profile_id = uuid.uuid4()
+    artifact_id = uuid.uuid4()
+    upload_id = uuid.uuid4()
+    raw_sha256 = "a" * 64
+    with connect(template_baseline_database) as connection:
+        connection.execute(
+            "INSERT INTO projects "
+            "(id, tenant_id, name, current_customer_upload_profile_id, "
+            "created_at, updated_at) VALUES (%s, %s, %s, %s, now(), now())",
+            (
+                project_id,
+                DEPLOYMENT_TENANT_ID,
+                "Upload Constraints",
+                profile_id,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO customer_upload_profiles "
+            "(id, tenant_id, project_id, version, definition, "
+            "created_at, updated_at) "
+            "VALUES (%s, %s, %s, 1, %s::jsonb, now(), now())",
+            (
+                profile_id,
+                DEPLOYMENT_TENANT_ID,
+                project_id,
+                json.dumps(DEFAULT_PROFILE_DEFINITION, ensure_ascii=False),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO artifacts "
+            "(id, tenant_id, storage_key, media_type, byte_size, sha256, "
+            "created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, 10, %s, now(), now())",
+            (
+                artifact_id,
+                DEPLOYMENT_TENANT_ID,
+                f"customer_uploads/{artifact_id}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                raw_sha256,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO customer_uploads "
+            "(id, tenant_id, project_id, artifact_id, display_filename, "
+            "raw_sha256, profile_id, profile_version, record_count, warnings, "
+            "created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 1, '[]'::jsonb, "
+            "now(), now())",
+            (
+                upload_id,
+                DEPLOYMENT_TENANT_ID,
+                project_id,
+                artifact_id,
+                "customer.xlsx",
+                raw_sha256,
+                profile_id,
+            ),
+        )
+
+    mismatched_artifact_id = uuid.uuid4()
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO artifacts "
+                "(id, tenant_id, storage_key, media_type, byte_size, sha256, "
+                "created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, 10, %s, now(), now())",
+                (
+                    mismatched_artifact_id,
+                    DEPLOYMENT_TENANT_ID,
+                    f"customer_uploads/{mismatched_artifact_id}.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "b" * 64,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO customer_uploads "
+                "(id, tenant_id, project_id, artifact_id, display_filename, "
+                "raw_sha256, profile_id, profile_version, record_count, warnings, "
+                "created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, 2, 1, '[]'::jsonb, "
+                "now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    project_id,
+                    mismatched_artifact_id,
+                    "mismatched.xlsx",
+                    "b" * 64,
+                    profile_id,
+                ),
+            )
+
+    with pytest.raises(psycopg.errors.RaiseException, match="immutable"):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "UPDATE artifacts SET byte_size = 11 WHERE id = %s", (artifact_id,)
+            )
+
+    with pytest.raises(psycopg.errors.RaiseException, match="immutable"):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "UPDATE customer_uploads SET display_filename = %s WHERE id = %s",
+                ("changed.xlsx", upload_id),
+            )
+
+    duplicate_artifact_id = uuid.uuid4()
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO artifacts "
+                "(id, tenant_id, storage_key, media_type, byte_size, sha256, "
+                "created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, 10, %s, now(), now())",
+                (
+                    duplicate_artifact_id,
+                    DEPLOYMENT_TENANT_ID,
+                    f"customer_uploads/{duplicate_artifact_id}.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    raw_sha256,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO customer_uploads "
+                "(id, tenant_id, project_id, artifact_id, display_filename, "
+                "raw_sha256, profile_id, profile_version, record_count, warnings, "
+                "created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 1, '[]'::jsonb, "
+                "now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    project_id,
+                    duplicate_artifact_id,
+                    "duplicate.xlsx",
+                    raw_sha256,
+                    profile_id,
+                ),
+            )
+
+    with connect(template_baseline_database) as connection:
+        connection.execute("DELETE FROM customer_uploads WHERE id = %s", (upload_id,))
+        connection.execute("DELETE FROM artifacts WHERE id = %s", (artifact_id,))
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM customer_uploads WHERE id = %s", (upload_id,)
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT count(*) FROM artifacts WHERE id = %s", (artifact_id,)
+        ).fetchone() == (0,)
+
+
 def test_fresh_database_migrates_to_project_and_audit_schema(
     template_baseline_database: str,
 ) -> None:
@@ -278,7 +437,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CUSTOMER_UPLOAD_PROFILE_REVISION,)
+        ).fetchone() == (CUSTOMER_UPLOAD_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -291,13 +450,17 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
                 'projects',
                 'project_memberships',
                 'audit_events',
-                'customer_upload_profiles'
+                'artifacts',
+                'customer_upload_profiles',
+                'customer_uploads'
               )
             ORDER BY table_name
             """
         ).fetchall() == [
+            ("artifacts",),
             ("audit_events",),
             ("customer_upload_profiles",),
+            ("customer_uploads",),
             ("project_memberships",),
             ("projects",),
         ]
