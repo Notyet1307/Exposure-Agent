@@ -191,6 +191,9 @@ def test_runner_creates_two_snapshots_and_atomically_publishes_completed(
         settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
     )
     monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
     _mock_cloudatlas(monkeypatch)
     project = _create_project(client, superuser_token_headers)
     upload, source = _prepare_ready_project(
@@ -268,6 +271,9 @@ def test_cloudatlas_failure_stops_before_publish_without_a_completed_result(
         settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
     )
     monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
     _mock_cloudatlas(monkeypatch)
     project = _create_project(client, superuser_token_headers)
     upload, source = _prepare_ready_project(

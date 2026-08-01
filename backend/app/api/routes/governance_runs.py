@@ -14,6 +14,7 @@ from app.domain import governance_runs as governance_run_service
 from app.domain.models import (
     GovernanceRun,
     GovernanceRunsPublic,
+    GovernanceRunStatus,
     GovernanceRunTriggerPublic,
     Project,
     ProjectRole,
@@ -36,6 +37,7 @@ _ERROR_MESSAGES = {
     "run_cloudatlas_credential_not_ready": (
         "Configure the CloudAtlas Run credential before triggering a Run."
     ),
+    "run_already_active": "This Project already has an active GovernanceRun.",
     "agent_compose_unavailable": "The Governance Runner control plane is unavailable.",
     "agent_compose_start_failed": "The Governance Runner Session could not be started.",
     "agent_compose_response_contract_failed": (
@@ -154,18 +156,49 @@ def trigger_governance_run(
     ).one_or_none()
     client_request_id = f"{project.id}:{trigger_id}"
     client = AgentComposeClient()
+    expected_run_id = client.expected_run_id(client_request_id)
     if existing is not None:
         response.status_code = status.HTTP_200_OK
         return GovernanceRunTriggerPublic(
             accepted=False,
-            agent_compose_run_id=client.expected_run_id(client_request_id),
+            agent_compose_run_id=expected_run_id,
             agent_compose_status="BUSINESS_RUN_ESTABLISHED",
             governance_run_id=existing.id,
+        )
+    active_run = session.exec(
+        select(GovernanceRun).where(
+            GovernanceRun.project_id == project.id,
+            GovernanceRun.status == GovernanceRunStatus.RUNNING.value,
+        )
+    ).first()
+    if active_run is not None:
+        session.rollback()
+        code = "run_already_active"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": code, "message": _ERROR_MESSAGES[code]},
         )
     try:
         pinned = governance_run_service.require_trigger_readiness(
             session=session, project=project
         )
+    except governance_run_service.GovernanceRunStateError as readiness_error:
+        try:
+            existing_session = client.get_run(expected_run_id)
+        except AgentComposeBoundaryError:
+            existing_session = None
+        if existing_session is not None:
+            response.status_code = status.HTTP_200_OK
+            session.commit()
+            return GovernanceRunTriggerPublic(
+                accepted=False,
+                agent_compose_run_id=existing_session.run_id,
+                agent_compose_status=existing_session.status,
+                governance_run_id=None,
+            )
+        session.rollback()
+        raise _state_http_error(readiness_error)
+    try:
         started = client.start_governance_run(
             client_request_id=client_request_id,
             environment=pinned.runner_environment(
@@ -173,9 +206,6 @@ def trigger_governance_run(
                 requested_by=str(current_user.id),
             ),
         )
-    except governance_run_service.GovernanceRunStateError as error:
-        session.rollback()
-        raise _state_http_error(error)
     except AgentComposeBoundaryError as error:
         session.rollback()
         raise _agent_compose_http_error(error)

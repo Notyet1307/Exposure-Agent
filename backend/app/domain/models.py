@@ -399,7 +399,6 @@ class GovernanceRunStatus(StrEnum):
     FAILED_DATA = "FAILED_DATA"
     FAILED_PROCESSING = "FAILED_PROCESSING"
     COMPLETED = "COMPLETED"
-    COMPLETED_WITH_WARNINGS = "COMPLETED_WITH_WARNINGS"
 
 
 class RunStepCode(StrEnum):
@@ -424,7 +423,7 @@ class GovernanceRun(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint(
             "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', "
-            "'COMPLETED', 'COMPLETED_WITH_WARNINGS')",
+            "'COMPLETED')",
             name="ck_governance_runs_status",
         ),
         CheckConstraint(

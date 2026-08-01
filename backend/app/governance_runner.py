@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 from sqlmodel import Session
 
@@ -13,11 +14,20 @@ from app.domain.governance_runs import (
 )
 
 logger = logging.getLogger(__name__)
+_DEFAULT_RUNNER_BUILD_VERSION_PATH = "/app/runner-build-version"
 
 
 def main() -> int:
     try:
         inputs = RunnerInputs.from_environment(dict(os.environ))
+        build_version_path = Path(
+            os.environ.get(
+                "RUNNER_BUILD_VERSION_PATH", _DEFAULT_RUNNER_BUILD_VERSION_PATH
+            )
+        )
+        actual_build_version = build_version_path.read_text(encoding="utf-8").strip()
+        if actual_build_version != inputs.runner_build_version:
+            raise GovernanceRunExecutionError("runner_build_version_mismatch")
         with Session(engine) as session:
             run = execute_governance_run(session=session, inputs=inputs)
     except GovernanceRunExecutionError as error:

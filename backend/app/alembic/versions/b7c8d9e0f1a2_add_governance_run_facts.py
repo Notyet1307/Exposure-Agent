@@ -76,7 +76,7 @@ def upgrade() -> None:
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(
             "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', "
-            "'COMPLETED', 'COMPLETED_WITH_WARNINGS')",
+            "'COMPLETED')",
             name="ck_governance_runs_status",
         ),
         sa.CheckConstraint(
@@ -337,7 +337,7 @@ def upgrade() -> None:
         LANGUAGE plpgsql
         AS $$
         BEGIN
-            IF OLD.status IN ('COMPLETED', 'COMPLETED_WITH_WARNINGS') THEN
+            IF OLD.status = 'COMPLETED' THEN
                 RAISE EXCEPTION 'completed governance_runs are immutable';
             END IF;
             IF ROW(
