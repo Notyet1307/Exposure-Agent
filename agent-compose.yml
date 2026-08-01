@@ -1,0 +1,37 @@
+name: exposure-agent-governance
+env_file:
+  - .env
+
+agents:
+  governance-runner:
+    provider: codex
+    image: governance-runner:latest
+    driver:
+      docker: {}
+    env:
+      PROJECT_NAME: ${PROJECT_NAME}
+      ENVIRONMENT: ${ENVIRONMENT}
+      SECRET_KEY:
+        value: ${SECRET_KEY}
+        secret: true
+      FIRST_SUPERUSER: ${FIRST_SUPERUSER}
+      FIRST_SUPERUSER_PASSWORD:
+        value: ${FIRST_SUPERUSER_PASSWORD}
+        secret: true
+      POSTGRES_SERVER: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD:
+        value: ${POSTGRES_PASSWORD}
+        secret: true
+      ARTIFACT_ROOT: /app/artifacts
+      OCTOBUS_URL: http://octobus:9000
+      CLOUDATLAS_CAPSET_TOKEN:
+        value: ${CLOUDATLAS_CAPSET_TOKEN}
+        secret: true
+      RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION}
+    volumes:
+      - type: bind
+        source: /tmp/exposure-agent-artifacts
+        target: /app/artifacts

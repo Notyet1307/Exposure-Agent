@@ -352,12 +352,21 @@ def archive_project(
         lock=True,
     )
 
-    return project_service.archive_project(
-        session=session,
-        project=project,
-        actor_subject=str(current_user.id),
-        ip_address=get_request_ip_address(request),
-    )
+    try:
+        return project_service.archive_project(
+            session=session,
+            project=project,
+            actor_subject=str(current_user.id),
+            ip_address=get_request_ip_address(request),
+        )
+    except project_service.ActiveGovernanceRunError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "project_has_active_governance_run",
+                "message": "Stop the active GovernanceRun before archiving the Project.",
+            },
+        )
 
 
 @router.post(

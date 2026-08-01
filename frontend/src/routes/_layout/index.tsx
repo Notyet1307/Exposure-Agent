@@ -12,6 +12,7 @@ import {
   ProjectsService,
 } from "@/client"
 import CloudAtlasSources from "@/components/CloudAtlasSources"
+import GovernanceRuns from "@/components/GovernanceRuns"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -262,9 +263,14 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       }),
     onSuccess: async () => {
       setSelectionMessage("Current Project input updated successfully.")
-      await queryClient.invalidateQueries({
-        queryKey: ["customer-uploads", project.id],
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["customer-uploads", project.id],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["governance-runs", project.id],
+        }),
+      ])
     },
     onError: () =>
       setSelectionMessage("The current Project input could not be changed."),
@@ -369,6 +375,8 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       </Card>
 
       <CloudAtlasSources projectId={project.id} />
+
+      <GovernanceRuns projectId={project.id} />
 
       {uploads.can_upload ? (
         <Card>

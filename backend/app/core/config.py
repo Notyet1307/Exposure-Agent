@@ -3,7 +3,14 @@ import warnings
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import AnyUrl, BeforeValidator, EmailStr, PostgresDsn, computed_field
+from pydantic import (
+    AnyUrl,
+    BeforeValidator,
+    EmailStr,
+    PostgresDsn,
+    SecretStr,
+    computed_field,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_DEFAULT_VALUES = {
@@ -55,6 +62,14 @@ class Settings(BaseSettings):
     ARTIFACT_ROOT: Path = Path("/app/artifacts")
     OCTOBUS_URL: str = "http://octobus:9000"
     OCTOBUS_TIMEOUT_SECONDS: float = 15.0
+    CLOUDATLAS_CAPSET_TOKEN: SecretStr = SecretStr("")
+    AGENT_COMPOSE_URL: str = "http://agent-compose:7410"
+    AGENT_COMPOSE_AUTH_TOKEN: SecretStr = SecretStr("")
+    AGENT_COMPOSE_PROJECT_NAME: str = "exposure-agent-governance"
+    AGENT_COMPOSE_PROJECT_SOURCE_PATH: str = "/config/agent-compose.yml"
+    AGENT_COMPOSE_AGENT_NAME: str = "governance-runner"
+    AGENT_COMPOSE_TIMEOUT_SECONDS: float = 15.0
+    RUNNER_BUILD_VERSION: str = "development"
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str

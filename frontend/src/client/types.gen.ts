@@ -100,6 +100,43 @@ export type CustomerUploadWarningPublic = {
     count: number;
 };
 
+export type GovernanceRunPublic = {
+    id: string;
+    trigger_id: string;
+    session_id: string;
+    status: string;
+    customer_upload_id: string;
+    customer_upload_sha256: string;
+    customer_upload_profile_id: string;
+    customer_upload_profile_version: number;
+    source_instance_id: string;
+    cloudatlas_validated_fingerprint: string;
+    cloudatlas_capset_id: string;
+    cloudatlas_method: string;
+    package_sha256: string;
+    descriptor_sha256: string;
+    runner_build_version: string;
+    created_at: string;
+    completed_at: (string | null);
+    steps: Array<RunStepPublic>;
+    snapshots: Array<SourceSnapshotPublic>;
+};
+
+export type GovernanceRunsPublic = {
+    data: Array<GovernanceRunPublic>;
+    count: number;
+    can_trigger: boolean;
+    ready: boolean;
+    readiness_code: (string | null);
+};
+
+export type GovernanceRunTriggerPublic = {
+    accepted: boolean;
+    agent_compose_run_id: string;
+    agent_compose_status: string;
+    governance_run_id: (string | null);
+};
+
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
@@ -155,6 +192,27 @@ export type ProjectsPublic = {
 
 export type ProjectUpdate = {
     name: string;
+};
+
+export type RunStepPublic = {
+    step_code: string;
+    status: string;
+    attempt: number;
+    input_hash: (string | null);
+    output_hash: (string | null);
+    error_code: (string | null);
+    started_at: string;
+    completed_at: (string | null);
+};
+
+export type SourceSnapshotPublic = {
+    id: string;
+    source_type: string;
+    content_sha256: string;
+    schema_fingerprint: string;
+    method_fingerprint: (string | null);
+    record_count: number;
+    created_at: string;
 };
 
 export type Token = {
@@ -258,6 +316,19 @@ export type CloudatlasSourceInstancesDisableCloudatlasSourceData = {
 };
 
 export type CloudatlasSourceInstancesDisableCloudatlasSourceResponse = (CloudAtlasSourcePublic);
+
+export type GovernanceRunsReadGovernanceRunsData = {
+    projectId: string;
+};
+
+export type GovernanceRunsReadGovernanceRunsResponse = (GovernanceRunsPublic);
+
+export type GovernanceRunsTriggerGovernanceRunData = {
+    idempotencyKey?: (string | null);
+    projectId: string;
+};
+
+export type GovernanceRunsTriggerGovernanceRunResponse = (GovernanceRunTriggerPublic);
 
 export type HealthHealthLiveResponse = (boolean);
 

@@ -65,6 +65,19 @@ class Project(ProjectBase, table=True):
             name="fk_projects_current_customer_upload",
             ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            ["latest_completed_run_id", "id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            name="fk_projects_latest_completed_run",
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        UniqueConstraint("id", "tenant_id", name="uq_projects_id_tenant"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -88,6 +101,7 @@ class Project(ProjectBase, table=True):
     )
     current_customer_upload_profile_id: uuid.UUID = Field(index=True)
     current_customer_upload_id: uuid.UUID | None = Field(default=None, index=True)
+    latest_completed_run_id: uuid.UUID | None = Field(default=None, index=True)
 
 
 class ProjectPublic(ProjectBase):
@@ -378,6 +392,318 @@ class CloudAtlasSourcesPublic(SQLModel):
     data: list[CloudAtlasSourcePublic]
     count: int
     can_manage: bool
+
+
+class GovernanceRunStatus(StrEnum):
+    RUNNING = "RUNNING"
+    FAILED_DATA = "FAILED_DATA"
+    FAILED_PROCESSING = "FAILED_PROCESSING"
+    COMPLETED = "COMPLETED"
+    COMPLETED_WITH_WARNINGS = "COMPLETED_WITH_WARNINGS"
+
+
+class RunStepCode(StrEnum):
+    LOAD_CUSTOMER = "LOAD_CUSTOMER"
+    PULL_CLOUDATLAS = "PULL_CLOUDATLAS"
+    PUBLISH = "PUBLISH"
+
+
+class RunStepStatus(StrEnum):
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class SourceSnapshotType(StrEnum):
+    CUSTOMER_UPLOAD = "CUSTOMER_UPLOAD"
+    CLOUDATLAS = "CLOUDATLAS"
+
+
+class GovernanceRun(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "governance_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', "
+            "'COMPLETED', 'COMPLETED_WITH_WARNINGS')",
+            name="ck_governance_runs_status",
+        ),
+        CheckConstraint(
+            "customer_upload_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_governance_runs_customer_sha256",
+        ),
+        CheckConstraint(
+            "cloudatlas_validated_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_governance_runs_cloudatlas_fingerprint",
+        ),
+        CheckConstraint(
+            "package_sha256 ~ '^[0-9a-f]{64}$' AND "
+            "descriptor_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_governance_runs_package_fingerprints",
+        ),
+        CheckConstraint(
+            "customer_upload_profile_version > 0",
+            name="ck_governance_runs_profile_version_positive",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            name="fk_governance_runs_project_tenant",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["customer_upload_id", "project_id", "tenant_id"],
+            ["customer_uploads.id", "customer_uploads.project_id", "customer_uploads.tenant_id"],
+            name="fk_governance_runs_customer_upload_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_instance_id", "project_id", "tenant_id"],
+            ["source_instances.id", "source_instances.project_id", "source_instances.tenant_id"],
+            name="fk_governance_runs_source_instance_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "customer_upload_profile_id",
+                "project_id",
+                "customer_upload_profile_version",
+            ],
+            [
+                "customer_upload_profiles.id",
+                "customer_upload_profiles.project_id",
+                "customer_upload_profiles.version",
+            ],
+            name="fk_governance_runs_profile_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_governance_runs_scope"),
+        UniqueConstraint("project_id", "trigger_id", name="uq_governance_runs_trigger"),
+        UniqueConstraint("session_id", name="uq_governance_runs_session"),
+        Index(
+            "uq_governance_runs_one_active_per_project",
+            "project_id",
+            unique=True,
+            postgresql_where=text("status = 'RUNNING'"),
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    trigger_id: str = Field(max_length=255)
+    session_id: str = Field(max_length=64)
+    requested_by: str = Field(max_length=255)
+    status: str = Field(default=GovernanceRunStatus.RUNNING.value, max_length=30)
+    customer_upload_id: uuid.UUID = Field(index=True)
+    customer_upload_sha256: str = Field(max_length=64)
+    customer_upload_profile_id: uuid.UUID = Field(index=True)
+    customer_upload_profile_version: int
+    source_instance_id: uuid.UUID = Field(index=True)
+    cloudatlas_validated_fingerprint: str = Field(max_length=64)
+    cloudatlas_capset_id: str = Field(max_length=255)
+    cloudatlas_method: str = Field(max_length=255)
+    package_sha256: str = Field(max_length=64)
+    descriptor_sha256: str = Field(max_length=64)
+    runner_build_version: str = Field(max_length=255)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    completed_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class RunStep(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "run_steps"
+    __table_args__ = (
+        CheckConstraint(
+            "step_code IN ('LOAD_CUSTOMER', 'PULL_CLOUDATLAS', 'PUBLISH')",
+            name="ck_run_steps_code",
+        ),
+        CheckConstraint(
+            "status IN ('RUNNING', 'SUCCEEDED', 'FAILED')",
+            name="ck_run_steps_status",
+        ),
+        CheckConstraint("attempt > 0", name="ck_run_steps_attempt_positive"),
+        CheckConstraint(
+            "input_hash IS NULL OR input_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_run_steps_input_hash",
+        ),
+        CheckConstraint(
+            "output_hash IS NULL OR output_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_run_steps_output_hash",
+        ),
+        ForeignKeyConstraint(
+            ["governance_run_id", "project_id", "tenant_id"],
+            ["governance_runs.id", "governance_runs.project_id", "governance_runs.tenant_id"],
+            name="fk_run_steps_governance_run_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("governance_run_id", "step_code", name="uq_run_steps_run_code"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    step_code: str = Field(max_length=30)
+    status: str = Field(default=RunStepStatus.RUNNING.value, max_length=20)
+    attempt: int = Field(default=1)
+    input_hash: str | None = Field(default=None, max_length=64)
+    output_hash: str | None = Field(default=None, max_length=64)
+    error_code: str | None = Field(default=None, max_length=100)
+    started_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    completed_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class SourceSnapshot(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "source_snapshots"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('CUSTOMER_UPLOAD', 'CLOUDATLAS')",
+            name="ck_source_snapshots_type",
+        ),
+        CheckConstraint(
+            "(source_type = 'CUSTOMER_UPLOAD' AND customer_upload_id IS NOT NULL "
+            "AND source_instance_id IS NULL AND method_fingerprint IS NULL) OR "
+            "(source_type = 'CLOUDATLAS' AND customer_upload_id IS NULL "
+            "AND source_instance_id IS NOT NULL AND method_fingerprint IS NOT NULL)",
+            name="ck_source_snapshots_source_reference",
+        ),
+        CheckConstraint("record_count >= 0", name="ck_source_snapshots_record_count"),
+        CheckConstraint(
+            "content_sha256 ~ '^[0-9a-f]{64}$' AND "
+            "schema_fingerprint ~ '^[0-9a-f]{64}$' AND "
+            "(method_fingerprint IS NULL OR method_fingerprint ~ '^[0-9a-f]{64}$')",
+            name="ck_source_snapshots_fingerprints",
+        ),
+        ForeignKeyConstraint(
+            ["governance_run_id", "project_id", "tenant_id"],
+            ["governance_runs.id", "governance_runs.project_id", "governance_runs.tenant_id"],
+            name="fk_source_snapshots_governance_run_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["customer_upload_id", "project_id", "tenant_id"],
+            ["customer_uploads.id", "customer_uploads.project_id", "customer_uploads.tenant_id"],
+            name="fk_source_snapshots_customer_upload_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_instance_id", "project_id", "tenant_id"],
+            ["source_instances.id", "source_instances.project_id", "source_instances.tenant_id"],
+            name="fk_source_snapshots_source_instance_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["artifact_id", "tenant_id"],
+            ["artifacts.id", "artifacts.tenant_id"],
+            name="fk_source_snapshots_artifact_tenant",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "governance_run_id", "source_type", name="uq_source_snapshots_run_type"
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    source_type: str = Field(max_length=30)
+    customer_upload_id: uuid.UUID | None = Field(default=None, index=True)
+    source_instance_id: uuid.UUID | None = Field(default=None, index=True)
+    artifact_id: uuid.UUID = Field(index=True)
+    content_sha256: str = Field(max_length=64)
+    schema_fingerprint: str = Field(max_length=64)
+    method_fingerprint: str | None = Field(default=None, max_length=64)
+    record_count: int
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class RunStepPublic(SQLModel):
+    step_code: str
+    status: str
+    attempt: int
+    input_hash: str | None
+    output_hash: str | None
+    error_code: str | None
+    started_at: datetime
+    completed_at: datetime | None
+
+
+class SourceSnapshotPublic(SQLModel):
+    id: uuid.UUID
+    source_type: str
+    content_sha256: str
+    schema_fingerprint: str
+    method_fingerprint: str | None
+    record_count: int
+    created_at: datetime
+
+
+class GovernanceRunPublic(SQLModel):
+    id: uuid.UUID
+    trigger_id: str
+    session_id: str
+    status: str
+    customer_upload_id: uuid.UUID
+    customer_upload_sha256: str
+    customer_upload_profile_id: uuid.UUID
+    customer_upload_profile_version: int
+    source_instance_id: uuid.UUID
+    cloudatlas_validated_fingerprint: str
+    cloudatlas_capset_id: str
+    cloudatlas_method: str
+    package_sha256: str
+    descriptor_sha256: str
+    runner_build_version: str
+    created_at: datetime
+    completed_at: datetime | None
+    steps: list[RunStepPublic]
+    snapshots: list[SourceSnapshotPublic]
+
+
+class GovernanceRunsPublic(SQLModel):
+    data: list[GovernanceRunPublic]
+    count: int
+    can_trigger: bool
+    ready: bool
+    readiness_code: str | None
+
+
+class GovernanceRunTriggerPublic(SQLModel):
+    accepted: bool
+    agent_compose_run_id: str
+    agent_compose_status: str
+    governance_run_id: uuid.UUID | None
 
 
 class ProjectRole(StrEnum):

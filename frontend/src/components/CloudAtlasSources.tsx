@@ -166,7 +166,12 @@ export default function CloudAtlasSources({
   }, [source?.instance_id, source?.capset_id])
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey })
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey }),
+      queryClient.invalidateQueries({
+        queryKey: ["governance-runs", projectId],
+      }),
+    ])
   }
   const bindingMutation = useMutation({
     mutationFn: () => {

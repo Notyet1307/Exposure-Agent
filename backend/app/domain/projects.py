@@ -1,7 +1,7 @@
 import uuid
 
 from sqlalchemy.exc import SQLAlchemyError
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.time import get_datetime_utc
 from app.domain.audit import commit_with_audit
@@ -11,6 +11,8 @@ from app.domain.customer_upload_profiles import (
 from app.domain.models import (
     AuditEvent,
     CustomerUploadProfile,
+    GovernanceRun,
+    GovernanceRunStatus,
     Project,
     ProjectCreate,
     ProjectUpdate,
@@ -103,6 +105,10 @@ def create_project(
     return project
 
 
+class ActiveGovernanceRunError(Exception):
+    pass
+
+
 def archive_project(
     *,
     session: Session,
@@ -112,6 +118,14 @@ def archive_project(
 ) -> Project:
     if project.archived_at is not None:
         return project
+    active_run = session.exec(
+        select(GovernanceRun).where(
+            GovernanceRun.project_id == project.id,
+            GovernanceRun.status == GovernanceRunStatus.RUNNING.value,
+        )
+    ).first()
+    if active_run is not None:
+        raise ActiveGovernanceRunError
 
     changed_at = get_datetime_utc()
     project.archived_at = changed_at
