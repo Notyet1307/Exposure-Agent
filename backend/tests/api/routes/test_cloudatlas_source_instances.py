@@ -265,7 +265,7 @@ def _assert_source_audit_actions(
         event["action"]
         for event in response.json()["data"]
         if event["target_id"] == source_id
-    ]
+    ][::-1]
     assert actions == expected
 
 
@@ -488,7 +488,7 @@ def test_project_roles_only_receive_safe_summaries_for_their_own_project(
     ]
 
 
-def test_project_role_read_reports_drift_without_mutating_validation(
+def test_project_role_read_persists_drift_invalidation(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     monkeypatch: MonkeyPatch,
@@ -529,16 +529,20 @@ def test_project_role_read_reports_drift_without_mutating_validation(
     assert drifted_response.status_code == 200
     assert drifted_response.json()["data"][0]["validation_status"] == "invalid"
     assert restored_response.status_code == 200
-    assert restored_response.json()["data"][0]["validation_status"] == "validated"
+    assert restored_response.json()["data"][0]["validation_status"] == "invalid"
     _assert_source_audit_actions(
         client,
         superuser_token_headers,
         source_id=source["id"],
-        expected=["source_instance.validated", "source_instance.created"],
+        expected=[
+            "source_instance.created",
+            "source_instance.validated",
+            "source_instance.validation_invalidated",
+        ],
     )
 
 
-def test_archived_project_read_reports_drift_without_mutating_validation(
+def test_archived_project_read_persists_drift_invalidation(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     monkeypatch: MonkeyPatch,
@@ -582,12 +586,16 @@ def test_archived_project_read_reports_drift_without_mutating_validation(
     assert drifted_response.json()["data"][0]["validation_status"] == "invalid"
     assert drifted_response.json()["can_manage"] is False
     assert restored_response.status_code == 200
-    assert restored_response.json()["data"][0]["validation_status"] == "validated"
+    assert restored_response.json()["data"][0]["validation_status"] == "invalid"
     _assert_source_audit_actions(
         client,
         superuser_token_headers,
         source_id=source["id"],
-        expected=["source_instance.validated", "source_instance.created"],
+        expected=[
+            "source_instance.created",
+            "source_instance.validated",
+            "source_instance.validation_invalidated",
+        ],
     )
 
 

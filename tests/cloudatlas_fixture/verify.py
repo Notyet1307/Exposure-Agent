@@ -9,7 +9,7 @@ import urllib.request
 import uuid
 from typing import Any
 
-from app.domain.cloudatlas_sources import OctobusCloudAtlasClient, source_public
+from app.domain.cloudatlas_sources import OctobusCloudAtlasClient
 from app.domain.models import SourceInstance
 
 SERVICE_ID = "cloudatlas-read"
@@ -146,8 +146,10 @@ def main() -> None:
         if args.print_backend_fingerprint:
             sys.stdout.write(f"{fingerprint.value}\n")
     else:
-        summary = source_public(source)
-        assert summary.validation_status == args.expected_validation_status
+        current = OctobusCloudAtlasClient().current_fingerprint(source)
+        assert (current.value == args.stored_fingerprint) == (
+            args.expected_validation_status == "validated"
+        )
 
 
 if __name__ == "__main__":
