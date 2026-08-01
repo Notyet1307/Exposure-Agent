@@ -35,6 +35,38 @@ export type Body_login_login_access_token = {
     client_secret?: (string | null);
 };
 
+export type CloudAtlasSourceCreate = {
+    instance_id: string;
+    capset_id: string;
+};
+
+export type CloudAtlasSourcePublic = {
+    id: string;
+    source_type: string;
+    instance_id: string;
+    capset_id: string;
+    enabled: boolean;
+    validation_status: string;
+    fingerprint_summary: (string | null);
+    created_at: string;
+    updated_at: string;
+};
+
+export type CloudAtlasSourcesPublic = {
+    data: Array<CloudAtlasSourcePublic>;
+    count: number;
+    can_manage: boolean;
+};
+
+export type CloudAtlasSourceUpdate = {
+    instance_id: string;
+    capset_id: string;
+};
+
+export type CloudAtlasSourceValidationRequest = {
+    capset_token: string;
+};
+
 export type CustomerUploadProfilePublic = {
     required_headers: Array<(string)>;
     warning_headers: Array<(string)>;
@@ -183,6 +215,49 @@ export type AuditEventsReadAuditEventsData = {
 };
 
 export type AuditEventsReadAuditEventsResponse = (AuditEventsPublic);
+
+export type CloudatlasSourceInstancesReadCloudatlasSourcesData = {
+    projectId: string;
+};
+
+export type CloudatlasSourceInstancesReadCloudatlasSourcesResponse = (CloudAtlasSourcesPublic);
+
+export type CloudatlasSourceInstancesCreateCloudatlasSourceData = {
+    projectId: string;
+    requestBody: CloudAtlasSourceCreate;
+};
+
+export type CloudatlasSourceInstancesCreateCloudatlasSourceResponse = (CloudAtlasSourcePublic);
+
+export type CloudatlasSourceInstancesUpdateCloudatlasSourceData = {
+    projectId: string;
+    requestBody: CloudAtlasSourceUpdate;
+    sourceId: string;
+};
+
+export type CloudatlasSourceInstancesUpdateCloudatlasSourceResponse = (CloudAtlasSourcePublic);
+
+export type CloudatlasSourceInstancesValidateCloudatlasSourceData = {
+    projectId: string;
+    requestBody: CloudAtlasSourceValidationRequest;
+    sourceId: string;
+};
+
+export type CloudatlasSourceInstancesValidateCloudatlasSourceResponse = (CloudAtlasSourcePublic);
+
+export type CloudatlasSourceInstancesEnableCloudatlasSourceData = {
+    projectId: string;
+    sourceId: string;
+};
+
+export type CloudatlasSourceInstancesEnableCloudatlasSourceResponse = (CloudAtlasSourcePublic);
+
+export type CloudatlasSourceInstancesDisableCloudatlasSourceData = {
+    projectId: string;
+    sourceId: string;
+};
+
+export type CloudatlasSourceInstancesDisableCloudatlasSourceResponse = (CloudAtlasSourcePublic);
 
 export type HealthHealthLiveResponse = (boolean);
 

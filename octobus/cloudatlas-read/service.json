@@ -1,0 +1,15 @@
+{
+  "schema": "chaitin.octobus.service.v1",
+  "name": "cloudatlas-read",
+  "displayName": "Cloud Atlas Read",
+  "description": "Exposure-Agent bounded read-only CloudAtlas IP asset service.",
+  "runtime": {
+    "mode": "on-demand"
+  },
+  "proto": {
+    "roots": ["proto"],
+    "files": ["proto/cloudatlas_read.proto"]
+  },
+  "configSchema": "config.schema.json",
+  "secretSchema": "secret.schema.json"
+}

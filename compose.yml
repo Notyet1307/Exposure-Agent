@@ -18,6 +18,47 @@ services:
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_DB=${POSTGRES_DB?Variable not set}
 
+  octobus:
+    image: '${DOCKER_IMAGE_OCTOBUS?Variable not set}:${TAG-latest}'
+    restart: always
+    build:
+      context: .
+      dockerfile: octobus/Dockerfile
+    command: ["serve", "--data-dir", "/var/lib/octobus", "--addr", "0.0.0.0:9000"]
+    volumes:
+      - octobus-data:/var/lib/octobus
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:9000/admin/v1/status').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  octobus-package-init:
+    image: '${DOCKER_IMAGE_OCTOBUS?Variable not set}:${TAG-latest}'
+    build:
+      context: .
+      dockerfile: octobus/Dockerfile
+    depends_on:
+      octobus:
+        condition: service_healthy
+        restart: true
+    command:
+      [
+        "--addr",
+        "octobus:9000",
+        "service",
+        "import",
+        "cloudatlas-read",
+        "/opt/exposure-agent/service-packages/cloudatlas-read",
+      ]
+
   prestart:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
     build:
@@ -45,6 +86,11 @@ services:
       db:
         condition: service_healthy
         restart: true
+      octobus:
+        condition: service_healthy
+        restart: true
+      octobus-package-init:
+        condition: service_completed_successfully
       prestart:
         condition: service_completed_successfully
     env_file:
@@ -57,6 +103,7 @@ services:
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
       ARTIFACT_ROOT: /app/artifacts
+      OCTOBUS_URL: ${OCTOBUS_URL:-http://octobus:9000}
     volumes:
       - app-artifact-data:/app/artifacts
     healthcheck:
@@ -85,3 +132,4 @@ services:
 volumes:
   app-db-data:
   app-artifact-data:
+  octobus-data:

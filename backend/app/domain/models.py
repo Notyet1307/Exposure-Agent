@@ -3,14 +3,16 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, ClassVar
 
-from pydantic import field_validator
+from pydantic import SecretStr, field_validator
 from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
     ForeignKeyConstraint,
+    Index,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, SQLModel
@@ -276,6 +278,106 @@ class CustomerUploadsPublic(SQLModel):
     current_customer_upload_id: uuid.UUID | None
     can_upload: bool
     can_select: bool
+
+
+CLOUDATLAS_SOURCE_TYPE = "cloudatlas"
+
+
+class CloudAtlasSourceBinding(SQLModel):
+    instance_id: str = Field(min_length=1, max_length=255)
+    capset_id: str = Field(min_length=1, max_length=255)
+
+    @field_validator("instance_id", "capset_id")
+    @classmethod
+    def octobus_id_must_be_path_safe(cls, value: str) -> str:
+        if value != value.strip() or any(
+            character in "/?#\\" or ord(character) < 32 for character in value
+        ):
+            raise ValueError("OctoBus identifiers must be path-safe")
+        return value
+
+
+class CloudAtlasSourceCreate(CloudAtlasSourceBinding):
+    model_config = SQLModel.model_config | {"extra": "forbid"}
+
+
+class CloudAtlasSourceUpdate(CloudAtlasSourceBinding):
+    model_config = SQLModel.model_config | {"extra": "forbid"}
+
+
+class CloudAtlasSourceValidationRequest(SQLModel):
+    model_config = SQLModel.model_config | {"extra": "forbid"}
+
+    capset_token: SecretStr = Field(min_length=1, max_length=4096)
+
+
+class SourceInstance(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "source_instances"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type = 'cloudatlas'", name="ck_source_instances_type"
+        ),
+        CheckConstraint(
+            "validated_fingerprint IS NULL OR "
+            "validated_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_source_instances_fingerprint_format",
+        ),
+        UniqueConstraint("id", "project_id", name="uq_source_instances_id_project"),
+        Index(
+            "uq_source_instances_one_enabled_type_per_project",
+            "project_id",
+            "source_type",
+            unique=True,
+            postgresql_where=text("enabled"),
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(
+        default=DEPLOYMENT_TENANT_ID,
+        foreign_key="tenants.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
+    project_id: uuid.UUID = Field(
+        foreign_key="projects.id", ondelete="RESTRICT", index=True
+    )
+    source_type: str = Field(default=CLOUDATLAS_SOURCE_TYPE, max_length=30)
+    instance_id: str = Field(max_length=255)
+    capset_id: str = Field(max_length=255)
+    enabled: bool = Field(default=False)
+    validated_fingerprint: str | None = Field(default=None, max_length=64)
+    validated_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    validation_error_code: str | None = Field(default=None, max_length=100)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class CloudAtlasSourcePublic(SQLModel):
+    id: uuid.UUID
+    source_type: str
+    instance_id: str
+    capset_id: str
+    enabled: bool
+    validation_status: str
+    fingerprint_summary: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CloudAtlasSourcesPublic(SQLModel):
+    data: list[CloudAtlasSourcePublic]
+    count: int
+    can_manage: bool
 
 
 class ProjectRole(StrEnum):
