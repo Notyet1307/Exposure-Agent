@@ -28,7 +28,8 @@ services:
     command: ["true"]
 
   agent-compose:
-    image: 'ghcr.io/chaitin/agent-compose@sha256:838452756fe1f71b0f4239c02068700c3f15c8cf8ffade1a09ba08837669f89e'
+    # Pin the multi-architecture manifest; the previous digest was arm64-only.
+    image: 'ghcr.io/chaitin/agent-compose@sha256:3117226250256b03d25815bd1bb584ade5ac225b83f55d527be122b8b75a61e8'
     restart: always
     environment:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
@@ -50,7 +51,7 @@ services:
       start_period: 15s
 
   agent-compose-project-init:
-    image: 'ghcr.io/chaitin/agent-compose@sha256:838452756fe1f71b0f4239c02068700c3f15c8cf8ffade1a09ba08837669f89e'
+    image: 'ghcr.io/chaitin/agent-compose@sha256:3117226250256b03d25815bd1bb584ade5ac225b83f55d527be122b8b75a61e8'
     depends_on:
       agent-compose:
         condition: service_healthy
