@@ -5,7 +5,7 @@ env_file:
 agents:
   governance-runner:
     provider: codex
-    image: governance-runner:${RUNNER_BUILD_VERSION}
+    image: governance-runner:governance-happy-path-v1
     driver:
       docker: {}
     env:
