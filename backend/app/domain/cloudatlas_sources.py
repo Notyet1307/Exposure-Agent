@@ -283,10 +283,14 @@ class OctobusCloudAtlasClient:
         }
         return CloudAtlasFingerprint(_canonical_fingerprint(material))
 
-    def validate_read(
-        self, source: SourceInstance, *, capset_token: str
-    ) -> CloudAtlasFingerprint:
-        before = self.current_fingerprint(source)
+    def list_ip_assets_page(
+        self,
+        source: SourceInstance,
+        *,
+        capset_token: str,
+        page: int,
+        size: int,
+    ) -> dict[str, Any]:
         payload = self._request_json(
             "POST",
             (
@@ -294,29 +298,45 @@ class OctobusCloudAtlasClient:
                 f"{METHOD}"
             ),
             token=capset_token,
-            body={"status": "valid", "page": 1, "size": 1},
+            body={"status": "valid", "page": page, "size": size},
         )
         items = payload.get("items")
-        page = payload.get("page")
-        size = payload.get("size")
+        returned_page = payload.get("page")
+        returned_size = payload.get("size")
         total = payload.get("total")
         if (
             not isinstance(items, list)
             or not all(
                 isinstance(item, dict)
+                and set(item) == {"id", "ip", "status"}
                 and isinstance(item.get("id"), str)
                 and isinstance(item.get("ip"), str)
                 and isinstance(item.get("status"), str)
                 for item in items
             )
-            or not isinstance(page, int)
-            or isinstance(page, bool)
-            or not isinstance(size, int)
-            or isinstance(size, bool)
+            or not isinstance(returned_page, int)
+            or isinstance(returned_page, bool)
+            or returned_page != page
+            or not isinstance(returned_size, int)
+            or isinstance(returned_size, bool)
+            or returned_size != size
             or not isinstance(total, int)
             or isinstance(total, bool)
+            or total < 0
         ):
             _boundary_error("cloudatlas_response_contract_failed")
+        return payload
+
+    def validate_read(
+        self, source: SourceInstance, *, capset_token: str
+    ) -> CloudAtlasFingerprint:
+        before = self.current_fingerprint(source)
+        self.list_ip_assets_page(
+            source,
+            capset_token=capset_token,
+            page=1,
+            size=1,
+        )
         after = self.current_fingerprint(source)
         if before != after:
             _boundary_error("cloudatlas_response_contract_failed")

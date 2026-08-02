@@ -18,6 +18,60 @@ services:
       - POSTGRES_USER=${POSTGRES_USER?Variable not set}
       - POSTGRES_DB=${POSTGRES_DB?Variable not set}
 
+  governance-runner-image:
+    image: '${DOCKER_IMAGE_RUNNER?Variable not set}:${RUNNER_BUILD_VERSION?Variable not set}'
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.runner
+      args:
+        RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION?Variable not set}
+    command: ["true"]
+
+  agent-compose:
+    # Pin the multi-architecture manifest; the previous digest was arm64-only.
+    image: 'ghcr.io/chaitin/agent-compose@sha256:3117226250256b03d25815bd1bb584ade5ac225b83f55d527be122b8b75a61e8'
+    restart: always
+    environment:
+      AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent-compose-data:/data
+      - type: bind
+        source: ${ARTIFACT_HOST_PATH:?Variable not set or empty}
+        target: ${ARTIFACT_HOST_PATH:?Variable not set or empty}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "agent-compose --host http://127.0.0.1:7410 auth login --token \"$${AGENT_COMPOSE_AUTH_TOKEN}\" >/dev/null && agent-compose --host http://127.0.0.1:7410 status --json >/dev/null",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  agent-compose-project-init:
+    image: 'ghcr.io/chaitin/agent-compose@sha256:3117226250256b03d25815bd1bb584ade5ac225b83f55d527be122b8b75a61e8'
+    depends_on:
+      agent-compose:
+        condition: service_healthy
+      governance-runner-image:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        agent-compose --host http://agent-compose:7410 auth login
+        --token "$${AGENT_COMPOSE_AUTH_TOKEN}" >/dev/null &&
+        exec agent-compose --host http://agent-compose:7410
+        --file /config/agent-compose.yml up --json
+    env_file:
+      - .env
+    environment:
+      AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
+    volumes:
+      - ./agent-compose.yml:/config/agent-compose.yml:ro
+      - ./.env:/config/.env:ro
+
   octobus:
     image: '${DOCKER_IMAGE_OCTOBUS?Variable not set}:${TAG-latest}'
     restart: always
@@ -91,6 +145,8 @@ services:
         restart: true
       octobus-package-init:
         condition: service_completed_successfully
+      agent-compose-project-init:
+        condition: service_completed_successfully
       prestart:
         condition: service_completed_successfully
     env_file:
@@ -104,8 +160,14 @@ services:
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
       ARTIFACT_ROOT: /app/artifacts
       OCTOBUS_URL: ${OCTOBUS_URL:-http://octobus:9000}
+      CLOUDATLAS_CAPSET_TOKEN: ${CLOUDATLAS_CAPSET_TOKEN:?Variable not set or empty}
+      AGENT_COMPOSE_URL: http://agent-compose:7410
+      AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
+      RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION:?Variable not set or empty}
     volumes:
-      - app-artifact-data:/app/artifacts
+      - type: bind
+        source: ${ARTIFACT_HOST_PATH:?Variable not set or empty}
+        target: /app/artifacts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
       interval: 10s
@@ -131,5 +193,5 @@ services:
 
 volumes:
   app-db-data:
-  app-artifact-data:
   octobus-data:
+  agent-compose-data:

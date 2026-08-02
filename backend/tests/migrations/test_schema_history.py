@@ -19,7 +19,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_SOURCE_INSTANCE_REVISION = "a9b8c7d6e5f4"
+CURRENT_GOVERNANCE_RUN_REVISION = "b7c8d9e0f1a2"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 DEFAULT_PROFILE_DEFINITION = {
     "required_headers": [
@@ -121,7 +121,7 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_SOURCE_INSTANCE_REVISION,)
+        ).fetchone() == (CURRENT_GOVERNANCE_RUN_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -488,7 +488,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_SOURCE_INSTANCE_REVISION,)
+        ).fetchone() == (CURRENT_GOVERNANCE_RUN_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -504,7 +504,10 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
                 'artifacts',
                 'customer_upload_profiles',
                 'customer_uploads',
-                'source_instances'
+                'governance_runs',
+                'run_steps',
+                'source_instances',
+                'source_snapshots'
               )
             ORDER BY table_name
             """
@@ -513,9 +516,12 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             ("audit_events",),
             ("customer_upload_profiles",),
             ("customer_uploads",),
+            ("governance_runs",),
             ("project_memberships",),
             ("projects",),
+            ("run_steps",),
             ("source_instances",),
+            ("source_snapshots",),
         ]
         source_index = connection.execute(
             """
@@ -529,6 +535,20 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
         assert "UNIQUE INDEX" in source_index[0]
         assert "(project_id, source_type)" in source_index[0]
         assert "WHERE enabled" in source_index[0]
+        active_run_index = connection.execute(
+            """
+            SELECT indexdef
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND indexname = 'uq_governance_runs_one_active_per_project'
+            """
+        ).fetchone()
+        assert active_run_index is not None
+        assert "UNIQUE INDEX" in active_run_index[0]
+        assert "(project_id)" in active_run_index[0]
+        assert "WHERE" in active_run_index[0]
+        assert "status" in active_run_index[0]
+        assert "RUNNING" in active_run_index[0]
         assert connection.execute(
             """
             SELECT column_name, is_nullable
@@ -552,7 +572,8 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
               AND column_name IN (
                 'archived_at',
                 'current_customer_upload_id',
-                'current_customer_upload_profile_id'
+                'current_customer_upload_profile_id',
+                'latest_completed_run_id'
               )
             ORDER BY column_name
             """
@@ -560,6 +581,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             ("archived_at", "YES"),
             ("current_customer_upload_id", "YES"),
             ("current_customer_upload_profile_id", "NO"),
+            ("latest_completed_run_id", "YES"),
         ]
         assert connection.execute(
             """

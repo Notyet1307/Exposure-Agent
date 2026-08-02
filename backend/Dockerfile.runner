@@ -1,0 +1,34 @@
+FROM python:3.14-bookworm AS python-runtime
+
+# Pin the multi-architecture manifest, not the arm64-only image manifest.
+# GitHub Actions builds on amd64 while local development may use arm64.
+FROM ghcr.io/chaitin/agent-compose-guest@sha256:a99584629d9fe8c677683cdb6be88578b556a6e04e50abc5f1039424fdbefe73
+
+ENV PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
+
+COPY --from=python-runtime /usr/local /usr/local
+COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
+
+WORKDIR /app/
+
+ARG RUNNER_BUILD_VERSION=development
+RUN test -n "$RUNNER_BUILD_VERSION" && printf '%s\n' "$RUNNER_BUILD_VERSION" > /app/runner-build-version
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-workspace --package app
+
+COPY ./backend/pyproject.toml ./backend/alembic.ini /app/backend/
+COPY ./backend/app /app/backend/app
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --package app
+
+RUN mkdir -p /app/artifacts /workspace /data/state /data/runtime /data/logs
+
+WORKDIR /workspace

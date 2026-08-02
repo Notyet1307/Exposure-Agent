@@ -464,6 +464,179 @@ export const CustomerUploadsPublicSchema = {
     title: 'CustomerUploadsPublic'
 } as const;
 
+export const GovernanceRunPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        trigger_id: {
+            type: 'string',
+            title: 'Trigger Id'
+        },
+        session_id: {
+            type: 'string',
+            title: 'Session Id'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        customer_upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Customer Upload Id'
+        },
+        customer_upload_sha256: {
+            type: 'string',
+            title: 'Customer Upload Sha256'
+        },
+        customer_upload_profile_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Customer Upload Profile Id'
+        },
+        customer_upload_profile_version: {
+            type: 'integer',
+            title: 'Customer Upload Profile Version'
+        },
+        source_instance_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Instance Id'
+        },
+        cloudatlas_validated_fingerprint: {
+            type: 'string',
+            title: 'Cloudatlas Validated Fingerprint'
+        },
+        cloudatlas_capset_id: {
+            type: 'string',
+            title: 'Cloudatlas Capset Id'
+        },
+        cloudatlas_method: {
+            type: 'string',
+            title: 'Cloudatlas Method'
+        },
+        package_sha256: {
+            type: 'string',
+            title: 'Package Sha256'
+        },
+        descriptor_sha256: {
+            type: 'string',
+            title: 'Descriptor Sha256'
+        },
+        runner_build_version: {
+            type: 'string',
+            title: 'Runner Build Version'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        },
+        steps: {
+            items: {
+                '$ref': '#/components/schemas/RunStepPublic'
+            },
+            type: 'array',
+            title: 'Steps'
+        },
+        snapshots: {
+            items: {
+                '$ref': '#/components/schemas/SourceSnapshotPublic'
+            },
+            type: 'array',
+            title: 'Snapshots'
+        }
+    },
+    type: 'object',
+    required: ['id', 'trigger_id', 'session_id', 'status', 'customer_upload_id', 'customer_upload_sha256', 'customer_upload_profile_id', 'customer_upload_profile_version', 'source_instance_id', 'cloudatlas_validated_fingerprint', 'cloudatlas_capset_id', 'cloudatlas_method', 'package_sha256', 'descriptor_sha256', 'runner_build_version', 'created_at', 'completed_at', 'steps', 'snapshots'],
+    title: 'GovernanceRunPublic'
+} as const;
+
+export const GovernanceRunTriggerPublicSchema = {
+    properties: {
+        accepted: {
+            type: 'boolean',
+            title: 'Accepted'
+        },
+        agent_compose_run_id: {
+            type: 'string',
+            title: 'Agent Compose Run Id'
+        },
+        agent_compose_status: {
+            type: 'string',
+            title: 'Agent Compose Status'
+        },
+        governance_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Governance Run Id'
+        }
+    },
+    type: 'object',
+    required: ['accepted', 'agent_compose_run_id', 'agent_compose_status', 'governance_run_id'],
+    title: 'GovernanceRunTriggerPublic'
+} as const;
+
+export const GovernanceRunsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/GovernanceRunPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        can_trigger: {
+            type: 'boolean',
+            title: 'Can Trigger'
+        },
+        ready: {
+            type: 'boolean',
+            title: 'Ready'
+        },
+        readiness_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Readiness Code'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'can_trigger', 'ready', 'readiness_code'],
+    title: 'GovernanceRunsPublic'
+} as const;
+
 export const HTTPValidationErrorSchema = {
     properties: {
         detail: {
@@ -705,6 +878,121 @@ export const ProjectsPublicSchema = {
     type: 'object',
     required: ['data', 'count'],
     title: 'ProjectsPublic'
+} as const;
+
+export const RunStepPublicSchema = {
+    properties: {
+        step_code: {
+            type: 'string',
+            title: 'Step Code'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        attempt: {
+            type: 'integer',
+            title: 'Attempt'
+        },
+        input_hash: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Input Hash'
+        },
+        output_hash: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Output Hash'
+        },
+        error_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Code'
+        },
+        started_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Started At'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        }
+    },
+    type: 'object',
+    required: ['step_code', 'status', 'attempt', 'input_hash', 'output_hash', 'error_code', 'started_at', 'completed_at'],
+    title: 'RunStepPublic'
+} as const;
+
+export const SourceSnapshotPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        source_type: {
+            type: 'string',
+            title: 'Source Type'
+        },
+        content_sha256: {
+            type: 'string',
+            title: 'Content Sha256'
+        },
+        schema_fingerprint: {
+            type: 'string',
+            title: 'Schema Fingerprint'
+        },
+        method_fingerprint: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Method Fingerprint'
+        },
+        record_count: {
+            type: 'integer',
+            title: 'Record Count'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'source_type', 'content_sha256', 'schema_fingerprint', 'method_fingerprint', 'record_count', 'created_at'],
+    title: 'SourceSnapshotPublic'
 } as const;
 
 export const TokenSchema = {

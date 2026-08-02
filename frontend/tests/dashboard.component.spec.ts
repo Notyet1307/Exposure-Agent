@@ -73,6 +73,23 @@ const cloudatlasSources = {
   },
 }
 
+const governanceRuns = {
+  [projects[0].id]: {
+    data: [],
+    count: 0,
+    can_trigger: true,
+    ready: false,
+    readiness_code: "run_customer_upload_not_ready",
+  },
+  [projects[1].id]: {
+    data: [],
+    count: 0,
+    can_trigger: false,
+    ready: false,
+    readiness_code: "run_project_archived",
+  },
+}
+
 const uploads = {
   [projects[0].id]: {
     data: [
@@ -142,6 +159,13 @@ async function mockDashboardApi(page: Page) {
         json: cloudatlasSources[
           sourceMatch[1] as keyof typeof cloudatlasSources
         ],
+      })
+      return
+    }
+    const runsMatch = url.pathname.match(/projects\/([^/]+)\/governance-runs$/)
+    if (runsMatch && request.method() === "GET") {
+      await route.fulfill({
+        json: governanceRuns[runsMatch[1] as keyof typeof governanceRuns],
       })
       return
     }
@@ -535,4 +559,102 @@ test("shows only the server safe upload explanation", async ({ page }) => {
     page.getByText("The workbook contains an invalid required value."),
   ).toBeVisible()
   await expect(page.getByText("sensitive-cell-value")).not.toBeVisible()
+})
+
+test("shows the three Run steps and triggers with a caller-owned stable ID", async ({
+  page,
+}) => {
+  const run = {
+    id: "60000000-0000-0000-0000-000000000001",
+    trigger_id: "browser-trigger",
+    session_id: "b".repeat(64),
+    status: "COMPLETED",
+    customer_upload_id: uploads[projects[0].id].data[0].id,
+    customer_upload_sha256: "a".repeat(64),
+    customer_upload_profile_id: profiles[projects[0].id].id,
+    customer_upload_profile_version: 1,
+    source_instance_id: cloudatlasSources[projects[0].id].data[0].id,
+    cloudatlas_validated_fingerprint: "c".repeat(64),
+    cloudatlas_capset_id: "cloudatlas-readonly",
+    cloudatlas_method: "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets",
+    package_sha256: "d".repeat(64),
+    descriptor_sha256: "e".repeat(64),
+    runner_build_version: "runner-v1",
+    created_at: "2026-07-30T13:00:00Z",
+    completed_at: "2026-07-30T13:01:00Z",
+    steps: ["LOAD_CUSTOMER", "PULL_CLOUDATLAS", "PUBLISH"].map((step_code) => ({
+      step_code,
+      status: "SUCCEEDED",
+      attempt: 1,
+      input_hash: "f".repeat(64),
+      output_hash: "1".repeat(64),
+      error_code: null,
+      started_at: "2026-07-30T13:00:00Z",
+      completed_at: "2026-07-30T13:01:00Z",
+    })),
+    snapshots: [
+      {
+        id: "70000000-0000-0000-0000-000000000001",
+        source_type: "CUSTOMER_UPLOAD",
+        content_sha256: "2".repeat(64),
+        schema_fingerprint: "3".repeat(64),
+        method_fingerprint: null,
+        record_count: 2,
+        created_at: "2026-07-30T13:00:20Z",
+      },
+      {
+        id: "70000000-0000-0000-0000-000000000002",
+        source_type: "CLOUDATLAS",
+        content_sha256: "4".repeat(64),
+        schema_fingerprint: "5".repeat(64),
+        method_fingerprint: "6".repeat(64),
+        record_count: 1,
+        created_at: "2026-07-30T13:00:40Z",
+      },
+    ],
+  }
+  let idempotencyKey = ""
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/governance-runs`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        idempotencyKey = route.request().headers()["idempotency-key"] ?? ""
+        await route.fulfill({
+          status: 202,
+          json: {
+            accepted: true,
+            agent_compose_run_id: "7".repeat(64),
+            agent_compose_status: "RUN_STATUS_PENDING",
+            governance_run_id: null,
+          },
+        })
+        return
+      }
+      await route.fulfill({
+        json: {
+          data: [run],
+          count: 1,
+          can_trigger: true,
+          ready: true,
+          readiness_code: null,
+        },
+      })
+    },
+  )
+  await page.goto("/")
+
+  await expect(page.getByText("Inputs ready")).toBeVisible()
+  for (const step of ["LOAD_CUSTOMER", "PULL_CLOUDATLAS", "PUBLISH"]) {
+    await expect(page.getByRole("cell", { name: step })).toBeVisible()
+  }
+  await expect(page.getByText("CUSTOMER_UPLOAD")).toBeVisible()
+  await expect(page.getByText("CLOUDATLAS", { exact: true })).toBeVisible()
+
+  await page.getByRole("button", { name: "Trigger Run" }).click()
+  await expect(
+    page.getByText(
+      "Governance Session accepted. Waiting for the Runner to start.",
+    ),
+  ).toBeVisible()
+  expect(idempotencyKey).toMatch(/^[0-9a-f-]{36}$/)
 })

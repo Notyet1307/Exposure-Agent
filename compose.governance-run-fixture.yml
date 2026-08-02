@@ -1,0 +1,43 @@
+services:
+  db:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    depends_on:
+      cloudatlas-fixture-init:
+        condition: service_completed_successfully
+
+  agent-compose-project-init:
+    volumes:
+      - type: bind
+        source: ${AGENT_COMPOSE_CONFIG_PATH:?Variable not set or empty}
+        target: /config/agent-compose.yml
+        read_only: true
+
+  frontend:
+    ports: !reset []
+
+  cloudatlas-fixture:
+    build:
+      context: .
+      dockerfile: tests/cloudatlas_fixture/Dockerfile.upstream
+    environment:
+      FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
+
+  cloudatlas-fixture-init:
+    image: '${DOCKER_IMAGE_OCTOBUS?Variable not set}:${TAG-latest}'
+    build:
+      context: .
+      dockerfile: octobus/Dockerfile
+    entrypoint: ["/bin/sh", "/fixture-init.sh"]
+    depends_on:
+      cloudatlas-fixture:
+        condition: service_started
+      octobus-package-init:
+        condition: service_completed_successfully
+    environment:
+      FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
+      FIXTURE_CAPSET_TOKEN: fixture-capset-token
+    volumes:
+      - ./tests/governance_run/init_octobus.sh:/fixture-init.sh:ro
