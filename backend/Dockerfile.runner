@@ -1,6 +1,8 @@
 FROM python:3.14-bookworm AS python-runtime
 
-FROM ghcr.io/chaitin/agent-compose-guest@sha256:99a031b38be9e6afc5b7ce5161a4c5ee6f93c9990f3b39a3fbd8c9b29044ee32
+# Pin the multi-architecture manifest, not the arm64-only image manifest.
+# GitHub Actions builds on amd64 while local development may use arm64.
+FROM ghcr.io/chaitin/agent-compose-guest@sha256:a99584629d9fe8c677683cdb6be88578b556a6e04e50abc5f1039424fdbefe73
 
 ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
