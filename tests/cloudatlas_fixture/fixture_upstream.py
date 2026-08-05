@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
     expected_token = ""
     log_path = Path("/tmp/cloudatlas-fixture.jsonl")
+    fail_next_read = False
 
     def write_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, separators=(",", ":")).encode()
@@ -21,6 +22,13 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self) -> None:
+        if self.path != "/fixture/fail-next":
+            self.write_json(404, {"error": "not_found"})
+            return
+        type(self).fail_next_read = True
+        self.write_json(200, {"armed": True})
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -45,6 +53,10 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
             return
         if token != self.expected_token:
             self.write_json(401, {"error": "authentication_failed"})
+            return
+        if type(self).fail_next_read:
+            type(self).fail_next_read = False
+            self.write_json(503, {"error": "fixture_failure"})
             return
         page = query.get("page", ["1"])[0]
         if page == "91":

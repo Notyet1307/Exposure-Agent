@@ -144,7 +144,15 @@ def test_start_governance_run_reuses_existing_run(
         monkeypatch,
         _Response(
             200,
-            {"run": {"summary": {"runId": expected_id, "status": "RUNNING"}}},
+            {
+                "run": {
+                    "summary": {
+                        "runId": expected_id,
+                        "status": "RUNNING",
+                        "sandboxId": "a" * 64,
+                    }
+                }
+            },
         ),
     )
 
@@ -155,6 +163,7 @@ def test_start_governance_run_reuses_existing_run(
     assert result.run_id == expected_id
     assert result.started is False
     assert result.status == "RUNNING"
+    assert result.session_id == "a" * 64
 
 
 @pytest.mark.parametrize(
@@ -191,11 +200,11 @@ def test_session_query_and_resume_preserve_the_authoritative_session_id(
         [
             _Response(
                 200,
-                {"sandbox": {"sandboxId": session_id, "status": "stopped"}},
+                {"sandbox": {"sandboxId": session_id, "status": "STOPPED"}},
             ),
             _Response(
                 200,
-                {"sandbox": {"sandboxId": session_id, "status": "running"}},
+                {"sandbox": {"sandboxId": session_id, "status": "RUNNING"}},
             ),
         ]
     )

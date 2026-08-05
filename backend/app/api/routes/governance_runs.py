@@ -56,6 +56,11 @@ _ERROR_MESSAGES = {
     "run_session_not_recoverable": "The original Session cannot be recovered.",
     "run_rerun_required": "Use Rerun with a new Trigger ID for this failed Run.",
     "run_launch_in_progress": "A Governance Runner launch is already in progress.",
+    "run_launch_terminal_use_new_trigger": (
+        "The previous launch ended before creating a Run; use a new Trigger ID."
+    ),
+    "run_rerun_newer_run_exists": "Only the latest GovernanceRun can be rerun.",
+    "run_retry_in_progress": "Retry recovery is already in progress.",
     "agent_compose_unavailable": "The Governance Runner control plane is unavailable.",
     "agent_compose_start_failed": "The Governance Runner Session could not be started.",
     "agent_compose_response_contract_failed": (
@@ -184,7 +189,7 @@ def read_governance_runs(
         run_views
         and has_operator_access > 0
         and project.archived_at is None
-        and runs[0].status != GovernanceRunStatus.COMPLETED.value
+        and runs[0].status not in governance_run_service.COMPLETED_RUN_STATUSES
     ):
         latest = runs[0]
         blocking_code: str | None = None
@@ -230,7 +235,7 @@ def read_governance_runs(
         and has_operator_access > 0
         and (
             not runs
-            or runs[0].status == GovernanceRunStatus.COMPLETED.value
+            or runs[0].status in governance_run_service.COMPLETED_RUN_STATUSES
         )
     )
     return GovernanceRunsPublic(
@@ -274,6 +279,23 @@ def trigger_governance_run(
     client_request_id = f"{project.id}:{trigger_id}"
     client = AgentComposeClient()
     expected_run_id = client.expected_run_id(client_request_id)
+    try:
+        reconciled_trigger = governance_run_service.reconcile_launch_reservation(
+            session=session,
+            project=project,
+            client=client,
+            actor_subject=str(current_user.id),
+            request_ip=get_request_ip_address(request),
+        )
+    except AgentComposeBoundaryError:
+        reconciled_trigger = None
+    if reconciled_trigger == trigger_id:
+        session.commit()
+        raise _state_http_error(
+            governance_run_service.GovernanceRunStateError(
+                "run_launch_terminal_use_new_trigger"
+            )
+        )
     if existing is not None:
         response.status_code = status.HTTP_200_OK
         return GovernanceRunTriggerPublic(
@@ -446,6 +468,34 @@ def retry_governance_run(
         )
     attempt = _running_attempt(session, run)
     client = AgentComposeClient()
+    prepared_retry = (
+        run.status == GovernanceRunStatus.RUNNING.value
+        and attempt is not None
+        and attempt > 1
+        and run.session_recovery_code == "retry_prepared"
+    )
+    if prepared_retry:
+        assert attempt is not None
+        prepared_request_id = _retry_request_id(run, attempt)
+        try:
+            existing_attempt = client.get_run(
+                client.expected_run_id(prepared_request_id)
+            )
+        except AgentComposeBoundaryError as error:
+            session.rollback()
+            raise _agent_compose_http_error(error)
+        if existing_attempt is not None:
+            governance_run_service.finish_retry_start(session=session, run=run)
+            response.status_code = status.HTTP_200_OK
+            return GovernanceRunActionPublic(
+                accepted=False,
+                action="retry",
+                governance_run_id=run.id,
+                session_id=run.session_id,
+                agent_compose_run_id=existing_attempt.run_id,
+                agent_compose_status=existing_attempt.status,
+                code="run_retry_in_progress",
+            )
     if (
         run.status == GovernanceRunStatus.RUNNING.value
         and attempt is not None
@@ -505,7 +555,10 @@ def retry_governance_run(
             actor_subject=actor_subject,
             request_ip=request_ip,
         )
-    if control_session.observation is AgentComposeSessionObservation.RUNNING:
+    if (
+        control_session.observation is AgentComposeSessionObservation.RUNNING
+        and not prepared_retry
+    ):
         session.rollback()
         _reject_run_action(
             session=session,
@@ -516,25 +569,30 @@ def retry_governance_run(
             request_ip=request_ip,
         )
 
-    governance_run_service.converge_terminal_run(
-        session=session,
-        run=run,
-        actor_subject=actor_subject,
-        request_ip=request_ip,
-    )
-    step = governance_run_service.prepare_retry(
-        session=session,
-        run=run,
-        actor_subject=actor_subject,
-        request_ip=request_ip,
-    )
-    request_id = _retry_request_id(run, step.attempt)
+    if prepared_retry:
+        assert attempt is not None
+        request_id = _retry_request_id(run, attempt)
+    else:
+        governance_run_service.converge_terminal_run(
+            session=session,
+            run=run,
+            actor_subject=actor_subject,
+            request_ip=request_ip,
+        )
+        step = governance_run_service.prepare_retry(
+            session=session,
+            run=run,
+            actor_subject=actor_subject,
+            request_ip=request_ip,
+        )
+        request_id = _retry_request_id(run, step.attempt)
     try:
-        resumed = client.resume_session(run.session_id)
-        if resumed.observation is not AgentComposeSessionObservation.RUNNING:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+        if control_session.observation is AgentComposeSessionObservation.TERMINAL:
+            resumed = client.resume_session(run.session_id)
+            if resumed.observation is not AgentComposeSessionObservation.RUNNING:
+                raise AgentComposeBoundaryError(
+                    "agent_compose_response_contract_failed"
+                )
         started = client.start_governance_run(
             client_request_id=request_id,
             environment=pinned.runner_environment(
@@ -600,6 +658,53 @@ def rerun_governance_run(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     actor_subject = str(current_user.id)
     request_ip = get_request_ip_address(request)
+    latest_run = session.exec(
+        select(GovernanceRun)
+        .where(GovernanceRun.project_id == project.id)
+        .order_by(
+            col(GovernanceRun.created_at).desc(),
+            col(GovernanceRun.id).desc(),
+        )
+        .with_for_update()
+    ).first()
+    if latest_run is None or latest_run.id != source_run.id:
+        existing_rerun = session.exec(
+            select(GovernanceRun).where(
+                GovernanceRun.project_id == project.id,
+                GovernanceRun.trigger_id == trigger_id,
+            )
+        ).one_or_none()
+        if existing_rerun is not None:
+            rerun_request_id = f"{project.id}:{trigger_id}"
+            response.status_code = status.HTTP_200_OK
+            return GovernanceRunActionPublic(
+                accepted=False,
+                action="rerun",
+                governance_run_id=existing_rerun.id,
+                source_governance_run_id=source_run.id,
+                session_id=existing_rerun.session_id,
+                agent_compose_run_id=AgentComposeClient().expected_run_id(
+                    rerun_request_id
+                ),
+                agent_compose_status="BUSINESS_RUN_ESTABLISHED",
+            )
+        _reject_run_action(
+            session=session,
+            run=source_run,
+            action="governance_run.rerun_rejected",
+            code="run_rerun_newer_run_exists",
+            actor_subject=actor_subject,
+            request_ip=request_ip,
+        )
+    if source_run.status == GovernanceRunStatus.RUNNING.value:
+        _reject_run_action(
+            session=session,
+            run=source_run,
+            action="governance_run.rerun_rejected",
+            code="run_retry_in_progress",
+            actor_subject=actor_subject,
+            request_ip=request_ip,
+        )
     if trigger_id == source_run.trigger_id:
         _reject_run_action(
             session=session,
@@ -613,6 +718,23 @@ def rerun_governance_run(
     client = AgentComposeClient()
     client_request_id = f"{project.id}:{trigger_id}"
     expected_run_id = client.expected_run_id(client_request_id)
+    try:
+        reconciled_trigger = governance_run_service.reconcile_launch_reservation(
+            session=session,
+            project=project,
+            client=client,
+            actor_subject=actor_subject,
+            request_ip=request_ip,
+        )
+    except AgentComposeBoundaryError:
+        reconciled_trigger = None
+    if reconciled_trigger == trigger_id:
+        session.commit()
+        raise _state_http_error(
+            governance_run_service.GovernanceRunStateError(
+                "run_launch_terminal_use_new_trigger"
+            )
+        )
     existing = session.exec(
         select(GovernanceRun).where(
             GovernanceRun.project_id == project.id,

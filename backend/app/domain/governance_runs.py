@@ -39,6 +39,10 @@ from app.domain.models import (
     SourceSnapshotPublic,
     SourceSnapshotType,
 )
+from app.integrations.agent_compose import (
+    AgentComposeClient,
+    AgentComposeSessionObservation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,12 @@ _STEP_ORDER = {
     RunStepCode.PULL_CLOUDATLAS.value: 1,
     RunStepCode.PUBLISH.value: 2,
 }
+COMPLETED_RUN_STATUSES = frozenset(
+    {
+        GovernanceRunStatus.COMPLETED.value,
+        GovernanceRunStatus.COMPLETED_WITH_WARNINGS.value,
+    }
+)
 
 
 class GovernanceRunStateError(Exception):
@@ -997,7 +1007,7 @@ def require_retry_readiness(
     ).first()
     if latest is None or latest.id != run.id:
         raise GovernanceRunStateError("run_retry_newer_run_exists")
-    if run.status == GovernanceRunStatus.COMPLETED.value:
+    if run.status in COMPLETED_RUN_STATUSES:
         raise GovernanceRunStateError("run_retry_completed")
     if project.archived_at is not None:
         raise GovernanceRunStateError("run_project_archived")
@@ -1101,8 +1111,6 @@ def converge_terminal_run(
             actor_subject=actor_subject,
         )
     )
-    session.commit()
-    session.refresh(run)
 
 
 def prepare_retry(
@@ -1225,6 +1233,49 @@ def fail_retry_start(
     )
     session.commit()
     session.refresh(run)
+
+
+def reconcile_launch_reservation(
+    *,
+    session: Session,
+    project: Project,
+    client: AgentComposeClient,
+    actor_subject: str,
+    request_ip: str | None,
+) -> str | None:
+    trigger_id = project.governance_launch_trigger_id
+    control_run_id = project.governance_launch_control_run_id
+    if trigger_id is None or control_run_id is None:
+        return None
+    control_run = client.get_run(control_run_id)
+    if control_run is None or control_run.session_id is None:
+        return None
+    control_session = client.get_session(control_run.session_id)
+    if (
+        control_session is None
+        or control_session.observation is not AgentComposeSessionObservation.TERMINAL
+    ):
+        return None
+    project.governance_launch_trigger_id = None
+    project.governance_launch_control_run_id = None
+    project.governance_launch_input_hash = None
+    project.updated_at = get_datetime_utc()
+    session.add(project)
+    session.add(
+        AuditEvent(
+            tenant_id=project.tenant_id,
+            project_id=project.id,
+            actor_subject=actor_subject,
+            actor_type="user",
+            action="governance_run.launch_terminal_converged",
+            target_type="project",
+            target_id=project.id,
+            before_data={"trigger_id": trigger_id},
+            after_data={"reason": "session_terminated_before_run"},
+            ip_address=request_ip,
+        )
+    )
+    return trigger_id
 
 
 def reserve_run_launch(

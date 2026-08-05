@@ -29,6 +29,7 @@ class AgentComposeRunStart:
     run_id: str
     started: bool
     status: str
+    session_id: str | None = None
 
 
 class AgentComposeSessionObservation(StrEnum):
@@ -44,9 +45,10 @@ class AgentComposeSession:
 
 
 def _session_observation(status: str) -> AgentComposeSessionObservation:
-    if status == "stopped":
+    normalized = status.lower()
+    if normalized == "stopped":
         return AgentComposeSessionObservation.TERMINAL
-    if status == "running":
+    if normalized == "running":
         return AgentComposeSessionObservation.RUNNING
     return AgentComposeSessionObservation.UNKNOWN
 
@@ -136,7 +138,19 @@ class AgentComposeClient:
                 "agent_compose_response_contract_failed"
             )
         status = _required_string(summary.get("status"))
-        return AgentComposeRunStart(run_id=run_id, started=False, status=status)
+        session_id = summary.get("sandboxId")
+        if session_id is not None and (
+            not isinstance(session_id, str) or not session_id
+        ):
+            raise AgentComposeBoundaryError(
+                "agent_compose_response_contract_failed"
+            )
+        return AgentComposeRunStart(
+            run_id=run_id,
+            started=False,
+            status=status,
+            session_id=session_id,
+        )
 
     def get_session(self, session_id: str) -> AgentComposeSession | None:
         body = self._request(
@@ -226,4 +240,13 @@ class AgentComposeClient:
             raise AgentComposeBoundaryError(
                 "agent_compose_response_contract_failed"
             )
-        return AgentComposeRunStart(run_id=run_id, started=started, status=status)
+        return AgentComposeRunStart(
+            run_id=run_id,
+            started=started,
+            status=status,
+            session_id=(
+                _required_string(summary.get("sandboxId"))
+                if summary.get("sandboxId") is not None
+                else None
+            ),
+        )

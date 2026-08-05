@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test"
 
 import {
   CloudatlasSourceInstancesService,
+  GovernanceRunsService,
   LoginService,
   OpenAPI,
   ProjectMembershipsService,
@@ -23,6 +24,7 @@ test.skip(
 
 test("Operator triggers a real Governance Session that publishes two snapshots", async ({
   page,
+  request,
 }) => {
   test.setTimeout(180_000)
   OpenAPI.BASE = testApiUrl
@@ -97,4 +99,76 @@ test("Operator triggers a real Governance Session that publishes two snapshots",
   await expect(page.getByText("CUSTOMER_UPLOAD")).toBeVisible()
   await expect(page.getByText("CLOUDATLAS", { exact: true })).toBeVisible()
   await expect(page.getByText("1 records")).toHaveCount(2)
+
+  const armed = await request.post(
+    "http://cloudatlas-fixture:18080/fixture/fail-next",
+  )
+  expect(armed.ok()).toBeTruthy()
+  await page.getByRole("button", { name: "Trigger Run" }).click()
+  await expect
+    .poll(
+      async () =>
+        (
+          await GovernanceRunsService.readGovernanceRuns({
+            projectId: project.id,
+          })
+        ).data[0]?.status,
+      { timeout: 120_000 },
+    )
+    .toBe("FAILED_DATA")
+  const failedRuns = await GovernanceRunsService.readGovernanceRuns({
+    projectId: project.id,
+  })
+  const failedRun = failedRuns.data[0]
+  expect(failedRun.steps.map((step) => [step.step_code, step.status])).toEqual([
+    ["LOAD_CUSTOMER", "SUCCEEDED"],
+    ["PULL_CLOUDATLAS", "FAILED"],
+  ])
+  await expect
+    .poll(
+      async () =>
+        (
+          await GovernanceRunsService.readGovernanceRuns({
+            projectId: project.id,
+          })
+        ).data[0]?.can_retry,
+      { timeout: 120_000 },
+    )
+    .toBe(true)
+
+  await page.reload()
+  await page.getByRole("button", { name: "Retry same Session" }).click()
+  await expect
+    .poll(
+      async () =>
+        (
+          await GovernanceRunsService.readGovernanceRuns({
+            projectId: project.id,
+          })
+        ).data[0]?.status,
+      { timeout: 120_000 },
+    )
+    .toBe("COMPLETED")
+  const recovered = (
+    await GovernanceRunsService.readGovernanceRuns({ projectId: project.id })
+  ).data[0]
+  expect(recovered.id).toBe(failedRun.id)
+  expect(recovered.trigger_id).toBe(failedRun.trigger_id)
+  expect(recovered.session_id).toBe(failedRun.session_id)
+  expect(
+    Object.fromEntries(
+      recovered.steps.map((step) => [step.step_code, step.attempt]),
+    ),
+  ).toEqual({ LOAD_CUSTOMER: 1, PULL_CLOUDATLAS: 2, PUBLISH: 1 })
+  expect(recovered.reused_snapshot_count).toBe(1)
+  expect(
+    recovered.snapshots.map((snapshot) => [
+      snapshot.source_type,
+      snapshot.record_count,
+      snapshot.content_sha256.length,
+    ]),
+  ).toEqual([
+    ["CLOUDATLAS", 1, 64],
+    ["CUSTOMER_UPLOAD", 1, 64],
+  ])
 })

@@ -4,6 +4,7 @@ import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from typing import cast
 
 import pytest
@@ -37,6 +38,7 @@ from app.domain.models import (
 )
 from app.governance_runner import main as run_governance_runner
 from app.integrations.agent_compose import (
+    AgentComposeClient,
     AgentComposeRunStart,
     AgentComposeSession,
     AgentComposeSessionObservation,
@@ -552,12 +554,22 @@ def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
             observation=AgentComposeSessionObservation.TERMINAL,
         ),
     )
-    monkeypatch.setattr(
-        "app.api.routes.governance_runs.AgentComposeClient.resume_session",
-        lambda _client, requested_id: AgentComposeSession(
+    resume_entered = Event()
+    release_resume = Event()
+
+    def resume_session(
+        _client: object, requested_id: str
+    ) -> AgentComposeSession:
+        resume_entered.set()
+        assert release_resume.wait(timeout=5)
+        return AgentComposeSession(
             session_id=requested_id,
             observation=AgentComposeSessionObservation.RUNNING,
-        ),
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.resume_session",
+        resume_session,
     )
     monkeypatch.setattr(
         "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
@@ -580,10 +592,24 @@ def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
         step["step_code"]: step["attempt"] for step in rolled_back["steps"]
     } == {"LOAD_CUSTOMER": 1, "PULL_CLOUDATLAS": 1}
 
-    retry_response = client.post(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed['id']}/retry",
-        headers=superuser_token_headers,
-    )
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        retry_future = executor.submit(
+            client.post,
+            f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed['id']}/retry",
+            headers=superuser_token_headers,
+        )
+        assert resume_entered.wait(timeout=5)
+        concurrent_rerun = client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed['id']}/rerun",
+            headers={
+                **superuser_token_headers,
+                "Idempotency-Key": "retry-race-rerun",
+            },
+        )
+        assert concurrent_rerun.status_code == 409
+        assert concurrent_rerun.json()["detail"]["code"] == "run_retry_in_progress"
+        release_resume.set()
+        retry_response = retry_future.result(timeout=5)
     assert retry_response.status_code == 202, retry_response.text
     assert retry_response.json()["governance_run_id"] == failed["id"]
     assert retry_response.json()["session_id"] == session_id
@@ -744,6 +770,17 @@ def test_changed_input_requires_rerun_with_a_new_run_and_session(
     assert historical_retry.json()["detail"]["code"] == (
         "run_retry_newer_run_exists"
     )
+    historical_rerun = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/rerun",
+        headers={
+            **superuser_token_headers,
+            "Idempotency-Key": "historical-rerun-blocked",
+        },
+    )
+    assert historical_rerun.status_code == 409
+    assert historical_rerun.json()["detail"]["code"] == (
+        "run_rerun_newer_run_exists"
+    )
 
 
 def test_postgresql_serializes_same_trigger_and_rejects_a_second_active_run(
@@ -899,6 +936,47 @@ def test_concurrent_initial_triggers_reserve_only_one_runner_launch(
             .select_from(GovernanceRun)
             .where(GovernanceRun.project_id == stored_project.id)
         ).one() == 0
+        control_run_id = stored_project.governance_launch_control_run_id
+        assert control_run_id is not None
+
+    launch_session_id = "1" * 64
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_run",
+        lambda _client, requested_id: AgentComposeRunStart(
+            run_id=requested_id,
+            started=False,
+            status="FAILED",
+            session_id=launch_session_id,
+        ),
+    )
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    archive_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/archive",
+        headers=superuser_token_headers,
+    )
+    assert archive_response.status_code == 200, archive_response.text
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert stored_project.governance_launch_trigger_id is None
+        assert stored_project.archived_at is not None
+        convergence = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.project_id == stored_project.id,
+                AuditEvent.action == "governance_run.launch_terminal_converged",
+            )
+        ).one()
+        assert convergence.after_data == {
+            "reason": "session_terminated_before_run"
+        }
 
 
 def test_trigger_requires_operator_or_global_admin_but_never_viewer_or_approver(
@@ -1116,6 +1194,65 @@ def test_active_run_blocks_project_archive_until_run_finishes(
         headers=superuser_token_headers,
     )
     assert archive_response.status_code == 200
+
+
+def test_completed_with_warnings_is_immutable_and_not_retryable(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    inputs = RunnerInputs.from_environment(
+        _runner_environment(
+            project=project,
+            upload=upload,
+            source=source,
+            trigger_id="completed-with-warnings",
+            session_seed="completed-with-warnings-session",
+        )
+    )
+    with Session(engine) as session:
+        run = establish_governance_run(session=session, inputs=inputs)
+        run.status = GovernanceRunStatus.COMPLETED_WITH_WARNINGS.value
+        run.completed_at = run.updated_at
+        run_id = run.id
+        session.add(run)
+        session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["can_trigger"] is True
+    assert response.json()["data"][0]["can_retry"] is False
+    retry_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry_response.status_code == 409
+    assert retry_response.json()["detail"]["code"] == "run_retry_completed"
+
+    with Session(engine) as session:
+        stored = session.get(GovernanceRun, run_id)
+        assert stored is not None
+        stored.status = GovernanceRunStatus.FAILED_PROCESSING.value
+        session.add(stored)
+        with pytest.raises(ProgrammingError):
+            session.commit()
+        session.rollback()
 
 
 def test_referenced_customer_upload_and_artifact_cannot_be_deleted(
