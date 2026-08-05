@@ -464,6 +464,83 @@ export const CustomerUploadsPublicSchema = {
     title: 'CustomerUploadsPublic'
 } as const;
 
+export const GovernanceRunActionPublicSchema = {
+    properties: {
+        accepted: {
+            type: 'boolean',
+            title: 'Accepted'
+        },
+        action: {
+            type: 'string',
+            title: 'Action'
+        },
+        governance_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Governance Run Id'
+        },
+        source_governance_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Governance Run Id'
+        },
+        session_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Session Id'
+        },
+        agent_compose_run_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Agent Compose Run Id'
+        },
+        agent_compose_status: {
+            type: 'string',
+            title: 'Agent Compose Status'
+        },
+        code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Code'
+        }
+    },
+    type: 'object',
+    required: ['accepted', 'action', 'governance_run_id', 'session_id', 'agent_compose_run_id', 'agent_compose_status'],
+    title: 'GovernanceRunActionPublic'
+} as const;
+
 export const GovernanceRunPublicSchema = {
     properties: {
         id: {
@@ -547,6 +624,29 @@ export const GovernanceRunPublicSchema = {
             ],
             title: 'Completed At'
         },
+        session_terminal_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Session Terminal At'
+        },
+        session_recovery_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Session Recovery Code'
+        },
         steps: {
             items: {
                 '$ref': '#/components/schemas/RunStepPublic'
@@ -560,10 +660,36 @@ export const GovernanceRunPublicSchema = {
             },
             type: 'array',
             title: 'Snapshots'
+        },
+        reused_snapshot_count: {
+            type: 'integer',
+            title: 'Reused Snapshot Count',
+            default: 0
+        },
+        can_retry: {
+            type: 'boolean',
+            title: 'Can Retry',
+            default: false
+        },
+        can_rerun: {
+            type: 'boolean',
+            title: 'Can Rerun',
+            default: false
+        },
+        blocking_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Blocking Code'
         }
     },
     type: 'object',
-    required: ['id', 'trigger_id', 'session_id', 'status', 'customer_upload_id', 'customer_upload_sha256', 'customer_upload_profile_id', 'customer_upload_profile_version', 'source_instance_id', 'cloudatlas_validated_fingerprint', 'cloudatlas_capset_id', 'cloudatlas_method', 'package_sha256', 'descriptor_sha256', 'runner_build_version', 'created_at', 'completed_at', 'steps', 'snapshots'],
+    required: ['id', 'trigger_id', 'session_id', 'status', 'customer_upload_id', 'customer_upload_sha256', 'customer_upload_profile_id', 'customer_upload_profile_version', 'source_instance_id', 'cloudatlas_validated_fingerprint', 'cloudatlas_capset_id', 'cloudatlas_method', 'package_sha256', 'descriptor_sha256', 'runner_build_version', 'created_at', 'completed_at', 'session_terminal_at', 'session_recovery_code', 'steps', 'snapshots'],
     title: 'GovernanceRunPublic'
 } as const;
 

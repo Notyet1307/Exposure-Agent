@@ -124,7 +124,7 @@ def archive_project(
             GovernanceRun.status == GovernanceRunStatus.RUNNING.value,
         )
     ).first()
-    if active_run is not None:
+    if active_run is not None or project.governance_launch_trigger_id is not None:
         raise ActiveGovernanceRunError
 
     changed_at = get_datetime_utc()

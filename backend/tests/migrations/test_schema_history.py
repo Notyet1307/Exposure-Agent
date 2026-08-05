@@ -19,7 +19,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_GOVERNANCE_RUN_REVISION = "b7c8d9e0f1a2"
+CURRENT_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 DEFAULT_PROFILE_DEFINITION = {
     "required_headers": [
@@ -573,6 +573,9 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
                 'archived_at',
                 'current_customer_upload_id',
                 'current_customer_upload_profile_id',
+                'governance_launch_control_run_id',
+                'governance_launch_input_hash',
+                'governance_launch_trigger_id',
                 'latest_completed_run_id'
               )
             ORDER BY column_name
@@ -581,7 +584,23 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             ("archived_at", "YES"),
             ("current_customer_upload_id", "YES"),
             ("current_customer_upload_profile_id", "NO"),
+            ("governance_launch_control_run_id", "YES"),
+            ("governance_launch_input_hash", "YES"),
+            ("governance_launch_trigger_id", "YES"),
             ("latest_completed_run_id", "YES"),
+        ]
+        assert connection.execute(
+            """
+            SELECT column_name, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'governance_runs'
+              AND column_name IN ('session_terminal_at', 'session_recovery_code')
+            ORDER BY column_name
+            """
+        ).fetchall() == [
+            ("session_recovery_code", "YES"),
+            ("session_terminal_at", "YES"),
         ]
         assert connection.execute(
             """

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Final
 
 import httpx
@@ -13,6 +14,8 @@ _RUN_KIND: Final = "run"
 _RUN_SOURCE: Final = "api"
 _START_RUN_PATH: Final = "/agentcompose.v2.RunService/StartRun"
 _GET_RUN_PATH: Final = "/agentcompose.v2.RunService/GetRun"
+_GET_SESSION_PATH: Final = "/agentcompose.v2.SandboxService/GetSandbox"
+_RESUME_SESSION_PATH: Final = "/agentcompose.v2.SandboxService/ResumeSandbox"
 
 
 class AgentComposeBoundaryError(Exception):
@@ -26,6 +29,26 @@ class AgentComposeRunStart:
     run_id: str
     started: bool
     status: str
+
+
+class AgentComposeSessionObservation(StrEnum):
+    TERMINAL = "terminal"
+    RUNNING = "running"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class AgentComposeSession:
+    session_id: str
+    observation: AgentComposeSessionObservation
+
+
+def _session_observation(status: str) -> AgentComposeSessionObservation:
+    if status == "stopped":
+        return AgentComposeSessionObservation.TERMINAL
+    if status == "running":
+        return AgentComposeSessionObservation.RUNNING
+    return AgentComposeSessionObservation.UNKNOWN
 
 
 def _stable_id(kind: str, *parts: str) -> str:
@@ -115,36 +138,80 @@ class AgentComposeClient:
         status = _required_string(summary.get("status"))
         return AgentComposeRunStart(run_id=run_id, started=False, status=status)
 
+    def get_session(self, session_id: str) -> AgentComposeSession | None:
+        body = self._request(
+            _GET_SESSION_PATH,
+            {"sandboxId": session_id},
+            missing_ok=True,
+        )
+        if body is None:
+            return None
+        sandbox = _required_object(body.get("sandbox"))
+        returned_id = _required_string(sandbox.get("sandboxId"))
+        if returned_id != session_id:
+            raise AgentComposeBoundaryError(
+                "agent_compose_response_contract_failed"
+            )
+        status = _required_string(sandbox.get("status"))
+        return AgentComposeSession(
+            session_id=session_id,
+            observation=_session_observation(status),
+        )
+
+    def resume_session(self, session_id: str) -> AgentComposeSession:
+        body = self._request(
+            _RESUME_SESSION_PATH,
+            {"sandboxId": session_id},
+            missing_ok=True,
+        )
+        if body is None:
+            raise AgentComposeBoundaryError(
+                "agent_compose_session_not_recoverable"
+            )
+        sandbox = _required_object(body.get("sandbox"))
+        returned_id = _required_string(sandbox.get("sandboxId"))
+        if returned_id != session_id:
+            raise AgentComposeBoundaryError(
+                "agent_compose_response_contract_failed"
+            )
+        status = _required_string(sandbox.get("status"))
+        return AgentComposeSession(
+            session_id=session_id,
+            observation=_session_observation(status),
+        )
+
     def start_governance_run(
         self,
         *,
         client_request_id: str,
         environment: dict[str, str],
+        session_id: str | None = None,
     ) -> AgentComposeRunStart:
         run_id = self.expected_run_id(client_request_id)
         existing = self.get_run(run_id)
         if existing is not None:
             return existing
+        run_request: dict[str, Any] = {
+            "projectId": self.project_id,
+            "agentName": settings.AGENT_COMPOSE_AGENT_NAME,
+            "command": (
+                "/app/.venv/bin/python -m app.governance_runner"
+            ),
+            "source": "RUN_SOURCE_API",
+            "clientRequestId": client_request_id,
+            "cleanupPolicy": (
+                "RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION"
+            ),
+            "env": [
+                {"name": name, "value": value, "secret": False}
+                for name, value in sorted(environment.items())
+            ],
+        }
+        if session_id is not None:
+            run_request["sandboxId"] = session_id
         body = self._request(
             _START_RUN_PATH,
-            {
-                "run": {
-                    "projectId": self.project_id,
-                    "agentName": settings.AGENT_COMPOSE_AGENT_NAME,
-                    "command": (
-                        "/app/.venv/bin/python -m app.governance_runner"
-                    ),
-                    "source": "RUN_SOURCE_API",
-                    "clientRequestId": client_request_id,
-                    "cleanupPolicy": (
-                        "RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION"
-                    ),
-                    "env": [
-                        {"name": name, "value": value, "secret": False}
-                        for name, value in sorted(environment.items())
-                    ],
-                }
-            },
+            {"run": run_request},
         )
         assert body is not None
         summary = _required_object(body.get("run"))

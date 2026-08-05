@@ -64,6 +64,10 @@ class GovernanceRunExecutionError(Exception):
         self.code = code
 
 
+class GovernanceRunProcessingError(GovernanceRunExecutionError):
+    pass
+
+
 @dataclass(frozen=True)
 class PinnedTriggerInputs:
     project_id: uuid.UUID
@@ -79,6 +83,12 @@ class PinnedTriggerInputs:
     package_sha256: str
     descriptor_sha256: str
     runner_build_version: str
+
+    def input_hash(self) -> str:
+        environment = self.runner_environment(trigger_id="-", requested_by="-")
+        environment.pop("GOVERNANCE_TRIGGER_ID")
+        environment.pop("GOVERNANCE_REQUESTED_BY")
+        return _fingerprint(environment)
 
     def runner_environment(
         self,
@@ -193,6 +203,10 @@ def _execution_error(code: str) -> NoReturn:
     raise GovernanceRunExecutionError(code)
 
 
+def _processing_error(code: str) -> NoReturn:
+    raise GovernanceRunProcessingError(code)
+
+
 def _canonical_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -263,11 +277,12 @@ def _audit_event(
     before_data: dict[str, Any] | None,
     after_data: dict[str, Any] | None,
     request_ip: str | None,
+    actor_subject: str | None = None,
 ) -> AuditEvent:
     return AuditEvent(
         tenant_id=run.tenant_id,
         project_id=run.project_id,
-        actor_subject=run.requested_by,
+        actor_subject=actor_subject or run.requested_by,
         actor_type="user",
         action=action,
         target_type=target_type,
@@ -286,6 +301,8 @@ def _validate_runner_inputs(
     ).one_or_none()
     if project is None or project.archived_at is not None:
         _execution_error("runner_project_not_ready")
+    if project.governance_launch_trigger_id not in (None, inputs.trigger_id):
+        _execution_error("runner_project_has_active_launch")
     upload = session.exec(
         select(CustomerUpload).where(
             CustomerUpload.id == inputs.customer_upload_id,
@@ -385,6 +402,12 @@ def establish_governance_run(
     try:
         session.add(run)
         session.flush()
+        if project.governance_launch_trigger_id == inputs.trigger_id:
+            project.governance_launch_trigger_id = None
+            project.governance_launch_control_run_id = None
+            project.governance_launch_input_hash = None
+            project.updated_at = get_datetime_utc()
+            session.add(project)
         session.add(triggered)
         session.add(session_fixed)
         session.commit()
@@ -418,6 +441,10 @@ def _begin_step(
         )
     ).one_or_none()
     if existing is not None:
+        if existing.status == RunStepStatus.SUCCEEDED.value:
+            return existing, False
+        if existing.status == RunStepStatus.RUNNING.value:
+            return existing, True
         return existing, False
     step = RunStep(
         tenant_id=run.tenant_id,
@@ -649,11 +676,11 @@ def _load_customer_snapshot(
             session=session,
             run=run,
             step=step,
-            run_status=GovernanceRunStatus.FAILED_DATA,
-            error_code="customer_snapshot_failed",
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="customer_snapshot_processing_failed",
             request_ip=request_ip,
         )
-        raise GovernanceRunExecutionError("customer_snapshot_failed")
+        raise GovernanceRunExecutionError("customer_snapshot_processing_failed")
 
 
 def _write_cloudatlas_artifact(
@@ -663,7 +690,7 @@ def _write_cloudatlas_artifact(
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError:
-        _execution_error("cloudatlas_artifact_write_failed")
+        _processing_error("cloudatlas_artifact_write_failed")
     temporary_path = directory / f".{uuid.uuid4()}.tmp.json"
     digest = hashlib.sha256()
     byte_size = 0
@@ -677,7 +704,7 @@ def _write_cloudatlas_artifact(
         nonlocal byte_size
         written = destination.write(value)
         if written != len(value):
-            _execution_error("cloudatlas_artifact_write_failed")
+            _processing_error("cloudatlas_artifact_write_failed")
         digest.update(value)
         byte_size += len(value)
 
@@ -799,21 +826,33 @@ def _pull_cloudatlas_snapshot(
             request_ip=request_ip,
             artifact=artifact,
         )
-    except (OSError, CloudAtlasBoundaryError, GovernanceRunExecutionError, SQLAlchemyError):
+    except (OSError, CloudAtlasBoundaryError, GovernanceRunExecutionError, SQLAlchemyError) as error:
         session.rollback()
         if draft is not None:
             draft.temporary_path.unlink(missing_ok=True)
         if final_path is not None:
             final_path.unlink(missing_ok=True)
+        processing_failure = isinstance(
+            error, (OSError, GovernanceRunProcessingError, SQLAlchemyError)
+        )
+        error_code = (
+            "cloudatlas_snapshot_processing_failed"
+            if processing_failure
+            else "cloudatlas_snapshot_failed"
+        )
         _fail_run(
             session=session,
             run=run,
             step=step,
-            run_status=GovernanceRunStatus.FAILED_DATA,
-            error_code="cloudatlas_snapshot_failed",
+            run_status=(
+                GovernanceRunStatus.FAILED_PROCESSING
+                if processing_failure
+                else GovernanceRunStatus.FAILED_DATA
+            ),
+            error_code=error_code,
             request_ip=request_ip,
         )
-        raise GovernanceRunExecutionError("cloudatlas_snapshot_failed")
+        raise GovernanceRunExecutionError(error_code)
 
 
 def _verify_snapshot_artifact(
@@ -927,6 +966,316 @@ def _publish_run(
         raise GovernanceRunExecutionError("publish_failed")
 
 
+def pinned_inputs_for_run(run: GovernanceRun) -> PinnedTriggerInputs:
+    return PinnedTriggerInputs(
+        project_id=run.project_id,
+        tenant_id=run.tenant_id,
+        customer_upload_id=run.customer_upload_id,
+        customer_upload_sha256=run.customer_upload_sha256,
+        customer_upload_profile_id=run.customer_upload_profile_id,
+        customer_upload_profile_version=run.customer_upload_profile_version,
+        source_instance_id=run.source_instance_id,
+        cloudatlas_validated_fingerprint=run.cloudatlas_validated_fingerprint,
+        cloudatlas_capset_id=run.cloudatlas_capset_id,
+        cloudatlas_method=run.cloudatlas_method,
+        package_sha256=run.package_sha256,
+        descriptor_sha256=run.descriptor_sha256,
+        runner_build_version=run.runner_build_version,
+    )
+
+
+def require_retry_readiness(
+    *, session: Session, project: Project, run: GovernanceRun
+) -> PinnedTriggerInputs:
+    latest = session.exec(
+        select(GovernanceRun)
+        .where(GovernanceRun.project_id == project.id)
+        .order_by(
+            col(GovernanceRun.created_at).desc(),
+            col(GovernanceRun.id).desc(),
+        )
+    ).first()
+    if latest is None or latest.id != run.id:
+        raise GovernanceRunStateError("run_retry_newer_run_exists")
+    if run.status == GovernanceRunStatus.COMPLETED.value:
+        raise GovernanceRunStateError("run_retry_completed")
+    if project.archived_at is not None:
+        raise GovernanceRunStateError("run_project_archived")
+    upload = session.exec(
+        select(CustomerUpload).where(
+            CustomerUpload.id == run.customer_upload_id,
+            CustomerUpload.project_id == run.project_id,
+            CustomerUpload.tenant_id == run.tenant_id,
+        )
+    ).one_or_none()
+    if (
+        upload is None
+        or project.current_customer_upload_id != run.customer_upload_id
+        or upload.raw_sha256 != run.customer_upload_sha256
+        or upload.profile_id != run.customer_upload_profile_id
+        or upload.profile_version != run.customer_upload_profile_version
+    ):
+        raise GovernanceRunStateError("run_retry_customer_input_changed")
+    source = session.exec(
+        select(SourceInstance).where(
+            SourceInstance.id == run.source_instance_id,
+            SourceInstance.project_id == run.project_id,
+            SourceInstance.tenant_id == run.tenant_id,
+        )
+    ).one_or_none()
+    if (
+        source is None
+        or not source.enabled
+        or source.capset_id != run.cloudatlas_capset_id
+        or source.validated_fingerprint != run.cloudatlas_validated_fingerprint
+        or run.cloudatlas_method != METHOD
+        or run.package_sha256 != PACKAGE_SHA256
+        or run.descriptor_sha256 != DESCRIPTOR_SHA256
+        or run.runner_build_version != settings.RUNNER_BUILD_VERSION
+    ):
+        raise GovernanceRunStateError("run_retry_cloudatlas_input_changed")
+    try:
+        current = OctobusCloudAtlasClient().current_fingerprint(source)
+    except CloudAtlasBoundaryError:
+        raise GovernanceRunStateError("run_retry_cloudatlas_input_unavailable")
+    if current.value != run.cloudatlas_validated_fingerprint:
+        raise GovernanceRunStateError("run_retry_cloudatlas_input_changed")
+    return pinned_inputs_for_run(run)
+
+
+def converge_terminal_run(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    actor_subject: str,
+    request_ip: str | None,
+) -> None:
+    if run.status != GovernanceRunStatus.RUNNING.value:
+        return
+    terminal_at = get_datetime_utc()
+    step = session.exec(
+        select(RunStep).where(
+            RunStep.governance_run_id == run.id,
+            RunStep.status == RunStepStatus.RUNNING.value,
+        )
+    ).first()
+    if step is not None:
+        step.status = RunStepStatus.FAILED.value
+        step.error_code = "session_terminated"
+        step.completed_at = terminal_at
+        step.updated_at = terminal_at
+        session.add(step)
+        session.add(
+            _audit_event(
+                run=run,
+                action="run_step.failed",
+                target_type="run_step",
+                target_id=step.id,
+                before_data={"status": RunStepStatus.RUNNING.value},
+                after_data={
+                    "step_code": step.step_code,
+                    "status": step.status,
+                    "error_code": step.error_code,
+                    "attempt": step.attempt,
+                },
+                request_ip=request_ip,
+                actor_subject=actor_subject,
+            )
+        )
+    run.status = GovernanceRunStatus.FAILED_PROCESSING.value
+    run.session_terminal_at = terminal_at
+    run.updated_at = terminal_at
+    session.add(run)
+    session.add(
+        _audit_event(
+            run=run,
+            action="governance_run.session_terminal_converged",
+            target_type="governance_run",
+            target_id=run.id,
+            before_data={"status": GovernanceRunStatus.RUNNING.value},
+            after_data={
+                "status": run.status,
+                "reason": "session_terminated",
+            },
+            request_ip=request_ip,
+            actor_subject=actor_subject,
+        )
+    )
+    session.commit()
+    session.refresh(run)
+
+
+def prepare_retry(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    actor_subject: str,
+    request_ip: str | None,
+) -> RunStep:
+    step = session.exec(
+        select(RunStep).where(
+            RunStep.governance_run_id == run.id,
+            RunStep.status == RunStepStatus.FAILED.value,
+        )
+    ).first()
+    if step is None:
+        raise GovernanceRunStateError("run_retry_no_failed_step")
+    previous_status = run.status
+    attempted_at = get_datetime_utc()
+    step.status = RunStepStatus.RUNNING.value
+    step.attempt += 1
+    step.output_hash = None
+    step.error_code = None
+    step.started_at = attempted_at
+    step.completed_at = None
+    step.updated_at = attempted_at
+    run.status = GovernanceRunStatus.RUNNING.value
+    run.completed_at = None
+    run.session_terminal_at = attempted_at
+    run.session_recovery_code = "retry_prepared"
+    run.updated_at = attempted_at
+    session.add(step)
+    session.add(run)
+    session.add(
+        _audit_event(
+            run=run,
+            action="run_step.attempted",
+            target_type="run_step",
+            target_id=step.id,
+            before_data={"status": RunStepStatus.FAILED.value},
+            after_data={
+                "step_code": step.step_code,
+                "status": step.status,
+                "attempt": step.attempt,
+            },
+            request_ip=request_ip,
+            actor_subject=actor_subject,
+        )
+    )
+    session.add(
+        _audit_event(
+            run=run,
+            action="governance_run.retry_started",
+            target_type="governance_run",
+            target_id=run.id,
+            before_data={"status": previous_status},
+            after_data={
+                "status": run.status,
+                "session_id": run.session_id,
+                "attempt": step.attempt,
+            },
+            request_ip=request_ip,
+            actor_subject=actor_subject,
+        )
+    )
+    session.commit()
+    session.refresh(step)
+    session.refresh(run)
+    return step
+
+
+def finish_retry_start(*, session: Session, run: GovernanceRun) -> None:
+    run.session_terminal_at = None
+    run.session_recovery_code = None
+    run.updated_at = get_datetime_utc()
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+
+
+def fail_retry_start(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    actor_subject: str,
+    request_ip: str | None,
+) -> None:
+    step = session.exec(
+        select(RunStep).where(
+            RunStep.governance_run_id == run.id,
+            RunStep.status == RunStepStatus.RUNNING.value,
+        )
+    ).first()
+    failed_at = get_datetime_utc()
+    if step is not None:
+        step.status = RunStepStatus.FAILED.value
+        step.error_code = "session_not_recoverable"
+        step.completed_at = failed_at
+        step.updated_at = failed_at
+        session.add(step)
+    run.status = GovernanceRunStatus.FAILED_PROCESSING.value
+    run.session_terminal_at = failed_at
+    run.session_recovery_code = "run_session_not_recoverable"
+    run.updated_at = failed_at
+    session.add(run)
+    session.add(
+        _audit_event(
+            run=run,
+            action="governance_run.retry_rejected",
+            target_type="governance_run",
+            target_id=run.id,
+            before_data={"status": GovernanceRunStatus.RUNNING.value},
+            after_data={
+                "status": run.status,
+                "reason": run.session_recovery_code,
+            },
+            request_ip=request_ip,
+            actor_subject=actor_subject,
+        )
+    )
+    session.commit()
+    session.refresh(run)
+
+
+def reserve_run_launch(
+    *,
+    session: Session,
+    project: Project,
+    trigger_id: str,
+    control_run_id: str,
+    pinned: PinnedTriggerInputs,
+) -> bool:
+    input_hash = pinned.input_hash()
+    if project.governance_launch_trigger_id is not None:
+        if (
+            project.governance_launch_trigger_id == trigger_id
+            and project.governance_launch_control_run_id == control_run_id
+            and project.governance_launch_input_hash == input_hash
+        ):
+            return False
+        raise GovernanceRunStateError("run_launch_in_progress")
+    project.governance_launch_trigger_id = trigger_id
+    project.governance_launch_control_run_id = control_run_id
+    project.governance_launch_input_hash = input_hash
+    project.updated_at = get_datetime_utc()
+    session.add(project)
+    return True
+
+
+def record_run_action(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    action: str,
+    actor_subject: str,
+    request_ip: str | None,
+    after_data: dict[str, Any],
+) -> None:
+    session.add(
+        _audit_event(
+            run=run,
+            action=action,
+            target_type="governance_run",
+            target_id=run.id,
+            before_data={"status": run.status},
+            after_data=after_data,
+            request_ip=request_ip,
+            actor_subject=actor_subject,
+        )
+    )
+    session.commit()
+
+
 def execute_governance_run(*, session: Session, inputs: RunnerInputs) -> GovernanceRun:
     run = establish_governance_run(session=session, inputs=inputs)
     if run.status != GovernanceRunStatus.RUNNING.value:
@@ -947,6 +1296,18 @@ def governance_run_public(
     snapshots = session.exec(
         select(SourceSnapshot).where(SourceSnapshot.governance_run_id == run.id)
     ).all()
+    reused_snapshot_count = 0
+    if any(step.attempt > 1 for step in steps):
+        attempts = {step.step_code: step.attempt for step in steps}
+        reused_snapshot_count = sum(
+            attempts.get(
+                RunStepCode.LOAD_CUSTOMER.value
+                if snapshot.source_type == SourceSnapshotType.CUSTOMER_UPLOAD.value
+                else RunStepCode.PULL_CLOUDATLAS.value
+            )
+            == 1
+            for snapshot in snapshots
+        )
     return GovernanceRunPublic(
         **run.model_dump(),
         steps=[
@@ -959,10 +1320,13 @@ def governance_run_public(
                 snapshots, key=lambda item: item.source_type
             )
         ],
+        reused_snapshot_count=reused_snapshot_count,
     )
 
 
-def list_project_runs(*, session: Session, project_id: uuid.UUID) -> list[GovernanceRun]:
+def list_project_runs(
+    *, session: Session, project_id: uuid.UUID
+) -> list[GovernanceRun]:
     return list(
         session.exec(
             select(GovernanceRun)

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Play } from "lucide-react"
+import { Play, Repeat2, RotateCcw } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { type GovernanceRunPublic, GovernanceRunsService } from "@/client"
@@ -32,11 +32,40 @@ const READINESS_MESSAGES: Record<string, string> = {
     "The deployment CloudAtlas Run credential is not configured.",
 }
 
+const BLOCKING_MESSAGES: Record<string, string> = {
+  run_session_state_unknown:
+    "The original Session state is unknown. Retry, Rerun, and new Runs are blocked.",
+  run_session_still_running:
+    "The original Session is still running and keeps the Project Run slot.",
+  run_session_not_recoverable:
+    "The original Session cannot be recovered. Use an explicit Rerun.",
+  run_retry_customer_input_changed:
+    "The fixed CustomerUpload changed. Retry is unavailable; Rerun uses current input.",
+  run_retry_cloudatlas_input_changed:
+    "The fixed CloudAtlas input changed. Retry is unavailable; Rerun uses current input.",
+  run_retry_cloudatlas_input_unavailable:
+    "The fixed CloudAtlas input cannot currently be verified.",
+  run_retry_newer_run_exists:
+    "A newer Run makes this Run permanently historical.",
+}
+
 function hashSummary(value: string) {
   return `${value.slice(0, 12)}…`
 }
 
-function RunDetails({ run }: { run: GovernanceRunPublic }) {
+function RunDetails({
+  run,
+  onRetry,
+  onRerun,
+  retrying,
+  rerunning,
+}: {
+  run: GovernanceRunPublic
+  onRetry: () => void
+  onRerun: () => void
+  retrying: boolean
+  rerunning: boolean
+}) {
   return (
     <Card>
       <CardHeader>
@@ -122,6 +151,42 @@ function RunDetails({ run }: { run: GovernanceRunPublic }) {
             </div>
           )}
         </div>
+
+        {(run.reused_snapshot_count ?? 0) > 0 && (
+          <p className="text-sm">
+            Snapshots reused: {run.reused_snapshot_count}
+          </p>
+        )}
+        {run.blocking_code && (
+          <Alert>
+            <AlertTitle>Recovery status</AlertTitle>
+            <AlertDescription>
+              {BLOCKING_MESSAGES[run.blocking_code] ??
+                "Recovery is currently blocked."}
+            </AlertDescription>
+          </Alert>
+        )}
+        {(run.can_retry || run.can_rerun) && (
+          <div className="flex flex-wrap gap-2">
+            {run.can_retry && (
+              <LoadingButton type="button" loading={retrying} onClick={onRetry}>
+                <RotateCcw />
+                Retry same Session
+              </LoadingButton>
+            )}
+            {run.can_rerun && (
+              <LoadingButton
+                type="button"
+                variant="outline"
+                loading={rerunning}
+                onClick={onRerun}
+              >
+                <Repeat2 />
+                Rerun with current inputs
+              </LoadingButton>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -130,6 +195,7 @@ function RunDetails({ run }: { run: GovernanceRunPublic }) {
 export default function GovernanceRuns({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient()
   const triggerId = useRef<string | null>(null)
+  const rerunIds = useRef<Record<string, string>>({})
   const runCountBeforeTrigger = useRef(0)
   const [message, setMessage] = useState<string | null>(null)
   const [sessionPending, setSessionPending] = useState(false)
@@ -175,6 +241,39 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
     onError: () =>
       setMessage(
         "The Governance Session could not be started. Retrying will reuse the same Trigger ID.",
+      ),
+  })
+  const retryMutation = useMutation({
+    mutationFn: (runId: string) =>
+      GovernanceRunsService.retryGovernanceRun({ projectId, runId }),
+    onSuccess: async () => {
+      setMessage("Retry accepted for the same Governance Run and Session.")
+      await queryClient.invalidateQueries({ queryKey })
+    },
+    onError: () =>
+      setMessage(
+        "Retry was rejected. Review the stable recovery status below.",
+      ),
+  })
+  const rerunMutation = useMutation({
+    mutationFn: (runId: string) => {
+      rerunIds.current[runId] ??= crypto.randomUUID()
+      return GovernanceRunsService.rerunGovernanceRun({
+        projectId,
+        runId,
+        idempotencyKey: rerunIds.current[runId],
+      })
+    },
+    onSuccess: async (_result, runId) => {
+      delete rerunIds.current[runId]
+      setMessage("Rerun accepted with current inputs and a new Trigger ID.")
+      setSessionPending(true)
+      runCountBeforeTrigger.current = runsQuery.data?.count ?? 0
+      await queryClient.invalidateQueries({ queryKey })
+    },
+    onError: () =>
+      setMessage(
+        "Rerun was rejected. Review the stable recovery status below.",
       ),
   })
 
@@ -242,7 +341,26 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
       {runs.data.length === 0 ? (
         <p className="text-sm text-muted-foreground">No Governance Runs yet.</p>
       ) : (
-        runs.data.map((run) => <RunDetails key={run.id} run={run} />)
+        runs.data.map((run) => (
+          <RunDetails
+            key={run.id}
+            run={run}
+            onRetry={() => {
+              setMessage(null)
+              retryMutation.mutate(run.id)
+            }}
+            onRerun={() => {
+              setMessage(null)
+              rerunMutation.mutate(run.id)
+            }}
+            retrying={
+              retryMutation.isPending && retryMutation.variables === run.id
+            }
+            rerunning={
+              rerunMutation.isPending && rerunMutation.variables === run.id
+            }
+          />
+        ))
       )}
     </section>
   )

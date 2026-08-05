@@ -12,7 +12,7 @@ from openpyxl import Workbook  # type: ignore[import-untyped]
 from pydantic import SecretStr
 from pytest import MonkeyPatch
 from sqlalchemy.exc import IntegrityError, ProgrammingError
-from sqlmodel import Session, func, select
+from sqlmodel import Session, col, func, select
 
 from app.core.config import settings
 from app.core.db import engine
@@ -36,7 +36,12 @@ from app.domain.models import (
     SourceSnapshot,
 )
 from app.governance_runner import main as run_governance_runner
-from tests.utils.audit import reject_publish_audit_inserts
+from app.integrations.agent_compose import (
+    AgentComposeRunStart,
+    AgentComposeSession,
+    AgentComposeSessionObservation,
+)
+from tests.utils.audit import reject_audit_inserts, reject_publish_audit_inserts
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
 
@@ -81,11 +86,11 @@ def _create_member(
     return user_authentication_headers(client=client, email=email, password=password)
 
 
-def _workbook_bytes() -> bytes:
+def _workbook_bytes(ip_address: str = "192.0.2.10") -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.append(REQUIRED_HEADERS)
-    worksheet.append(["192.0.2.10", 443, 443, "是", "example.test"])
+    worksheet.append([ip_address, 443, 443, "是", "example.test"])
     output = io.BytesIO()
     workbook.save(output)
     workbook.close()
@@ -360,6 +365,386 @@ def test_cloudatlas_failure_stops_before_publish_without_a_completed_result(
     cloudatlas_directory = tmp_path / "cloudatlas_snapshots"
     assert not cloudatlas_directory.exists() or not list(cloudatlas_directory.iterdir())
 
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.UNKNOWN,
+        ),
+    )
+    retry_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run['id']}/retry",
+        headers=superuser_token_headers,
+    )
+    rerun_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run['id']}/rerun",
+        headers={**superuser_token_headers, "Idempotency-Key": "unknown-rerun"},
+    )
+    new_trigger_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers={**superuser_token_headers, "Idempotency-Key": "unknown-new-run"},
+    )
+    assert retry_response.status_code == 409
+    assert rerun_response.status_code == 409
+    assert new_trigger_response.status_code == 409
+    assert {
+        retry_response.json()["detail"]["code"],
+        rerun_response.json()["detail"]["code"],
+        new_trigger_response.json()["detail"]["code"],
+    } == {"run_session_state_unknown"}
+    with Session(engine) as session:
+        assert session.exec(
+            select(func.count())
+            .select_from(GovernanceRun)
+            .where(GovernanceRun.project_id == uuid.UUID(str(project["id"])))
+        ).one() == 1
+        rejection_events = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.project_id == uuid.UUID(str(project["id"])),
+                col(AuditEvent.action).in_(
+                    (
+                        "governance_run.retry_rejected",
+                        "governance_run.rerun_rejected",
+                        "governance_run.new_trigger_rejected",
+                    )
+                ),
+            )
+        ).all()
+        assert len(rejection_events) == 3
+        assert {
+            cast(dict[str, object], event.after_data)["reason"]
+            for event in rejection_events
+        } == {"run_session_state_unknown"}
+        assert "cloudatlas_upstream_failed" not in str(
+            [event.after_data for event in rejection_events]
+        )
+
+
+def test_artifact_persistence_failure_is_failed_processing(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="artifact-failure",
+        session_seed="artifact-failure-session",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        "app.domain.governance_runs.os.replace",
+        lambda _source, _destination: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    assert run_governance_runner() == 1
+
+    run = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert run["status"] == "FAILED_PROCESSING"
+    assert [(step["step_code"], step["status"]) for step in run["steps"]] == [
+        ("LOAD_CUSTOMER", "SUCCEEDED"),
+        ("PULL_CLOUDATLAS", "FAILED"),
+    ]
+    assert [snapshot["source_type"] for snapshot in run["snapshots"]] == [
+        "CUSTOMER_UPLOAD"
+    ]
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert stored_project.latest_completed_run_id is None
+
+
+def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    db: Session,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    runner_environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="retry-cloudatlas",
+        session_seed="retry-cloudatlas-session",
+    )
+    for name, value in runner_environment.items():
+        monkeypatch.setenv(name, value)
+
+    calls = 0
+
+    def fail_first_page(
+        _client: object,
+        _source: object,
+        *,
+        capset_token: str,
+        page: int,
+        size: int,
+    ) -> dict[str, object]:
+        nonlocal calls
+        del capset_token
+        calls += 1
+        if calls == 1:
+            raise CloudAtlasBoundaryError("cloudatlas_upstream_failed")
+        return {
+            "items": [
+                {"id": "fixture-asset-1", "ip": "192.0.2.10", "status": "valid"}
+            ],
+            "page": page,
+            "size": size,
+            "total": 1,
+        }
+
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient, "list_ip_assets_page", fail_first_page
+    )
+    assert run_governance_runner() == 1
+    failed = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    customer_snapshot_id = next(
+        snapshot["id"]
+        for snapshot in failed["snapshots"]
+        if snapshot["source_type"] == "CUSTOMER_UPLOAD"
+    )
+    session_id = runner_environment["SANDBOX_ID"]
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
+        lambda _client, **_kwargs: AgentComposeRunStart(
+            run_id="d" * 64, started=True, status="RUNNING"
+        ),
+    )
+
+    with reject_audit_inserts(db), pytest.raises(ProgrammingError):
+        client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed['id']}/retry",
+            headers=superuser_token_headers,
+        )
+    rolled_back = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert rolled_back["status"] == "FAILED_DATA"
+    assert {
+        step["step_code"]: step["attempt"] for step in rolled_back["steps"]
+    } == {"LOAD_CUSTOMER": 1, "PULL_CLOUDATLAS": 1}
+
+    retry_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed['id']}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry_response.status_code == 202, retry_response.text
+    assert retry_response.json()["governance_run_id"] == failed["id"]
+    assert retry_response.json()["session_id"] == session_id
+
+    duplicate_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed['id']}/retry",
+        headers=superuser_token_headers,
+    )
+    assert duplicate_response.status_code == 200
+    assert duplicate_response.json()["accepted"] is False
+
+    assert run_governance_runner() == 0
+    completed = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert completed["status"] == "COMPLETED"
+    assert completed["session_id"] == session_id
+    assert next(
+        snapshot["id"]
+        for snapshot in completed["snapshots"]
+        if snapshot["source_type"] == "CUSTOMER_UPLOAD"
+    ) == customer_snapshot_id
+    assert {
+        step["step_code"]: step["attempt"] for step in completed["steps"]
+    } == {"LOAD_CUSTOMER": 1, "PULL_CLOUDATLAS": 2, "PUBLISH": 1}
+    assert completed["reused_snapshot_count"] == 1
+
+
+def test_changed_input_requires_rerun_with_a_new_run_and_session(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    original_environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="rerun-original",
+        session_seed="rerun-original-session",
+    )
+    for name, value in original_environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient,
+        "list_ip_assets_page",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            CloudAtlasBoundaryError("cloudatlas_upstream_failed")
+        ),
+    )
+    assert run_governance_runner() == 1
+    original = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+
+    upload_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers=superuser_token_headers,
+        files={
+            "file": (
+                "customer-new.xlsx",
+                _workbook_bytes("198.51.100.20"),
+                XLSX_MEDIA_TYPE,
+            )
+        },
+    )
+    assert upload_response.status_code == 201
+    new_upload = upload_response.json()
+    assert client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads/{new_upload['id']}/select",
+        headers=superuser_token_headers,
+    ).status_code == 200
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+
+    retry_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry_response.status_code == 409
+    assert retry_response.json()["detail"]["code"] == (
+        "run_retry_customer_input_changed"
+    )
+
+    captured_environment: dict[str, str] = {}
+
+    def start_rerun(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        assert client_request_id.endswith(":rerun-new")
+        assert session_id is None
+        captured_environment.update(environment)
+        return AgentComposeRunStart(
+            run_id="e" * 64, started=True, status="RUNNING"
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
+        start_rerun,
+    )
+    rerun_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/rerun",
+        headers={**superuser_token_headers, "Idempotency-Key": "rerun-new"},
+    )
+    assert rerun_response.status_code == 202, rerun_response.text
+    assert captured_environment["GOVERNANCE_CUSTOMER_UPLOAD_ID"] == new_upload["id"]
+    assert captured_environment["GOVERNANCE_TRIGGER_ID"] == "rerun-new"
+
+    _mock_cloudatlas(monkeypatch)
+    for name, value in captured_environment.items():
+        monkeypatch.setenv(name, value)
+    new_session_id = hashlib.sha256(b"rerun-new-session").hexdigest()
+    monkeypatch.setenv("SANDBOX_ID", new_session_id)
+    assert run_governance_runner() == 0
+
+    runs = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"]
+    assert len(runs) == 2
+    assert runs[0]["status"] == "COMPLETED"
+    assert runs[0]["trigger_id"] == "rerun-new"
+    assert runs[0]["session_id"] == new_session_id
+    assert runs[1]["id"] == original["id"]
+    assert runs[1]["status"] == "FAILED_DATA"
+
+    historical_retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/retry",
+        headers=superuser_token_headers,
+    )
+    assert historical_retry.status_code == 409
+    assert historical_retry.json()["detail"]["code"] == (
+        "run_retry_newer_run_exists"
+    )
+
 
 def test_postgresql_serializes_same_trigger_and_rejects_a_second_active_run(
     client: TestClient,
@@ -448,6 +833,74 @@ def test_postgresql_serializes_same_trigger_and_rejects_a_second_active_run(
     } == {"runner_project_has_active_run"}
 
 
+def test_concurrent_initial_triggers_reserve_only_one_runner_launch(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    started: list[str] = []
+
+    def start_run(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del environment, session_id
+        started.append(client_request_id)
+        return AgentComposeRunStart(
+            run_id=hashlib.sha256(client_request_id.encode()).hexdigest(),
+            started=True,
+            status="RUNNING",
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
+        start_run,
+    )
+    url = f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs"
+
+    def trigger(trigger_id: str) -> int:
+        return cast(
+            int,
+            client.post(
+                url,
+                headers={**superuser_token_headers, "Idempotency-Key": trigger_id},
+            ).status_code,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        statuses = list(executor.map(trigger, ("concurrent-a", "concurrent-b")))
+
+    assert sorted(statuses) == [202, 409]
+    assert len(started) == 1
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert stored_project.governance_launch_trigger_id in {
+            "concurrent-a",
+            "concurrent-b",
+        }
+        assert session.exec(
+            select(func.count())
+            .select_from(GovernanceRun)
+            .where(GovernanceRun.project_id == stored_project.id)
+        ).one() == 0
+
+
 def test_trigger_requires_operator_or_global_admin_but_never_viewer_or_approver(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -472,6 +925,17 @@ def test_trigger_requires_operator_or_global_admin_but_never_viewer_or_approver(
         assert read_response.status_code == 200, read_response.text
         assert read_response.json()["can_trigger"] is False
         assert read_response.json()["data"] == []
+        recovery_id = uuid.uuid4()
+        retry_response = client.post(
+            f"{run_url}/{recovery_id}/retry",
+            headers=member_headers,
+        )
+        rerun_response = client.post(
+            f"{run_url}/{recovery_id}/rerun",
+            headers={**member_headers, "Idempotency-Key": f"{role}-rerun"},
+        )
+        assert retry_response.status_code == 404
+        assert rerun_response.status_code == 404
 
     outside_headers = _create_member(
         client,
@@ -804,6 +1268,57 @@ def test_publish_audit_insert_failure_rolls_back_completion(
         stored_project = session.get(Project, uuid.UUID(str(project["id"])))
         assert stored_project is not None
         assert stored_project.latest_completed_run_id is None
+
+    snapshot_ids = {snapshot["id"] for snapshot in run["snapshots"]}
+    session_id = runner_environment["SANDBOX_ID"]
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
+        lambda _client, **_kwargs: AgentComposeRunStart(
+            run_id="f" * 64, started=True, status="RUNNING"
+        ),
+    )
+    retry_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run['id']}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry_response.status_code == 202
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient,
+        "list_ip_assets_page",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("PUBLISH Retry must not re-read CloudAtlas")
+        ),
+    )
+    assert run_governance_runner() == 0
+
+    completed = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert completed["status"] == "COMPLETED"
+    assert completed["session_id"] == session_id
+    assert {snapshot["id"] for snapshot in completed["snapshots"]} == snapshot_ids
+    assert {
+        step["step_code"]: step["attempt"] for step in completed["steps"]
+    } == {"LOAD_CUSTOMER": 1, "PULL_CLOUDATLAS": 1, "PUBLISH": 2}
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert str(stored_project.latest_completed_run_id) == completed["id"]
 
 
 def test_two_projects_run_independently_in_parallel(
