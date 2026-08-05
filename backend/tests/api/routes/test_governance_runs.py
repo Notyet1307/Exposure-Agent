@@ -34,6 +34,7 @@ from app.domain.models import (
     GovernanceRun,
     GovernanceRunStatus,
     Project,
+    RunStep,
     SourceSnapshot,
 )
 from app.governance_runner import main as run_governance_runner
@@ -478,7 +479,7 @@ def test_artifact_persistence_failure_is_failed_processing(
         assert stored_project.latest_completed_run_id is None
 
 
-def test_retry_without_a_failed_step_is_audited_and_rejected(
+def test_retry_recovers_when_the_session_stops_before_runner_reentry(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
@@ -499,19 +500,21 @@ def test_retry_without_a_failed_step_is_audited_and_rejected(
         headers=superuser_token_headers,
         project=project,
     )
-    inputs = RunnerInputs.from_environment(
-        _runner_environment(
-            project=project,
-            upload=upload,
-            source=source,
-            trigger_id="retry-no-step",
-            session_seed="retry-no-step-session",
-        )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="retry-before-first-step",
+        session_seed="retry-before-first-step-session",
     )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    inputs = RunnerInputs.from_environment(environment)
     with Session(engine) as session:
         run = establish_governance_run(session=session, inputs=inputs)
         run_id = run.id
 
+    session_id = environment["SANDBOX_ID"]
     monkeypatch.setattr(
         AgentComposeClient,
         "get_session",
@@ -520,25 +523,184 @@ def test_retry_without_a_failed_step_is_audited_and_rejected(
             observation=AgentComposeSessionObservation.TERMINAL,
         ),
     )
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+    control_status = "RUN_STATUS_FAILED"
+    started_requests: list[str] = []
 
+    def get_run(
+        _client: object, requested_id: str
+    ) -> AgentComposeRunStart:
+        return AgentComposeRunStart(
+            run_id=requested_id,
+            started=False,
+            status=control_status,
+            session_id=session_id,
+        )
+
+    def start_run(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del environment
+        assert session_id == inputs.session_id
+        started_requests.append(client_request_id)
+        return AgentComposeRunStart(
+            run_id=hashlib.sha256(client_request_id.encode()).hexdigest(),
+            started=True,
+            status="RUN_STATUS_PENDING",
+            session_id=session_id,
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
+    monkeypatch.setattr(AgentComposeClient, "start_governance_run", start_run)
+
+    first_retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert first_retry.status_code == 202, first_retry.text
+    assert started_requests[-1].endswith(":retry:1")
+
+    second_retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert second_retry.status_code == 202, second_retry.text
+    assert started_requests[-1].endswith(":retry:2")
+
+    control_status = "RUN_STATUS_RUNNING"
+    duplicate_retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert duplicate_retry.status_code == 200, duplicate_retry.text
+    assert duplicate_retry.json()["code"] == "run_retry_in_progress"
+    with Session(engine) as session:
+        stored = session.get(GovernanceRun, run_id)
+        assert stored is not None
+        assert stored.session_recovery_code == "retry_prepared"
+        step = session.exec(
+            select(RunStep).where(RunStep.governance_run_id == run_id)
+        ).one()
+        assert (step.step_code, step.status, step.attempt) == (
+            "LOAD_CUSTOMER",
+            "RUNNING",
+            2,
+        )
+
+    assert run_governance_runner() == 0
+    with Session(engine) as session:
+        completed = session.get(GovernanceRun, run_id)
+        assert completed is not None
+        assert completed.status == GovernanceRunStatus.COMPLETED.value
+        assert completed.session_recovery_code is None
+
+
+def test_retry_is_blocked_by_an_outstanding_rerun_launch(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    inputs = RunnerInputs.from_environment(
+        _runner_environment(
+            project=project,
+            upload=upload,
+            source=source,
+            trigger_id="retry-reservation-original",
+            session_seed="retry-reservation-session",
+        )
+    )
+    with Session(engine) as session:
+        run = establish_governance_run(session=session, inputs=inputs)
+        run.status = GovernanceRunStatus.FAILED_PROCESSING.value
+        session.add(run)
+        session.add(
+            RunStep(
+                tenant_id=run.tenant_id,
+                project_id=run.project_id,
+                governance_run_id=run.id,
+                step_code="LOAD_CUSTOMER",
+                status="FAILED",
+                input_hash=run.customer_upload_sha256,
+                error_code="session_terminated",
+            )
+        )
+        stored_project = session.get(Project, run.project_id)
+        assert stored_project is not None
+        stored_project.governance_launch_trigger_id = "outstanding-rerun"
+        stored_project.governance_launch_control_run_id = "f" * 64
+        stored_project.governance_launch_input_hash = "e" * 64
+        session.add(stored_project)
+        session.commit()
+        run_id = run.id
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_run",
+        lambda _client, requested_id: AgentComposeRunStart(
+            run_id=requested_id,
+            started=False,
+            status="RUN_STATUS_PENDING",
+            session_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    started = False
+
+    def start_run(*_args: object, **_kwargs: object) -> AgentComposeRunStart:
+        nonlocal started
+        started = True
+        return AgentComposeRunStart(
+            run_id="d" * 64, started=True, status="RUN_STATUS_PENDING"
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_governance_run", start_run)
     response = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
         headers=superuser_token_headers,
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "run_retry_no_failed_step"
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "run_launch_in_progress"
+    assert started is False
     with Session(engine) as session:
-        stored = session.get(GovernanceRun, run_id)
-        assert stored is not None
-        assert stored.status == GovernanceRunStatus.RUNNING.value
         rejection = session.exec(
             select(AuditEvent).where(
                 AuditEvent.target_id == run_id,
                 AuditEvent.action == "governance_run.retry_rejected",
             )
         ).one()
-        assert rejection.after_data == {"reason": "run_retry_no_failed_step"}
+        assert rejection.after_data == {"reason": "run_launch_in_progress"}
 
 
 def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
@@ -638,7 +800,19 @@ def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
     monkeypatch.setattr(
         "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
         lambda _client, **_kwargs: AgentComposeRunStart(
-            run_id="d" * 64, started=True, status="RUNNING"
+            run_id="d" * 64,
+            started=True,
+            status="RUN_STATUS_RUNNING",
+            session_id=session_id,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.get_run",
+        lambda _client, requested_id: AgentComposeRunStart(
+            run_id=requested_id,
+            started=False,
+            status="RUN_STATUS_RUNNING",
+            session_id=session_id,
         ),
     )
 
@@ -934,6 +1108,25 @@ def test_changed_input_requires_rerun_with_a_new_run_and_session(
     assert runs[0]["session_id"] == new_session_id
     assert runs[1]["id"] == original["id"]
     assert runs[1]["status"] == "FAILED_DATA"
+
+    duplicate_rerun = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/rerun",
+        headers={**superuser_token_headers, "Idempotency-Key": "rerun-new"},
+    )
+    assert duplicate_rerun.status_code == 200, duplicate_rerun.text
+    assert duplicate_rerun.json()["governance_run_id"] == runs[0]["id"]
+
+    conflicting_trigger = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/rerun",
+        headers={
+            **superuser_token_headers,
+            "Idempotency-Key": original["trigger_id"],
+        },
+    )
+    assert conflicting_trigger.status_code == 409, conflicting_trigger.text
+    assert conflicting_trigger.json()["detail"]["code"] == (
+        "run_rerun_trigger_conflict"
+    )
 
     historical_retry = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/retry",

@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
     AgentComposeClient,
+    AgentComposeRunStart,
     AgentComposeSessionObservation,
 )
 
@@ -164,6 +165,50 @@ def test_start_governance_run_reuses_existing_run(
     assert result.started is False
     assert result.status == "RUNNING"
     assert result.session_id == "a" * 64
+
+
+def test_retry_start_rejects_an_existing_run_for_another_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+    client = AgentComposeClient()
+    expected_id = client.expected_run_id("project:trigger:retry:2")
+    _install_response(
+        monkeypatch,
+        _Response(
+            200,
+            {
+                "run": {
+                    "summary": {
+                        "runId": expected_id,
+                        "status": "RUNNING",
+                        "sandboxId": "a" * 64,
+                    }
+                }
+            },
+        ),
+    )
+
+    with pytest.raises(
+        AgentComposeBoundaryError, match="agent_compose_response_contract_failed"
+    ):
+        client.start_governance_run(
+            client_request_id="project:trigger:retry:2",
+            environment={},
+            session_id="b" * 64,
+        )
+
+
+def test_agent_compose_run_observation_fails_closed_for_unknown_status() -> None:
+    assert AgentComposeRunStart(
+        run_id="a" * 64, started=False, status="RUN_STATUS_FAILED"
+    ).is_terminal
+    assert not AgentComposeRunStart(
+        run_id="a" * 64, started=False, status="RUN_STATUS_RUNNING"
+    ).is_terminal
+    assert not AgentComposeRunStart(
+        run_id="a" * 64, started=False, status="future-status"
+    ).is_terminal
 
 
 @pytest.mark.parametrize(

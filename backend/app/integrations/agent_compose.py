@@ -31,6 +31,15 @@ class AgentComposeRunStart:
     status: str
     session_id: str | None = None
 
+    @property
+    def is_terminal(self) -> bool:
+        return self.status.upper() in {
+            "FAILED",
+            "SUCCEEDED",
+            "RUN_STATUS_FAILED",
+            "RUN_STATUS_SUCCEEDED",
+        }
+
 
 class AgentComposeSessionObservation(StrEnum):
     TERMINAL = "terminal"
@@ -204,6 +213,10 @@ class AgentComposeClient:
         run_id = self.expected_run_id(client_request_id)
         existing = self.get_run(run_id)
         if existing is not None:
+            if session_id is not None and existing.session_id != session_id:
+                raise AgentComposeBoundaryError(
+                    "agent_compose_response_contract_failed"
+                )
             return existing
         run_request: dict[str, Any] = {
             "projectId": self.project_id,

@@ -367,6 +367,13 @@ def establish_governance_run(
     if existing is not None:
         if existing.session_id != inputs.session_id:
             _execution_error("runner_trigger_session_conflict")
+        if existing.session_recovery_code == "retry_prepared":
+            existing.session_terminal_at = None
+            existing.session_recovery_code = None
+            existing.updated_at = get_datetime_utc()
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
         return existing
 
     project, upload, source = _validate_runner_inputs(session=session, inputs=inputs)
@@ -997,6 +1004,8 @@ def pinned_inputs_for_run(run: GovernanceRun) -> PinnedTriggerInputs:
 def require_retry_readiness(
     *, session: Session, project: Project, run: GovernanceRun
 ) -> PinnedTriggerInputs:
+    if project.governance_launch_trigger_id is not None:
+        raise GovernanceRunStateError("run_launch_in_progress")
     latest = session.exec(
         select(GovernanceRun)
         .where(GovernanceRun.project_id == project.id)
@@ -1120,23 +1129,62 @@ def prepare_retry(
     actor_subject: str,
     request_ip: str | None,
 ) -> RunStep:
-    step = session.exec(
-        select(RunStep).where(
-            RunStep.governance_run_id == run.id,
-            RunStep.status == RunStepStatus.FAILED.value,
-        )
-    ).first()
-    if step is None:
-        raise GovernanceRunStateError("run_retry_no_failed_step")
-    previous_status = run.status
+    steps = session.exec(
+        select(RunStep).where(RunStep.governance_run_id == run.id)
+    ).all()
+    step = next(
+        (item for item in steps if item.status == RunStepStatus.FAILED.value),
+        None,
+    )
+    started_new_step = step is None
     attempted_at = get_datetime_utc()
-    step.status = RunStepStatus.RUNNING.value
-    step.attempt += 1
-    step.output_hash = None
-    step.error_code = None
-    step.started_at = attempted_at
-    step.completed_at = None
-    step.updated_at = attempted_at
+    if step is None:
+        existing_codes = {item.step_code for item in steps}
+        next_code = next(
+            (
+                code
+                for code in (
+                    RunStepCode.LOAD_CUSTOMER,
+                    RunStepCode.PULL_CLOUDATLAS,
+                    RunStepCode.PUBLISH,
+                )
+                if code.value not in existing_codes
+            ),
+            None,
+        )
+        if next_code is None:
+            raise GovernanceRunStateError("run_retry_no_failed_step")
+        if next_code is RunStepCode.LOAD_CUSTOMER:
+            input_hash = run.customer_upload_sha256
+        elif next_code is RunStepCode.PULL_CLOUDATLAS:
+            input_hash = run.cloudatlas_validated_fingerprint
+        else:
+            snapshots = session.exec(
+                select(SourceSnapshot).where(
+                    SourceSnapshot.governance_run_id == run.id
+                )
+            ).all()
+            input_hash = _fingerprint(
+                sorted(snapshot.content_sha256 for snapshot in snapshots)
+            )
+        step = RunStep(
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            governance_run_id=run.id,
+            step_code=next_code.value,
+            input_hash=input_hash,
+            started_at=attempted_at,
+            updated_at=attempted_at,
+        )
+    else:
+        step.status = RunStepStatus.RUNNING.value
+        step.attempt += 1
+        step.output_hash = None
+        step.error_code = None
+        step.started_at = attempted_at
+        step.completed_at = None
+        step.updated_at = attempted_at
+    previous_status = run.status
     run.status = GovernanceRunStatus.RUNNING.value
     run.completed_at = None
     run.session_terminal_at = attempted_at
@@ -1147,10 +1195,14 @@ def prepare_retry(
     session.add(
         _audit_event(
             run=run,
-            action="run_step.attempted",
+            action=("run_step.started" if started_new_step else "run_step.attempted"),
             target_type="run_step",
             target_id=step.id,
-            before_data={"status": RunStepStatus.FAILED.value},
+            before_data=(
+                None
+                if started_new_step
+                else {"status": RunStepStatus.FAILED.value}
+            ),
             after_data={
                 "step_code": step.step_code,
                 "status": step.status,
@@ -1180,15 +1232,6 @@ def prepare_retry(
     session.refresh(step)
     session.refresh(run)
     return step
-
-
-def finish_retry_start(*, session: Session, run: GovernanceRun) -> None:
-    run.session_terminal_at = None
-    run.session_recovery_code = None
-    run.updated_at = get_datetime_utc()
-    session.add(run)
-    session.commit()
-    session.refresh(run)
 
 
 def fail_retry_start(
@@ -1251,12 +1294,7 @@ def reconcile_launch_reservation(
     if control_run is None:
         return None
     if control_run.session_id is None:
-        if control_run.status.upper() not in {
-            "FAILED",
-            "SUCCEEDED",
-            "RUN_STATUS_FAILED",
-            "RUN_STATUS_SUCCEEDED",
-        }:
+        if not control_run.is_terminal:
             return None
         reason = "control_run_terminated_before_session"
     else:
@@ -1313,6 +1351,21 @@ def reserve_run_launch(
     project.updated_at = get_datetime_utc()
     session.add(project)
     return True
+
+
+def rerun_request_was_recorded(
+    *, session: Session, source_run: GovernanceRun, trigger_id: str
+) -> bool:
+    requests = session.exec(
+        select(AuditEvent.after_data).where(
+            AuditEvent.target_id == source_run.id,
+            AuditEvent.action == "governance_run.rerun_requested",
+        )
+    ).all()
+    return any(
+        isinstance(data, dict) and data.get("trigger_id") == trigger_id
+        for data in requests
+    )
 
 
 def record_run_action(
