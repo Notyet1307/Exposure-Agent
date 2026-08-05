@@ -1,6 +1,6 @@
 # Issue #39 验收记录：GovernanceRun 失败关闭与恢复
 
-状态：2026-08-05 本地验收通过；未执行真实 CloudAtlas canary。
+状态：2026-08-05 本地恢复复核通过；未执行真实 CloudAtlas canary。
 
 ## 已验证主链路与失败路径
 
@@ -18,10 +18,11 @@
 - #33：固定 XLSX 解析器与资源边界由既有调查和本轮完整后端测试继续覆盖。
 - #34：`python3 investigations/issue_34/probe.py` 对固定 agent-compose v2607.10.0 真实控制面通过，确认 `stopped` 终态、outage=`unknown`、同 Session ID Resume、重复 Resume 幂等及缺失 Session 稳定拒绝。
 - `cd backend && uv run ruff check . && uv run mypy .`：通过。
-- `cd backend && uv run bash scripts/tests-start.sh`：249 passed，覆盖率 89%。
+- `cd backend && uv run bash scripts/tests-start.sh`：251 passed，覆盖率 89%。
+- `cd backend && uv run pytest tests/api/routes/test_governance_runs.py -q`：20 passed。
 - `cd frontend && bun run lint && bun run build`：通过。
 - `cd frontend && bunx playwright test tests/dashboard.component.spec.ts --workers=1 --retries=0`：13 passed。
-- `bash scripts/test-governance-run.sh`：真实 PostgreSQL + agent-compose + 临时 OctoBus/CloudAtlas fixture + Playwright Compose smoke 通过；fixture 首次读取返回 503 后 Run 收敛为 `FAILED_DATA`，确认原 Session 为 `STOPPED` 后在同一 Session/Run 中 Retry，复用 Customer 快照且仅将 `PULL_CLOUDATLAS` attempt 增至 2，最终两份 SourceSnapshot 均为 1 条记录。
+- `bash scripts/test-governance-run.sh`：2 passed（Playwright setup + 纵向场景）。真实 PostgreSQL + agent-compose + 临时 OctoBus/CloudAtlas fixture + Compose smoke 依次验证完整成功发布、`FAILED_DATA`、可靠终态后的同 Session/Run Retry、Customer 快照复用、未知 Session 状态 fail-closed、原 Session 无法恢复后的显式新 Trigger/Run/Session Rerun，以及旧 Run 永久不可 Retry；最终两份 SourceSnapshot 均为 1 条记录。该脚本已接入 `.github/workflows/test-docker-compose.yml`。
 
 ## 未验证项
 

@@ -1248,14 +1248,26 @@ def reconcile_launch_reservation(
     if trigger_id is None or control_run_id is None:
         return None
     control_run = client.get_run(control_run_id)
-    if control_run is None or control_run.session_id is None:
+    if control_run is None:
         return None
-    control_session = client.get_session(control_run.session_id)
-    if (
-        control_session is None
-        or control_session.observation is not AgentComposeSessionObservation.TERMINAL
-    ):
-        return None
+    if control_run.session_id is None:
+        if control_run.status.upper() not in {
+            "FAILED",
+            "SUCCEEDED",
+            "RUN_STATUS_FAILED",
+            "RUN_STATUS_SUCCEEDED",
+        }:
+            return None
+        reason = "control_run_terminated_before_session"
+    else:
+        control_session = client.get_session(control_run.session_id)
+        if (
+            control_session is None
+            or control_session.observation
+            is not AgentComposeSessionObservation.TERMINAL
+        ):
+            return None
+        reason = "session_terminated_before_run"
     project.governance_launch_trigger_id = None
     project.governance_launch_control_run_id = None
     project.governance_launch_input_hash = None
@@ -1271,7 +1283,7 @@ def reconcile_launch_reservation(
             target_type="project",
             target_id=project.id,
             before_data={"trigger_id": trigger_id},
-            after_data={"reason": "session_terminated_before_run"},
+            after_data={"reason": reason},
             ip_address=request_ip,
         )
     )

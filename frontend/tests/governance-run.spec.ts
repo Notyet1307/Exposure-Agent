@@ -22,11 +22,11 @@ test.skip(
   "requires the real PostgreSQL, agent-compose, OctoBus, and CloudAtlas fixture stack",
 )
 
-test("Operator triggers a real Governance Session that publishes two snapshots", async ({
+test("Operator completes Retry and explicit Rerun recovery with real Sessions", async ({
   page,
   request,
 }) => {
-  test.setTimeout(180_000)
+  test.setTimeout(300_000)
   OpenAPI.BASE = testApiUrl
   const adminToken = await LoginService.loginAccessToken({
     formData: {
@@ -65,6 +65,10 @@ test("Operator triggers a real Governance Session that publishes two snapshots",
     projectId: project.id,
     requestBody: { user_id: operator.id, roles: ["operator"] },
   })
+  const operatorToken = await LoginService.loginAccessToken({
+    formData: { username: email, password },
+  })
+  OpenAPI.TOKEN = operatorToken.access_token
 
   await page.goto("/")
   await page.evaluate(() => localStorage.removeItem("access_token"))
@@ -171,4 +175,103 @@ test("Operator triggers a real Governance Session that publishes two snapshots",
     ["CLOUDATLAS", 1, 64],
     ["CUSTOMER_UPLOAD", 1, 64],
   ])
+
+  const secondFailure = await request.post(
+    "http://cloudatlas-fixture:18080/fixture/fail-next",
+  )
+  expect(secondFailure.ok()).toBeTruthy()
+  await page.getByRole("button", { name: "Trigger Run" }).click()
+  await expect
+    .poll(
+      async () =>
+        (
+          await GovernanceRunsService.readGovernanceRuns({
+            projectId: project.id,
+          })
+        ).data[0]?.status,
+      { timeout: 120_000 },
+    )
+    .toBe("FAILED_DATA")
+  const unrecoverable = (
+    await GovernanceRunsService.readGovernanceRuns({ projectId: project.id })
+  ).data[0]
+  await expect
+    .poll(
+      async () =>
+        (
+          await GovernanceRunsService.readGovernanceRuns({
+            projectId: project.id,
+          })
+        ).data[0]?.can_retry,
+      { timeout: 120_000 },
+    )
+    .toBe(true)
+
+  const missNextSession = await request.post(
+    "http://cloudatlas-fixture:18080/fixture/miss-next-session-query",
+  )
+  expect(missNextSession.ok()).toBeTruthy()
+  const unknownRetry = await request.post(
+    `${testApiUrl}/api/v1/projects/${project.id}/governance-runs/${unrecoverable.id}/retry`,
+    {
+      headers: { Authorization: `Bearer ${operatorToken.access_token}` },
+    },
+  )
+  expect(unknownRetry.status()).toBe(409)
+  expect((await unknownRetry.json()).detail.code).toBe(
+    "run_session_state_unknown",
+  )
+
+  const removeAfterGet = await request.post(
+    "http://cloudatlas-fixture:18080/fixture/remove-session-after-get",
+  )
+  expect(removeAfterGet.ok()).toBeTruthy()
+  const unavailableRetry = await request.post(
+    `${testApiUrl}/api/v1/projects/${project.id}/governance-runs/${unrecoverable.id}/retry`,
+    {
+      headers: { Authorization: `Bearer ${operatorToken.access_token}` },
+    },
+  )
+  expect(unavailableRetry.status()).toBe(409)
+  expect((await unavailableRetry.json()).detail.code).toBe(
+    "run_session_not_recoverable",
+  )
+
+  await page.reload()
+  await expect(
+    page.getByText(
+      "The original Session cannot be recovered. Use an explicit Rerun.",
+    ),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Rerun with current inputs" }).click()
+  await expect
+    .poll(
+      async () =>
+        (
+          await GovernanceRunsService.readGovernanceRuns({
+            projectId: project.id,
+          })
+        ).data[0]?.status,
+      { timeout: 120_000 },
+    )
+    .toBe("COMPLETED")
+  const rerunRuns = await GovernanceRunsService.readGovernanceRuns({
+    projectId: project.id,
+  })
+  expect(rerunRuns.count).toBe(4)
+  expect(rerunRuns.data[0].id).not.toBe(unrecoverable.id)
+  expect(rerunRuns.data[0].trigger_id).not.toBe(unrecoverable.trigger_id)
+  expect(rerunRuns.data[0].session_id).not.toBe(unrecoverable.session_id)
+  expect(rerunRuns.data[1].id).toBe(unrecoverable.id)
+  expect(rerunRuns.data[1].status).toBe("FAILED_PROCESSING")
+  const historicalRetry = await request.post(
+    `${testApiUrl}/api/v1/projects/${project.id}/governance-runs/${unrecoverable.id}/retry`,
+    {
+      headers: { Authorization: `Bearer ${operatorToken.access_token}` },
+    },
+  )
+  expect(historicalRetry.status()).toBe(409)
+  expect((await historicalRetry.json()).detail.code).toBe(
+    "run_session_not_recoverable",
+  )
 })

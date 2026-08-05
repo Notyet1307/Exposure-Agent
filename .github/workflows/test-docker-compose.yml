@@ -10,7 +10,7 @@ permissions: {}
 jobs:
   test-docker-compose:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -84,3 +84,5 @@ jobs:
       - run: docker compose -f compose.yml down -v --remove-orphans
       - name: Test the deterministic CloudAtlas OctoBus Connect fixture
         run: ./scripts/test-cloudatlas-fixture.sh
+      - name: Test GovernanceRun recovery through the real Compose boundaries
+        run: ./scripts/test-governance-run.sh

@@ -7,6 +7,8 @@ services:
     depends_on:
       cloudatlas-fixture-init:
         condition: service_completed_successfully
+    environment:
+      AGENT_COMPOSE_URL: http://cloudatlas-fixture:18080
 
   agent-compose-project-init:
     volumes:
@@ -24,6 +26,7 @@ services:
       dockerfile: tests/cloudatlas_fixture/Dockerfile.upstream
     environment:
       FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
+      FIXTURE_AGENT_COMPOSE_URL: http://agent-compose:7410
 
   cloudatlas-fixture-init:
     image: '${DOCKER_IMAGE_OCTOBUS?Variable not set}:${TAG-latest}'

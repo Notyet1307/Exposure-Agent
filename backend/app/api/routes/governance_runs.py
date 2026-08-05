@@ -573,18 +573,30 @@ def retry_governance_run(
         assert attempt is not None
         request_id = _retry_request_id(run, attempt)
     else:
-        governance_run_service.converge_terminal_run(
-            session=session,
-            run=run,
-            actor_subject=actor_subject,
-            request_ip=request_ip,
-        )
-        step = governance_run_service.prepare_retry(
-            session=session,
-            run=run,
-            actor_subject=actor_subject,
-            request_ip=request_ip,
-        )
+        try:
+            governance_run_service.converge_terminal_run(
+                session=session,
+                run=run,
+                actor_subject=actor_subject,
+                request_ip=request_ip,
+            )
+            step = governance_run_service.prepare_retry(
+                session=session,
+                run=run,
+                actor_subject=actor_subject,
+                request_ip=request_ip,
+            )
+        except governance_run_service.GovernanceRunStateError as error:
+            session.rollback()
+            governance_run_service.record_run_action(
+                session=session,
+                run=run,
+                action="governance_run.retry_rejected",
+                actor_subject=actor_subject,
+                request_ip=request_ip,
+                after_data={"reason": error.code},
+            )
+            raise _state_http_error(error)
         request_id = _retry_request_id(run, step.attempt)
     try:
         if control_session.observation is AgentComposeSessionObservation.TERMINAL:
