@@ -311,7 +311,9 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
         delete rerunIds.current[runId]
         setMessage(BLOCKING_MESSAGES[code])
       } else {
-        setMessage("Rerun was rejected. Review the stable recovery status below.")
+        setMessage(
+          "Rerun was rejected. Review the stable recovery status below.",
+        )
       }
       await queryClient.invalidateQueries({ queryKey })
     },
