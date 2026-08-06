@@ -1812,12 +1812,23 @@ def test_concurrent_initial_triggers_reserve_only_one_runner_launch(
                 AuditEvent.action == "governance_run.trigger_requested",
             )
         ).one() == 1
+        rejected = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.project_id == uuid.UUID(str(project["id"])),
+                AuditEvent.action == "governance_run.new_trigger_rejected",
+            )
+        ).one()
+        assert rejected.target_type == "project"
+        assert rejected.target_id == uuid.UUID(str(project["id"]))
+        assert rejected.after_data == {"reason": "run_launch_in_progress"}
         stored_project = session.get(Project, uuid.UUID(str(project["id"])))
         assert stored_project is not None
         assert stored_project.governance_launch_trigger_id in {
             "concurrent-a",
             "concurrent-b",
         }
+        reserved_trigger = stored_project.governance_launch_trigger_id
+        assert reserved_trigger is not None
         assert session.exec(
             select(func.count())
             .select_from(GovernanceRun)
@@ -1836,6 +1847,33 @@ def test_concurrent_initial_triggers_reserve_only_one_runner_launch(
             session_id=None,
         ),
     )
+    terminal_trigger = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers={
+            **superuser_token_headers,
+            "Idempotency-Key": reserved_trigger,
+        },
+    )
+    assert terminal_trigger.status_code == 409, terminal_trigger.text
+    assert terminal_trigger.json()["detail"]["code"] == (
+        "run_launch_terminal_use_new_trigger"
+    )
+    with Session(engine) as session:
+        terminal_rejection = session.exec(
+            select(AuditEvent)
+            .where(
+                AuditEvent.project_id == uuid.UUID(str(project["id"])),
+                AuditEvent.action == "governance_run.new_trigger_rejected",
+            )
+            .order_by(col(AuditEvent.created_at).desc())
+        ).first()
+        assert terminal_rejection is not None
+        assert terminal_rejection.target_type == "project"
+        assert terminal_rejection.target_id == uuid.UUID(str(project["id"]))
+        assert terminal_rejection.after_data == {
+            "reason": "run_launch_terminal_use_new_trigger"
+        }
+
     archive_response = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/archive",
         headers=superuser_token_headers,

@@ -43,6 +43,7 @@ _ERROR_MESSAGES = {
     "run_cloudatlas_credential_not_ready": (
         "Configure the CloudAtlas Run credential before triggering a Run."
     ),
+    "run_project_archived": "This Project is archived and read-only.",
     "run_already_active": "This Project already has an active GovernanceRun.",
     "run_retry_newer_run_exists": "A newer GovernanceRun makes this Run historical.",
     "run_retry_completed": "A completed GovernanceRun cannot be retried.",
@@ -306,7 +307,14 @@ def trigger_governance_run(
     except AgentComposeBoundaryError:
         reconciled_trigger = None
     if reconciled_trigger == trigger_id:
-        session.commit()
+        governance_run_service.record_project_action(
+            session=session,
+            project=project,
+            action="governance_run.new_trigger_rejected",
+            actor_subject=str(current_user.id),
+            request_ip=get_request_ip_address(request),
+            after_data={"reason": "run_launch_terminal_use_new_trigger"},
+        )
         raise _state_http_error(
             governance_run_service.GovernanceRunStateError(
                 "run_launch_terminal_use_new_trigger"
@@ -434,6 +442,15 @@ def trigger_governance_run(
         session.commit()
     except governance_run_service.GovernanceRunStateError as launch_error:
         session.rollback()
+        if launch_error.code == "run_launch_in_progress":
+            governance_run_service.record_project_action(
+                session=session,
+                project=project,
+                action="governance_run.new_trigger_rejected",
+                actor_subject=str(current_user.id),
+                request_ip=get_request_ip_address(request),
+                after_data={"reason": launch_error.code},
+            )
         raise _state_http_error(launch_error)
     try:
         started = client.start_governance_run(

@@ -1387,6 +1387,32 @@ def record_run_action(
     session.commit()
 
 
+def record_project_action(
+    *,
+    session: Session,
+    project: Project,
+    action: str,
+    actor_subject: str,
+    request_ip: str | None,
+    after_data: dict[str, Any],
+) -> None:
+    session.add(
+        AuditEvent(
+            tenant_id=project.tenant_id,
+            project_id=project.id,
+            actor_subject=actor_subject,
+            actor_type="user",
+            action=action,
+            target_type="project",
+            target_id=project.id,
+            before_data=None,
+            after_data=after_data,
+            ip_address=request_ip,
+        )
+    )
+    session.commit()
+
+
 def execute_governance_run(*, session: Session, inputs: RunnerInputs) -> GovernanceRun:
     run = establish_governance_run(session=session, inputs=inputs)
     if run.status != GovernanceRunStatus.RUNNING.value:

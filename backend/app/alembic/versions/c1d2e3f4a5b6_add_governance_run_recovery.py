@@ -14,43 +14,6 @@ branch_labels = None
 depends_on = None
 
 
-def _replace_protect_function(completed_statuses: str) -> None:
-    op.execute(
-        f"""
-        CREATE OR REPLACE FUNCTION protect_governance_run_facts()
-        RETURNS trigger
-        LANGUAGE plpgsql
-        AS $$
-        BEGIN
-            IF OLD.status IN ({completed_statuses}) THEN
-                RAISE EXCEPTION 'completed governance_runs are immutable';
-            END IF;
-            IF ROW(
-                NEW.tenant_id, NEW.project_id, NEW.trigger_id, NEW.session_id,
-                NEW.requested_by, NEW.customer_upload_id,
-                NEW.customer_upload_sha256, NEW.customer_upload_profile_id,
-                NEW.customer_upload_profile_version, NEW.source_instance_id,
-                NEW.cloudatlas_validated_fingerprint, NEW.cloudatlas_capset_id,
-                NEW.cloudatlas_method, NEW.package_sha256,
-                NEW.descriptor_sha256, NEW.runner_build_version, NEW.created_at
-            ) IS DISTINCT FROM ROW(
-                OLD.tenant_id, OLD.project_id, OLD.trigger_id, OLD.session_id,
-                OLD.requested_by, OLD.customer_upload_id,
-                OLD.customer_upload_sha256, OLD.customer_upload_profile_id,
-                OLD.customer_upload_profile_version, OLD.source_instance_id,
-                OLD.cloudatlas_validated_fingerprint, OLD.cloudatlas_capset_id,
-                OLD.cloudatlas_method, OLD.package_sha256,
-                OLD.descriptor_sha256, OLD.runner_build_version, OLD.created_at
-            ) THEN
-                RAISE EXCEPTION 'governance_run pinned facts are immutable';
-            END IF;
-            RETURN NEW;
-        END;
-        $$
-        """
-    )
-
-
 def upgrade() -> None:
     op.add_column(
         "projects",
@@ -84,28 +47,9 @@ def upgrade() -> None:
         "governance_runs",
         sa.Column("session_recovery_code", sa.String(length=100), nullable=True),
     )
-    op.drop_constraint(
-        "ck_governance_runs_status", "governance_runs", type_="check"
-    )
-    op.create_check_constraint(
-        "ck_governance_runs_status",
-        "governance_runs",
-        "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', "
-        "'COMPLETED')",
-    )
-    _replace_protect_function("'COMPLETED'")
 
 
 def downgrade() -> None:
-    _replace_protect_function("'COMPLETED'")
-    op.drop_constraint(
-        "ck_governance_runs_status", "governance_runs", type_="check"
-    )
-    op.create_check_constraint(
-        "ck_governance_runs_status",
-        "governance_runs",
-        "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', 'COMPLETED')",
-    )
     op.drop_column("governance_runs", "session_recovery_code")
     op.drop_column("governance_runs", "session_terminal_at")
     op.drop_constraint(
