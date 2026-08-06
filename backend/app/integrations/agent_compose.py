@@ -266,7 +266,8 @@ class AgentComposeClient:
                 raise AgentComposeBoundaryError(
                     "agent_compose_response_contract_failed"
                 )
-            # StartRun omits sandboxId when the request explicitly reuses one.
+            # StartRun omits sandboxId when an explicit sandboxId is reused;
+            # reject conflicts, but retain the requested binding.
             returned_session_id = session_id
         return AgentComposeRunStart(
             run_id=run_id,
