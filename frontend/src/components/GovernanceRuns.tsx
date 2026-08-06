@@ -2,7 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Play, Repeat2, RotateCcw } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
-import { type GovernanceRunPublic, GovernanceRunsService } from "@/client"
+import {
+  ApiError,
+  type GovernanceRunPublic,
+  GovernanceRunsService,
+} from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -47,6 +51,8 @@ const BLOCKING_MESSAGES: Record<string, string> = {
     "The fixed CloudAtlas input cannot currently be verified.",
   run_cloudatlas_credential_not_ready:
     "The deployment CloudAtlas Run credential is not configured.",
+  run_cloudatlas_source_not_ready:
+    "The CloudAtlas source requires fresh validation before Retry.",
   run_retry_newer_run_exists:
     "A newer Run makes this Run permanently historical.",
   run_launch_in_progress: "A Governance Runner launch is already in progress.",
@@ -56,6 +62,16 @@ const BLOCKING_MESSAGES: Record<string, string> = {
 
 function hashSummary(value: string) {
   return `${value.slice(0, 12)}…`
+}
+
+function rejectionCode(error: unknown) {
+  if (!(error instanceof ApiError)) return null
+  const body = error.body
+  if (typeof body !== "object" || body === null) return null
+  const detail = (body as { detail?: unknown }).detail
+  if (typeof detail !== "object" || detail === null) return null
+  const code = (detail as { code?: unknown }).code
+  return typeof code === "string" ? code : null
 }
 
 function RunDetails({
@@ -246,9 +262,17 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
       triggerId.current = null
       await queryClient.invalidateQueries({ queryKey })
     },
-    onError: async () => {
+    onError: async (error) => {
+      const code = rejectionCode(error)
+      if (code === "run_launch_terminal_use_new_trigger") {
+        triggerId.current = null
+        rerunIds.current = {}
+        setSessionPending(false)
+      }
       setMessage(
-        "The Governance Session could not be started. Retrying will reuse the same Trigger ID.",
+        code === "run_launch_terminal_use_new_trigger"
+          ? BLOCKING_MESSAGES[code]
+          : "The Governance Session could not be started. Retrying will reuse the same Trigger ID.",
       )
       await queryClient.invalidateQueries({ queryKey })
     },
@@ -260,10 +284,10 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
       setMessage("Retry accepted for the same Governance Run and Session.")
       await queryClient.invalidateQueries({ queryKey })
     },
-    onError: () =>
-      setMessage(
-        "Retry was rejected. Review the stable recovery status below.",
-      ),
+    onError: async () => {
+      setMessage("Retry was rejected. Review the stable recovery status below.")
+      await queryClient.invalidateQueries({ queryKey })
+    },
   })
   const rerunMutation = useMutation({
     mutationFn: (runId: string) => {
@@ -281,8 +305,14 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
       runCountBeforeTrigger.current = runsQuery.data?.count ?? 0
       await queryClient.invalidateQueries({ queryKey })
     },
-    onError: async () => {
-      setMessage("Rerun was rejected. Review the stable recovery status below.")
+    onError: async (error, runId) => {
+      const code = rejectionCode(error)
+      if (code === "run_launch_terminal_use_new_trigger") {
+        delete rerunIds.current[runId]
+        setMessage(BLOCKING_MESSAGES[code])
+      } else {
+        setMessage("Rerun was rejected. Review the stable recovery status below.")
+      }
       await queryClient.invalidateQueries({ queryKey })
     },
   })

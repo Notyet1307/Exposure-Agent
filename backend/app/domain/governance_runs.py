@@ -246,7 +246,11 @@ def require_trigger_readiness(
             SourceInstance.enabled,
         )
     ).one_or_none()
-    if source is None or source.validated_fingerprint is None:
+    if (
+        source is None
+        or source.validated_fingerprint is None
+        or source.validation_error_code is not None
+    ):
         raise GovernanceRunStateError("run_cloudatlas_source_not_ready")
     try:
         current = OctobusCloudAtlasClient().current_fingerprint(source)
@@ -337,6 +341,7 @@ def _validate_runner_inputs(
         or not source.enabled
         or source.capset_id != inputs.cloudatlas_capset_id
         or source.validated_fingerprint != inputs.cloudatlas_validated_fingerprint
+        or source.validation_error_code is not None
         or inputs.cloudatlas_method != METHOD
         or inputs.package_sha256 != PACKAGE_SHA256
         or inputs.descriptor_sha256 != DESCRIPTOR_SHA256
@@ -1054,6 +1059,8 @@ def require_retry_readiness(
         or run.runner_build_version != settings.RUNNER_BUILD_VERSION
     ):
         raise GovernanceRunStateError("run_retry_cloudatlas_input_changed")
+    if source.validation_error_code is not None:
+        raise GovernanceRunStateError("run_cloudatlas_source_not_ready")
     if not settings.CLOUDATLAS_CAPSET_TOKEN.get_secret_value():
         raise GovernanceRunStateError("run_cloudatlas_credential_not_ready")
     try:

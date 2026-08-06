@@ -938,23 +938,25 @@ def rerun_governance_run(
             agent_compose_status="BUSINESS_RUN_ESTABLISHED",
         )
 
-    try:
-        control_session = client.get_session(source_run.session_id)
-    except AgentComposeBoundaryError as error:
-        session.rollback()
-        governance_run_service.record_run_action(
-            session=session,
-            run=source_run,
-            action="governance_run.rerun_rejected",
-            actor_subject=actor_subject,
-            request_ip=request_ip,
-            after_data={"reason": error.code},
-        )
-        raise _agent_compose_http_error(error)
     known_unrecoverable = (
         source_run.session_terminal_at is not None
         and source_run.session_recovery_code == "run_session_not_recoverable"
     )
+    control_session = None
+    if not known_unrecoverable:
+        try:
+            control_session = client.get_session(source_run.session_id)
+        except AgentComposeBoundaryError as error:
+            session.rollback()
+            governance_run_service.record_run_action(
+                session=session,
+                run=source_run,
+                action="governance_run.rerun_rejected",
+                actor_subject=actor_subject,
+                request_ip=request_ip,
+                after_data={"reason": error.code},
+            )
+            raise _agent_compose_http_error(error)
     if (
         control_session is None
         and not known_unrecoverable

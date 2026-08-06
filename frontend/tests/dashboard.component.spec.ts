@@ -206,9 +206,7 @@ test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
             can_trigger: true,
             ready: true,
             readiness_code: null,
-            launch_blocking_code: terminalLaunch
-              ? "run_launch_terminal_use_new_trigger"
-              : null,
+            launch_blocking_code: null,
           },
         })
         return
@@ -217,11 +215,11 @@ test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
       if (!terminalLaunch) {
         terminalLaunch = true
         await route.fulfill({
-          status: 503,
+          status: 409,
           json: {
             detail: {
-              code: "agent_compose_start_failed",
-              message: "The Governance Runner Session could not be started.",
+              code: "run_launch_terminal_use_new_trigger",
+              message: "Use a new Trigger ID.",
             },
           },
         })
@@ -240,11 +238,9 @@ test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
 
   await page.goto("/")
   await page.getByRole("button", { name: "Trigger Run" }).click()
-  await expect(
-    page.getByText(
-      "The previous launch ended before creating a Run. Use a new Trigger ID.",
-    ),
-  ).toBeVisible()
+  await expect(page.getByRole("status")).toHaveText(
+    "The previous launch ended before creating a Run. Use a new Trigger ID.",
+  )
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(
     page.getByText(
@@ -859,11 +855,9 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
     page.getByText("Retry accepted for the same Governance Run and Session."),
   ).toBeVisible()
   await page.getByRole("button", { name: "Rerun with current inputs" }).click()
-  await expect(
-    page.getByText(
-      "The previous launch ended before creating a Run. Use a new Trigger ID.",
-    ),
-  ).toBeVisible()
+  await expect(page.getByRole("status")).toHaveText(
+    "The previous launch ended before creating a Run. Use a new Trigger ID.",
+  )
   await page.getByRole("button", { name: "Rerun with current inputs" }).click()
   await expect(
     page.getByText("Rerun accepted with current inputs and a new Trigger ID."),
