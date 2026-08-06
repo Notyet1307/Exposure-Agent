@@ -43,6 +43,46 @@ def reject_audit_inserts(db: Session) -> Iterator[None]:
 
 
 @contextmanager
+def reject_source_snapshot_inserts(db: Session) -> Iterator[None]:
+    db.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION fail_test_source_snapshot_insert()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                RAISE EXCEPTION 'test source snapshot failure';
+            END;
+            $$
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            CREATE TRIGGER fail_test_source_snapshot_insert
+            BEFORE INSERT ON source_snapshots
+            FOR EACH ROW EXECUTE FUNCTION fail_test_source_snapshot_insert()
+            """
+        )
+    )
+    db.commit()
+    try:
+        yield
+    finally:
+        db.rollback()
+        db.execute(
+            text(
+                "DROP TRIGGER IF EXISTS fail_test_source_snapshot_insert "
+                "ON source_snapshots"
+            )
+        )
+        db.execute(text("DROP FUNCTION IF EXISTS fail_test_source_snapshot_insert()"))
+        db.commit()
+
+
+@contextmanager
 def reject_publish_audit_inserts(db: Session) -> Iterator[None]:
     """Reject only governance_run.published audit inserts, leaving other events visible."""
     db.execute(

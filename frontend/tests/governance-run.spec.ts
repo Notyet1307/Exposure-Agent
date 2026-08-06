@@ -16,6 +16,10 @@ import { randomEmail, randomPassword } from "./utils/random"
 const validWorkbook = fileURLToPath(
   new URL("./fixtures/customer-upload-v1.xlsx", import.meta.url),
 )
+const customerSnapshotSha256 =
+  "ff4512058e966fd8d56d2d89572b8eea3adde6972eb573806317f7481f0c9d83"
+const cloudatlasSnapshotSha256 =
+  "51f61746c3df647d0f345004a9e4ba7ae96761f364393583d7b688b528366cab"
 
 test.skip(
   process.env.RUN_GOVERNANCE_E2E !== "1",
@@ -169,11 +173,11 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     recovered.snapshots.map((snapshot) => [
       snapshot.source_type,
       snapshot.record_count,
-      snapshot.content_sha256.length,
+      snapshot.content_sha256,
     ]),
   ).toEqual([
-    ["CLOUDATLAS", 1, 64],
-    ["CUSTOMER_UPLOAD", 1, 64],
+    ["CLOUDATLAS", 1, cloudatlasSnapshotSha256],
+    ["CUSTOMER_UPLOAD", 1, customerSnapshotSha256],
   ])
 
   const secondFailure = await request.post(

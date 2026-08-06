@@ -777,61 +777,74 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
   expect(actions).toEqual(["retry", "rerun"])
 })
 
-test("read-only Project roles receive no recovery controls", async ({
-  page,
-}) => {
-  const runId = "60000000-0000-0000-0000-000000000098"
-  await page.route(
-    `**/api/v1/projects/${projects[0].id}/governance-runs`,
-    (route) =>
+for (const role of ["Viewer", "Approver"] as const) {
+  test(`${role} receives no recovery controls`, async ({ page }) => {
+    await page.route("**/api/v1/users/me", (route) =>
       route.fulfill({
         json: {
-          data: [
-            {
-              id: runId,
-              trigger_id: "read-only-failure",
-              session_id: "9".repeat(64),
-              status: "FAILED_PROCESSING",
-              customer_upload_id: "20000000-0000-0000-0000-000000000001",
-              customer_upload_sha256: "a".repeat(64),
-              customer_upload_profile_id:
-                "10000000-0000-0000-0000-000000000001",
-              customer_upload_profile_version: 1,
-              source_instance_id: "50000000-0000-0000-0000-000000000001",
-              cloudatlas_validated_fingerprint: "b".repeat(64),
-              cloudatlas_capset_id: "cloudatlas-readonly",
-              cloudatlas_method:
-                "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets",
-              package_sha256: "c".repeat(64),
-              descriptor_sha256: "d".repeat(64),
-              runner_build_version: "runner-v1",
-              created_at: "2026-07-30T13:00:00Z",
-              completed_at: null,
-              session_terminal_at: null,
-              session_recovery_code: null,
-              steps: [],
-              snapshots: [],
-              reused_snapshot_count: 0,
-              can_retry: false,
-              can_rerun: false,
-              blocking_code: "run_session_state_unknown",
-            },
-          ],
-          count: 1,
-          can_trigger: false,
-          ready: true,
-          readiness_code: null,
+          email: `${role.toLowerCase()}@example.com`,
+          full_name: `Test ${role}`,
+          id: "30000000-0000-0000-0000-000000000001",
+          is_active: true,
+          is_superuser: false,
         },
       }),
-  )
-  await page.goto("/")
+    )
+    const runId = "60000000-0000-0000-0000-000000000098"
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/governance-runs`,
+      (route) =>
+        route.fulfill({
+          json: {
+            data: [
+              {
+                id: runId,
+                trigger_id: "read-only-failure",
+                session_id: "9".repeat(64),
+                status: "FAILED_PROCESSING",
+                customer_upload_id: "20000000-0000-0000-0000-000000000001",
+                customer_upload_sha256: "a".repeat(64),
+                customer_upload_profile_id:
+                  "10000000-0000-0000-0000-000000000001",
+                customer_upload_profile_version: 1,
+                source_instance_id: "50000000-0000-0000-0000-000000000001",
+                cloudatlas_validated_fingerprint: "b".repeat(64),
+                cloudatlas_capset_id: "cloudatlas-readonly",
+                cloudatlas_method:
+                  "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets",
+                package_sha256: "c".repeat(64),
+                descriptor_sha256: "d".repeat(64),
+                runner_build_version: "runner-v1",
+                created_at: "2026-07-30T13:00:00Z",
+                completed_at: null,
+                session_terminal_at: null,
+                session_recovery_code: null,
+                steps: [],
+                snapshots: [],
+                reused_snapshot_count: 0,
+                can_retry: false,
+                can_rerun: false,
+                blocking_code: "run_session_state_unknown",
+              },
+            ],
+            count: 1,
+            can_trigger: false,
+            ready: true,
+            readiness_code: null,
+          },
+        }),
+    )
+    await page.goto("/")
 
-  await expect(page.getByText("Recovery status")).toBeVisible()
-  await expect(
-    page.getByRole("button", { name: "Retry same Session" }),
-  ).toHaveCount(0)
-  await expect(
-    page.getByRole("button", { name: "Rerun with current inputs" }),
-  ).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Trigger Run" })).toHaveCount(0)
-})
+    await expect(page.getByText("Recovery status")).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Retry same Session" }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole("button", { name: "Rerun with current inputs" }),
+    ).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Trigger Run" })).toHaveCount(
+      0,
+    )
+  })
+}

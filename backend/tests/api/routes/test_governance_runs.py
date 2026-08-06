@@ -45,7 +45,11 @@ from app.integrations.agent_compose import (
     AgentComposeSession,
     AgentComposeSessionObservation,
 )
-from tests.utils.audit import reject_audit_inserts, reject_publish_audit_inserts
+from tests.utils.audit import (
+    reject_audit_inserts,
+    reject_publish_audit_inserts,
+    reject_source_snapshot_inserts,
+)
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
 
@@ -479,6 +483,148 @@ def test_cloudatlas_failure_stops_before_publish_without_a_completed_result(
         } == {"run_session_state_unknown", "run_session_still_running"}
 
 
+@pytest.mark.parametrize(
+    "failure_code",
+    [
+        "customer_artifact_read_failed",
+        "cloudatlas_authentication_failed",
+        "cloudatlas_authorization_failed",
+        "cloudatlas_connectivity_failed",
+        "cloudatlas_upstream_failed",
+        "cloudatlas_response_contract_failed",
+    ],
+)
+def test_each_source_boundary_failure_is_failed_data(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    failure_code: str,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id=failure_code,
+        session_seed=f"{failure_code}-session",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    customer_failure = failure_code == "customer_artifact_read_failed"
+    if customer_failure:
+        with Session(engine) as session:
+            stored_upload = session.get(
+                CustomerUpload, uuid.UUID(str(upload["id"]))
+            )
+            assert stored_upload is not None
+            artifact = session.get(Artifact, stored_upload.artifact_id)
+            assert artifact is not None
+            (tmp_path / artifact.storage_key).unlink()
+    else:
+        monkeypatch.setattr(
+            OctobusCloudAtlasClient,
+            "list_ip_assets_page",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                CloudAtlasBoundaryError(failure_code)
+            ),
+        )
+
+    assert run_governance_runner() == 1
+
+    run = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert run["status"] == "FAILED_DATA"
+    assert [
+        (step["step_code"], step["status"], step["error_code"])
+        for step in run["steps"]
+    ] == (
+        [("LOAD_CUSTOMER", "FAILED", "customer_snapshot_failed")]
+        if customer_failure
+        else [
+            ("LOAD_CUSTOMER", "SUCCEEDED", None),
+            ("PULL_CLOUDATLAS", "FAILED", "cloudatlas_snapshot_failed"),
+        ]
+    )
+    assert [snapshot["source_type"] for snapshot in run["snapshots"]] == (
+        [] if customer_failure else ["CUSTOMER_UPLOAD"]
+    )
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert stored_project.latest_completed_run_id is None
+
+
+def test_source_snapshot_persistence_failure_is_failed_processing(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    db: Session,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="source-snapshot-persistence-failure",
+        session_seed="source-snapshot-persistence-failure-session",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    with reject_source_snapshot_inserts(db):
+        assert run_governance_runner() == 1
+
+    run = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert run["status"] == "FAILED_PROCESSING"
+    assert [
+        (step["step_code"], step["status"], step["error_code"])
+        for step in run["steps"]
+    ] == [
+        ("LOAD_CUSTOMER", "FAILED", "customer_snapshot_processing_failed")
+    ]
+    assert run["snapshots"] == []
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert stored_project.latest_completed_run_id is None
+
+
 def test_artifact_persistence_failure_is_failed_processing(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -570,14 +716,17 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
         run_id = run.id
 
     session_id = environment["SANDBOX_ID"]
-    monkeypatch.setattr(
-        AgentComposeClient,
-        "get_session",
-        lambda _client, requested_id: AgentComposeSession(
+    session_observation = AgentComposeSessionObservation.TERMINAL
+
+    def get_session(
+        _client: object, requested_id: str
+    ) -> AgentComposeSession:
+        return AgentComposeSession(
             session_id=requested_id,
-            observation=AgentComposeSessionObservation.TERMINAL,
-        ),
-    )
+            observation=session_observation,
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "get_session", get_session)
     monkeypatch.setattr(
         AgentComposeClient,
         "resume_session",
@@ -685,6 +834,20 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
         stored.session_recovery_code = None
         session.add(stored)
         session.commit()
+    retry_after_terminal = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry_after_terminal.status_code == 202, retry_after_terminal.text
+    assert started_requests[-1].endswith(":retry:3")
+
+    with Session(engine) as session:
+        stored = session.get(GovernanceRun, run_id)
+        assert stored is not None
+        stored.session_recovery_code = None
+        session.add(stored)
+        session.commit()
+    session_observation = AgentComposeSessionObservation.RUNNING
     control_status = "RUN_STATUS_RUNNING"
     duplicate_retry = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
@@ -703,7 +866,7 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
         assert (step.step_code, step.status, step.attempt) == (
             "LOAD_CUSTOMER",
             "RUNNING",
-            2,
+            3,
         )
 
     assert run_governance_runner() == 0

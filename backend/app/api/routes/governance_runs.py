@@ -522,23 +522,12 @@ def retry_governance_run(
                     agent_compose_status=existing_attempt.status,
                     code="run_retry_in_progress",
                 )
-    if (
+    runner_reentered = (
         run.status == GovernanceRunStatus.RUNNING.value
         and attempt is not None
         and attempt > 1
         and run.session_recovery_code is None
-    ):
-        response.status_code = status.HTTP_200_OK
-        request_id = _retry_request_id(run, attempt)
-        return GovernanceRunActionPublic(
-            accepted=False,
-            action="retry",
-            governance_run_id=run.id,
-            session_id=run.session_id,
-            agent_compose_run_id=client.expected_run_id(request_id),
-            agent_compose_status="RETRY_IN_PROGRESS",
-            code="run_retry_in_progress",
-        )
+    )
 
     try:
         governance_run_service.reconcile_launch_reservation(
@@ -601,19 +590,30 @@ def retry_governance_run(
             actor_subject=actor_subject,
             request_ip=request_ip,
         )
-    if (
-        control_session.observation is AgentComposeSessionObservation.RUNNING
-        and not prepared_retry
-    ):
-        session.rollback()
-        _reject_run_action(
-            session=session,
-            run=run,
-            action="governance_run.retry_rejected",
-            code="run_session_still_running",
-            actor_subject=actor_subject,
-            request_ip=request_ip,
-        )
+    if control_session.observation is AgentComposeSessionObservation.RUNNING:
+        if runner_reentered:
+            assert attempt is not None
+            response.status_code = status.HTTP_200_OK
+            request_id = _retry_request_id(run, attempt)
+            return GovernanceRunActionPublic(
+                accepted=False,
+                action="retry",
+                governance_run_id=run.id,
+                session_id=run.session_id,
+                agent_compose_run_id=client.expected_run_id(request_id),
+                agent_compose_status="RETRY_IN_PROGRESS",
+                code="run_retry_in_progress",
+            )
+        if not prepared_retry:
+            session.rollback()
+            _reject_run_action(
+                session=session,
+                run=run,
+                action="governance_run.retry_rejected",
+                code="run_session_still_running",
+                actor_subject=actor_subject,
+                request_ip=request_ip,
+            )
 
     if prepared_retry:
         assert attempt is not None
