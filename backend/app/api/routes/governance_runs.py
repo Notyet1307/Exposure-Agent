@@ -485,6 +485,14 @@ def retry_governance_run(
             )
         except AgentComposeBoundaryError as error:
             session.rollback()
+            governance_run_service.record_run_action(
+                session=session,
+                run=run,
+                action="governance_run.retry_rejected",
+                actor_subject=actor_subject,
+                request_ip=request_ip,
+                after_data={"reason": error.code},
+            )
             raise _agent_compose_http_error(error)
         if existing_attempt is not None:
             if existing_attempt.session_id != run.session_id:
@@ -791,11 +799,13 @@ def rerun_governance_run(
     except AgentComposeBoundaryError:
         reconciled_trigger = None
     if reconciled_trigger == trigger_id:
-        session.commit()
-        raise _state_http_error(
-            governance_run_service.GovernanceRunStateError(
-                "run_launch_terminal_use_new_trigger"
-            )
+        _reject_run_action(
+            session=session,
+            run=source_run,
+            action="governance_run.rerun_rejected",
+            code="run_launch_terminal_use_new_trigger",
+            actor_subject=actor_subject,
+            request_ip=request_ip,
         )
     existing = session.exec(
         select(GovernanceRun).where(

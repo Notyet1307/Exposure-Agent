@@ -423,6 +423,61 @@ def test_cloudatlas_failure_stops_before_publish_without_a_completed_result(
             [event.after_data for event in rejection_events]
         )
 
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+    running_responses = (
+        client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run['id']}/retry",
+            headers=superuser_token_headers,
+        ),
+        client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run['id']}/rerun",
+            headers={
+                **superuser_token_headers,
+                "Idempotency-Key": "running-rerun",
+            },
+        ),
+        client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+            headers={
+                **superuser_token_headers,
+                "Idempotency-Key": "running-new-run",
+            },
+        ),
+    )
+    assert {response.status_code for response in running_responses} == {409}
+    assert {
+        response.json()["detail"]["code"] for response in running_responses
+    } == {"run_session_still_running"}
+    with Session(engine) as session:
+        assert session.exec(
+            select(func.count())
+            .select_from(GovernanceRun)
+            .where(GovernanceRun.project_id == uuid.UUID(str(project["id"])))
+        ).one() == 1
+        rejection_events = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.project_id == uuid.UUID(str(project["id"])),
+                col(AuditEvent.action).in_(
+                    (
+                        "governance_run.retry_rejected",
+                        "governance_run.rerun_rejected",
+                        "governance_run.new_trigger_rejected",
+                    )
+                ),
+            )
+        ).all()
+        assert len(rejection_events) == 6
+        assert {
+            cast(dict[str, object], event.after_data)["reason"]
+            for event in rejection_events
+        } == {"run_session_state_unknown", "run_session_still_running"}
+
 
 def test_artifact_persistence_failure_is_failed_processing(
     client: TestClient,
@@ -532,16 +587,20 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
         ),
     )
     control_status = "RUN_STATUS_FAILED"
+    control_error: str | None = None
+    control_session_id = session_id
     started_requests: list[str] = []
 
     def get_run(
         _client: object, requested_id: str
     ) -> AgentComposeRunStart:
+        if control_error is not None:
+            raise AgentComposeBoundaryError(control_error)
         return AgentComposeRunStart(
             run_id=requested_id,
             started=False,
             status=control_status,
-            session_id=session_id,
+            session_id=control_session_id,
         )
 
     def start_run(
@@ -571,6 +630,48 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
     assert first_retry.status_code == 202, first_retry.text
     assert started_requests[-1].endswith(":retry:1")
 
+    control_error = "agent_compose_unavailable"
+    unavailable_retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert unavailable_retry.status_code == 503, unavailable_retry.text
+    assert unavailable_retry.json()["detail"]["code"] == control_error
+    with Session(engine) as session:
+        rejection = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.target_id == run_id,
+                AuditEvent.action == "governance_run.retry_rejected",
+            )
+        ).one()
+        assert rejection.after_data == {"reason": control_error}
+    control_error = None
+
+    control_session_id = hashlib.sha256(b"wrong-session").hexdigest()
+    mismatched_retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert mismatched_retry.status_code == 503, mismatched_retry.text
+    assert mismatched_retry.json()["detail"]["code"] == (
+        "agent_compose_response_contract_failed"
+    )
+    with Session(engine) as session:
+        rejection_reasons = {
+            cast(dict[str, object], event.after_data)["reason"]
+            for event in session.exec(
+                select(AuditEvent).where(
+                    AuditEvent.target_id == run_id,
+                    AuditEvent.action == "governance_run.retry_rejected",
+                )
+            ).all()
+        }
+        assert rejection_reasons == {
+            "agent_compose_unavailable",
+            "agent_compose_response_contract_failed",
+        }
+    control_session_id = session_id
+
     second_retry = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
         headers=superuser_token_headers,
@@ -578,6 +679,12 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
     assert second_retry.status_code == 202, second_retry.text
     assert started_requests[-1].endswith(":retry:2")
 
+    with Session(engine) as session:
+        stored = session.get(GovernanceRun, run_id)
+        assert stored is not None
+        stored.session_recovery_code = None
+        session.add(stored)
+        session.commit()
     control_status = "RUN_STATUS_RUNNING"
     duplicate_retry = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
@@ -585,10 +692,11 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
     )
     assert duplicate_retry.status_code == 200, duplicate_retry.text
     assert duplicate_retry.json()["code"] == "run_retry_in_progress"
+    assert duplicate_retry.json()["agent_compose_status"] == "RETRY_IN_PROGRESS"
     with Session(engine) as session:
         stored = session.get(GovernanceRun, run_id)
         assert stored is not None
-        assert stored.session_recovery_code == "retry_prepared"
+        assert stored.session_recovery_code is None
         step = session.exec(
             select(RunStep).where(RunStep.governance_run_id == run_id)
         ).one()
@@ -604,6 +712,156 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
         assert completed is not None
         assert completed.status == GovernanceRunStatus.COMPLETED.value
         assert completed.session_recovery_code is None
+
+
+@pytest.mark.parametrize(
+    ("completed_codes", "next_code"),
+    [
+        (("LOAD_CUSTOMER",), "PULL_CLOUDATLAS"),
+        (("LOAD_CUSTOMER", "PULL_CLOUDATLAS"), "PUBLISH"),
+    ],
+)
+def test_retry_starts_the_first_step_missing_after_session_termination(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    completed_codes: tuple[str, ...],
+    next_code: str,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    inputs = RunnerInputs.from_environment(
+        _runner_environment(
+            project=project,
+            upload=upload,
+            source=source,
+            trigger_id=f"resume-before-{next_code.lower()}",
+            session_seed=f"resume-before-{next_code.lower()}-session",
+        )
+    )
+    with Session(engine) as session:
+        run = establish_governance_run(session=session, inputs=inputs)
+        for index, step_code in enumerate(completed_codes, start=1):
+            session.add(
+                RunStep(
+                    tenant_id=run.tenant_id,
+                    project_id=run.project_id,
+                    governance_run_id=run.id,
+                    step_code=step_code,
+                    status="SUCCEEDED",
+                    input_hash=f"{index}" * 64,
+                    output_hash=f"{index + 2}" * 64,
+                )
+            )
+        if next_code == "PUBLISH":
+            stored_upload = session.get(
+                CustomerUpload, uuid.UUID(str(upload["id"]))
+            )
+            assert stored_upload is not None
+            cloudatlas_artifact = Artifact(
+                tenant_id=run.tenant_id,
+                storage_key=f"tests/{run.id}/cloudatlas.json",
+                media_type="application/json",
+                byte_size=2,
+                sha256="5" * 64,
+            )
+            session.add(cloudatlas_artifact)
+            session.flush()
+            session.add_all(
+                (
+                    SourceSnapshot(
+                        tenant_id=run.tenant_id,
+                        project_id=run.project_id,
+                        governance_run_id=run.id,
+                        source_type="CUSTOMER_UPLOAD",
+                        customer_upload_id=run.customer_upload_id,
+                        artifact_id=stored_upload.artifact_id,
+                        content_sha256=run.customer_upload_sha256,
+                        schema_fingerprint="6" * 64,
+                        record_count=1,
+                    ),
+                    SourceSnapshot(
+                        tenant_id=run.tenant_id,
+                        project_id=run.project_id,
+                        governance_run_id=run.id,
+                        source_type="CLOUDATLAS",
+                        source_instance_id=run.source_instance_id,
+                        artifact_id=cloudatlas_artifact.id,
+                        content_sha256=cloudatlas_artifact.sha256,
+                        schema_fingerprint="7" * 64,
+                        method_fingerprint=run.cloudatlas_validated_fingerprint,
+                        record_count=1,
+                    ),
+                )
+            )
+        session.commit()
+        run_id = run.id
+        session_id = run.session_id
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "start_governance_run",
+        lambda _client, **_kwargs: AgentComposeRunStart(
+            run_id="8" * 64,
+            started=True,
+            status="RUN_STATUS_PENDING",
+            session_id=session_id,
+        ),
+    )
+
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+
+    assert retry.status_code == 202, retry.text
+    assert retry.json()["session_id"] == session_id
+    recovered = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert [
+        (step["step_code"], step["status"], step["attempt"])
+        for step in recovered["steps"]
+    ] == [
+        *((step_code, "SUCCEEDED", 1) for step_code in completed_codes),
+        (next_code, "RUNNING", 1),
+    ]
+    with Session(engine) as session:
+        started = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.project_id == uuid.UUID(str(project["id"])),
+                AuditEvent.action == "run_step.started",
+            )
+        ).one()
+        assert cast(dict[str, object], started.after_data)["step_code"] == next_code
 
 
 def test_retry_is_blocked_by_an_outstanding_rerun_launch(
@@ -657,16 +915,22 @@ def test_retry_is_blocked_by_an_outstanding_rerun_launch(
         session.commit()
         run_id = run.id
 
-    monkeypatch.setattr(
-        AgentComposeClient,
-        "get_run",
-        lambda _client, requested_id: AgentComposeRunStart(
+    control_status = "RUN_STATUS_PENDING"
+    control_error: str | None = "agent_compose_unavailable"
+
+    def get_run(
+        _client: object, requested_id: str
+    ) -> AgentComposeRunStart:
+        if control_error is not None:
+            raise AgentComposeBoundaryError(control_error)
+        return AgentComposeRunStart(
             run_id=requested_id,
             started=False,
-            status="RUN_STATUS_PENDING",
+            status=control_status,
             session_id=None,
-        ),
-    )
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
     monkeypatch.setattr(
         AgentComposeClient,
         "get_session",
@@ -685,6 +949,17 @@ def test_retry_is_blocked_by_an_outstanding_rerun_launch(
         )
 
     monkeypatch.setattr(AgentComposeClient, "start_governance_run", start_run)
+    unavailable_rerun = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/rerun",
+        headers={
+            **superuser_token_headers,
+            "Idempotency-Key": "candidate-rerun",
+        },
+    )
+    assert unavailable_rerun.status_code == 409, unavailable_rerun.text
+    assert unavailable_rerun.json()["detail"]["code"] == "run_launch_in_progress"
+
+    control_error = None
     response = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
         headers=superuser_token_headers,
@@ -701,6 +976,34 @@ def test_retry_is_blocked_by_an_outstanding_rerun_launch(
             )
         ).one()
         assert rejection.after_data == {"reason": "run_launch_in_progress"}
+
+    control_status = "RUN_STATUS_FAILED"
+    terminal_rerun = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/rerun",
+        headers={
+            **superuser_token_headers,
+            "Idempotency-Key": "outstanding-rerun",
+        },
+    )
+    assert terminal_rerun.status_code == 409, terminal_rerun.text
+    assert terminal_rerun.json()["detail"]["code"] == (
+        "run_launch_terminal_use_new_trigger"
+    )
+    assert started is False
+    with Session(engine) as session:
+        rerun_rejections = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.target_id == run_id,
+                AuditEvent.action == "governance_run.rerun_rejected",
+            )
+        ).all()
+        assert {
+            cast(dict[str, object], event.after_data)["reason"]
+            for event in rerun_rejections
+        } == {
+            "run_launch_in_progress",
+            "run_launch_terminal_use_new_trigger",
+        }
 
 
 def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
@@ -942,6 +1245,22 @@ def test_unrecoverable_retry_requires_an_explicit_rerun(
 
     assert retry_response.status_code == 409
     assert retry_response.json()["detail"]["code"] == "run_session_not_recoverable"
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("known unrecoverable Retry must not query the Session")
+        ),
+    )
+    repeated_retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/retry",
+        headers=superuser_token_headers,
+    )
+    assert repeated_retry.status_code == 409, repeated_retry.text
+    assert repeated_retry.json()["detail"]["code"] == (
+        "run_session_not_recoverable"
+    )
+
     monkeypatch.setattr(AgentComposeClient, "get_session", lambda *_args: None)
     captured_environment: dict[str, str] = {}
 
@@ -975,15 +1294,17 @@ def test_unrecoverable_retry_requires_an_explicit_rerun(
         assert stored is not None
         assert stored.status == GovernanceRunStatus.FAILED_PROCESSING.value
         assert stored.session_recovery_code == "run_session_not_recoverable"
-        retry_rejection = session.exec(
+        retry_rejections = session.exec(
             select(AuditEvent).where(
                 AuditEvent.target_id == stored.id,
                 AuditEvent.action == "governance_run.retry_rejected",
             )
-        ).one()
-        assert cast(dict[str, object], retry_rejection.after_data)["reason"] == (
-            "run_session_not_recoverable"
-        )
+        ).all()
+        assert len(retry_rejections) == 2
+        assert {
+            cast(dict[str, object], event.after_data)["reason"]
+            for event in retry_rejections
+        } == {"run_session_not_recoverable"}
 
 
 def test_changed_input_requires_rerun_with_a_new_run_and_session(
