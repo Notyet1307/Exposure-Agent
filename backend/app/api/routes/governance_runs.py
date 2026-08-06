@@ -232,13 +232,28 @@ def read_governance_runs(
                 and readiness_code is None
                 and project.governance_launch_trigger_id is None
             )
-            try:
-                governance_run_service.require_retry_readiness(
-                    session=session, project=project, run=latest
-                )
-                can_retry = True
-            except governance_run_service.GovernanceRunStateError as error:
-                blocking_code = error.code
+            if latest.session_recovery_code == "run_session_not_recoverable":
+                blocking_code = latest.session_recovery_code
+            else:
+                try:
+                    governance_run_service.require_retry_readiness(
+                        session=session, project=project, run=latest
+                    )
+                    can_retry = True
+                except governance_run_service.GovernanceRunStateError as error:
+                    blocking_code = error.code
+                    if (
+                        latest.status == GovernanceRunStatus.RUNNING.value
+                        and error.code
+                        in {
+                            "run_retry_customer_input_changed",
+                            "run_retry_cloudatlas_input_changed",
+                        }
+                    ):
+                        can_rerun = (
+                            readiness_code is None
+                            and project.governance_launch_trigger_id is None
+                        )
         run_views[0] = run_views[0].model_copy(
             update={
                 "can_retry": can_retry,
@@ -337,10 +352,15 @@ def trigger_governance_run(
     if active_run is not None:
         session.rollback()
         code = "run_already_active"
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": code, "message": _ERROR_MESSAGES[code]},
+        governance_run_service.record_run_action(
+            session=session,
+            run=active_run,
+            action="governance_run.new_trigger_rejected",
+            actor_subject=str(current_user.id),
+            request_ip=get_request_ip_address(request),
+            after_data={"reason": code},
         )
+        raise _run_action_error(code)
     latest_run = session.exec(
         select(GovernanceRun)
         .where(GovernanceRun.project_id == project.id)
@@ -416,6 +436,14 @@ def trigger_governance_run(
                 governance_run_id=None,
             )
         session.rollback()
+        governance_run_service.record_project_action(
+            session=session,
+            project=project,
+            action="governance_run.trigger_rejected",
+            actor_subject=str(current_user.id),
+            request_ip=get_request_ip_address(request),
+            after_data={"reason": readiness_error.code},
+        )
         raise _state_http_error(readiness_error)
     try:
         launch_reserved = governance_run_service.reserve_run_launch(
@@ -717,6 +745,14 @@ def retry_governance_run(
             )
             raise _run_action_error("run_session_not_recoverable")
         session.rollback()
+        governance_run_service.record_run_action(
+            session=session,
+            run=run,
+            action="governance_run.retry_rejected",
+            actor_subject=actor_subject,
+            request_ip=request_ip,
+            after_data={"reason": error.code},
+        )
         raise _agent_compose_http_error(error)
     return GovernanceRunActionPublic(
         accepted=started.started,
@@ -811,15 +847,6 @@ def rerun_governance_run(
             run=source_run,
             action="governance_run.rerun_rejected",
             code="run_rerun_newer_run_exists",
-            actor_subject=actor_subject,
-            request_ip=request_ip,
-        )
-    if source_run.status == GovernanceRunStatus.RUNNING.value:
-        _reject_run_action(
-            session=session,
-            run=source_run,
-            action="governance_run.rerun_rejected",
-            code="run_retry_in_progress",
             actor_subject=actor_subject,
             request_ip=request_ip,
         )
@@ -932,6 +959,35 @@ def rerun_governance_run(
             actor_subject=actor_subject,
             request_ip=request_ip,
         )
+    if source_run.status == GovernanceRunStatus.RUNNING.value:
+        try:
+            governance_run_service.require_retry_readiness(
+                session=session, project=project, run=source_run
+            )
+        except governance_run_service.GovernanceRunStateError as error:
+            if error.code not in {
+                "run_retry_customer_input_changed",
+                "run_retry_cloudatlas_input_changed",
+            }:
+                session.rollback()
+                _reject_run_action(
+                    session=session,
+                    run=source_run,
+                    action="governance_run.rerun_rejected",
+                    code=error.code,
+                    actor_subject=actor_subject,
+                    request_ip=request_ip,
+                )
+        else:
+            session.rollback()
+            _reject_run_action(
+                session=session,
+                run=source_run,
+                action="governance_run.rerun_rejected",
+                code="run_retry_in_progress",
+                actor_subject=actor_subject,
+                request_ip=request_ip,
+            )
 
     governance_run_service.converge_terminal_run(
         session=session,
@@ -944,7 +1000,6 @@ def rerun_governance_run(
             session=session, project=project
         )
     except governance_run_service.GovernanceRunStateError as error:
-        session.rollback()
         governance_run_service.record_run_action(
             session=session,
             run=source_run,
@@ -963,7 +1018,6 @@ def rerun_governance_run(
             pinned=pinned,
         )
     except governance_run_service.GovernanceRunStateError as error:
-        session.rollback()
         governance_run_service.record_run_action(
             session=session,
             run=source_run,
@@ -991,6 +1045,14 @@ def rerun_governance_run(
         )
     except AgentComposeBoundaryError as error:
         session.rollback()
+        governance_run_service.record_run_action(
+            session=session,
+            run=source_run,
+            action="governance_run.rerun_rejected",
+            actor_subject=actor_subject,
+            request_ip=request_ip,
+            after_data={"reason": error.code},
+        )
         raise _agent_compose_http_error(error)
     return GovernanceRunActionPublic(
         accepted=started.started,

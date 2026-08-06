@@ -308,6 +308,8 @@ def _validate_runner_inputs(
         _execution_error("runner_project_not_ready")
     if project.governance_launch_trigger_id not in (None, inputs.trigger_id):
         _execution_error("runner_project_has_active_launch")
+    if not settings.CLOUDATLAS_CAPSET_TOKEN.get_secret_value():
+        _execution_error("runner_cloudatlas_credential_not_ready")
     upload = session.exec(
         select(CustomerUpload).where(
             CustomerUpload.id == inputs.customer_upload_id,
@@ -362,7 +364,11 @@ def establish_governance_run(
     if existing is not None:
         if existing.session_id != inputs.session_id:
             _execution_error("runner_trigger_session_conflict")
-        if existing.session_recovery_code == "retry_prepared":
+        if (
+            existing.status == GovernanceRunStatus.RUNNING.value
+            and existing.session_recovery_code == "retry_prepared"
+        ):
+            _validate_runner_inputs(session=session, inputs=inputs)
             existing.session_terminal_at = None
             existing.session_recovery_code = None
             existing.updated_at = get_datetime_utc()
