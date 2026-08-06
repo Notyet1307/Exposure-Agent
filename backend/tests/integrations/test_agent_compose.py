@@ -309,7 +309,11 @@ def test_retry_start_reuses_the_original_session(
             _Response(
                 200,
                 {
-                    "run": {"runId": expected_id, "status": "RUNNING"},
+                    "run": {
+                        "runId": expected_id,
+                        "status": "RUNNING",
+                        "sandboxId": session_id,
+                    },
                     "started": True,
                 },
             ),
@@ -329,6 +333,47 @@ def test_retry_start_reuses_the_original_session(
 
     assert result.started is True
     assert calls[1]["json"]["run"]["sandboxId"] == session_id
+
+
+@pytest.mark.parametrize("sandbox_id", [None, "d" * 64])
+def test_retry_start_rejects_missing_or_mismatched_response_session(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox_id: str | None,
+) -> None:
+    _configure_settings(monkeypatch)
+    client = AgentComposeClient()
+    session_id = "c" * 64
+    request_id = "project:trigger:retry:2"
+    expected_id = client.expected_run_id(request_id)
+    summary: dict[str, Any] = {
+        "runId": expected_id,
+        "status": "RUNNING",
+    }
+    if sandbox_id is not None:
+        summary["sandboxId"] = sandbox_id
+    responses = iter(
+        [
+            _Response(404),
+            _Response(
+                200,
+                {"run": summary, "started": True},
+            ),
+        ]
+    )
+
+    def factory(**_kwargs: Any) -> _Client:
+        return _Client(next(responses), [])
+
+    monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
+
+    with pytest.raises(
+        AgentComposeBoundaryError, match="agent_compose_response_contract_failed"
+    ):
+        client.start_governance_run(
+            client_request_id=request_id,
+            environment={},
+            session_id=session_id,
+        )
 
 
 def test_get_run_rejects_mismatched_and_incomplete_summaries(

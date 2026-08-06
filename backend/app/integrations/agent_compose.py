@@ -253,13 +253,18 @@ class AgentComposeClient:
             raise AgentComposeBoundaryError(
                 "agent_compose_response_contract_failed"
             )
+        returned_session_id = (
+            _required_string(summary.get("sandboxId"))
+            if summary.get("sandboxId") is not None
+            else None
+        )
+        if session_id is not None and returned_session_id != session_id:
+            raise AgentComposeBoundaryError(
+                "agent_compose_response_contract_failed"
+            )
         return AgentComposeRunStart(
             run_id=run_id,
             started=started,
             status=status,
-            session_id=(
-                _required_string(summary.get("sandboxId"))
-                if summary.get("sandboxId") is not None
-                else None
-            ),
+            session_id=returned_session_id,
         )

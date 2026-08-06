@@ -47,6 +47,7 @@ const BLOCKING_MESSAGES: Record<string, string> = {
     "The fixed CloudAtlas input cannot currently be verified.",
   run_retry_newer_run_exists:
     "A newer Run makes this Run permanently historical.",
+  run_launch_in_progress: "A Governance Runner launch is already in progress.",
 }
 
 function hashSummary(value: string) {
@@ -152,11 +153,9 @@ function RunDetails({
           )}
         </div>
 
-        {(run.reused_snapshot_count ?? 0) > 0 && (
-          <p className="text-sm">
-            Snapshots reused: {run.reused_snapshot_count}
-          </p>
-        )}
+        <p className="text-sm">
+          Snapshots reused: {run.reused_snapshot_count ?? 0}
+        </p>
         {run.blocking_code && (
           <Alert>
             <AlertTitle>Recovery status</AlertTitle>

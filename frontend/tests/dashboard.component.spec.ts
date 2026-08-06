@@ -823,6 +823,7 @@ test("hides Rerun while a same-Session Retry is in progress", async ({
   await page.goto("/")
 
   await expect(page.getByText("RUNNING", { exact: true })).toBeVisible()
+  await expect(page.getByText("Snapshots reused: 0")).toBeVisible()
   await expect(
     page.getByRole("button", { name: "Retry same Session" }),
   ).toBeVisible()

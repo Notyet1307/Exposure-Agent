@@ -1089,6 +1089,24 @@ def test_retry_is_blocked_by_an_outstanding_rerun_launch(
         session.commit()
         run_id = run.id
 
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    blocked_view = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert blocked_view.status_code == 200, blocked_view.text
+    blocked_run = blocked_view.json()["data"][0]
+    assert blocked_run["can_retry"] is False
+    assert blocked_run["can_rerun"] is False
+    assert blocked_run["blocking_code"] == "run_launch_in_progress"
+
     control_status = "RUN_STATUS_PENDING"
     control_error: str | None = "agent_compose_unavailable"
 
@@ -1786,6 +1804,14 @@ def test_concurrent_initial_triggers_reserve_only_one_runner_launch(
     assert sorted(statuses) == [202, 409]
     assert len(started) == 1
     with Session(engine) as session:
+        assert session.exec(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.project_id == uuid.UUID(str(project["id"])),
+                AuditEvent.action == "governance_run.trigger_requested",
+            )
+        ).one() == 1
         stored_project = session.get(Project, uuid.UUID(str(project["id"])))
         assert stored_project is not None
         assert stored_project.governance_launch_trigger_id in {
@@ -2277,7 +2303,10 @@ def test_publish_audit_insert_failure_rolls_back_completion(
     monkeypatch.setattr(
         "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
         lambda _client, **_kwargs: AgentComposeRunStart(
-            run_id="f" * 64, started=True, status="RUNNING"
+            run_id="f" * 64,
+            started=True,
+            status="RUNNING",
+            session_id=session_id,
         ),
     )
     retry_response = client.post(

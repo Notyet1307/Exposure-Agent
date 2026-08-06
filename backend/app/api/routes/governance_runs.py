@@ -13,6 +13,7 @@ from app.api.project_authorization import (
 from app.api.request import get_request_ip_address
 from app.domain import governance_runs as governance_run_service
 from app.domain.models import (
+    AuditEvent,
     GovernanceRun,
     GovernanceRunActionPublic,
     GovernanceRunsPublic,
@@ -213,8 +214,13 @@ def read_governance_runs(
                 can_rerun = (
                     latest.status != GovernanceRunStatus.RUNNING.value
                     and readiness_code is None
+                    and project.governance_launch_trigger_id is None
                 )
-                blocking_code = latest.session_recovery_code
+                blocking_code = (
+                    "run_launch_in_progress"
+                    if project.governance_launch_trigger_id is not None
+                    else latest.session_recovery_code
+                )
             else:
                 blocking_code = "run_session_state_unknown"
         elif control_session.observation is AgentComposeSessionObservation.RUNNING:
@@ -223,6 +229,7 @@ def read_governance_runs(
             can_rerun = (
                 latest.status != GovernanceRunStatus.RUNNING.value
                 and readiness_code is None
+                and project.governance_launch_trigger_id is None
             )
             try:
                 governance_run_service.require_retry_readiness(
@@ -403,13 +410,27 @@ def trigger_governance_run(
         session.rollback()
         raise _state_http_error(readiness_error)
     try:
-        governance_run_service.reserve_run_launch(
+        launch_reserved = governance_run_service.reserve_run_launch(
             session=session,
             project=project,
             trigger_id=trigger_id,
             control_run_id=expected_run_id,
             pinned=pinned,
         )
+        if launch_reserved:
+            session.add(
+                AuditEvent(
+                    tenant_id=project.tenant_id,
+                    project_id=project.id,
+                    actor_subject=str(current_user.id),
+                    actor_type="user",
+                    action="governance_run.trigger_requested",
+                    target_type="project",
+                    target_id=project.id,
+                    after_data={"trigger_id": trigger_id},
+                    ip_address=get_request_ip_address(request),
+                )
+            )
         session.commit()
     except governance_run_service.GovernanceRunStateError as launch_error:
         session.rollback()
@@ -665,6 +686,10 @@ def retry_governance_run(
             ),
             session_id=run.session_id,
         )
+        if started.session_id != run.session_id:
+            raise AgentComposeBoundaryError(
+                "agent_compose_response_contract_failed"
+            )
     except AgentComposeBoundaryError as error:
         if error.code == "agent_compose_session_not_recoverable":
             governance_run_service.fail_retry_start(
