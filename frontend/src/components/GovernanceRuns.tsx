@@ -282,9 +282,7 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
       await queryClient.invalidateQueries({ queryKey })
     },
     onError: async () => {
-      setMessage(
-        "Rerun was rejected. Review the stable recovery status below.",
-      )
+      setMessage("Rerun was rejected. Review the stable recovery status below.")
       await queryClient.invalidateQueries({ queryKey })
     },
   })

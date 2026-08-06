@@ -794,7 +794,8 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
   await page.route(
     `**/api/v1/projects/${projects[0].id}/governance-runs/${runId}/**`,
     async (route) => {
-      const action = new URL(route.request().url()).pathname.split("/").at(-1) ?? ""
+      const action =
+        new URL(route.request().url()).pathname.split("/").at(-1) ?? ""
       actions.push(action)
       if (action === "rerun") {
         rerunKeys.push(route.request().headers()["idempotency-key"] ?? "")
