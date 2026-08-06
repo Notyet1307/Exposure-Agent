@@ -1054,6 +1054,8 @@ def require_retry_readiness(
         or run.runner_build_version != settings.RUNNER_BUILD_VERSION
     ):
         raise GovernanceRunStateError("run_retry_cloudatlas_input_changed")
+    if not settings.CLOUDATLAS_CAPSET_TOKEN.get_secret_value():
+        raise GovernanceRunStateError("run_cloudatlas_credential_not_ready")
     try:
         current = OctobusCloudAtlasClient().current_fingerprint(source)
     except CloudAtlasBoundaryError:

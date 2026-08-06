@@ -45,6 +45,8 @@ const BLOCKING_MESSAGES: Record<string, string> = {
     "The fixed CloudAtlas input changed. Retry is unavailable; Rerun uses current input.",
   run_retry_cloudatlas_input_unavailable:
     "The fixed CloudAtlas input cannot currently be verified.",
+  run_cloudatlas_credential_not_ready:
+    "The deployment CloudAtlas Run credential is not configured.",
   run_retry_newer_run_exists:
     "A newer Run makes this Run permanently historical.",
   run_launch_in_progress: "A Governance Runner launch is already in progress.",
@@ -214,6 +216,7 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
     const data = runsQuery.data
     if (data?.launch_blocking_code === "run_launch_terminal_use_new_trigger") {
       triggerId.current = null
+      rerunIds.current = {}
       setSessionPending(false)
     }
     if (
@@ -278,10 +281,12 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
       runCountBeforeTrigger.current = runsQuery.data?.count ?? 0
       await queryClient.invalidateQueries({ queryKey })
     },
-    onError: () =>
+    onError: async () => {
       setMessage(
         "Rerun was rejected. Review the stable recovery status below.",
-      ),
+      )
+      await queryClient.invalidateQueries({ queryKey })
+    },
   })
 
   if (runsQuery.isPending) return <p role="status">Loading Governance Runs…</p>

@@ -1472,6 +1472,77 @@ def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
     assert completed["reused_snapshot_count"] == 1
 
 
+def test_retry_is_blocked_when_the_cloudatlas_run_credential_is_missing(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    inputs = RunnerInputs.from_environment(
+        _runner_environment(
+            project=project,
+            upload=upload,
+            source=source,
+            trigger_id="retry-missing-credential",
+            session_seed="retry-missing-credential-session",
+        )
+    )
+    with Session(engine) as session:
+        run = establish_governance_run(session=session, inputs=inputs)
+        run.status = GovernanceRunStatus.FAILED_DATA.value
+        session.add(
+            RunStep(
+                tenant_id=run.tenant_id,
+                project_id=run.project_id,
+                governance_run_id=run.id,
+                step_code="PULL_CLOUDATLAS",
+                status="FAILED",
+                input_hash=run.cloudatlas_validated_fingerprint,
+                error_code="cloudatlas_snapshot_failed",
+            )
+        )
+        session.commit()
+        run_id = run.id
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    monkeypatch.setattr(settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr(""))
+
+    view = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert view.status_code == 200, view.text
+    run_view = view.json()["data"][0]
+    assert run_view["can_retry"] is False
+    assert run_view["blocking_code"] == "run_cloudatlas_credential_not_ready"
+
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry.status_code == 409, retry.text
+    assert retry.json()["detail"]["code"] == "run_cloudatlas_credential_not_ready"
+
+
 def test_unrecoverable_retry_requires_an_explicit_rerun(
     client: TestClient,
     superuser_token_headers: dict[str, str],

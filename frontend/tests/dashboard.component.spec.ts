@@ -789,17 +789,34 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
     blocking_code: null,
   }
   const actions: string[] = []
+  const rerunKeys: string[] = []
+  let terminalLaunch = false
   await page.route(
     `**/api/v1/projects/${projects[0].id}/governance-runs/${runId}/**`,
     async (route) => {
-      actions.push(
-        new URL(route.request().url()).pathname.split("/").at(-1) ?? "",
-      )
+      const action = new URL(route.request().url()).pathname.split("/").at(-1) ?? ""
+      actions.push(action)
+      if (action === "rerun") {
+        rerunKeys.push(route.request().headers()["idempotency-key"] ?? "")
+        if (rerunKeys.length === 1) {
+          terminalLaunch = true
+          await route.fulfill({
+            status: 409,
+            json: {
+              detail: {
+                code: "run_launch_terminal_use_new_trigger",
+                message: "Use a new Trigger ID.",
+              },
+            },
+          })
+          return
+        }
+      }
       await route.fulfill({
         status: 202,
         json: {
           accepted: true,
-          action: actions.at(-1),
+          action,
           governance_run_id: runId,
           source_governance_run_id: runId,
           session_id: failedRun.session_id,
@@ -820,6 +837,9 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
           can_trigger: false,
           ready: true,
           readiness_code: null,
+          launch_blocking_code: terminalLaunch
+            ? "run_launch_terminal_use_new_trigger"
+            : null,
         },
       }),
   )
@@ -839,9 +859,18 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
   ).toBeVisible()
   await page.getByRole("button", { name: "Rerun with current inputs" }).click()
   await expect(
+    page.getByText(
+      "The previous launch ended before creating a Run. Use a new Trigger ID.",
+    ),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Rerun with current inputs" }).click()
+  await expect(
     page.getByText("Rerun accepted with current inputs and a new Trigger ID."),
   ).toBeVisible()
-  expect(actions).toEqual(["retry", "rerun"])
+  expect(actions).toEqual(["retry", "rerun", "rerun"])
+  expect(rerunKeys[0]).toBeTruthy()
+  expect(rerunKeys[1]).toBeTruthy()
+  expect(rerunKeys[1]).not.toBe(rerunKeys[0])
 })
 
 test("hides Rerun while a same-Session Retry is in progress", async ({
