@@ -184,6 +184,9 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     "http://cloudatlas-fixture:18080/fixture/fail-next",
   )
   expect(secondFailure.ok()).toBeTruthy()
+  await expect(page.getByRole("button", { name: "Trigger Run" })).toBeVisible({
+    timeout: 5_000,
+  })
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect
     .poll(

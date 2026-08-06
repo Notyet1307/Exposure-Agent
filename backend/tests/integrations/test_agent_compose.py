@@ -336,7 +336,7 @@ def test_retry_start_reuses_the_original_session(
 
 
 @pytest.mark.parametrize("sandbox_id", [None, "d" * 64])
-def test_retry_start_rejects_missing_or_mismatched_response_session(
+def test_retry_start_preserves_the_requested_session_when_response_omits_it(
     monkeypatch: pytest.MonkeyPatch,
     sandbox_id: str | None,
 ) -> None:
@@ -366,14 +366,23 @@ def test_retry_start_rejects_missing_or_mismatched_response_session(
 
     monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
 
-    with pytest.raises(
-        AgentComposeBoundaryError, match="agent_compose_response_contract_failed"
-    ):
-        client.start_governance_run(
+    if sandbox_id is None:
+        result = client.start_governance_run(
             client_request_id=request_id,
             environment={},
             session_id=session_id,
         )
+        assert result.session_id == session_id
+    else:
+        with pytest.raises(
+            AgentComposeBoundaryError,
+            match="agent_compose_response_contract_failed",
+        ):
+            client.start_governance_run(
+                client_request_id=request_id,
+                environment={},
+                session_id=session_id,
+            )
 
 
 def test_get_run_rejects_mismatched_and_incomplete_summaries(
