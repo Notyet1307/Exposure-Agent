@@ -210,14 +210,20 @@ def read_governance_runs(
                 latest.session_terminal_at is not None
                 and latest.session_recovery_code == "run_session_not_recoverable"
             ):
-                can_rerun = readiness_code is None
+                can_rerun = (
+                    latest.status != GovernanceRunStatus.RUNNING.value
+                    and readiness_code is None
+                )
                 blocking_code = latest.session_recovery_code
             else:
                 blocking_code = "run_session_state_unknown"
         elif control_session.observation is AgentComposeSessionObservation.RUNNING:
             blocking_code = "run_session_still_running"
         else:
-            can_rerun = readiness_code is None
+            can_rerun = (
+                latest.status != GovernanceRunStatus.RUNNING.value
+                and readiness_code is None
+            )
             try:
                 governance_run_service.require_retry_readiness(
                     session=session, project=project, run=latest

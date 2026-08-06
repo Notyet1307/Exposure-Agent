@@ -91,17 +91,13 @@ def upgrade() -> None:
         "ck_governance_runs_status",
         "governance_runs",
         "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', "
-        "'COMPLETED', 'COMPLETED_WITH_WARNINGS')",
+        "'COMPLETED')",
     )
-    _replace_protect_function("'COMPLETED', 'COMPLETED_WITH_WARNINGS'")
+    _replace_protect_function("'COMPLETED'")
 
 
 def downgrade() -> None:
     _replace_protect_function("'COMPLETED'")
-    op.execute(
-        "UPDATE governance_runs SET status = 'COMPLETED' "
-        "WHERE status = 'COMPLETED_WITH_WARNINGS'"
-    )
     op.drop_constraint(
         "ck_governance_runs_status", "governance_runs", type_="check"
     )

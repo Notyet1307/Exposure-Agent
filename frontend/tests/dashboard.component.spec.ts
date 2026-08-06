@@ -777,6 +777,60 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
   expect(actions).toEqual(["retry", "rerun"])
 })
 
+test("hides Rerun while a same-Session Retry is in progress", async ({
+  page,
+}) => {
+  const retryPreparedRun = {
+    id: "60000000-0000-0000-0000-000000000097",
+    trigger_id: "retry-prepared",
+    session_id: "6".repeat(64),
+    status: "RUNNING",
+    customer_upload_id: "20000000-0000-0000-0000-000000000001",
+    customer_upload_sha256: "a".repeat(64),
+    customer_upload_profile_id: "10000000-0000-0000-0000-000000000001",
+    customer_upload_profile_version: 1,
+    source_instance_id: "50000000-0000-0000-0000-000000000001",
+    cloudatlas_validated_fingerprint: "b".repeat(64),
+    cloudatlas_capset_id: "cloudatlas-readonly",
+    cloudatlas_method: "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets",
+    package_sha256: "c".repeat(64),
+    descriptor_sha256: "d".repeat(64),
+    runner_build_version: "runner-v1",
+    created_at: "2026-07-30T13:00:00Z",
+    completed_at: null,
+    session_terminal_at: "2026-07-30T13:01:00Z",
+    session_recovery_code: "retry_prepared",
+    steps: [],
+    snapshots: [],
+    reused_snapshot_count: 0,
+    can_retry: true,
+    can_rerun: false,
+    blocking_code: null,
+  }
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/governance-runs`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [retryPreparedRun],
+          count: 1,
+          can_trigger: false,
+          ready: true,
+          readiness_code: null,
+        },
+      }),
+  )
+  await page.goto("/")
+
+  await expect(page.getByText("RUNNING", { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Retry same Session" }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Rerun with current inputs" }),
+  ).toHaveCount(0)
+})
+
 for (const role of ["Viewer", "Approver"] as const) {
   test(`${role} receives no recovery controls`, async ({ page }) => {
     await page.route("**/api/v1/users/me", (route) =>

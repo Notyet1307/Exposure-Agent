@@ -779,6 +779,17 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
     assert first_retry.status_code == 202, first_retry.text
     assert started_requests[-1].endswith(":retry:1")
 
+    prepared_view = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert prepared_view.status_code == 200, prepared_view.text
+    prepared_run = prepared_view.json()["data"][0]
+    assert prepared_run["status"] == "RUNNING"
+    assert prepared_run["can_retry"] is True
+    assert prepared_run["can_rerun"] is False
+    assert prepared_run["blocking_code"] is None
+
     control_error = "agent_compose_unavailable"
     unavailable_retry = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
@@ -2037,7 +2048,7 @@ def test_active_run_blocks_project_archive_until_run_finishes(
     assert archive_response.status_code == 200
 
 
-def test_completed_with_warnings_is_immutable_and_not_retryable(
+def test_completed_is_immutable_and_not_retryable(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
@@ -2066,7 +2077,7 @@ def test_completed_with_warnings_is_immutable_and_not_retryable(
     )
     with Session(engine) as session:
         run = establish_governance_run(session=session, inputs=inputs)
-        run.status = GovernanceRunStatus.COMPLETED_WITH_WARNINGS.value
+        run.status = GovernanceRunStatus.COMPLETED.value
         run.completed_at = run.updated_at
         run_id = run.id
         session.add(run)

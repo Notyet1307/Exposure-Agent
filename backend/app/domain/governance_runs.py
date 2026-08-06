@@ -54,12 +54,7 @@ _STEP_ORDER = {
     RunStepCode.PULL_CLOUDATLAS.value: 1,
     RunStepCode.PUBLISH.value: 2,
 }
-COMPLETED_RUN_STATUSES = frozenset(
-    {
-        GovernanceRunStatus.COMPLETED.value,
-        GovernanceRunStatus.COMPLETED_WITH_WARNINGS.value,
-    }
-)
+COMPLETED_RUN_STATUSES = frozenset({GovernanceRunStatus.COMPLETED.value})
 
 
 class GovernanceRunStateError(Exception):
