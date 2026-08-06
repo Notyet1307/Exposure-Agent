@@ -756,6 +756,17 @@ export const GovernanceRunsPublicSchema = {
                 }
             ],
             title: 'Readiness Code'
+        },
+        launch_blocking_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Launch Blocking Code'
         }
     },
     type: 'object',

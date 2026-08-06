@@ -145,6 +145,7 @@ export type GovernanceRunsPublic = {
     can_trigger: boolean;
     ready: boolean;
     readiness_code: (string | null);
+    launch_blocking_code?: (string | null);
 };
 
 export type GovernanceRunTriggerPublic = {

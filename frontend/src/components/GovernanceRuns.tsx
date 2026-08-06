@@ -48,6 +48,8 @@ const BLOCKING_MESSAGES: Record<string, string> = {
   run_retry_newer_run_exists:
     "A newer Run makes this Run permanently historical.",
   run_launch_in_progress: "A Governance Runner launch is already in progress.",
+  run_launch_terminal_use_new_trigger:
+    "The previous launch ended before creating a Run. Use a new Trigger ID.",
 }
 
 function hashSummary(value: string) {
@@ -210,6 +212,10 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
   })
   useEffect(() => {
     const data = runsQuery.data
+    if (data?.launch_blocking_code === "run_launch_terminal_use_new_trigger") {
+      triggerId.current = null
+      setSessionPending(false)
+    }
     if (
       sessionPending &&
       data &&
@@ -237,10 +243,12 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
       triggerId.current = null
       await queryClient.invalidateQueries({ queryKey })
     },
-    onError: () =>
+    onError: async () => {
       setMessage(
         "The Governance Session could not be started. Retrying will reuse the same Trigger ID.",
-      ),
+      )
+      await queryClient.invalidateQueries({ queryKey })
+    },
   })
   const retryMutation = useMutation({
     mutationFn: (runId: string) =>
@@ -290,6 +298,10 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
   const readinessMessage = runs.readiness_code
     ? (READINESS_MESSAGES[runs.readiness_code] ?? "Run inputs are not ready.")
     : null
+  const launchBlockingMessage = runs.launch_blocking_code
+    ? (BLOCKING_MESSAGES[runs.launch_blocking_code] ??
+      "The Governance Runner launch is currently blocked.")
+    : null
 
   return (
     <section className="space-y-4" aria-labelledby="governance-runs-title">
@@ -311,6 +323,12 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
                 <p className="mt-2 text-sm text-muted-foreground">
                   {readinessMessage}
                 </p>
+              )}
+              {launchBlockingMessage && (
+                <Alert className="mt-2">
+                  <AlertTitle>Launch status</AlertTitle>
+                  <AlertDescription>{launchBlockingMessage}</AlertDescription>
+                </Alert>
               )}
             </div>
             {runs.can_trigger && (

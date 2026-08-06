@@ -190,6 +190,73 @@ test.beforeEach(async ({ page }) => {
   await mockDashboardApi(page)
 })
 
+test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
+  page,
+}) => {
+  const triggerKeys: string[] = []
+  let terminalLaunch = false
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/governance-runs*`,
+    async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          json: {
+            data: [],
+            count: 0,
+            can_trigger: true,
+            ready: true,
+            readiness_code: null,
+            launch_blocking_code: terminalLaunch
+              ? "run_launch_terminal_use_new_trigger"
+              : null,
+          },
+        })
+        return
+      }
+      triggerKeys.push(route.request().headers()["idempotency-key"] ?? "")
+      if (!terminalLaunch) {
+        terminalLaunch = true
+        await route.fulfill({
+          status: 503,
+          json: {
+            detail: {
+              code: "agent_compose_start_failed",
+              message: "The Governance Runner Session could not be started.",
+            },
+          },
+        })
+        return
+      }
+      await route.fulfill({
+        json: {
+          accepted: true,
+          agent_compose_run_id: "a".repeat(64),
+          agent_compose_status: "RUN_STATUS_PENDING",
+          governance_run_id: null,
+        },
+      })
+    },
+  )
+
+  await page.goto("/")
+  await page.getByRole("button", { name: "Trigger Run" }).click()
+  await expect(
+    page.getByText(
+      "The previous launch ended before creating a Run. Use a new Trigger ID.",
+    ),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Trigger Run" }).click()
+  await expect(
+    page.getByText(
+      "Governance Session accepted. Waiting for the Runner to start.",
+    ),
+  ).toBeVisible()
+  await expect.poll(() => triggerKeys.length).toBe(2)
+  expect(triggerKeys[0]).toBeTruthy()
+  expect(triggerKeys[1]).toBeTruthy()
+  expect(triggerKeys[1]).not.toBe(triggerKeys[0])
+})
+
 test("selects the first Project and switches its Profile and upload list", async ({
   page,
 }) => {

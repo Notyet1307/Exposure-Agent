@@ -1440,7 +1440,13 @@ def governance_run_public(
         select(SourceSnapshot).where(SourceSnapshot.governance_run_id == run.id)
     ).all()
     reused_snapshot_count = 0
-    if any(step.attempt > 1 for step in steps):
+    retry_started = session.exec(
+        select(AuditEvent.id).where(
+            AuditEvent.target_id == run.id,
+            AuditEvent.action == "governance_run.retry_started",
+        )
+    ).first()
+    if retry_started is not None:
         attempts = {step.step_code: step.attempt for step in steps}
         reused_snapshot_count = sum(
             attempts.get(

@@ -205,6 +205,103 @@ def _mock_cloudatlas(monkeypatch: MonkeyPatch) -> None:
     )
 
 
+def test_terminal_launch_without_business_run_is_reconciled_for_operator_view(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    control_run_id = "c" * 64
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        stored_project.governance_launch_trigger_id = "stale-launch"
+        stored_project.governance_launch_control_run_id = control_run_id
+        stored_project.governance_launch_input_hash = "e" * 64
+        session.add(stored_project)
+        session.commit()
+
+    get_run_calls: list[str] = []
+    control_status = "RUN_STATUS_RUNNING"
+
+    def get_run(_client: object, requested_id: str) -> AgentComposeRunStart:
+        get_run_calls.append(requested_id)
+        return AgentComposeRunStart(
+            run_id=requested_id,
+            started=False,
+            status=control_status,
+            session_id=None,
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "start_governance_run",
+        lambda _client, **_kwargs: AgentComposeRunStart(
+            run_id="d" * 64,
+            started=True,
+            status="RUN_STATUS_PENDING",
+        ),
+    )
+
+    blocked_view = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert blocked_view.status_code == 200, blocked_view.text
+    blocked_payload = blocked_view.json()
+    assert blocked_payload["data"] == []
+    assert blocked_payload["can_trigger"] is False
+    assert blocked_payload["launch_blocking_code"] == "run_launch_in_progress"
+
+    control_status = "RUN_STATUS_FAILED"
+    view = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert view.status_code == 200, view.text
+    payload = view.json()
+    assert payload["data"] == []
+    assert payload["count"] == 0
+    assert payload["can_trigger"] is True
+    assert payload["launch_blocking_code"] == (
+        "run_launch_terminal_use_new_trigger"
+    )
+    assert get_run_calls == [control_run_id, control_run_id]
+
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert stored_project.governance_launch_trigger_id is None
+        convergence = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.project_id == stored_project.id,
+                AuditEvent.action == "governance_run.launch_terminal_converged",
+            )
+        ).one()
+        assert convergence.after_data == {
+            "reason": "control_run_terminated_before_session"
+        }
+
+    trigger = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers={**superuser_token_headers, "Idempotency-Key": "fresh-trigger"},
+    )
+    assert trigger.status_code == 202, trigger.text
+    assert trigger.json()["accepted"] is True
+
+
 def test_trigger_rejects_missing_current_customer_upload_before_creating_a_run(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -1028,6 +1125,9 @@ def test_retry_starts_the_first_step_missing_after_session_termination(
         *((step_code, "SUCCEEDED", 1) for step_code in completed_codes),
         (next_code, "RUNNING", 1),
     ]
+    assert recovered["reused_snapshot_count"] == (
+        2 if next_code == "PUBLISH" else 0
+    )
     with Session(engine) as session:
         started = session.exec(
             select(AuditEvent).where(

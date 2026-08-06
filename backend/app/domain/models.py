@@ -719,6 +719,7 @@ class GovernanceRunsPublic(SQLModel):
     can_trigger: bool
     ready: bool
     readiness_code: str | None
+    launch_blocking_code: str | None = None
 
 
 class GovernanceRunTriggerPublic(SQLModel):

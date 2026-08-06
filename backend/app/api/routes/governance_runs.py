@@ -153,13 +153,18 @@ def _running_attempt(session: SessionDep, run: GovernanceRun) -> int | None:
     response_model=GovernanceRunsPublic,
 )
 def read_governance_runs(
-    *, session: SessionDep, project_id: uuid.UUID, current_user: CurrentUser
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    request: Request,
 ) -> Any:
     project = get_authorized_project(
         session=session,
         user=current_user,
         project_id=project_id,
         allowed_roles=PROJECT_READ_ROLES,
+        lock=True,
     )
     has_operator_access = session.exec(
         select(func.count())
@@ -171,6 +176,25 @@ def read_governance_runs(
             ),
         )
     ).one()
+    launch_blocking_code: str | None = None
+    if project.governance_launch_trigger_id is not None:
+        launch_blocking_code = "run_launch_in_progress"
+        if has_operator_access > 0:
+            try:
+                reconciled_trigger = (
+                    governance_run_service.reconcile_launch_reservation(
+                        session=session,
+                        project=project,
+                        client=AgentComposeClient(),
+                        actor_subject=str(current_user.id),
+                        request_ip=get_request_ip_address(request),
+                    )
+                )
+            except AgentComposeBoundaryError:
+                reconciled_trigger = None
+            if reconciled_trigger is not None:
+                session.commit()
+                launch_blocking_code = "run_launch_terminal_use_new_trigger"
     readiness_code: str | None = None
     if project.archived_at is not None:
         readiness_code = "run_project_archived"
@@ -276,6 +300,7 @@ def read_governance_runs(
         can_trigger=can_trigger,
         ready=readiness_code is None,
         readiness_code=readiness_code,
+        launch_blocking_code=launch_blocking_code,
     )
 
 
