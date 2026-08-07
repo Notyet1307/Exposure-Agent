@@ -17,6 +17,7 @@ import {
 } from "@chaitin-ai/octobus-sdk";
 
 const statuses = new Set(["valid", "await", "ignored", "invalid"]);
+const CLOUDATLAS_CLI_TIMEOUT_MS = 60_000;
 
 function cliFailure(result) {
   const detail = `${result.error?.message || ""}\n${result.stderr || ""}`.toLowerCase();
@@ -78,7 +79,11 @@ function listIPAssets(ctx) {
         "--size",
         String(size),
       ],
-      { encoding: "utf8", maxBuffer: 1024 * 1024, timeout: 15_000 },
+      {
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+        timeout: CLOUDATLAS_CLI_TIMEOUT_MS,
+      },
     );
   } finally {
     rmSync(directory, { force: true, recursive: true });

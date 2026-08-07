@@ -170,7 +170,7 @@ def _runner_environment(
             "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets"
         ),
         "GOVERNANCE_PACKAGE_SHA256": (
-            "120ec4f0d9a2f13865943f196c46b818869c7f16c7959c37867bb5e9596c5bdb"
+            "1d487b2773d0dc2457d5c552d5a5d9cd34b4e7c732f9a810cf0115cdab3f069c"
         ),
         "GOVERNANCE_DESCRIPTOR_SHA256": (
             "3fada7cb00f3bca132c28d316ea61158522a1a07d3e80a83f9e68010d1a588e0"

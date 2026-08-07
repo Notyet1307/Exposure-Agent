@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from app.core.config import settings
 from app.domain.cloudatlas_sources import (
     DESCRIPTOR_SHA256,
     METHOD,
@@ -40,6 +41,9 @@ def test_product_package_and_backend_pin_the_single_read_method() -> None:
     assert f'"{METHOD}": listIPAssets' in implementation
     assert '"chaitin-cli"' in implementation
     assert '"list"' in implementation
+    assert "const CLOUDATLAS_CLI_TIMEOUT_MS = 60_000;" in implementation
+    assert "timeout: CLOUDATLAS_CLI_TIMEOUT_MS" in implementation
+    assert settings.OCTOBUS_TIMEOUT_SECONDS > 60
     assert "Action" not in proto
     assert "--no-all-methods" in (
         REPOSITORY_ROOT / "tests" / "cloudatlas_fixture" / "init.sh"

@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str
     ARTIFACT_ROOT: Path = Path("/app/artifacts")
     OCTOBUS_URL: str = "http://octobus:9000"
-    OCTOBUS_TIMEOUT_SECONDS: float = 15.0
+    OCTOBUS_TIMEOUT_SECONDS: float = 65.0
     CLOUDATLAS_CAPSET_TOKEN: SecretStr = SecretStr("")
     AGENT_COMPOSE_URL: str = "http://agent-compose:7410"
     AGENT_COMPOSE_AUTH_TOKEN: SecretStr = SecretStr("")
