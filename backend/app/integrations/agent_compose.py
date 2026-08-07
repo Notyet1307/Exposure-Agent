@@ -93,7 +93,12 @@ class AgentComposeClient:
         )
 
     def _request(
-        self, path: str, payload: dict[str, Any], *, missing_ok: bool = False
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        missing_ok: bool = False,
+        non_ok_code: str = "agent_compose_start_failed",
     ) -> dict[str, Any] | None:
         token = settings.AGENT_COMPOSE_AUTH_TOKEN.get_secret_value()
         headers = {
@@ -113,7 +118,7 @@ class AgentComposeClient:
         if response.status_code == 404 and missing_ok:
             return None
         if response.status_code != 200:
-            raise AgentComposeBoundaryError("agent_compose_start_failed")
+            raise AgentComposeBoundaryError(non_ok_code)
         try:
             body = response.json()
         except ValueError:
@@ -186,6 +191,7 @@ class AgentComposeClient:
             _RESUME_SESSION_PATH,
             {"sandboxId": session_id},
             missing_ok=True,
+            non_ok_code="agent_compose_session_not_recoverable",
         )
         if body is None:
             raise AgentComposeBoundaryError(

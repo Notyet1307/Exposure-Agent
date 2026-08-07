@@ -206,7 +206,7 @@ def _mock_cloudatlas(monkeypatch: MonkeyPatch) -> None:
     )
 
 
-def test_terminal_launch_without_business_run_is_reconciled_for_operator_view(
+def test_terminal_launch_without_business_run_is_reconciled_by_mutation(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
@@ -275,16 +275,22 @@ def test_terminal_launch_without_business_run_is_reconciled_for_operator_view(
     payload = view.json()
     assert payload["data"] == []
     assert payload["count"] == 0
-    assert payload["can_trigger"] is True
-    assert payload["launch_blocking_code"] == (
-        "run_launch_terminal_use_new_trigger"
+    assert payload["can_trigger"] is False
+    assert payload["launch_blocking_code"] == "run_launch_in_progress"
+    assert get_run_calls == []
+
+    trigger = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers={**superuser_token_headers, "Idempotency-Key": "fresh-trigger"},
     )
-    assert get_run_calls == [control_run_id, control_run_id]
+    assert trigger.status_code == 202, trigger.text
+    assert trigger.json()["accepted"] is True
+    assert get_run_calls == [control_run_id]
 
     with Session(engine) as session:
         stored_project = session.get(Project, uuid.UUID(str(project["id"])))
         assert stored_project is not None
-        assert stored_project.governance_launch_trigger_id is None
+        assert stored_project.governance_launch_trigger_id == "fresh-trigger"
         convergence = session.exec(
             select(AuditEvent).where(
                 AuditEvent.project_id == stored_project.id,
@@ -294,13 +300,6 @@ def test_terminal_launch_without_business_run_is_reconciled_for_operator_view(
         assert convergence.after_data == {
             "reason": "control_run_terminated_before_session"
         }
-
-    trigger = client.post(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
-        headers={**superuser_token_headers, "Idempotency-Key": "fresh-trigger"},
-    )
-    assert trigger.status_code == 202, trigger.text
-    assert trigger.json()["accepted"] is True
 
 
 def test_trigger_rejects_missing_current_customer_upload_before_creating_a_run(

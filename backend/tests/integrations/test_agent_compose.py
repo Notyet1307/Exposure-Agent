@@ -294,6 +294,20 @@ def test_session_query_fails_closed_for_missing_and_unrecognized_state(
     assert observed.observation is AgentComposeSessionObservation.UNKNOWN
 
 
+def test_resume_session_maps_non_successful_responses_to_not_recoverable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+    client = AgentComposeClient()
+    _install_response(monkeypatch, _Response(500))
+
+    with pytest.raises(
+        AgentComposeBoundaryError,
+        match="agent_compose_session_not_recoverable",
+    ):
+        client.resume_session("c" * 64)
+
+
 def test_retry_start_reuses_the_original_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

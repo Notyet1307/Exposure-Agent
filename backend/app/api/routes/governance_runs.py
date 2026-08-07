@@ -157,14 +157,12 @@ def read_governance_runs(
     session: SessionDep,
     project_id: uuid.UUID,
     current_user: CurrentUser,
-    request: Request,
 ) -> Any:
     project = get_authorized_project(
         session=session,
         user=current_user,
         project_id=project_id,
         allowed_roles=PROJECT_READ_ROLES,
-        lock=True,
     )
     has_operator_access = session.exec(
         select(func.count())
@@ -176,32 +174,20 @@ def read_governance_runs(
             ),
         )
     ).one()
-    launch_blocking_code: str | None = None
-    if project.governance_launch_trigger_id is not None:
-        launch_blocking_code = "run_launch_in_progress"
-        if has_operator_access > 0:
-            try:
-                reconciled_trigger = (
-                    governance_run_service.reconcile_launch_reservation(
-                        session=session,
-                        project=project,
-                        client=AgentComposeClient(),
-                        actor_subject=str(current_user.id),
-                        request_ip=get_request_ip_address(request),
-                    )
-                )
-            except AgentComposeBoundaryError:
-                reconciled_trigger = None
-            if reconciled_trigger is not None:
-                session.commit()
-                launch_blocking_code = "run_launch_terminal_use_new_trigger"
+    launch_blocking_code = (
+        "run_launch_in_progress"
+        if project.governance_launch_trigger_id is not None
+        else None
+    )
     readiness_code: str | None = None
     if project.archived_at is not None:
         readiness_code = "run_project_archived"
     else:
         try:
             governance_run_service.require_trigger_readiness(
-                session=session, project=project
+                session=session,
+                project=project,
+                verify_current_fingerprint=False,
             )
         except governance_run_service.GovernanceRunStateError as error:
             readiness_code = error.code
@@ -261,7 +247,10 @@ def read_governance_runs(
             else:
                 try:
                     governance_run_service.require_retry_readiness(
-                        session=session, project=project, run=latest
+                        session=session,
+                        project=project,
+                        run=latest,
+                        verify_current_fingerprint=False,
                     )
                     can_retry = True
                 except governance_run_service.GovernanceRunStateError as error:
@@ -346,6 +335,8 @@ def trigger_governance_run(
         )
     except AgentComposeBoundaryError:
         reconciled_trigger = None
+    if reconciled_trigger is not None:
+        session.commit()
     if reconciled_trigger == trigger_id:
         governance_run_service.record_project_action(
             session=session,
@@ -627,13 +618,15 @@ def retry_governance_run(
     )
 
     try:
-        governance_run_service.reconcile_launch_reservation(
+        reconciled_trigger = governance_run_service.reconcile_launch_reservation(
             session=session,
             project=project,
             client=client,
             actor_subject=actor_subject,
             request_ip=request_ip,
         )
+        if reconciled_trigger is not None:
+            session.commit()
     except AgentComposeBoundaryError as error:
         session.rollback()
         governance_run_service.record_run_action(
@@ -896,6 +889,8 @@ def rerun_governance_run(
             actor_subject=actor_subject,
             request_ip=request_ip,
         )
+        if reconciled_trigger is not None:
+            session.commit()
     except AgentComposeBoundaryError:
         reconciled_trigger = None
     if reconciled_trigger == trigger_id:

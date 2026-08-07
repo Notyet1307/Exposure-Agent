@@ -377,7 +377,7 @@ Runner 在创建或恢复 `GovernanceRun` 前检查 Project 的来源前置条�
 
 创建 `GovernanceRun` 时，初期固定 CustomerUpload ID 与内容 Hash、云图 Source Instance 的已验证连接配置版本，以及实际 Runner 镜像摘要或构建版本；最终固定客户系统与云图两侧 Source Instance。Retry 始终复用原 CustomerUpload，选择不同上传版本必须创建新 Run。网络抖动、限流等配置与处理版本均未变化的失败可以 Retry；任一已固定的 Instance 绑定、地址、凭据、Capset 或 Runner 版本变化后，旧 Run 不再可恢复，必须通过 `Run Rerun` 创建新 Run。规范化规则、字段映射或 Policy 功能实际引入后再固定其版本，不为尚不存在的模块预建空字段。
 
-同一 Project 同时最多执行一个 GovernanceRun。相同 `trigger_id` 进入恢复逻辑；不同 `trigger_id` 在已有执行中 Run 时启动前拒绝且不创建空 Run，不同 Project 可以并行。该边界必须由 PostgreSQL 事务或约束兜底，不能只依赖 agent-compose 的调度行为。
+同一 Project 同时最多执行一个 GovernanceRun。相同 `trigger_id` 进入恢复逻辑；不同 `trigger_id` 在已有执行中 Run 时启动前拒绝且不创建空 Run，不同 Project 可以并行。失败 Run 停止后，普通不同 `trigger_id` 也不得直接开启新一轮；新一轮必须由 Operator 显式执行 `Run Rerun`，使用新的 `trigger_id`、GovernanceRun 和 Session。该边界必须由 PostgreSQL 事务或约束兜底，不能只依赖 agent-compose 的调度行为。
 
 有执行中 GovernanceRun 时，归档 Project 必须返回冲突，不自动停止 Session，也不增加 `CANCELLED` 状态。Run 停止后才能归档；Archived Project 不接受 Trigger、Retry、Rerun、新 CustomerUpload、CustomerUpload 选择或 Source Instance 变更，重新启用后才恢复这些操作。归档与重新启用不改变既有 Run；重新启用后，只要输入版本、来源配置、处理版本、原 Session、最新 Run 等既定条件仍全部成立，最新失败 Run 仍可 Retry。
 
@@ -563,7 +563,7 @@ LOAD_CUSTOMER
 
 `run_step` 在对应步骤第一次真正开始时才创建，不为尚未执行的未来步骤预建 `PENDING` 记录。它的状态只有 `RUNNING`、`SUCCEEDED` 和 `FAILED`；没有记录表示尚未开始。步骤顺序由 Runner 代码定义，不由数据库空行表达。
 
-`Run Retry` 使用相同的 `trigger_id`、`governance_run_id` 和 agent-compose `session_id`，在对应 `run_step` 上增加尝试，并跳过输入未变化且已经成功的步骤。成功完成的 Run 不再 Retry；失败 Run 停止执行后释放 Project 的执行资格，但只有 Project 中不存在更新 Run、原 Session 可恢复，且该 Run 固定的 CustomerUpload 或客户 Source Instance、暴露面来源绑定、已验证连接配置与实际参与计算的版本均未变化时才能 Retry。用户明确选择 `Run Rerun` 时使用新的 `trigger_id` 创建新的 GovernanceRun 和 Session；新 Run 一旦创建，旧 Run 永久保留为历史记录且不能再次恢复，不需要额外的 `SUPERSEDED` 状态。
+`Run Retry` 使用相同的 `trigger_id`、`governance_run_id` 和 agent-compose `session_id`，在对应 `run_step` 上增加尝试，并跳过输入未变化且已经成功的步骤。成功完成的 Run 不再 Retry；失败 Run 停止执行后，只有 Project 中不存在更新 Run、原 Session 可恢复，且该 Run 固定的 CustomerUpload 或客户 Source Instance、暴露面来源绑定、已验证连接配置与实际参与计算的版本均未变化时才能 Retry。普通不同 `trigger_id` 不会因为失败 Run 停止而直接创建新 Run；用户必须明确选择 `Run Rerun`，使用新的 `trigger_id` 创建新的 GovernanceRun 和 Session。新 Run 一旦创建，旧 Run 永久保留为历史记录且不能再次恢复，不需要额外的 `SUPERSEDED` 状态。
 
 `GovernanceRun.status` 在 v0.1 只有以下五个值：
 

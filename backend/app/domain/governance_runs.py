@@ -226,7 +226,10 @@ def _fingerprint(value: Any) -> str:
 
 
 def require_trigger_readiness(
-    *, session: Session, project: Project
+    *,
+    session: Session,
+    project: Project,
+    verify_current_fingerprint: bool = True,
 ) -> PinnedTriggerInputs:
     if project.current_customer_upload_id is None:
         raise GovernanceRunStateError("run_customer_upload_not_ready")
@@ -252,12 +255,16 @@ def require_trigger_readiness(
         or source.validation_error_code is not None
     ):
         raise GovernanceRunStateError("run_cloudatlas_source_not_ready")
-    try:
-        current = OctobusCloudAtlasClient().current_fingerprint(source)
-    except CloudAtlasBoundaryError:
-        raise GovernanceRunStateError("run_cloudatlas_source_not_ready")
-    if current.value != source.validated_fingerprint:
-        raise GovernanceRunStateError("run_cloudatlas_source_not_ready")
+    assert source.validated_fingerprint is not None
+    validated_fingerprint = source.validated_fingerprint
+    if verify_current_fingerprint:
+        try:
+            current = OctobusCloudAtlasClient().current_fingerprint(source)
+        except CloudAtlasBoundaryError:
+            raise GovernanceRunStateError("run_cloudatlas_source_not_ready")
+        if current.value != validated_fingerprint:
+            raise GovernanceRunStateError("run_cloudatlas_source_not_ready")
+        validated_fingerprint = current.value
     if not settings.CLOUDATLAS_CAPSET_TOKEN.get_secret_value():
         raise GovernanceRunStateError("run_cloudatlas_credential_not_ready")
     return PinnedTriggerInputs(
@@ -268,7 +275,7 @@ def require_trigger_readiness(
         customer_upload_profile_id=upload.profile_id,
         customer_upload_profile_version=upload.profile_version,
         source_instance_id=source.id,
-        cloudatlas_validated_fingerprint=current.value,
+        cloudatlas_validated_fingerprint=validated_fingerprint,
         cloudatlas_capset_id=source.capset_id,
         cloudatlas_method=METHOD,
         package_sha256=PACKAGE_SHA256,
@@ -1008,7 +1015,11 @@ def pinned_inputs_for_run(run: GovernanceRun) -> PinnedTriggerInputs:
 
 
 def require_retry_readiness(
-    *, session: Session, project: Project, run: GovernanceRun
+    *,
+    session: Session,
+    project: Project,
+    run: GovernanceRun,
+    verify_current_fingerprint: bool = True,
 ) -> PinnedTriggerInputs:
     if project.governance_launch_trigger_id is not None:
         raise GovernanceRunStateError("run_launch_in_progress")
@@ -1063,12 +1074,13 @@ def require_retry_readiness(
         raise GovernanceRunStateError("run_cloudatlas_source_not_ready")
     if not settings.CLOUDATLAS_CAPSET_TOKEN.get_secret_value():
         raise GovernanceRunStateError("run_cloudatlas_credential_not_ready")
-    try:
-        current = OctobusCloudAtlasClient().current_fingerprint(source)
-    except CloudAtlasBoundaryError:
-        raise GovernanceRunStateError("run_retry_cloudatlas_input_unavailable")
-    if current.value != run.cloudatlas_validated_fingerprint:
-        raise GovernanceRunStateError("run_retry_cloudatlas_input_changed")
+    if verify_current_fingerprint:
+        try:
+            current = OctobusCloudAtlasClient().current_fingerprint(source)
+        except CloudAtlasBoundaryError:
+            raise GovernanceRunStateError("run_retry_cloudatlas_input_unavailable")
+        if current.value != run.cloudatlas_validated_fingerprint:
+            raise GovernanceRunStateError("run_retry_cloudatlas_input_changed")
     return pinned_inputs_for_run(run)
 
 
@@ -1140,7 +1152,13 @@ def prepare_retry(
     request_ip: str | None,
 ) -> RunStep:
     steps = session.exec(
-        select(RunStep).where(RunStep.governance_run_id == run.id)
+        select(RunStep)
+        .where(RunStep.governance_run_id == run.id)
+        .order_by(
+            col(RunStep.attempt).asc(),
+            col(RunStep.started_at).asc(),
+            col(RunStep.id).asc(),
+        )
     ).all()
     step = next(
         (item for item in steps if item.status == RunStepStatus.FAILED.value),
