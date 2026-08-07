@@ -24,7 +24,7 @@ from app.domain.models import (
 SERVICE_ID = "cloudatlas-read"
 METHOD = "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets"
 FINGERPRINT_SCHEMA = "exposure-agent.cloudatlas-source-fingerprint.v1"
-PACKAGE_SHA256 = "882a197f630497f00307be613f7c361a32dad156092726e35b2ce9855c0617e9"
+PACKAGE_SHA256 = "120ec4f0d9a2f13865943f196c46b818869c7f16c7959c37867bb5e9596c5bdb"
 DESCRIPTOR_SHA256 = "3fada7cb00f3bca132c28d316ea61158522a1a07d3e80a83f9e68010d1a588e0"
 MATERIAL_CHANGED_ERROR = "cloudatlas_material_changed"
 
