@@ -27,6 +27,11 @@ FINGERPRINT_SCHEMA = "exposure-agent.cloudatlas-source-fingerprint.v1"
 PACKAGE_SHA256 = "1d487b2773d0dc2457d5c552d5a5d9cd34b4e7c732f9a810cf0115cdab3f069c"
 DESCRIPTOR_SHA256 = "3fada7cb00f3bca132c28d316ea61158522a1a07d3e80a83f9e68010d1a588e0"
 MATERIAL_CHANGED_ERROR = "cloudatlas_material_changed"
+_LIST_PAGE_ATTEMPTS = 3
+_RETRYABLE_READ_ERRORS = {
+    "cloudatlas_connectivity_failed",
+    "cloudatlas_upstream_failed",
+}
 
 _SAFE_ERROR_STATUS = {
     "octobus_authentication_failed": 401,
@@ -291,15 +296,23 @@ class OctobusCloudAtlasClient:
         page: int,
         size: int,
     ) -> dict[str, Any]:
-        payload = self._request_json(
-            "POST",
-            (
-                f"/capsets/{source.capset_id}/connect/{source.instance_id}/"
-                f"{METHOD}"
-            ),
-            token=capset_token,
-            body={"status": "valid", "page": page, "size": size},
-        )
+        attempts_remaining = _LIST_PAGE_ATTEMPTS
+        while True:
+            try:
+                payload = self._request_json(
+                    "POST",
+                    (
+                        f"/capsets/{source.capset_id}/connect/{source.instance_id}/"
+                        f"{METHOD}"
+                    ),
+                    token=capset_token,
+                    body={"status": "valid", "page": page, "size": size},
+                )
+                break
+            except CloudAtlasBoundaryError as exc:
+                attempts_remaining -= 1
+                if attempts_remaining == 0 or exc.code not in _RETRYABLE_READ_ERRORS:
+                    raise
         items = payload.get("items")
         returned_page = payload.get("page")
         returned_size = payload.get("size")

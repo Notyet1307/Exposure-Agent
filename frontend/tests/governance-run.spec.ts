@@ -229,10 +229,10 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     "run_session_state_unknown",
   )
 
-  const removeAfterGet = await request.post(
-    "http://cloudatlas-fixture:18080/fixture/remove-session-after-get",
+  const removeBeforeResume = await request.post(
+    "http://cloudatlas-fixture:18080/fixture/remove-session-before-resume",
   )
-  expect(removeAfterGet.ok()).toBeTruthy()
+  expect(removeBeforeResume.ok()).toBeTruthy()
   const unavailableRetry = await request.post(
     `${testApiUrl}/api/v1/projects/${project.id}/governance-runs/${unrecoverable.id}/retry`,
     {

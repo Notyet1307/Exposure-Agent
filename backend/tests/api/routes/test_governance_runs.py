@@ -322,12 +322,13 @@ def test_trigger_rejects_missing_current_customer_upload_before_creating_a_run(
     }
 
 
-def test_runner_creates_two_snapshots_and_atomically_publishes_completed(
+def test_runner_retries_transient_page_and_atomically_publishes_completed(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
+    list_ip_assets_page = OctobusCloudAtlasClient.list_ip_assets_page
     monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     monkeypatch.setattr(
         settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
@@ -343,6 +344,26 @@ def test_runner_creates_two_snapshots_and_atomically_publishes_completed(
         headers=superuser_token_headers,
         project=project,
     )
+    calls = 0
+
+    def request_page(*_args: object, **_kwargs: object) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise CloudAtlasBoundaryError("cloudatlas_upstream_failed")
+        return {
+            "items": [
+                {"id": "fixture-asset-1", "ip": "192.0.2.10", "status": "valid"}
+            ],
+            "page": 1,
+            "size": 200,
+            "total": 1,
+        }
+
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient, "list_ip_assets_page", list_ip_assets_page
+    )
+    monkeypatch.setattr(OctobusCloudAtlasClient, "_request_json", request_page)
     runner_environment = _runner_environment(
         project=project,
         upload=upload,
@@ -355,6 +376,7 @@ def test_runner_creates_two_snapshots_and_atomically_publishes_completed(
         monkeypatch.setenv(name, value)
 
     assert run_governance_runner() == 0
+    assert calls == 2
 
     response = client.get(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",

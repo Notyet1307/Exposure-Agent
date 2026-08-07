@@ -17,9 +17,9 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
     expected_token = ""
     log_path = Path("/tmp/cloudatlas-fixture.jsonl")
     agent_compose_url = "http://agent-compose:7410"
-    fail_next_read = False
+    failed_reads_remaining = 0
     miss_next_session_query = False
-    remove_session_after_get = False
+    remove_session_before_resume = False
 
     def write_raw(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -54,6 +54,19 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
             )
             if (value := self.headers.get(name)) is not None
         }
+        if (
+            self.path == "/agentcompose.v2.SandboxService/ResumeSandbox"
+            and type(self).remove_session_before_resume
+        ):
+            type(self).remove_session_before_resume = False
+            remove_request = Request(
+                f"{self.agent_compose_url}/agentcompose.v2.SandboxService/RemoveSandbox",
+                data=body,
+                headers=headers,
+                method="POST",
+            )
+            with urlopen(remove_request):
+                pass
         request = Request(
             f"{self.agent_compose_url}{self.path}",
             data=body,
@@ -71,21 +84,6 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
             status = error.code
             response_body = error.read()
             content_type = error.headers.get("Content-Type", "application/json")
-        if (
-            self.path == "/agentcompose.v2.SandboxService/GetSandbox"
-            and type(self).remove_session_after_get
-            and status == HTTPStatus.OK
-        ):
-            type(self).remove_session_after_get = False
-            session_id = json.loads(body)["sandboxId"]
-            remove_request = Request(
-                f"{self.agent_compose_url}/agentcompose.v2.SandboxService/RemoveSandbox",
-                data=json.dumps({"sandboxId": session_id}).encode(),
-                headers=headers,
-                method="POST",
-            )
-            with urlopen(remove_request):
-                pass
         self.write_raw(status, response_body, content_type)
 
     def do_POST(self) -> None:
@@ -93,11 +91,11 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
             self.proxy_agent_compose()
             return
         if self.path == "/fixture/fail-next":
-            type(self).fail_next_read = True
+            type(self).failed_reads_remaining = 3
         elif self.path == "/fixture/miss-next-session-query":
             type(self).miss_next_session_query = True
-        elif self.path == "/fixture/remove-session-after-get":
-            type(self).remove_session_after_get = True
+        elif self.path == "/fixture/remove-session-before-resume":
+            type(self).remove_session_before_resume = True
         else:
             self.write_json(404, {"error": "not_found"})
             return
@@ -127,8 +125,8 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
         if token != self.expected_token:
             self.write_json(401, {"error": "authentication_failed"})
             return
-        if type(self).fail_next_read:
-            type(self).fail_next_read = False
+        if type(self).failed_reads_remaining:
+            type(self).failed_reads_remaining -= 1
             self.write_json(503, {"error": "fixture_failure"})
             return
         page = query.get("page", ["1"])[0]
