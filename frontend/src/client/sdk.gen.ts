@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+import type { AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsDeleteCustomerUploadData, ProjectsDeleteCustomerUploadResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
 
 export class AuditEventsService {
     /**
@@ -593,6 +593,28 @@ export class ProjectsService {
             query: {
                 skip: data.skip,
                 limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Customer Upload
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.uploadId
+     * @returns void Successful Response
+     * @throws ApiError
+     */
+    public static deleteCustomerUpload(data: ProjectsDeleteCustomerUploadData): CancelablePromise<ProjectsDeleteCustomerUploadResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/projects/{project_id}/customer-uploads/{upload_id}',
+            path: {
+                project_id: data.projectId,
+                upload_id: data.uploadId
             },
             errors: {
                 422: 'Validation Error'

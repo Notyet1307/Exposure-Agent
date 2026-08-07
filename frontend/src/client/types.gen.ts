@@ -462,6 +462,13 @@ export type ProjectsReadCustomerUploadsData = {
 
 export type ProjectsReadCustomerUploadsResponse = (CustomerUploadsPublic);
 
+export type ProjectsDeleteCustomerUploadData = {
+    projectId: string;
+    uploadId: string;
+};
+
+export type ProjectsDeleteCustomerUploadResponse = (void);
+
 export type ProjectsSelectCurrentCustomerUploadData = {
     projectId: string;
     uploadId: string;

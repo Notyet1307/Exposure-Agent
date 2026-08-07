@@ -564,17 +564,14 @@ def test_openapi_exposes_supported_project_and_read_only_audit_contracts(
     assert upload_file_schema["format"] == "binary"
     select_upload_path = f"{customer_uploads_path}/{{upload_id}}/select"
     assert set(paths[select_upload_path]) == {"post"}
+    delete_upload_path = f"{customer_uploads_path}/{{upload_id}}"
+    assert set(paths[delete_upload_path]) == {"delete"}
     assert set(paths[f"{settings.API_V1_STR}/projects/{{project_id}}/archive"]) == {
         "post"
     }
     assert set(paths[f"{settings.API_V1_STR}/projects/{{project_id}}/reactivate"]) == {
         "post"
     }
-    assert not any(
-        "delete" in path_operations
-        for path, path_operations in paths.items()
-        if path.startswith(f"{settings.API_V1_STR}/projects")
-    )
     membership_path = f"{settings.API_V1_STR}/projects/{{project_id}}/memberships"
     assert set(paths[f"{membership_path}/"]) == {"get", "post"}
     assert set(paths[f"{membership_path}/{{membership_id}}"]) == {"patch"}

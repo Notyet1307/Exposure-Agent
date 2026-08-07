@@ -86,6 +86,21 @@ _UPLOAD_ERRORS = {
     ),
 }
 
+_CUSTOMER_UPLOAD_DELETE_ERRORS = {
+    "customer_upload_not_found": (
+        status.HTTP_404_NOT_FOUND,
+        "CustomerUpload not found.",
+    ),
+    "customer_upload_in_use": (
+        status.HTTP_409_CONFLICT,
+        "The CustomerUpload is still referenced by the Project or Governance facts.",
+    ),
+    "customer_upload_delete_failed": (
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "The CustomerUpload could not be deleted.",
+    ),
+}
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -300,6 +315,44 @@ def read_customer_uploads(
         can_upload=can_change_inputs,
         can_select=can_change_inputs,
     )
+
+
+@router.delete(
+    "/{project_id}/customer-uploads/{upload_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(get_current_active_superuser)],
+)
+def delete_customer_upload(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    upload_id: uuid.UUID,
+    current_user: CurrentUser,
+    request: Request,
+) -> Response:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=None,
+        lock=True,
+    )
+    try:
+        customer_upload_service.delete_customer_upload(
+            session=session,
+            project=project,
+            upload_id=upload_id,
+            artifact_root=settings.ARTIFACT_ROOT,
+            actor_subject=str(current_user.id),
+            ip_address=get_request_ip_address(request),
+        )
+    except customer_upload_service.CustomerUploadDeletionError as error:
+        error_status, error_message = _CUSTOMER_UPLOAD_DELETE_ERRORS[error.code]
+        raise HTTPException(
+            status_code=error_status,
+            detail={"code": error.code, "message": error_message},
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
