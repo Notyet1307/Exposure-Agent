@@ -13,6 +13,11 @@ export AGENT_COMPOSE_CONFIG_PATH="$agent_compose_config_path"
 stack_cleanup() {
   docker compose "${compose_files[@]}" down -v --remove-orphans
 }
+cleanup_artifacts() {
+  docker compose "${compose_files[@]}" run --rm --no-deps \
+    --entrypoint /bin/sh agent-compose-project-init -ec \
+    'find /cleanup -mindepth 1 -delete'
+}
 finish() {
   exit_code=$?
   trap - EXIT
@@ -38,6 +43,8 @@ finish() {
       docker ps --all --quiet --filter ancestor=governance-runner:latest
     )
   fi
+  stack_cleanup
+  cleanup_artifacts
   stack_cleanup
   rm -rf "$test_root"
   exit "$exit_code"

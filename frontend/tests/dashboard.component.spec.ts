@@ -190,6 +190,69 @@ test.beforeEach(async ({ page }) => {
   await mockDashboardApi(page)
 })
 
+test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
+  page,
+}) => {
+  const triggerKeys: string[] = []
+  let terminalLaunch = false
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/governance-runs*`,
+    async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          json: {
+            data: [],
+            count: 0,
+            can_trigger: true,
+            ready: true,
+            readiness_code: null,
+            launch_blocking_code: null,
+          },
+        })
+        return
+      }
+      triggerKeys.push(route.request().headers()["idempotency-key"] ?? "")
+      if (!terminalLaunch) {
+        terminalLaunch = true
+        await route.fulfill({
+          status: 409,
+          json: {
+            detail: {
+              code: "run_launch_terminal_use_new_trigger",
+              message: "Use a new Trigger ID.",
+            },
+          },
+        })
+        return
+      }
+      await route.fulfill({
+        json: {
+          accepted: true,
+          agent_compose_run_id: "a".repeat(64),
+          agent_compose_status: "RUN_STATUS_PENDING",
+          governance_run_id: null,
+        },
+      })
+    },
+  )
+
+  await page.goto("/")
+  await page.getByRole("button", { name: "Trigger Run" }).click()
+  await expect(page.getByRole("status")).toHaveText(
+    "The previous launch ended before creating a Run. Use a new Trigger ID.",
+  )
+  await page.getByRole("button", { name: "Trigger Run" }).click()
+  await expect(
+    page.getByText(
+      "Governance Session accepted. Waiting for the Runner to start.",
+    ),
+  ).toBeVisible()
+  await expect.poll(() => triggerKeys.length).toBe(2)
+  expect(triggerKeys[0]).toBeTruthy()
+  expect(triggerKeys[1]).toBeTruthy()
+  expect(triggerKeys[1]).not.toBe(triggerKeys[0])
+})
+
 test("selects the first Project and switches its Profile and upload list", async ({
   page,
 }) => {
@@ -658,3 +721,276 @@ test("shows the three Run steps and triggers with a caller-owned stable ID", asy
   ).toBeVisible()
   expect(idempotencyKey).toMatch(/^[0-9a-f-]{36}$/)
 })
+
+test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
+  page,
+}) => {
+  const runId = "60000000-0000-0000-0000-000000000099"
+  const failedRun = {
+    id: runId,
+    trigger_id: "failed-trigger",
+    session_id: "7".repeat(64),
+    status: "FAILED_DATA",
+    customer_upload_id: "20000000-0000-0000-0000-000000000001",
+    customer_upload_sha256: "a".repeat(64),
+    customer_upload_profile_id: "10000000-0000-0000-0000-000000000001",
+    customer_upload_profile_version: 1,
+    source_instance_id: "50000000-0000-0000-0000-000000000001",
+    cloudatlas_validated_fingerprint: "b".repeat(64),
+    cloudatlas_capset_id: "cloudatlas-readonly",
+    cloudatlas_method: "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets",
+    package_sha256: "c".repeat(64),
+    descriptor_sha256: "d".repeat(64),
+    runner_build_version: "runner-v1",
+    created_at: "2026-07-30T13:00:00Z",
+    completed_at: null,
+    session_terminal_at: "2026-07-30T13:01:00Z",
+    session_recovery_code: null,
+    steps: [
+      {
+        step_code: "LOAD_CUSTOMER",
+        status: "SUCCEEDED",
+        attempt: 1,
+        input_hash: "a".repeat(64),
+        output_hash: "a".repeat(64),
+        error_code: null,
+        started_at: "2026-07-30T13:00:00Z",
+        completed_at: "2026-07-30T13:00:10Z",
+      },
+      {
+        step_code: "PULL_CLOUDATLAS",
+        status: "FAILED",
+        attempt: 2,
+        input_hash: "b".repeat(64),
+        output_hash: null,
+        error_code: "cloudatlas_snapshot_failed",
+        started_at: "2026-07-30T13:00:11Z",
+        completed_at: "2026-07-30T13:00:20Z",
+      },
+    ],
+    snapshots: [
+      {
+        id: "70000000-0000-0000-0000-000000000099",
+        source_type: "CUSTOMER_UPLOAD",
+        content_sha256: "a".repeat(64),
+        schema_fingerprint: "e".repeat(64),
+        method_fingerprint: null,
+        record_count: 2,
+        created_at: "2026-07-30T13:00:10Z",
+      },
+    ],
+    reused_snapshot_count: 1,
+    can_retry: true,
+    can_rerun: true,
+    blocking_code: null,
+  }
+  const actions: string[] = []
+  const rerunKeys: string[] = []
+  let terminalLaunch = false
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/governance-runs/${runId}/**`,
+    async (route) => {
+      const action =
+        new URL(route.request().url()).pathname.split("/").at(-1) ?? ""
+      actions.push(action)
+      if (action === "rerun") {
+        rerunKeys.push(route.request().headers()["idempotency-key"] ?? "")
+        if (rerunKeys.length === 1) {
+          terminalLaunch = true
+          await route.fulfill({
+            status: 409,
+            json: {
+              detail: {
+                code: "run_launch_terminal_use_new_trigger",
+                message: "Use a new Trigger ID.",
+              },
+            },
+          })
+          return
+        }
+      }
+      await route.fulfill({
+        status: 202,
+        json: {
+          accepted: true,
+          action,
+          governance_run_id: runId,
+          source_governance_run_id: runId,
+          session_id: failedRun.session_id,
+          agent_compose_run_id: "8".repeat(64),
+          agent_compose_status: "RUNNING",
+          code: null,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/governance-runs`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [failedRun],
+          count: 1,
+          can_trigger: false,
+          ready: true,
+          readiness_code: null,
+          launch_blocking_code: terminalLaunch
+            ? "run_launch_terminal_use_new_trigger"
+            : null,
+        },
+      }),
+  )
+  await page.goto("/")
+
+  await expect(page.getByText("FAILED_DATA", { exact: true })).toBeVisible()
+  await expect(page.getByText("Snapshots reused: 1")).toBeVisible()
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "PULL_CLOUDATLAS" })
+      .getByRole("cell", { name: "2", exact: true }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Retry same Session" }).click()
+  await expect(
+    page.getByText("Retry accepted for the same Governance Run and Session."),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Rerun with current inputs" }).click()
+  await expect(page.getByRole("status")).toHaveText(
+    "The previous launch ended before creating a Run. Use a new Trigger ID.",
+  )
+  await page.getByRole("button", { name: "Rerun with current inputs" }).click()
+  await expect(
+    page.getByText("Rerun accepted with current inputs and a new Trigger ID."),
+  ).toBeVisible()
+  expect(actions).toEqual(["retry", "rerun", "rerun"])
+  expect(rerunKeys[0]).toBeTruthy()
+  expect(rerunKeys[1]).toBeTruthy()
+  expect(rerunKeys[1]).not.toBe(rerunKeys[0])
+})
+
+test("hides Rerun while a same-Session Retry is in progress", async ({
+  page,
+}) => {
+  const retryPreparedRun = {
+    id: "60000000-0000-0000-0000-000000000097",
+    trigger_id: "retry-prepared",
+    session_id: "6".repeat(64),
+    status: "RUNNING",
+    customer_upload_id: "20000000-0000-0000-0000-000000000001",
+    customer_upload_sha256: "a".repeat(64),
+    customer_upload_profile_id: "10000000-0000-0000-0000-000000000001",
+    customer_upload_profile_version: 1,
+    source_instance_id: "50000000-0000-0000-0000-000000000001",
+    cloudatlas_validated_fingerprint: "b".repeat(64),
+    cloudatlas_capset_id: "cloudatlas-readonly",
+    cloudatlas_method: "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets",
+    package_sha256: "c".repeat(64),
+    descriptor_sha256: "d".repeat(64),
+    runner_build_version: "runner-v1",
+    created_at: "2026-07-30T13:00:00Z",
+    completed_at: null,
+    session_terminal_at: "2026-07-30T13:01:00Z",
+    session_recovery_code: "retry_prepared",
+    steps: [],
+    snapshots: [],
+    reused_snapshot_count: 0,
+    can_retry: true,
+    can_rerun: false,
+    blocking_code: null,
+  }
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/governance-runs`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [retryPreparedRun],
+          count: 1,
+          can_trigger: false,
+          ready: true,
+          readiness_code: null,
+        },
+      }),
+  )
+  await page.goto("/")
+
+  await expect(page.getByText("RUNNING", { exact: true })).toBeVisible()
+  await expect(page.getByText("Snapshots reused: 0")).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Retry same Session" }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Rerun with current inputs" }),
+  ).toHaveCount(0)
+})
+
+for (const role of ["Viewer", "Approver"] as const) {
+  test(`${role} receives no recovery controls`, async ({ page }) => {
+    await page.route("**/api/v1/users/me", (route) =>
+      route.fulfill({
+        json: {
+          email: `${role.toLowerCase()}@example.com`,
+          full_name: `Test ${role}`,
+          id: "30000000-0000-0000-0000-000000000001",
+          is_active: true,
+          is_superuser: false,
+        },
+      }),
+    )
+    const runId = "60000000-0000-0000-0000-000000000098"
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/governance-runs`,
+      (route) =>
+        route.fulfill({
+          json: {
+            data: [
+              {
+                id: runId,
+                trigger_id: "read-only-failure",
+                session_id: "9".repeat(64),
+                status: "FAILED_PROCESSING",
+                customer_upload_id: "20000000-0000-0000-0000-000000000001",
+                customer_upload_sha256: "a".repeat(64),
+                customer_upload_profile_id:
+                  "10000000-0000-0000-0000-000000000001",
+                customer_upload_profile_version: 1,
+                source_instance_id: "50000000-0000-0000-0000-000000000001",
+                cloudatlas_validated_fingerprint: "b".repeat(64),
+                cloudatlas_capset_id: "cloudatlas-readonly",
+                cloudatlas_method:
+                  "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets",
+                package_sha256: "c".repeat(64),
+                descriptor_sha256: "d".repeat(64),
+                runner_build_version: "runner-v1",
+                created_at: "2026-07-30T13:00:00Z",
+                completed_at: null,
+                session_terminal_at: null,
+                session_recovery_code: null,
+                steps: [],
+                snapshots: [],
+                reused_snapshot_count: 0,
+                can_retry: false,
+                can_rerun: false,
+                blocking_code: "run_session_state_unknown",
+              },
+            ],
+            count: 1,
+            can_trigger: false,
+            ready: true,
+            readiness_code: null,
+          },
+        }),
+    )
+    await page.goto("/")
+
+    await expect(page.getByText("Recovery status")).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Retry same Session" }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole("button", { name: "Rerun with current inputs" }),
+    ).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Trigger Run" })).toHaveCount(
+      0,
+    )
+  })
+}

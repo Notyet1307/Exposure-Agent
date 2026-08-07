@@ -22,6 +22,7 @@ from app.api.project_authorization import (
 from app.api.request import get_request_ip_address
 from app.core.config import settings
 from app.domain import customer_uploads as customer_upload_service
+from app.domain import governance_runs as governance_run_service
 from app.domain import projects as project_service
 from app.domain.models import (
     CustomerUpload,
@@ -36,6 +37,10 @@ from app.domain.models import (
     ProjectRole,
     ProjectsPublic,
     ProjectUpdate,
+)
+from app.integrations.agent_compose import (
+    AgentComposeBoundaryError,
+    AgentComposeClient,
 )
 
 _UPLOAD_ERRORS = {
@@ -351,6 +356,18 @@ def archive_project(
         allowed_roles=None,
         lock=True,
     )
+
+    if project.governance_launch_trigger_id is not None:
+        try:
+            governance_run_service.reconcile_launch_reservation(
+                session=session,
+                project=project,
+                client=AgentComposeClient(),
+                actor_subject=str(current_user.id),
+                request_ip=get_request_ip_address(request),
+            )
+        except AgentComposeBoundaryError:
+            pass
 
     try:
         return project_service.archive_project(

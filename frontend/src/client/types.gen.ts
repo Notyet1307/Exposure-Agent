@@ -100,6 +100,17 @@ export type CustomerUploadWarningPublic = {
     count: number;
 };
 
+export type GovernanceRunActionPublic = {
+    accepted: boolean;
+    action: string;
+    governance_run_id: (string | null);
+    source_governance_run_id?: (string | null);
+    session_id: (string | null);
+    agent_compose_run_id: (string | null);
+    agent_compose_status: string;
+    code?: (string | null);
+};
+
 export type GovernanceRunPublic = {
     id: string;
     trigger_id: string;
@@ -118,8 +129,14 @@ export type GovernanceRunPublic = {
     runner_build_version: string;
     created_at: string;
     completed_at: (string | null);
+    session_terminal_at: (string | null);
+    session_recovery_code: (string | null);
     steps: Array<RunStepPublic>;
     snapshots: Array<SourceSnapshotPublic>;
+    reused_snapshot_count?: number;
+    can_retry?: boolean;
+    can_rerun?: boolean;
+    blocking_code?: (string | null);
 };
 
 export type GovernanceRunsPublic = {
@@ -128,6 +145,7 @@ export type GovernanceRunsPublic = {
     can_trigger: boolean;
     ready: boolean;
     readiness_code: (string | null);
+    launch_blocking_code?: (string | null);
 };
 
 export type GovernanceRunTriggerPublic = {
@@ -329,6 +347,21 @@ export type GovernanceRunsTriggerGovernanceRunData = {
 };
 
 export type GovernanceRunsTriggerGovernanceRunResponse = (GovernanceRunTriggerPublic);
+
+export type GovernanceRunsRetryGovernanceRunData = {
+    projectId: string;
+    runId: string;
+};
+
+export type GovernanceRunsRetryGovernanceRunResponse = (GovernanceRunActionPublic);
+
+export type GovernanceRunsRerunGovernanceRunData = {
+    idempotencyKey?: (string | null);
+    projectId: string;
+    runId: string;
+};
+
+export type GovernanceRunsRerunGovernanceRunResponse = (GovernanceRunActionPublic);
 
 export type HealthHealthLiveResponse = (boolean);
 

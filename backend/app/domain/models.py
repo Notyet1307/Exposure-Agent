@@ -51,6 +51,15 @@ class ProjectUpdate(ProjectBase):
 class Project(ProjectBase, table=True):
     __tablename__: ClassVar[str] = "projects"
     __table_args__ = (
+        CheckConstraint(
+            "(governance_launch_trigger_id IS NULL AND "
+            "governance_launch_control_run_id IS NULL AND "
+            "governance_launch_input_hash IS NULL) OR "
+            "(governance_launch_trigger_id IS NOT NULL AND "
+            "governance_launch_control_run_id IS NOT NULL AND "
+            "governance_launch_input_hash IS NOT NULL)",
+            name="ck_projects_governance_launch_complete",
+        ),
         ForeignKeyConstraint(
             ["current_customer_upload_profile_id", "id"],
             ["customer_upload_profiles.id", "customer_upload_profiles.project_id"],
@@ -102,6 +111,9 @@ class Project(ProjectBase, table=True):
     current_customer_upload_profile_id: uuid.UUID = Field(index=True)
     current_customer_upload_id: uuid.UUID | None = Field(default=None, index=True)
     latest_completed_run_id: uuid.UUID | None = Field(default=None, index=True)
+    governance_launch_trigger_id: str | None = Field(default=None, max_length=255)
+    governance_launch_control_run_id: str | None = Field(default=None, max_length=64)
+    governance_launch_input_hash: str | None = Field(default=None, max_length=64)
 
 
 class ProjectPublic(ProjectBase):
@@ -516,6 +528,11 @@ class GovernanceRun(SQLModel, table=True):
         default=None,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
+    session_terminal_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    session_recovery_code: str | None = Field(default=None, max_length=100)
 
 
 class RunStep(SQLModel, table=True):
@@ -686,8 +703,14 @@ class GovernanceRunPublic(SQLModel):
     runner_build_version: str
     created_at: datetime
     completed_at: datetime | None
+    session_terminal_at: datetime | None
+    session_recovery_code: str | None
     steps: list[RunStepPublic]
     snapshots: list[SourceSnapshotPublic]
+    reused_snapshot_count: int = 0
+    can_retry: bool = False
+    can_rerun: bool = False
+    blocking_code: str | None = None
 
 
 class GovernanceRunsPublic(SQLModel):
@@ -696,6 +719,7 @@ class GovernanceRunsPublic(SQLModel):
     can_trigger: bool
     ready: bool
     readiness_code: str | None
+    launch_blocking_code: str | None = None
 
 
 class GovernanceRunTriggerPublic(SQLModel):
@@ -703,6 +727,17 @@ class GovernanceRunTriggerPublic(SQLModel):
     agent_compose_run_id: str
     agent_compose_status: str
     governance_run_id: uuid.UUID | None
+
+
+class GovernanceRunActionPublic(SQLModel):
+    accepted: bool
+    action: str
+    governance_run_id: uuid.UUID | None
+    source_governance_run_id: uuid.UUID | None = None
+    session_id: str | None
+    agent_compose_run_id: str | None
+    agent_compose_status: str
+    code: str | None = None
 
 
 class ProjectRole(StrEnum):
