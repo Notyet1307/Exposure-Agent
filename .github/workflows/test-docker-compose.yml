@@ -32,6 +32,8 @@ jobs:
             echo "FIRST_SUPERUSER=admin@compose-test.example"
             echo "FIRST_SUPERUSER_PASSWORD=$(openssl rand -hex 32)"
           } >> "$GITHUB_ENV"
+      - name: Assert CI credentials reach every Compose consumer
+        run: ./scripts/test-compose-environment-parity.sh
       - run: docker compose -f compose.yml build
       - run: docker compose -f compose.yml down -v --remove-orphans
       - run: docker compose -f compose.yml up -d --wait

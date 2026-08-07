@@ -16,6 +16,9 @@ services:
         source: ${AGENT_COMPOSE_CONFIG_PATH:?Variable not set or empty}
         target: /config/agent-compose.yml
         read_only: true
+      - type: bind
+        source: ${ARTIFACT_HOST_PATH:?Variable not set or empty}
+        target: /cleanup
 
   frontend:
     ports: !reset []

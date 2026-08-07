@@ -68,6 +68,12 @@ services:
       - .env
     environment:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
+      SECRET_KEY: ${SECRET_KEY:?Variable not set or empty}
+      FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
+      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
+      POSTGRES_DB: ${POSTGRES_DB?Variable not set}
+      POSTGRES_USER: ${POSTGRES_USER?Variable not set}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
     volumes:
       - ./agent-compose.yml:/config/agent-compose.yml:ro
       - ./.env:/config/.env:ro
