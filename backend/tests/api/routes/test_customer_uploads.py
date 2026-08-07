@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import io
 import logging
+import os
 import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -23,7 +24,15 @@ from starlette.types import Message, Scope
 from app.core.config import settings
 from app.core.db import engine
 from app.domain import customer_uploads as customer_upload_service
-from app.domain.models import Artifact, AuditEvent, CustomerUpload, Project
+from app.domain.models import (
+    Artifact,
+    AuditEvent,
+    CustomerUpload,
+    GovernanceRun,
+    Project,
+    SourceInstance,
+    SourceSnapshot,
+)
 from app.main import app
 from tests.utils.audit import reject_audit_inserts
 from tests.utils.user import user_authentication_headers
@@ -1198,3 +1207,404 @@ def test_deduplication_cleanup_failure_returns_storage_error(
         "code": "upload_storage_failed",
         "message": "The upload could not be stored.",
     }
+
+
+def _create_governance_reference(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    run_upload: CustomerUpload,
+    snapshot_upload: CustomerUpload | None = None,
+) -> None:
+    project = db.get(Project, project_id)
+    assert project is not None
+    source = SourceInstance(
+        tenant_id=project.tenant_id,
+        project_id=project.id,
+        instance_id=f"reference-{uuid.uuid4()}",
+        capset_id="reference-capset",
+    )
+    run = GovernanceRun(
+        tenant_id=project.tenant_id,
+        project_id=project.id,
+        trigger_id=f"reference-{uuid.uuid4()}",
+        session_id=str(uuid.uuid4()),
+        requested_by="test",
+        status="FAILED_PROCESSING",
+        customer_upload_id=run_upload.id,
+        customer_upload_sha256=run_upload.raw_sha256,
+        customer_upload_profile_id=run_upload.profile_id,
+        customer_upload_profile_version=run_upload.profile_version,
+        source_instance_id=source.id,
+        cloudatlas_validated_fingerprint="a" * 64,
+        cloudatlas_capset_id=source.capset_id,
+        cloudatlas_method="reference-method",
+        package_sha256="b" * 64,
+        descriptor_sha256="c" * 64,
+        runner_build_version="reference-runner",
+    )
+    db.add(source)
+    db.flush()
+    db.add(run)
+    if snapshot_upload is not None:
+        db.add(
+            SourceSnapshot(
+                tenant_id=project.tenant_id,
+                project_id=project.id,
+                governance_run_id=run.id,
+                source_type="CUSTOMER_UPLOAD",
+                customer_upload_id=snapshot_upload.id,
+                artifact_id=snapshot_upload.artifact_id,
+                content_sha256=snapshot_upload.raw_sha256,
+                schema_fingerprint="d" * 64,
+                record_count=snapshot_upload.record_count,
+            )
+        )
+    db.commit()
+
+
+def test_global_admin_can_delete_unused_upload_and_reupload_gets_new_ids(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    content = _workbook_bytes()
+    uploads_url = f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    upload_response = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", content, XLSX_MEDIA_TYPE)},
+    )
+    assert upload_response.status_code == 201
+    upload = upload_response.json()
+    upload_id = uuid.UUID(upload["id"])
+    db.expire_all()
+    stored_upload = db.get(CustomerUpload, upload_id)
+    assert stored_upload is not None
+    stored_artifact = db.get(Artifact, stored_upload.artifact_id)
+    assert stored_artifact is not None
+    artifact_id = stored_artifact.id
+    artifact_path = tmp_path / stored_artifact.storage_key
+    assert artifact_path.read_bytes() == content
+
+    delete_response = client.delete(
+        f"{uploads_url}/{upload_id}", headers=superuser_token_headers
+    )
+
+    assert delete_response.status_code == 204
+    assert delete_response.content == b""
+    assert not artifact_path.exists()
+    db.expire_all()
+    assert db.get(CustomerUpload, upload_id) is None
+    assert db.get(Artifact, artifact_id) is None
+    delete_events = db.exec(
+        select(AuditEvent).where(
+            AuditEvent.project_id == uuid.UUID(str(project["id"])),
+            AuditEvent.action == "customer_upload.deleted",
+        )
+    ).all()
+    assert len(delete_events) == 1
+    assert delete_events[0].target_id == upload_id
+    assert delete_events[0].before_data == {
+        "profile_id": upload["profile_id"],
+        "profile_version": 1,
+        "record_count": 1,
+        "warning_count": 5,
+    }
+    assert delete_events[0].after_data is None
+
+    repeated_delete = client.delete(
+        f"{uploads_url}/{upload_id}", headers=superuser_token_headers
+    )
+    assert repeated_delete.status_code == 404
+
+    replacement_response = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("replacement.xlsx", content, XLSX_MEDIA_TYPE)},
+    )
+    assert replacement_response.status_code == 201
+    replacement = replacement_response.json()
+    assert replacement["id"] != upload["id"]
+    db.expire_all()
+    replacement_record = db.get(CustomerUpload, uuid.UUID(replacement["id"]))
+    assert replacement_record is not None
+    assert replacement_record.artifact_id != artifact_id
+    assert (tmp_path / f"customer_uploads/{replacement_record.artifact_id}.xlsx").exists()
+
+
+def test_only_global_admin_can_delete_customer_uploads_across_project_roles(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    target_project = _create_project(client, superuser_token_headers)
+    other_project = _create_project(client, superuser_token_headers)
+    uploads_url = (
+        f"{settings.API_V1_STR}/projects/{target_project['id']}/customer-uploads"
+    )
+    upload_response = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    )
+    assert upload_response.status_code == 201
+    upload_id = upload_response.json()["id"]
+
+    role_headers = [
+        _create_member(
+            client,
+            superuser_token_headers,
+            project_id=target_project["id"],
+            roles=[role],
+        )
+        for role in ("operator", "viewer", "approver")
+    ]
+    cross_project_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=other_project["id"],
+        roles=["operator"],
+    )
+
+    responses = [
+        client.delete(f"{uploads_url}/{upload_id}", headers=headers)
+        for headers in [*role_headers, cross_project_headers]
+    ]
+
+    assert [response.status_code for response in responses] == [403, 403, 403, 403]
+
+
+def test_archived_project_allows_global_admin_to_delete_unused_upload(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    uploads_url = f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    upload_response = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    )
+    assert upload_response.status_code == 201
+    upload_id = upload_response.json()["id"]
+    assert (
+        client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/archive",
+            headers=superuser_token_headers,
+        ).status_code
+        == 200
+    )
+
+    delete_response = client.delete(
+        f"{uploads_url}/{upload_id}", headers=superuser_token_headers
+    )
+
+    assert delete_response.status_code == 204
+
+
+@pytest.mark.parametrize("reference_kind", ["current", "run", "snapshot"])
+def test_referenced_customer_upload_cannot_be_deleted(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    reference_kind: str,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    uploads_url = f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    upload_response = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("target.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    )
+    assert upload_response.status_code == 201
+    target_upload = upload_response.json()
+    target_id = uuid.UUID(target_upload["id"])
+    if reference_kind == "current":
+        assert client.post(
+            f"{uploads_url}/{target_id}/select",
+            headers=superuser_token_headers,
+        ).status_code == 200
+    else:
+        db.expire_all()
+        target_record = db.get(CustomerUpload, target_id)
+        assert target_record is not None
+        if reference_kind == "run":
+            _create_governance_reference(
+                db,
+                project_id=uuid.UUID(str(project["id"])),
+                run_upload=target_record,
+            )
+        else:
+            other_response = client.post(
+                uploads_url,
+                headers=superuser_token_headers,
+                files={
+                    "file": (
+                        "other.xlsx",
+                        _workbook_bytes(asset_ip="192.0.2.20"),
+                        XLSX_MEDIA_TYPE,
+                    )
+                },
+            )
+            assert other_response.status_code == 201
+            other_record = db.get(
+                CustomerUpload, uuid.UUID(other_response.json()["id"])
+            )
+            assert other_record is not None
+            _create_governance_reference(
+                db,
+                project_id=uuid.UUID(str(project["id"])),
+                run_upload=other_record,
+                snapshot_upload=target_record,
+            )
+
+    response = client.delete(
+        f"{uploads_url}/{target_id}", headers=superuser_token_headers
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "customer_upload_in_use"
+    db.expire_all()
+    assert db.get(CustomerUpload, target_id) is not None
+
+
+def test_delete_storage_failure_keeps_original_artifact_and_metadata(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    uploads_url = f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    content = _workbook_bytes()
+    upload = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", content, XLSX_MEDIA_TYPE)},
+    ).json()
+    db.expire_all()
+    stored_upload = db.get(CustomerUpload, uuid.UUID(upload["id"]))
+    assert stored_upload is not None
+    artifact = db.get(Artifact, stored_upload.artifact_id)
+    assert artifact is not None
+    original_path = tmp_path / artifact.storage_key
+    original_replace = os.replace
+
+    def reject_isolation(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
+        if Path(destination).name.endswith(".deleting"):
+            raise OSError("test isolation failure")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", reject_isolation)
+    response = client.delete(
+        f"{uploads_url}/{upload['id']}", headers=superuser_token_headers
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"]["code"] == "customer_upload_delete_failed"
+    assert original_path.read_bytes() == content
+    db.expire_all()
+    assert db.get(CustomerUpload, uuid.UUID(upload["id"])) is not None
+    assert db.get(Artifact, artifact.id) is not None
+    assert not list((tmp_path / "customer_uploads").glob("*.deleting"))
+
+
+def test_delete_transaction_failure_restores_isolated_artifact(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    uploads_url = f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    content = _workbook_bytes()
+    upload = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", content, XLSX_MEDIA_TYPE)},
+    ).json()
+    db.expire_all()
+    stored_upload = db.get(CustomerUpload, uuid.UUID(upload["id"]))
+    assert stored_upload is not None
+    artifact = db.get(Artifact, stored_upload.artifact_id)
+    assert artifact is not None
+    original_path = tmp_path / artifact.storage_key
+
+    with reject_audit_inserts(db):
+        response = client.delete(
+            f"{uploads_url}/{upload['id']}", headers=superuser_token_headers
+        )
+
+    assert response.status_code == 500
+    assert response.json()["detail"]["code"] == "customer_upload_delete_failed"
+    assert original_path.read_bytes() == content
+    assert not list((tmp_path / "customer_uploads").glob("*.deleting"))
+    db.expire_all()
+    assert db.get(CustomerUpload, uuid.UUID(upload["id"])) is not None
+    assert db.get(Artifact, artifact.id) is not None
+
+
+def test_final_physical_cleanup_failure_is_explicit_and_not_product_accessible(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    uploads_url = f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+    upload = client.post(
+        uploads_url,
+        headers=superuser_token_headers,
+        files={"file": ("customer.xlsx", _workbook_bytes(), XLSX_MEDIA_TYPE)},
+    ).json()
+    db.expire_all()
+    stored_upload = db.get(CustomerUpload, uuid.UUID(upload["id"]))
+    assert stored_upload is not None
+    artifact = db.get(Artifact, stored_upload.artifact_id)
+    assert artifact is not None
+    artifact_id = artifact.id
+    original_path = tmp_path / artifact.storage_key
+    original_unlink = Path.unlink
+
+    def reject_isolated_unlink(path: Path, *, missing_ok: bool = False) -> None:
+        if path.name.endswith(".deleting"):
+            raise OSError("test physical cleanup failure")
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", reject_isolated_unlink)
+    response = client.delete(
+        f"{uploads_url}/{upload['id']}", headers=superuser_token_headers
+    )
+
+    assert response.status_code == 500
+    assert response.json()["detail"]["code"] == "customer_upload_delete_failed"
+    assert not original_path.exists()
+    assert list((tmp_path / "customer_uploads").glob("*.deleting"))
+    db.expire_all()
+    assert db.get(CustomerUpload, uuid.UUID(upload["id"])) is None
+    assert db.get(Artifact, artifact_id) is None
+    assert (
+        client.delete(
+            f"{uploads_url}/{upload['id']}", headers=superuser_token_headers
+        ).status_code
+        == 404
+    )

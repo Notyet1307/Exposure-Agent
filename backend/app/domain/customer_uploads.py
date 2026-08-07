@@ -31,7 +31,9 @@ from app.domain.models import (
     AuditEvent,
     CustomerUpload,
     CustomerUploadProfile,
+    GovernanceRun,
     Project,
+    SourceSnapshot,
 )
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -48,6 +50,12 @@ class CustomerUploadAcceptanceError(Exception):
         self.code = code
         self.field = field
         self.row = row
+
+
+class CustomerUploadDeletionError(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 def _raise(code: str) -> NoReturn:
@@ -283,6 +291,153 @@ def _accepted_audit_event(
         },
         ip_address=ip_address,
     )
+
+
+def _artifact_path(*, artifact_root: Path, artifact: Artifact) -> Path:
+    try:
+        root = artifact_root.resolve()
+        path = (root / artifact.storage_key).resolve()
+    except (OSError, RuntimeError) as error:
+        raise CustomerUploadDeletionError("customer_upload_delete_failed") from error
+    if root not in path.parents:
+        raise CustomerUploadDeletionError("customer_upload_delete_failed")
+    return path
+
+
+def _restore_isolated_artifact(*, isolated_path: Path, original_path: Path) -> None:
+    try:
+        os.replace(isolated_path, original_path)
+    except OSError as error:
+        raise CustomerUploadDeletionError("customer_upload_delete_failed") from error
+
+
+def _delete_isolated_artifact(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=False)
+    except OSError as error:
+        raise CustomerUploadDeletionError("customer_upload_delete_failed") from error
+
+
+def _customer_upload_deleted_audit_event(
+    *,
+    upload: CustomerUpload,
+    actor_subject: str,
+    ip_address: str | None,
+) -> AuditEvent:
+    return AuditEvent(
+        tenant_id=upload.tenant_id,
+        project_id=upload.project_id,
+        actor_subject=actor_subject,
+        actor_type="user",
+        action="customer_upload.deleted",
+        target_type="customer_upload",
+        target_id=upload.id,
+        before_data={
+            "profile_id": str(upload.profile_id),
+            "profile_version": upload.profile_version,
+            "record_count": upload.record_count,
+            "warning_count": len(upload.warnings),
+        },
+        after_data=None,
+        ip_address=ip_address,
+    )
+
+
+def delete_customer_upload(
+    *,
+    session: Session,
+    project: Project,
+    upload_id: uuid.UUID,
+    artifact_root: Path,
+    actor_subject: str,
+    ip_address: str | None,
+) -> None:
+    upload = session.exec(
+        select(CustomerUpload)
+        .where(
+            CustomerUpload.id == upload_id,
+            CustomerUpload.project_id == project.id,
+            CustomerUpload.tenant_id == project.tenant_id,
+        )
+        .with_for_update()
+    ).one_or_none()
+    if upload is None:
+        raise CustomerUploadDeletionError("customer_upload_not_found")
+    if project.current_customer_upload_id == upload.id:
+        raise CustomerUploadDeletionError("customer_upload_in_use")
+
+    has_governance_reference = session.exec(
+        select(GovernanceRun.id)
+        .where(
+            GovernanceRun.customer_upload_id == upload.id,
+            GovernanceRun.project_id == project.id,
+            GovernanceRun.tenant_id == project.tenant_id,
+        )
+        .limit(1)
+    ).first()
+    has_snapshot_reference = session.exec(
+        select(SourceSnapshot.id)
+        .where(
+            SourceSnapshot.customer_upload_id == upload.id,
+            SourceSnapshot.project_id == project.id,
+            SourceSnapshot.tenant_id == project.tenant_id,
+        )
+        .limit(1)
+    ).first()
+    if has_governance_reference is not None or has_snapshot_reference is not None:
+        raise CustomerUploadDeletionError("customer_upload_in_use")
+
+    artifact = session.exec(
+        select(Artifact)
+        .where(
+            Artifact.id == upload.artifact_id,
+            Artifact.tenant_id == project.tenant_id,
+        )
+        .with_for_update()
+    ).one_or_none()
+    if artifact is None:
+        raise CustomerUploadDeletionError("customer_upload_delete_failed")
+
+    original_path = _artifact_path(artifact_root=artifact_root, artifact=artifact)
+    isolated_path = original_path.with_name(f".{uuid.uuid4()}.deleting")
+    try:
+        os.replace(original_path, isolated_path)
+    except OSError as error:
+        raise CustomerUploadDeletionError("customer_upload_delete_failed") from error
+
+    try:
+        session.delete(upload)
+        session.flush()
+        session.delete(artifact)
+        session.add(
+            _customer_upload_deleted_audit_event(
+                upload=upload,
+                actor_subject=actor_subject,
+                ip_address=ip_address,
+            )
+        )
+        session.flush()
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        _restore_isolated_artifact(
+            isolated_path=isolated_path, original_path=original_path
+        )
+        raise CustomerUploadDeletionError("customer_upload_in_use") from error
+    except SQLAlchemyError as error:
+        session.rollback()
+        _restore_isolated_artifact(
+            isolated_path=isolated_path, original_path=original_path
+        )
+        raise CustomerUploadDeletionError("customer_upload_delete_failed") from error
+    except Exception as error:
+        session.rollback()
+        _restore_isolated_artifact(
+            isolated_path=isolated_path, original_path=original_path
+        )
+        raise CustomerUploadDeletionError("customer_upload_delete_failed") from error
+
+    _delete_isolated_artifact(isolated_path)
 
 
 def select_current_customer_upload(
