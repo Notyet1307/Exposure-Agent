@@ -19,10 +19,20 @@ OpenAPI.TOKEN = async () => {
 }
 
 const handleApiError = (error: Error) => {
-  if (error instanceof ApiError && [401, 403].includes(error.status)) {
-    localStorage.removeItem("access_token")
-    window.location.href = "/login"
-  }
+  if (!(error instanceof ApiError)) return
+  const detail =
+    error.body && typeof error.body === "object" && "detail" in error.body
+      ? (error.body as { detail?: unknown }).detail
+      : undefined
+  const localAuthenticationFailed =
+    (error.status === 401 && detail === "Not authenticated") ||
+    (error.status === 403 && detail === "Could not validate credentials") ||
+    (error.status === 404 &&
+      error.request.url === "/api/v1/users/me" &&
+      detail === "User not found")
+  if (!localAuthenticationFailed) return
+  localStorage.removeItem("access_token")
+  window.location.href = "/login"
 }
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
