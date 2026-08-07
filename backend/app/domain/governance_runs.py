@@ -390,6 +390,29 @@ def establish_governance_run(
         return existing
 
     project, upload, source = _validate_runner_inputs(session=session, inputs=inputs)
+    latest = session.exec(
+        select(GovernanceRun)
+        .where(GovernanceRun.project_id == project.id)
+        .order_by(
+            col(GovernanceRun.created_at).desc(),
+            col(GovernanceRun.id).desc(),
+        )
+    ).first()
+    if (
+        latest is not None
+        and latest.status
+        in {
+            GovernanceRunStatus.FAILED_DATA.value,
+            GovernanceRunStatus.FAILED_PROCESSING.value,
+        }
+        and latest.trigger_id != inputs.trigger_id
+        and not rerun_request_was_recorded(
+            session=session,
+            source_run=latest,
+            trigger_id=inputs.trigger_id,
+        )
+    ):
+        _execution_error("runner_rerun_required")
     run = GovernanceRun(
         tenant_id=project.tenant_id,
         project_id=project.id,
@@ -502,6 +525,45 @@ def _begin_step(
         raise
     session.refresh(step)
     return step, True
+
+
+def _begin_step_or_fail(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    step_code: RunStepCode,
+    input_hash: str,
+    request_ip: str | None,
+) -> tuple[RunStep, bool]:
+    try:
+        return _begin_step(
+            session=session,
+            run=run,
+            step_code=step_code,
+            input_hash=input_hash,
+            request_ip=request_ip,
+        )
+    except SQLAlchemyError:
+        session.rollback()
+        failed_step = RunStep(
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            governance_run_id=run.id,
+            step_code=step_code.value,
+            input_hash=input_hash,
+        )
+        try:
+            _fail_run(
+                session=session,
+                run=run,
+                step=failed_step,
+                run_status=GovernanceRunStatus.FAILED_PROCESSING,
+                error_code="step_start_failed",
+                request_ip=request_ip,
+            )
+        except SQLAlchemyError:
+            session.rollback()
+        raise GovernanceRunProcessingError("step_start_failed")
 
 
 def _complete_snapshot_step(
@@ -621,7 +683,7 @@ def _file_sha256(path: Path) -> tuple[str, int]:
 def _load_customer_snapshot(
     *, session: Session, run: GovernanceRun, request_ip: str | None
 ) -> None:
-    step, created = _begin_step(
+    step, created = _begin_step_or_fail(
         session=session,
         run=run,
         step_code=RunStepCode.LOAD_CUSTOMER,
@@ -785,7 +847,7 @@ def _write_cloudatlas_artifact(
 def _pull_cloudatlas_snapshot(
     *, session: Session, run: GovernanceRun, request_ip: str | None
 ) -> None:
-    step, created = _begin_step(
+    step, created = _begin_step_or_fail(
         session=session,
         run=run,
         step_code=RunStepCode.PULL_CLOUDATLAS,
@@ -912,7 +974,7 @@ def _publish_run(
     publish_input_hash = _fingerprint(
         sorted(snapshot.content_sha256 for snapshot in snapshots)
     )
-    step, created = _begin_step(
+    step, created = _begin_step_or_fail(
         session=session,
         run=run,
         step_code=RunStepCode.PUBLISH,

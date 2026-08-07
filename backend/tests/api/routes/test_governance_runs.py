@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook  # type: ignore[import-untyped]
 from pydantic import SecretStr
 from pytest import MonkeyPatch
-from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 from sqlmodel import Session, col, func, select
 
 from app.core.config import settings
@@ -720,6 +720,56 @@ def test_source_snapshot_persistence_failure_is_failed_processing(
         stored_project = session.get(Project, uuid.UUID(str(project["id"])))
         assert stored_project is not None
         assert stored_project.latest_completed_run_id is None
+
+
+def test_step_start_persistence_failure_is_failed_processing(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="step-start-failure",
+        session_seed="step-start-failure-session",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        "app.domain.governance_runs._begin_step",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            SQLAlchemyError("step start persistence failed")
+        ),
+    )
+
+    assert run_governance_runner() == 1
+
+    run = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert run["status"] == "FAILED_PROCESSING"
+    assert [
+        (step["step_code"], step["status"], step["error_code"])
+        for step in run["steps"]
+    ] == [("LOAD_CUSTOMER", "FAILED", "step_start_failed")]
 
 
 def test_artifact_persistence_failure_is_failed_processing(
@@ -2033,10 +2083,10 @@ def test_postgresql_serializes_same_trigger_and_rejects_a_second_active_run(
     )
     with ThreadPoolExecutor(max_workers=2) as executor:
         different_results = list(executor.map(establish, (first, second)))
-    assert sorted(result[0] for result in different_results) == ["error", "ok"]
+    assert sorted(result[0] for result in different_results) == ["error", "error"]
     assert {
         result[1] for result in different_results if result[0] == "error"
-    } == {"runner_project_has_active_run"}
+    } == {"runner_rerun_required"}
 
 
 def test_concurrent_initial_triggers_reserve_only_one_runner_launch(
