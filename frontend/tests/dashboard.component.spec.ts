@@ -125,9 +125,12 @@ const uploads = {
 }
 
 async function mockDashboardApi(page: Page) {
-  await page.addInitScript(() =>
-    localStorage.setItem("access_token", "component-token"),
-  )
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem("component-auth-seeded") === null) {
+      localStorage.setItem("access_token", "component-token")
+      sessionStorage.setItem("component-auth-seeded", "true")
+    }
+  })
   await page.route("**/api/v1/users/me", (route) =>
     route.fulfill({
       json: {
@@ -541,6 +544,69 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
     ["POST", expect.stringMatching(/\/disable$/)],
   ])
   expect(requests[0].body).toEqual({ capset_token: "transient-test-token" })
+})
+
+test("keeps the local session after a structured CloudAtlas authentication failure", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/users/me", (route) =>
+    route.fulfill({
+      json: {
+        email: "admin@example.com",
+        full_name: "Test Admin",
+        id: "30000000-0000-0000-0000-000000000002",
+        is_active: true,
+        is_superuser: true,
+      },
+    }),
+  )
+  const source = cloudatlasSources[projects[0].id].data[0]
+  const sourceUrl = `**/api/v1/projects/${projects[0].id}/cloudatlas-source-instances`
+  await page.route(sourceUrl, (route) =>
+    route.fulfill({
+      json: { data: [source], count: 1, can_manage: true },
+    }),
+  )
+  await page.route(`${sourceUrl}/**`, (route) =>
+    route.fulfill({
+      status: 401,
+      json: {
+        detail: {
+          code: "cloudatlas_authentication_failed",
+          message: "CloudAtlas authentication failed.",
+        },
+      },
+    }),
+  )
+  await page.goto("/")
+
+  const tokenInput = page.getByLabel("Capset token")
+  await tokenInput.fill("transient-test-token")
+  await page.getByRole("button", { name: "Validate source" }).click()
+
+  await expect(tokenInput).toHaveValue("")
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("access_token")))
+    .toBe("component-token")
+  await expect(page).toHaveURL("/")
+  await expect(
+    page.getByText("CloudAtlas source validation failed."),
+  ).toBeVisible()
+})
+
+test("clears the local session when the current user no longer exists", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/users/me", (route) =>
+    route.fulfill({ status: 404, json: { detail: "User not found" } }),
+  )
+
+  await page.goto("/")
+
+  await expect(page).toHaveURL("/login", { timeout: 15_000 })
+  expect(
+    await page.evaluate(() => localStorage.getItem("access_token")),
+  ).toBeNull()
 })
 
 test("lets an Admin manage an older enabled source from disabled history", async ({
