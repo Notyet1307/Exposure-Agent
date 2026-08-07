@@ -19,7 +19,7 @@ const validWorkbook = fileURLToPath(
 const customerSnapshotSha256 =
   "ff4512058e966fd8d56d2d89572b8eea3adde6972eb573806317f7481f0c9d83"
 const cloudatlasSnapshotSha256 =
-  "51f61746c3df647d0f345004a9e4ba7ae96761f364393583d7b688b528366cab"
+  "87fda692036fb5c949cecf673178e9a72d367e284663de65115d8d1db1ca00e1"
 
 test.skip(
   process.env.RUN_GOVERNANCE_E2E !== "1",

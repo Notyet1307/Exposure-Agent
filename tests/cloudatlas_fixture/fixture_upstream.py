@@ -151,12 +151,16 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
         self.write_json(
             200,
             {
-                "items": [
-                    {"id": "fixture-asset-1", "ip": "192.0.2.10", "status": "valid"}
-                ],
-                "page": int(page),
-                "size": int(query.get("size", ["1"])[0]),
-                "total": 1,
+                "code": 200,
+                "data": {
+                    "current": int(page),
+                    "items": [
+                        {"id": 1, "ip": "192.0.2.10", "status": "valid"}
+                    ],
+                    "size": int(query.get("size", ["1"])[0]),
+                    "total": 1,
+                },
+                "message": "",
             },
         )
 

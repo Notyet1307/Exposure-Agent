@@ -93,12 +93,12 @@ function listIPAssets(ctx) {
   }
   if (
     !Array.isArray(payload.items) ||
-    !Number.isInteger(payload.page) ||
+    !Number.isInteger(payload.current) ||
     !Number.isInteger(payload.size) ||
     !Number.isInteger(payload.total) ||
     payload.items.some(
       (item) =>
-        typeof item?.id !== "string" ||
+        !Number.isInteger(item?.id) ||
         typeof item?.ip !== "string" ||
         typeof item?.status !== "string",
     )
@@ -106,8 +106,12 @@ function listIPAssets(ctx) {
     throw grpcError(grpcStatus.DATA_LOSS, "cloudatlas_response_contract_failed");
   }
   return {
-    items: payload.items.map(({ id, ip, status }) => ({ id, ip, status })),
-    page: payload.page,
+    items: payload.items.map(({ id, ip, status }) => ({
+      id: String(id),
+      ip,
+      status,
+    })),
+    page: payload.current,
     size: payload.size,
     total: payload.total,
   };
