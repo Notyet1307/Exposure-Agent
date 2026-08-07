@@ -63,6 +63,8 @@ services:
       - TEST_API_URL=http://backend:8000
       - PLAYWRIGHT_HTML_HOST=0.0.0.0
       - CI=${CI}
+      - FIRST_SUPERUSER=${FIRST_SUPERUSER?Variable not set}
+      - FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD?Variable not set}
     volumes:
       - ./frontend/blob-report:/app/frontend/blob-report
       - ./frontend/test-results:/app/frontend/test-results
