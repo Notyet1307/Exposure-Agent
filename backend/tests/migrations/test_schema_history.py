@@ -19,7 +19,8 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
+CURRENT_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
+STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 DEFAULT_PROFILE_DEFINITION = {
     "required_headers": [
@@ -623,6 +624,66 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
         ).fetchall() == [("created_at", "NO"), ("updated_at", "NO")]
 
 
+def test_stage4_schema_is_installed_on_a_fresh_database(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == (CURRENT_GOVERNANCE_RUN_REVISION,)
+        assert connection.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name IN (
+                'observations',
+                'resources',
+                'observation_resource_links',
+                'findings',
+                'finding_occurrences',
+                'finding_occurrence_observations',
+                'finding_occurrence_snapshots',
+                'finding_transitions',
+                'finding_transition_observations',
+                'finding_transition_snapshots'
+              )
+            ORDER BY table_name
+            """
+        ).fetchall() == [
+            ("finding_occurrence_observations",),
+            ("finding_occurrence_snapshots",),
+            ("finding_occurrences",),
+            ("finding_transition_observations",),
+            ("finding_transition_snapshots",),
+            ("finding_transitions",),
+            ("findings",),
+            ("observation_resource_links",),
+            ("observations",),
+            ("resources",),
+        ]
+        assert connection.execute(
+            """
+            SELECT column_name, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'governance_runs'
+              AND column_name = 'processing_contract_version'
+            """
+        ).fetchone() == ("processing_contract_version", "YES")
+        step_constraint = connection.execute(
+            """
+            SELECT pg_get_constraintdef(oid)
+            FROM pg_constraint
+            WHERE conname = 'ck_run_steps_code'
+            """
+        ).fetchone()
+        assert step_constraint is not None
+        assert "NORMALIZE" in step_constraint[0]
+
+
 def test_membership_migration_preserves_revoked_history_and_rejects_duplicates(
     template_baseline_database: str,
 ) -> None:
@@ -678,5 +739,643 @@ def test_membership_migration_preserves_revoked_history_and_rejects_duplicates(
                     project_id,
                     user_id,
                     ["viewer"],
+                ),
+            )
+
+
+def _seed_stage3_run_facts(
+    database: str,
+    *,
+    complete: bool = True,
+    status: str = "RUNNING",
+    processing_contract_version: str | None = None,
+) -> dict[str, uuid.UUID]:
+    project_id = uuid.uuid4()
+    profile_id = uuid.uuid4()
+    artifact_id = uuid.uuid4()
+    upload_id = uuid.uuid4()
+    source_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    customer_snapshot_id = uuid.uuid4()
+    cloudatlas_snapshot_id = uuid.uuid4()
+    with connect(database) as connection:
+        connection.execute(
+            "INSERT INTO projects "
+            "(id, tenant_id, name, current_customer_upload_profile_id, "
+            "created_at, updated_at) VALUES (%s, %s, %s, %s, now(), now())",
+            (
+                project_id,
+                DEPLOYMENT_TENANT_ID,
+                "Stage 3 history",
+                profile_id,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO customer_upload_profiles "
+            "(id, tenant_id, project_id, version, definition, "
+            "created_at, updated_at) VALUES (%s, %s, %s, 1, %s::jsonb, now(), now())",
+            (
+                profile_id,
+                DEPLOYMENT_TENANT_ID,
+                project_id,
+                json.dumps(DEFAULT_PROFILE_DEFINITION, ensure_ascii=False),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO artifacts "
+            "(id, tenant_id, storage_key, media_type, byte_size, sha256, "
+            "created_at, updated_at) VALUES (%s, %s, %s, %s, 1, %s, now(), now())",
+            (
+                artifact_id,
+                DEPLOYMENT_TENANT_ID,
+                f"stage3/{artifact_id}",
+                "application/octet-stream",
+                "a" * 64,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO customer_uploads "
+            "(id, tenant_id, project_id, artifact_id, display_filename, "
+            "raw_sha256, profile_id, profile_version, record_count, warnings, "
+            "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 1, "
+            "'[]'::jsonb, now(), now())",
+            (
+                upload_id,
+                DEPLOYMENT_TENANT_ID,
+                project_id,
+                artifact_id,
+                "stage3.xlsx",
+                "b" * 64,
+                profile_id,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO source_instances "
+            "(id, tenant_id, project_id, source_type, instance_id, capset_id, "
+            "enabled, validated_fingerprint, validated_at, created_at, updated_at) "
+            "VALUES (%s, %s, %s, 'cloudatlas', %s, %s, true, %s, now(), now(), now())",
+            (
+                source_id,
+                DEPLOYMENT_TENANT_ID,
+                project_id,
+                "stage3-instance",
+                "stage3-capset",
+                "c" * 64,
+            ),
+        )
+        run_columns = (
+            "id, tenant_id, project_id, trigger_id, session_id, requested_by, "
+            "status, customer_upload_id, customer_upload_sha256, "
+            "customer_upload_profile_id, customer_upload_profile_version, "
+            "source_instance_id, cloudatlas_validated_fingerprint, "
+            "cloudatlas_capset_id, cloudatlas_method, package_sha256, "
+            "descriptor_sha256, runner_build_version"
+        )
+        run_values: tuple[object, ...] = (
+            run_id,
+            DEPLOYMENT_TENANT_ID,
+            project_id,
+            "stage3-trigger",
+            "stage3-session",
+            "legacy-runner",
+            upload_id,
+            "b" * 64,
+            profile_id,
+            source_id,
+            "c" * 64,
+            "stage3-capset",
+            "stage3-method",
+            "d" * 64,
+            "e" * 64,
+            "stage3-build",
+        )
+        run_value_placeholders = "%s, %s, %s, %s, %s, %s, %s"
+        if processing_contract_version is not None:
+            run_columns += ", processing_contract_version"
+            run_values += (processing_contract_version,)
+            run_value_placeholders += ", %s"
+        connection.execute(
+            f"INSERT INTO governance_runs ({run_columns}, created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 'RUNNING', %s, %s, %s, 1, "
+            f"{run_value_placeholders}, now(), now())",
+            run_values,
+        )
+        for step_code in ("LOAD_CUSTOMER", "PULL_CLOUDATLAS", "PUBLISH"):
+            connection.execute(
+                "INSERT INTO run_steps "
+                "(id, tenant_id, project_id, governance_run_id, step_code, status, "
+                "attempt, input_hash, output_hash, started_at, completed_at, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, 'SUCCEEDED', "
+                "1, %s, %s, now(), now(), now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    project_id,
+                    run_id,
+                    step_code,
+                    "f" * 64,
+                    "f" * 64,
+                ),
+            )
+        connection.execute(
+            "INSERT INTO source_snapshots "
+            "(id, tenant_id, project_id, governance_run_id, source_type, "
+            "customer_upload_id, artifact_id, content_sha256, schema_fingerprint, "
+            "record_count, created_at, updated_at) VALUES (%s, %s, %s, %s, "
+            "'CUSTOMER_UPLOAD', %s, %s, %s, %s, 1, now(), now())",
+            (
+                customer_snapshot_id,
+                DEPLOYMENT_TENANT_ID,
+                project_id,
+                run_id,
+                upload_id,
+                artifact_id,
+                "b" * 64,
+                "1" * 64,
+            ),
+        )
+        cloud_artifact_id = uuid.uuid4()
+        connection.execute(
+            "INSERT INTO artifacts "
+            "(id, tenant_id, storage_key, media_type, byte_size, sha256, "
+            "created_at, updated_at) VALUES (%s, %s, %s, %s, 1, %s, now(), now())",
+            (
+                cloud_artifact_id,
+                DEPLOYMENT_TENANT_ID,
+                f"stage3/cloud/{cloud_artifact_id}",
+                "application/json",
+                "2" * 64,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO source_snapshots "
+            "(id, tenant_id, project_id, governance_run_id, source_type, "
+            "source_instance_id, artifact_id, content_sha256, schema_fingerprint, "
+            "method_fingerprint, record_count, created_at, updated_at) VALUES "
+            "(%s, %s, %s, %s, 'CLOUDATLAS', %s, %s, %s, %s, %s, 1, now(), now())",
+            (
+                cloudatlas_snapshot_id,
+                DEPLOYMENT_TENANT_ID,
+                project_id,
+                run_id,
+                source_id,
+                cloud_artifact_id,
+                "2" * 64,
+                "3" * 64,
+                "4" * 64,
+            ),
+        )
+        if complete:
+            connection.execute(
+                "UPDATE governance_runs SET status = 'COMPLETED', "
+                "completed_at = now(), updated_at = now() WHERE id = %s",
+                (run_id,),
+            )
+            connection.execute(
+                "UPDATE projects SET latest_completed_run_id = %s WHERE id = %s",
+                (run_id, project_id),
+            )
+        elif status != "RUNNING":
+            connection.execute(
+                "UPDATE governance_runs SET status = %s, updated_at = now() "
+                "WHERE id = %s",
+                (status, run_id),
+            )
+    return {
+        "project_id": project_id,
+        "run_id": run_id,
+        "customer_snapshot_id": customer_snapshot_id,
+        "cloudatlas_snapshot_id": cloudatlas_snapshot_id,
+    }
+
+
+def test_stage3_facts_upgrade_without_reinterpretation(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, STAGE3_GOVERNANCE_RUN_REVISION)
+    ids = _seed_stage3_run_facts(template_baseline_database)
+
+    run_migration(template_baseline_database, "head")
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT status, processing_contract_version FROM governance_runs "
+            "WHERE id = %s",
+            (ids["run_id"],),
+        ).fetchone() == ("COMPLETED", None)
+        assert connection.execute(
+            "SELECT latest_completed_run_id FROM projects WHERE id = %s",
+            (ids["project_id"],),
+        ).fetchone() == (ids["run_id"],)
+        assert connection.execute(
+            "SELECT step_code FROM run_steps WHERE governance_run_id = %s "
+            "ORDER BY step_code",
+            (ids["run_id"],),
+        ).fetchall() == [
+            ("LOAD_CUSTOMER",),
+            ("PUBLISH",),
+            ("PULL_CLOUDATLAS",),
+        ]
+        assert connection.execute(
+            "SELECT id FROM source_snapshots WHERE governance_run_id = %s "
+            "ORDER BY source_type",
+            (ids["run_id"],),
+        ).fetchall() == [
+            (ids["cloudatlas_snapshot_id"],),
+            (ids["customer_snapshot_id"],),
+        ]
+        for table_name in (
+            "observations",
+            "observation_resource_links",
+            "finding_occurrences",
+            "finding_transitions",
+            "finding_occurrence_observations",
+            "finding_occurrence_snapshots",
+            "finding_transition_observations",
+            "finding_transition_snapshots",
+        ):
+            assert connection.execute(
+                f"SELECT count(*) FROM {table_name} WHERE governance_run_id = %s",
+                (ids["run_id"],),
+            ).fetchone() == (0,)
+
+
+def test_failed_stage3_facts_upgrade_without_reinterpretation(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, STAGE3_GOVERNANCE_RUN_REVISION)
+    ids = _seed_stage3_run_facts(
+        template_baseline_database,
+        complete=False,
+        status="FAILED_DATA",
+    )
+
+    run_migration(template_baseline_database, "head")
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT status, processing_contract_version, completed_at "
+            "FROM governance_runs WHERE id = %s",
+            (ids["run_id"],),
+        ).fetchone() == ("FAILED_DATA", None, None)
+        assert connection.execute(
+            "SELECT count(*) FROM observations WHERE governance_run_id = %s",
+            (ids["run_id"],),
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT count(*) FROM finding_occurrences WHERE governance_run_id = %s",
+            (ids["run_id"],),
+        ).fetchone() == (0,)
+
+
+def test_stage4_scope_uniqueness_immutability_and_completed_run_guards(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+    ids = _seed_stage3_run_facts(
+        template_baseline_database,
+        complete=False,
+        processing_contract_version="ip-v1",
+    )
+    resource_id = uuid.uuid4()
+    customer_observation_id = uuid.uuid4()
+    cloudatlas_observation_id = uuid.uuid4()
+    finding_id = uuid.uuid4()
+    occurrence_id = uuid.uuid4()
+    transition_id = uuid.uuid4()
+    with connect(template_baseline_database) as connection:
+        connection.execute(
+            "INSERT INTO resources "
+            "(id, tenant_id, project_id, resource_type, canonical_key, "
+            "created_at, updated_at) VALUES (%s, %s, %s, 'IP', %s, now(), now())",
+            (
+                resource_id,
+                DEPLOYMENT_TENANT_ID,
+                ids["project_id"],
+                "192.0.2.10",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO observations "
+            "(id, tenant_id, project_id, governance_run_id, source_snapshot_id, "
+            "source_type, source_record_key, raw_ip, canonical_ip, created_at, "
+            "updated_at) VALUES (%s, %s, %s, %s, %s, 'CUSTOMER_UPLOAD', %s, %s, "
+            "%s, now(), now())",
+            (
+                customer_observation_id,
+                DEPLOYMENT_TENANT_ID,
+                ids["project_id"],
+                ids["run_id"],
+                ids["customer_snapshot_id"],
+                "row:2",
+                "192.0.2.10",
+                "192.0.2.10",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO observations "
+            "(id, tenant_id, project_id, governance_run_id, source_snapshot_id, "
+            "source_type, source_record_key, raw_ip, canonical_ip, "
+            "cloudatlas_asset_id, cloudatlas_status, created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, 'CLOUDATLAS', %s, %s, %s, %s, %s, "
+            "now(), now())",
+            (
+                cloudatlas_observation_id,
+                DEPLOYMENT_TENANT_ID,
+                ids["project_id"],
+                ids["run_id"],
+                ids["cloudatlas_snapshot_id"],
+                "page:1:item:0",
+                "192.0.2.10",
+                "192.0.2.10",
+                "cloud-1",
+                "valid",
+            ),
+        )
+        for observation_id in (customer_observation_id, cloudatlas_observation_id):
+            connection.execute(
+                "INSERT INTO observation_resource_links "
+                "(id, tenant_id, project_id, governance_run_id, observation_id, "
+                "resource_id, processing_contract_version, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'ip-v1', now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    ids["run_id"],
+                    observation_id,
+                    resource_id,
+                ),
+            )
+        connection.execute(
+            "INSERT INTO findings "
+            "(id, tenant_id, project_id, resource_id, finding_type, dedupe_key, "
+            "status, created_at, updated_at) VALUES (%s, %s, %s, %s, "
+            "'UNREPORTED_ASSET', %s, 'OPEN', now(), now())",
+            (
+                finding_id,
+                DEPLOYMENT_TENANT_ID,
+                ids["project_id"],
+                resource_id,
+                "UNREPORTED_ASSET:192.0.2.10",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO finding_occurrences "
+            "(id, tenant_id, project_id, finding_id, governance_run_id, "
+            "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, now(), now())",
+            (
+                occurrence_id,
+                DEPLOYMENT_TENANT_ID,
+                ids["project_id"],
+                finding_id,
+                ids["run_id"],
+            ),
+        )
+        connection.execute(
+            "INSERT INTO finding_transitions "
+            "(id, tenant_id, project_id, finding_id, governance_run_id, "
+            "transition_type, created_at, updated_at) VALUES (%s, %s, %s, %s, "
+            "%s, 'OPENED', now(), now())",
+            (
+                transition_id,
+                DEPLOYMENT_TENANT_ID,
+                ids["project_id"],
+                finding_id,
+                ids["run_id"],
+            ),
+        )
+        connection.execute(
+            "INSERT INTO finding_occurrence_observations "
+            "(id, tenant_id, project_id, governance_run_id, finding_occurrence_id, "
+            "observation_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, "
+            "%s, now(), now())",
+            (
+                uuid.uuid4(),
+                DEPLOYMENT_TENANT_ID,
+                ids["project_id"],
+                ids["run_id"],
+                occurrence_id,
+                customer_observation_id,
+            ),
+        )
+        for reference_table, parent_id, snapshot_id in (
+            (
+                "finding_occurrence_snapshots",
+                occurrence_id,
+                ids["customer_snapshot_id"],
+            ),
+            (
+                "finding_occurrence_snapshots",
+                occurrence_id,
+                ids["cloudatlas_snapshot_id"],
+            ),
+        ):
+            connection.execute(
+                f"INSERT INTO {reference_table} "
+                "(id, tenant_id, project_id, governance_run_id, "
+                "finding_occurrence_id, source_snapshot_id, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    ids["run_id"],
+                    parent_id,
+                    snapshot_id,
+                ),
+            )
+        for observation_id in (customer_observation_id, cloudatlas_observation_id):
+            connection.execute(
+                "INSERT INTO finding_transition_observations "
+                "(id, tenant_id, project_id, governance_run_id, "
+                "finding_transition_id, observation_id, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    ids["run_id"],
+                    transition_id,
+                    observation_id,
+                ),
+            )
+        for snapshot_id in (
+            ids["customer_snapshot_id"],
+            ids["cloudatlas_snapshot_id"],
+        ):
+            connection.execute(
+                "INSERT INTO finding_transition_snapshots "
+                "(id, tenant_id, project_id, governance_run_id, "
+                "finding_transition_id, source_snapshot_id, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    ids["run_id"],
+                    transition_id,
+                    snapshot_id,
+                ),
+            )
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO findings "
+                "(id, tenant_id, project_id, resource_id, finding_type, "
+                "dedupe_key, status, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, 'UNREPORTED_ASSET', %s, 'OPEN', "
+                "now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    resource_id,
+                    "different-dedupe-key",
+                ),
+            )
+
+    with pytest.raises(psycopg.errors.RaiseException, match="does not match"):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO observation_resource_links "
+                "(id, tenant_id, project_id, governance_run_id, observation_id, "
+                "resource_id, processing_contract_version, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'ip-v2', now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    ids["run_id"],
+                    customer_observation_id,
+                    resource_id,
+                ),
+            )
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO finding_occurrences "
+                "(id, tenant_id, project_id, finding_id, governance_run_id, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    finding_id,
+                    ids["run_id"],
+                ),
+            )
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO finding_transitions "
+                "(id, tenant_id, project_id, finding_id, governance_run_id, "
+                "transition_type, created_at, updated_at) VALUES (%s, %s, %s, %s, "
+                "%s, 'CLOSED', now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    finding_id,
+                    ids["run_id"],
+                ),
+            )
+
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO observation_resource_links "
+                "(id, tenant_id, project_id, governance_run_id, observation_id, "
+                "resource_id, processing_contract_version, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'ip-v1', now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    uuid.uuid4(),
+                    ids["run_id"],
+                    uuid.uuid4(),
+                    resource_id,
+                ),
+            )
+
+    with connect(template_baseline_database) as connection:
+        connection.execute(
+            "UPDATE governance_runs SET status = 'COMPLETED', completed_at = now(), "
+            "updated_at = now() WHERE id = %s",
+            (ids["run_id"],),
+        )
+
+    for statement, parameters in (
+        (
+            "UPDATE observations SET raw_ip = '192.0.2.11' WHERE id = %s",
+            (customer_observation_id,),
+        ),
+        (
+            "UPDATE observation_resource_links SET processing_contract_version = "
+            "'ip-v2' WHERE observation_id = %s",
+            (customer_observation_id,),
+        ),
+        (
+            "UPDATE source_snapshots SET record_count = 2 WHERE id = %s",
+            (ids["customer_snapshot_id"],),
+        ),
+    ):
+        with pytest.raises(psycopg.errors.RaiseException, match="immutable"):
+            with connect(template_baseline_database) as connection:
+                connection.execute(statement, parameters)
+
+    late_observation = (
+        uuid.uuid4(),
+        DEPLOYMENT_TENANT_ID,
+        ids["project_id"],
+        ids["run_id"],
+        ids["customer_snapshot_id"],
+        "late-row",
+        "192.0.2.12",
+        "192.0.2.12",
+    )
+    with pytest.raises(psycopg.errors.RaiseException, match="completed"):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO observations "
+                "(id, tenant_id, project_id, governance_run_id, source_snapshot_id, "
+                "source_type, source_record_key, raw_ip, canonical_ip, created_at, "
+                "updated_at) VALUES (%s, %s, %s, %s, %s, 'CUSTOMER_UPLOAD', %s, %s, "
+                "%s, now(), now())",
+                late_observation,
+            )
+
+    with pytest.raises(psycopg.errors.RaiseException, match="completed"):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO finding_occurrences "
+                "(id, tenant_id, project_id, finding_id, governance_run_id, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    finding_id,
+                    ids["run_id"],
+                ),
+            )
+
+    with pytest.raises(psycopg.errors.RaiseException, match="completed"):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO finding_transition_snapshots "
+                "(id, tenant_id, project_id, governance_run_id, "
+                "finding_transition_id, source_snapshot_id, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    ids["run_id"],
+                    transition_id,
+                    ids["customer_snapshot_id"],
                 ),
             )
