@@ -1311,6 +1311,7 @@ class GovernanceRunPublic(SQLModel):
     package_sha256: str
     descriptor_sha256: str
     runner_build_version: str
+    processing_contract_version: str | None
     created_at: datetime
     completed_at: datetime | None
     session_terminal_at: datetime | None
@@ -1330,6 +1331,100 @@ class GovernanceRunsPublic(SQLModel):
     ready: bool
     readiness_code: str | None
     launch_blocking_code: str | None = None
+
+
+class IPObservationPublic(SQLModel):
+    id: uuid.UUID
+    source_type: str
+    source_record_key: str
+    raw_ip: str
+    canonical_ip: str
+    cloudatlas_asset_id: str | None
+    cloudatlas_status: str | None
+    source_snapshot_id: uuid.UUID
+
+
+class IPAssetPublic(SQLModel):
+    id: uuid.UUID
+    resource_id: uuid.UUID
+    resource_type: str
+    canonical_key: str
+    canonical_ip: str
+    customer_observation_count: int
+    cloudatlas_observation_count: int
+    observation_count: int
+    customer_observed: bool
+    cloudatlas_observed: bool
+    open_finding_id: uuid.UUID | None
+    open_finding_type: str | None
+
+
+class IPAssetDetailPublic(IPAssetPublic):
+    observations: list[IPObservationPublic] = Field(default_factory=list)
+
+
+class IPAssetsPublic(SQLModel):
+    data: list[IPAssetPublic]
+    count: int
+    latest_run_id: uuid.UUID | None
+    latest_run_completed_at: datetime | None
+    compatible: bool
+    compatibility_code: str | None
+
+
+class FindingOccurrencePublic(SQLModel):
+    id: uuid.UUID
+    governance_run_id: uuid.UUID
+    created_at: datetime
+    observation_ids: list[uuid.UUID] = Field(default_factory=list)
+    source_snapshot_ids: list[uuid.UUID] = Field(default_factory=list)
+    source_snapshots: list[SourceSnapshotPublic] = Field(default_factory=list)
+    observations: list[IPObservationPublic] = Field(default_factory=list)
+
+
+class FindingTransitionPublic(SQLModel):
+    id: uuid.UUID
+    governance_run_id: uuid.UUID
+    transition_type: str
+    created_at: datetime
+    observation_ids: list[uuid.UUID] = Field(default_factory=list)
+    source_snapshot_ids: list[uuid.UUID] = Field(default_factory=list)
+    source_snapshots: list[SourceSnapshotPublic] = Field(default_factory=list)
+    observations: list[IPObservationPublic] = Field(default_factory=list)
+
+
+class FindingPublic(SQLModel):
+    id: uuid.UUID
+    resource_id: uuid.UUID
+    finding_type: str
+    status: str
+    canonical_ip: str
+    first_detected_at: datetime | None
+    last_detected_at: datetime | None
+    latest_occurrence_at: datetime | None
+    latest_transition_at: datetime | None
+    occurrence_count: int
+    transition_count: int
+
+
+class FindingDetailPublic(FindingPublic):
+    occurrences: list[FindingOccurrencePublic] = Field(default_factory=list)
+    transitions: list[FindingTransitionPublic] = Field(default_factory=list)
+
+
+class FindingsPublic(SQLModel):
+    data: list[FindingPublic]
+    count: int
+    status: str
+    latest_run_id: uuid.UUID | None
+    latest_run_completed_at: datetime | None
+    compatible: bool
+    compatibility_code: str | None
+
+
+class FindingTracePublic(SQLModel):
+    occurrences: list[FindingOccurrencePublic] = Field(default_factory=list)
+    transitions: list[FindingTransitionPublic] = Field(default_factory=list)
 
 
 class GovernanceRunTriggerPublic(SQLModel):

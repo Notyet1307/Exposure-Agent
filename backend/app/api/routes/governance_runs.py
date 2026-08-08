@@ -53,6 +53,9 @@ _ERROR_MESSAGES = {
         "The fixed CloudAtlas input cannot be verified."
     ),
     "run_retry_no_failed_step": "The GovernanceRun has no failed step to retry.",
+    "run_processing_not_retryable": (
+        "This deterministic processing failure requires an explicit Rerun."
+    ),
     "run_session_still_running": "The original Session is still running.",
     "run_session_state_unknown": "The original Session terminal state is unknown.",
     "run_session_not_recoverable": "The original Session cannot be recovered.",
