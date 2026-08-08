@@ -40,7 +40,7 @@
 
 常用验证命令：
 
-- 后端 lint/typecheck：`cd backend && uv run ruff check . && uv run mypy .`
+- 后端 lint/typecheck：`cd backend && uv run bash scripts/lint.sh`
 - 后端测试：`cd backend && uv run bash scripts/tests-start.sh`
 - 前端 lint：`cd frontend && bun run lint`
 - 前端 typecheck/build：`cd frontend && bun run build`
