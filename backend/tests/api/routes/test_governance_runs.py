@@ -176,6 +176,7 @@ def _runner_environment(
             "3fada7cb00f3bca132c28d316ea61158522a1a07d3e80a83f9e68010d1a588e0"
         ),
         "GOVERNANCE_RUNNER_BUILD_VERSION": "test-runner-v1",
+        "GOVERNANCE_PROCESSING_CONTRACT_VERSION": "ip-v1",
         "SANDBOX_ID": hashlib.sha256(session_seed.encode()).hexdigest(),
     }
 
@@ -322,6 +323,117 @@ def test_trigger_rejects_missing_current_customer_upload_before_creating_a_run(
     }
 
 
+def test_runner_rejects_a_missing_processing_contract_before_creating_a_run(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="missing-processing-contract",
+        session_seed="missing-processing-contract-session",
+    )
+    environment.pop("GOVERNANCE_PROCESSING_CONTRACT_VERSION")
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    assert run_governance_runner() == 1
+    with Session(engine) as session:
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(GovernanceRun)
+                .where(GovernanceRun.project_id == uuid.UUID(str(project["id"])))
+            ).one()
+            == 0
+        )
+
+
+def test_legacy_run_can_resume_without_a_stage4_processing_contract(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="legacy-stage3-retry",
+        session_seed="legacy-stage3-retry-session",
+    )
+    environment.pop("GOVERNANCE_PROCESSING_CONTRACT_VERSION")
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    inputs = RunnerInputs.from_environment(environment)
+    with Session(engine) as session:
+        legacy_run = GovernanceRun(
+            tenant_id=uuid.UUID(str(project["tenant_id"])),
+            project_id=inputs.project_id,
+            trigger_id=inputs.trigger_id,
+            session_id=inputs.session_id,
+            requested_by=inputs.requested_by,
+            status=GovernanceRunStatus.RUNNING.value,
+            customer_upload_id=inputs.customer_upload_id,
+            customer_upload_sha256=inputs.customer_upload_sha256,
+            customer_upload_profile_id=inputs.customer_upload_profile_id,
+            customer_upload_profile_version=inputs.customer_upload_profile_version,
+            source_instance_id=inputs.source_instance_id,
+            cloudatlas_validated_fingerprint=inputs.cloudatlas_validated_fingerprint,
+            cloudatlas_capset_id=inputs.cloudatlas_capset_id,
+            cloudatlas_method=inputs.cloudatlas_method,
+            package_sha256=inputs.package_sha256,
+            descriptor_sha256=inputs.descriptor_sha256,
+            runner_build_version=inputs.runner_build_version,
+            processing_contract_version=None,
+            session_recovery_code="retry_prepared",
+        )
+        session.add(legacy_run)
+        session.commit()
+        legacy_run_id = legacy_run.id
+
+    assert run_governance_runner() == 0
+    with Session(engine) as session:
+        completed = session.get(GovernanceRun, legacy_run_id)
+        assert completed is not None
+        assert completed.status == GovernanceRunStatus.COMPLETED.value
+        assert completed.processing_contract_version is None
+
+
 def test_runner_retries_transient_page_and_atomically_publishes_completed(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -392,9 +504,15 @@ def test_runner_retries_transient_page_and_atomically_publishes_completed(
     assert [step["step_code"] for step in run["steps"]] == [
         "LOAD_CUSTOMER",
         "PULL_CLOUDATLAS",
+        "NORMALIZE",
+        "RESOLVE",
+        "CHECK_FINDINGS",
         "PUBLISH",
     ]
     assert [step["status"] for step in run["steps"]] == [
+        "SUCCEEDED",
+        "SUCCEEDED",
+        "SUCCEEDED",
         "SUCCEEDED",
         "SUCCEEDED",
         "SUCCEEDED",
@@ -1061,7 +1179,7 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
     ("completed_codes", "next_code"),
     [
         (("LOAD_CUSTOMER",), "PULL_CLOUDATLAS"),
-        (("LOAD_CUSTOMER", "PULL_CLOUDATLAS"), "PUBLISH"),
+        (("LOAD_CUSTOMER", "PULL_CLOUDATLAS"), "NORMALIZE"),
     ],
 )
 def test_retry_starts_the_first_step_missing_after_session_termination(
@@ -1540,7 +1658,14 @@ def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
     ) == customer_snapshot_id
     assert {
         step["step_code"]: step["attempt"] for step in completed["steps"]
-    } == {"LOAD_CUSTOMER": 1, "PULL_CLOUDATLAS": 2, "PUBLISH": 1}
+    } == {
+        "LOAD_CUSTOMER": 1,
+        "PULL_CLOUDATLAS": 2,
+        "NORMALIZE": 1,
+        "RESOLVE": 1,
+        "CHECK_FINDINGS": 1,
+        "PUBLISH": 1,
+    }
     assert completed["reused_snapshot_count"] == 1
 
 
@@ -2767,7 +2892,14 @@ def test_publish_audit_insert_failure_rolls_back_completion(
     assert {snapshot["id"] for snapshot in completed["snapshots"]} == snapshot_ids
     assert {
         step["step_code"]: step["attempt"] for step in completed["steps"]
-    } == {"LOAD_CUSTOMER": 1, "PULL_CLOUDATLAS": 1, "PUBLISH": 2}
+    } == {
+        "LOAD_CUSTOMER": 1,
+        "PULL_CLOUDATLAS": 1,
+        "NORMALIZE": 1,
+        "RESOLVE": 1,
+        "CHECK_FINDINGS": 1,
+        "PUBLISH": 2,
+    }
     with Session(engine) as session:
         stored_project = session.get(Project, uuid.UUID(str(project["id"])))
         assert stored_project is not None

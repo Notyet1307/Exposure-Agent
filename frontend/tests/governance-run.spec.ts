@@ -101,7 +101,14 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   await expect(page.getByText("COMPLETED", { exact: true })).toBeVisible({
     timeout: 120_000,
   })
-  for (const step of ["LOAD_CUSTOMER", "PULL_CLOUDATLAS", "PUBLISH"]) {
+  for (const step of [
+    "LOAD_CUSTOMER",
+    "PULL_CLOUDATLAS",
+    "NORMALIZE",
+    "RESOLVE",
+    "CHECK_FINDINGS",
+    "PUBLISH",
+  ]) {
     await expect(page.getByRole("cell", { name: step })).toBeVisible()
   }
   await expect(page.getByText("CUSTOMER_UPLOAD")).toBeVisible()
@@ -167,7 +174,14 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     Object.fromEntries(
       recovered.steps.map((step) => [step.step_code, step.attempt]),
     ),
-  ).toEqual({ LOAD_CUSTOMER: 1, PULL_CLOUDATLAS: 2, PUBLISH: 1 })
+  ).toEqual({
+    LOAD_CUSTOMER: 1,
+    PULL_CLOUDATLAS: 2,
+    NORMALIZE: 1,
+    RESOLVE: 1,
+    CHECK_FINDINGS: 1,
+    PUBLISH: 1,
+  })
   expect(recovered.reused_snapshot_count).toBe(1)
   expect(
     recovered.snapshots.map((snapshot) => [

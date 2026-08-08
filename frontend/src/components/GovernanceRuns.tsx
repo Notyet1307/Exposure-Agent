@@ -344,8 +344,9 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
         <CardHeader>
           <CardTitle id="governance-runs-title">Governance Runs</CardTitle>
           <CardDescription>
-            Run LOAD_CUSTOMER, PULL_CLOUDATLAS, then atomically PUBLISH two
-            immutable SourceSnapshots.
+            Run LOAD_CUSTOMER, PULL_CLOUDATLAS, NORMALIZE, RESOLVE,
+            CHECK_FINDINGS, then atomically PUBLISH two immutable
+            SourceSnapshots.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
@@ -21,15 +22,40 @@ from app.domain.cloudatlas_sources import (
     CloudAtlasBoundaryError,
     OctobusCloudAtlasClient,
 )
+from app.domain.ip_consistency import (
+    CLOUDATLAS_SOURCE_TYPE as IP_CLOUDATLAS_SOURCE_TYPE,
+)
+from app.domain.ip_consistency import (
+    CUSTOMER_UPLOAD_SOURCE_TYPE as IP_CUSTOMER_UPLOAD_SOURCE_TYPE,
+)
+from app.domain.ip_consistency import (
+    IP_PROCESSING_CONTRACT_VERSION,
+    IPObservation,
+    IPRecordContractError,
+    check_ip_differences,
+    ip_observation_sort_key,
+    process_ip_snapshots,
+)
 from app.domain.models import (
     Artifact,
     AuditEvent,
     CustomerUpload,
     CustomerUploadProfile,
+    Finding,
+    FindingOccurrence,
+    FindingOccurrenceObservation,
+    FindingOccurrenceSnapshot,
+    FindingTransition,
+    FindingTransitionObservation,
+    FindingTransitionSnapshot,
     GovernanceRun,
     GovernanceRunPublic,
     GovernanceRunStatus,
+    Observation,
+    ObservationResourceLink,
     Project,
+    Resource,
+    ResourceType,
     RunStep,
     RunStepCode,
     RunStepPublic,
@@ -52,9 +78,22 @@ CLOUDATLAS_PAGE_SIZE = 200
 _STEP_ORDER = {
     RunStepCode.LOAD_CUSTOMER.value: 0,
     RunStepCode.PULL_CLOUDATLAS.value: 1,
-    RunStepCode.PUBLISH.value: 2,
+    RunStepCode.NORMALIZE.value: 2,
+    RunStepCode.RESOLVE.value: 3,
+    RunStepCode.CHECK_FINDINGS.value: 4,
+    RunStepCode.PUBLISH.value: 5,
 }
 COMPLETED_RUN_STATUSES = frozenset({GovernanceRunStatus.COMPLETED.value})
+_NON_RETRYABLE_PREFIX = "non_retryable:"
+_STAGE4_NON_RETRYABLE_ERRORS = frozenset(
+    {
+        "artifact_reference_invalid",
+        "snapshot_artifact_changed",
+        "stage4_snapshots_incomplete",
+        "stage4_snapshot_scope_invalid",
+        "stage4_snapshot_artifact_missing",
+    }
+)
 
 
 class GovernanceRunStateError(Exception):
@@ -88,6 +127,7 @@ class PinnedTriggerInputs:
     package_sha256: str
     descriptor_sha256: str
     runner_build_version: str
+    processing_contract_version: str | None
 
     def input_hash(self) -> str:
         environment = self.runner_environment(trigger_id="-", requested_by="-")
@@ -107,9 +147,7 @@ class PinnedTriggerInputs:
             "GOVERNANCE_REQUESTED_BY": requested_by,
             "GOVERNANCE_CUSTOMER_UPLOAD_ID": str(self.customer_upload_id),
             "GOVERNANCE_CUSTOMER_UPLOAD_SHA256": self.customer_upload_sha256,
-            "GOVERNANCE_CUSTOMER_PROFILE_ID": str(
-                self.customer_upload_profile_id
-            ),
+            "GOVERNANCE_CUSTOMER_PROFILE_ID": str(self.customer_upload_profile_id),
             "GOVERNANCE_CUSTOMER_PROFILE_VERSION": str(
                 self.customer_upload_profile_version
             ),
@@ -122,6 +160,9 @@ class PinnedTriggerInputs:
             "GOVERNANCE_PACKAGE_SHA256": self.package_sha256,
             "GOVERNANCE_DESCRIPTOR_SHA256": self.descriptor_sha256,
             "GOVERNANCE_RUNNER_BUILD_VERSION": self.runner_build_version,
+            "GOVERNANCE_PROCESSING_CONTRACT_VERSION": (
+                self.processing_contract_version or ""
+            ),
         }
 
 
@@ -142,6 +183,7 @@ class RunnerInputs:
     package_sha256: str
     descriptor_sha256: str
     runner_build_version: str
+    processing_contract_version: str | None
 
     @classmethod
     def from_environment(cls, environment: dict[str, str]) -> RunnerInputs:
@@ -153,36 +195,30 @@ class RunnerInputs:
 
         try:
             profile_version = int(required("GOVERNANCE_CUSTOMER_PROFILE_VERSION"))
+            raw_processing_contract = environment.get(
+                "GOVERNANCE_PROCESSING_CONTRACT_VERSION", ""
+            ).strip()
             inputs = cls(
                 project_id=uuid.UUID(required("GOVERNANCE_PROJECT_ID")),
                 trigger_id=required("GOVERNANCE_TRIGGER_ID"),
                 session_id=required("SANDBOX_ID"),
                 requested_by=required("GOVERNANCE_REQUESTED_BY"),
-                customer_upload_id=uuid.UUID(
-                    required("GOVERNANCE_CUSTOMER_UPLOAD_ID")
-                ),
-                customer_upload_sha256=required(
-                    "GOVERNANCE_CUSTOMER_UPLOAD_SHA256"
-                ),
+                customer_upload_id=uuid.UUID(required("GOVERNANCE_CUSTOMER_UPLOAD_ID")),
+                customer_upload_sha256=required("GOVERNANCE_CUSTOMER_UPLOAD_SHA256"),
                 customer_upload_profile_id=uuid.UUID(
                     required("GOVERNANCE_CUSTOMER_PROFILE_ID")
                 ),
                 customer_upload_profile_version=profile_version,
-                source_instance_id=uuid.UUID(
-                    required("GOVERNANCE_SOURCE_INSTANCE_ID")
-                ),
+                source_instance_id=uuid.UUID(required("GOVERNANCE_SOURCE_INSTANCE_ID")),
                 cloudatlas_validated_fingerprint=required(
                     "GOVERNANCE_CLOUDATLAS_FINGERPRINT"
                 ),
-                cloudatlas_capset_id=required(
-                    "GOVERNANCE_CLOUDATLAS_CAPSET_ID"
-                ),
+                cloudatlas_capset_id=required("GOVERNANCE_CLOUDATLAS_CAPSET_ID"),
                 cloudatlas_method=required("GOVERNANCE_CLOUDATLAS_METHOD"),
                 package_sha256=required("GOVERNANCE_PACKAGE_SHA256"),
                 descriptor_sha256=required("GOVERNANCE_DESCRIPTOR_SHA256"),
-                runner_build_version=required(
-                    "GOVERNANCE_RUNNER_BUILD_VERSION"
-                ),
+                runner_build_version=required("GOVERNANCE_RUNNER_BUILD_VERSION"),
+                processing_contract_version=raw_processing_contract or None,
             )
         except ValueError:
             raise GovernanceRunExecutionError("runner_input_invalid")
@@ -190,7 +226,13 @@ class RunnerInputs:
             profile_version < 1
             or len(inputs.trigger_id) > 255
             or len(inputs.session_id) != 64
-            or any(character not in "0123456789abcdef" for character in inputs.session_id)
+            or any(
+                character not in "0123456789abcdef" for character in inputs.session_id
+            )
+            or (
+                inputs.processing_contract_version is not None
+                and len(inputs.processing_contract_version) > 100
+            )
         ):
             raise GovernanceRunExecutionError("runner_input_invalid")
         return inputs
@@ -281,6 +323,7 @@ def require_trigger_readiness(
         package_sha256=PACKAGE_SHA256,
         descriptor_sha256=DESCRIPTOR_SHA256,
         runner_build_version=settings.RUNNER_BUILD_VERSION,
+        processing_contract_version=IP_PROCESSING_CONTRACT_VERSION,
     )
 
 
@@ -310,7 +353,10 @@ def _audit_event(
 
 
 def _validate_runner_inputs(
-    *, session: Session, inputs: RunnerInputs
+    *,
+    session: Session,
+    inputs: RunnerInputs,
+    allow_legacy_processing_contract: bool = False,
 ) -> tuple[Project, CustomerUpload, SourceInstance]:
     project = session.exec(
         select(Project).where(Project.id == inputs.project_id).with_for_update()
@@ -319,6 +365,11 @@ def _validate_runner_inputs(
         _execution_error("runner_project_not_ready")
     if project.governance_launch_trigger_id not in (None, inputs.trigger_id):
         _execution_error("runner_project_has_active_launch")
+    if inputs.processing_contract_version is None:
+        if not allow_legacy_processing_contract:
+            _execution_error("runner_processing_contract_required")
+    elif inputs.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION:
+        _execution_error("runner_processing_contract_unsupported")
     if not settings.CLOUDATLAS_CAPSET_TOKEN.get_secret_value():
         _execution_error("runner_cloudatlas_credential_not_ready")
     upload = session.exec(
@@ -376,11 +427,19 @@ def establish_governance_run(
     if existing is not None:
         if existing.session_id != inputs.session_id:
             _execution_error("runner_trigger_session_conflict")
+        if existing.processing_contract_version != inputs.processing_contract_version:
+            _execution_error("runner_processing_contract_changed")
         if (
             existing.status == GovernanceRunStatus.RUNNING.value
             and existing.session_recovery_code == "retry_prepared"
         ):
-            _validate_runner_inputs(session=session, inputs=inputs)
+            _validate_runner_inputs(
+                session=session,
+                inputs=inputs,
+                allow_legacy_processing_contract=(
+                    existing.processing_contract_version is None
+                ),
+            )
             existing.session_terminal_at = None
             existing.session_recovery_code = None
             existing.updated_at = get_datetime_utc()
@@ -430,6 +489,7 @@ def establish_governance_run(
         package_sha256=inputs.package_sha256,
         descriptor_sha256=inputs.descriptor_sha256,
         runner_build_version=inputs.runner_build_version,
+        processing_contract_version=inputs.processing_contract_version,
     )
     triggered = _audit_event(
         run=run,
@@ -618,6 +678,7 @@ def _fail_run(
     run_status: GovernanceRunStatus,
     error_code: str,
     request_ip: str | None,
+    retryable: bool = True,
 ) -> None:
     failed_at = get_datetime_utc()
     step.status = RunStepStatus.FAILED.value
@@ -625,6 +686,9 @@ def _fail_run(
     step.completed_at = failed_at
     step.updated_at = failed_at
     run.status = run_status.value
+    run.session_recovery_code = (
+        None if retryable else f"{_NON_RETRYABLE_PREFIX}{error_code}"
+    )
     run.updated_at = failed_at
     step_event = _audit_event(
         run=run,
@@ -706,8 +770,7 @@ def _load_customer_snapshot(
             select(CustomerUploadProfile).where(
                 CustomerUploadProfile.id == run.customer_upload_profile_id,
                 CustomerUploadProfile.project_id == run.project_id,
-                CustomerUploadProfile.version
-                == run.customer_upload_profile_version,
+                CustomerUploadProfile.version == run.customer_upload_profile_version,
             )
         ).one()
         artifact = session.exec(
@@ -810,8 +873,39 @@ def _write_cloudatlas_artifact(
                     page=page,
                     size=CLOUDATLAS_PAGE_SIZE,
                 )
-                total = payload["total"]
-                items = payload["items"]
+                if not isinstance(payload, dict) or set(payload) != {
+                    "items",
+                    "page",
+                    "size",
+                    "total",
+                }:
+                    _execution_error("cloudatlas_response_contract_failed")
+                returned_page = payload.get("page")
+                returned_size = payload.get("size")
+                total = payload.get("total")
+                items = payload.get("items")
+                if (
+                    not isinstance(returned_page, int)
+                    or isinstance(returned_page, bool)
+                    or returned_page != page
+                    or not isinstance(returned_size, int)
+                    or isinstance(returned_size, bool)
+                    or returned_size != CLOUDATLAS_PAGE_SIZE
+                    or not isinstance(total, int)
+                    or isinstance(total, bool)
+                    or total < 0
+                    or not isinstance(items, list)
+                    or not all(
+                        isinstance(item, dict)
+                        and set(item) == {"id", "ip", "status"}
+                        and isinstance(item.get("id"), str)
+                        and isinstance(item.get("ip"), str)
+                        and isinstance(item.get("status"), str)
+                        for item in items
+                    )
+                    or len(items) > CLOUDATLAS_PAGE_SIZE
+                ):
+                    _execution_error("cloudatlas_response_contract_failed")
                 if expected_total is None:
                     expected_total = total
                 if total != expected_total or record_count + len(items) > total:
@@ -827,9 +921,7 @@ def _write_cloudatlas_artifact(
                 page += 1
             write(
                 destination,
-                b'],"schema":"'
-                + CLOUDATLAS_SNAPSHOT_SCHEMA.encode()
-                + b'"}\n',
+                b'],"schema":"' + CLOUDATLAS_SNAPSHOT_SCHEMA.encode() + b'"}\n',
             )
             destination.flush()
             os.fsync(destination.fileno())
@@ -918,7 +1010,12 @@ def _pull_cloudatlas_snapshot(
             request_ip=request_ip,
             artifact=artifact,
         )
-    except (OSError, CloudAtlasBoundaryError, GovernanceRunExecutionError, SQLAlchemyError) as error:
+    except (
+        OSError,
+        CloudAtlasBoundaryError,
+        GovernanceRunExecutionError,
+        SQLAlchemyError,
+    ) as error:
         session.rollback()
         if draft is not None:
             draft.temporary_path.unlink(missing_ok=True)
@@ -947,9 +1044,574 @@ def _pull_cloudatlas_snapshot(
         raise GovernanceRunExecutionError(error_code)
 
 
-def _verify_snapshot_artifact(
-    *, session: Session, snapshot: SourceSnapshot
+def _stage4_snapshots(
+    *, session: Session, run: GovernanceRun
+) -> tuple[SourceSnapshot, SourceSnapshot]:
+    snapshots = session.exec(
+        select(SourceSnapshot).where(
+            SourceSnapshot.governance_run_id == run.id,
+            SourceSnapshot.project_id == run.project_id,
+            SourceSnapshot.tenant_id == run.tenant_id,
+        )
+    ).all()
+    by_type = {snapshot.source_type: snapshot for snapshot in snapshots}
+    if len(snapshots) != 2:
+        _processing_error("stage4_snapshots_incomplete")
+    customer = by_type.get(SourceSnapshotType.CUSTOMER_UPLOAD.value)
+    cloudatlas = by_type.get(SourceSnapshotType.CLOUDATLAS.value)
+    if customer is None or cloudatlas is None or len(by_type) != 2:
+        _processing_error("stage4_snapshots_incomplete")
+    assert customer is not None
+    assert cloudatlas is not None
+    if (
+        customer.customer_upload_id != run.customer_upload_id
+        or cloudatlas.source_instance_id != run.source_instance_id
+    ):
+        _processing_error("stage4_snapshot_scope_invalid")
+    return customer, cloudatlas
+
+
+def _stage4_snapshot_paths(
+    *, session: Session, run: GovernanceRun
+) -> tuple[SourceSnapshot, SourceSnapshot, Path, Path]:
+    customer_snapshot, cloudatlas_snapshot = _stage4_snapshots(session=session, run=run)
+    _verify_snapshot_artifact(session=session, snapshot=customer_snapshot)
+    _verify_snapshot_artifact(session=session, snapshot=cloudatlas_snapshot)
+    artifacts = session.exec(
+        select(Artifact).where(
+            col(Artifact.id).in_(
+                (customer_snapshot.artifact_id, cloudatlas_snapshot.artifact_id)
+            ),
+            Artifact.tenant_id == run.tenant_id,
+        )
+    ).all()
+    artifacts_by_id = {artifact.id: artifact for artifact in artifacts}
+    customer_artifact = artifacts_by_id.get(customer_snapshot.artifact_id)
+    cloudatlas_artifact = artifacts_by_id.get(cloudatlas_snapshot.artifact_id)
+    if customer_artifact is None or cloudatlas_artifact is None:
+        _processing_error("stage4_snapshot_artifact_missing")
+    assert customer_artifact is not None
+    assert cloudatlas_artifact is not None
+    return (
+        customer_snapshot,
+        cloudatlas_snapshot,
+        _artifact_path(customer_artifact),
+        _artifact_path(cloudatlas_artifact),
+    )
+
+
+def _stage4_result(
+    *, session: Session, run: GovernanceRun
+) -> tuple[Any, SourceSnapshot, SourceSnapshot]:
+    customer_snapshot, cloudatlas_snapshot, customer_path, cloudatlas_path = (
+        _stage4_snapshot_paths(session=session, run=run)
+    )
+    result = process_ip_snapshots(
+        customer_path,
+        cloudatlas_path,
+        processing_contract_version=run.processing_contract_version
+        or IP_PROCESSING_CONTRACT_VERSION,
+    )
+    return result, customer_snapshot, cloudatlas_snapshot
+
+
+def _ip_observation_from_model(observation: Observation) -> IPObservation:
+    return IPObservation(
+        source_type=observation.source_type,
+        source_record_key=observation.source_record_key,
+        raw_ip=observation.raw_ip,
+        canonical_ip=str(observation.canonical_ip),
+        cloudatlas_asset_id=observation.cloudatlas_asset_id,
+        cloudatlas_status=observation.cloudatlas_status,
+    )
+
+
+def _normalize_ip_observations(
+    *, session: Session, run: GovernanceRun, request_ip: str | None
 ) -> None:
+    snapshot_hashes = session.exec(
+        select(SourceSnapshot.content_sha256).where(
+            SourceSnapshot.governance_run_id == run.id
+        )
+    ).all()
+    input_hash = _fingerprint(
+        {
+            "processing_contract_version": run.processing_contract_version,
+            "snapshot_hashes": sorted(snapshot_hashes),
+        }
+    )
+    step, created = _begin_step_or_fail(
+        session=session,
+        run=run,
+        step_code=RunStepCode.NORMALIZE,
+        input_hash=input_hash,
+        request_ip=request_ip,
+    )
+    if not created:
+        if step.status == RunStepStatus.SUCCEEDED.value:
+            return
+        _execution_error("runner_step_already_started")
+    try:
+        result, customer_snapshot, cloudatlas_snapshot = _stage4_result(
+            session=session, run=run
+        )
+        observations = [
+            Observation(
+                tenant_id=run.tenant_id,
+                project_id=run.project_id,
+                governance_run_id=run.id,
+                source_snapshot_id=(
+                    customer_snapshot.id
+                    if item.source_type == IP_CUSTOMER_UPLOAD_SOURCE_TYPE
+                    else cloudatlas_snapshot.id
+                ),
+                source_type=item.source_type,
+                source_record_key=item.source_record_key,
+                raw_ip=item.raw_ip,
+                canonical_ip=item.canonical_ip,
+                cloudatlas_asset_id=item.cloudatlas_asset_id,
+                cloudatlas_status=item.cloudatlas_status,
+            )
+            for item in result.observations
+        ]
+        output_hash = _fingerprint(
+            {
+                "processing_contract_version": run.processing_contract_version,
+                "observations": [item.as_dict() for item in result.observations],
+            }
+        )
+        completed_at = get_datetime_utc()
+        step.status = RunStepStatus.SUCCEEDED.value
+        step.output_hash = output_hash
+        step.completed_at = completed_at
+        step.updated_at = completed_at
+        session.add_all(observations)
+        session.add(step)
+        session.add(
+            _audit_event(
+                run=run,
+                action="run_step.succeeded",
+                target_type="run_step",
+                target_id=step.id,
+                before_data={"status": RunStepStatus.RUNNING.value},
+                after_data={
+                    "step_code": step.step_code,
+                    "status": step.status,
+                    "observation_count": len(observations),
+                    "output_hash": output_hash,
+                },
+                request_ip=request_ip,
+            )
+        )
+        session.commit()
+    except IPRecordContractError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="normalize_contract_failed",
+            request_ip=request_ip,
+            retryable=False,
+        )
+        raise GovernanceRunProcessingError("normalize_contract_failed")
+    except GovernanceRunProcessingError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="normalize_contract_failed",
+            request_ip=request_ip,
+            retryable=False,
+        )
+        raise GovernanceRunProcessingError("normalize_contract_failed")
+    except GovernanceRunExecutionError as error:
+        session.rollback()
+        non_retryable = error.code in _STAGE4_NON_RETRYABLE_ERRORS
+        error_code = (
+            "normalize_contract_failed"
+            if non_retryable
+            else "normalize_snapshot_failed"
+        )
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code=error_code,
+            request_ip=request_ip,
+            retryable=not non_retryable,
+        )
+        raise GovernanceRunProcessingError(error_code)
+    except OSError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="normalize_snapshot_unavailable",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("normalize_snapshot_unavailable")
+    except SQLAlchemyError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="normalize_persistence_failed",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("normalize_persistence_failed")
+    except Exception as unexpected_error:
+        logger.error(
+            "IP normalization failed unexpectedly: %s",
+            type(unexpected_error).__name__,
+        )
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="normalize_unexpected_failure",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("normalize_unexpected_failure")
+
+
+def _resolve_ip_observations(
+    *, session: Session, run: GovernanceRun, request_ip: str | None
+) -> None:
+    normalize_step = session.exec(
+        select(RunStep).where(
+            RunStep.governance_run_id == run.id,
+            RunStep.step_code == RunStepCode.NORMALIZE.value,
+        )
+    ).one_or_none()
+    if normalize_step is None or normalize_step.status != RunStepStatus.SUCCEEDED.value:
+        _processing_error("normalize_step_incomplete")
+    assert normalize_step.output_hash is not None
+    input_hash = _fingerprint(
+        {
+            "processing_contract_version": run.processing_contract_version,
+            "normalize_output_hash": normalize_step.output_hash,
+        }
+    )
+    step, created = _begin_step_or_fail(
+        session=session,
+        run=run,
+        step_code=RunStepCode.RESOLVE,
+        input_hash=input_hash,
+        request_ip=request_ip,
+    )
+    if not created:
+        if step.status == RunStepStatus.SUCCEEDED.value:
+            return
+        _execution_error("runner_step_already_started")
+    try:
+        observations = sorted(
+            session.exec(
+                select(Observation).where(
+                    Observation.governance_run_id == run.id,
+                    Observation.project_id == run.project_id,
+                    Observation.tenant_id == run.tenant_id,
+                )
+            ).all(),
+            key=lambda observation: ip_observation_sort_key(
+                observation.source_type,
+                observation.source_record_key,
+                observation.id,
+            ),
+        )
+        if not observations:
+            _processing_error("resolve_observations_missing")
+        canonical_keys = sorted({str(item.canonical_ip) for item in observations})
+        resources = session.exec(
+            select(Resource).where(
+                Resource.project_id == run.project_id,
+                Resource.tenant_id == run.tenant_id,
+                col(Resource.resource_type) == ResourceType.IP.value,
+                col(Resource.canonical_key).in_(canonical_keys),
+            )
+        ).all()
+        resources_by_key = {
+            str(resource.canonical_key): resource for resource in resources
+        }
+        for canonical_key in canonical_keys:
+            if canonical_key not in resources_by_key:
+                resource = Resource(
+                    tenant_id=run.tenant_id,
+                    project_id=run.project_id,
+                    resource_type=ResourceType.IP.value,
+                    canonical_key=canonical_key,
+                )
+                session.add(resource)
+                session.flush()
+                resources_by_key[canonical_key] = resource
+        existing_link_rows = session.exec(
+            select(
+                col(ObservationResourceLink.observation_id),
+                col(ObservationResourceLink.resource_id),
+            ).where(
+                ObservationResourceLink.governance_run_id == run.id,
+                ObservationResourceLink.project_id == run.project_id,
+                ObservationResourceLink.tenant_id == run.tenant_id,
+            )
+        ).all()
+        links_by_observation = dict(existing_link_rows)
+        new_links: list[ObservationResourceLink] = []
+        for observation in observations:
+            resource = resources_by_key[str(observation.canonical_ip)]
+            existing_resource_id = links_by_observation.get(observation.id)
+            if existing_resource_id is not None:
+                if existing_resource_id != resource.id:
+                    _processing_error("resolve_link_mismatch")
+                continue
+            new_links.append(
+                ObservationResourceLink(
+                    tenant_id=run.tenant_id,
+                    project_id=run.project_id,
+                    governance_run_id=run.id,
+                    observation_id=observation.id,
+                    resource_id=resource.id,
+                    processing_contract_version=(
+                        run.processing_contract_version
+                        or IP_PROCESSING_CONTRACT_VERSION
+                    ),
+                )
+            )
+        session.add_all(new_links)
+        output_hash = _fingerprint(
+            {
+                "processing_contract_version": run.processing_contract_version,
+                "resources": [
+                    {
+                        "resource_type": ResourceType.IP.value,
+                        "canonical_key": key,
+                    }
+                    for key in canonical_keys
+                ],
+                "links": [
+                    {
+                        "source_type": observation.source_type,
+                        "source_record_key": observation.source_record_key,
+                        "resource_key": str(observation.canonical_ip),
+                    }
+                    for observation in observations
+                ],
+            }
+        )
+        completed_at = get_datetime_utc()
+        step.status = RunStepStatus.SUCCEEDED.value
+        step.output_hash = output_hash
+        step.completed_at = completed_at
+        step.updated_at = completed_at
+        session.add(step)
+        session.add(
+            _audit_event(
+                run=run,
+                action="run_step.succeeded",
+                target_type="run_step",
+                target_id=step.id,
+                before_data={"status": RunStepStatus.RUNNING.value},
+                after_data={
+                    "step_code": step.step_code,
+                    "status": step.status,
+                    "resource_count": len(resources_by_key),
+                    "link_count": len(observations),
+                    "output_hash": output_hash,
+                },
+                request_ip=request_ip,
+            )
+        )
+        session.commit()
+    except GovernanceRunProcessingError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="resolve_contract_failed",
+            request_ip=request_ip,
+            retryable=False,
+        )
+        raise GovernanceRunProcessingError("resolve_contract_failed")
+    except GovernanceRunExecutionError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="resolve_contract_failed",
+            request_ip=request_ip,
+            retryable=False,
+        )
+        raise GovernanceRunProcessingError("resolve_contract_failed")
+    except SQLAlchemyError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="resolve_persistence_failed",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("resolve_persistence_failed")
+    except Exception as unexpected_error:
+        logger.error(
+            "IP resolution failed unexpectedly: %s",
+            type(unexpected_error).__name__,
+        )
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="resolve_unexpected_failure",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("resolve_unexpected_failure")
+
+
+def _check_ip_findings(
+    *, session: Session, run: GovernanceRun, request_ip: str | None
+) -> None:
+    resolve_step = session.exec(
+        select(RunStep).where(
+            RunStep.governance_run_id == run.id,
+            RunStep.step_code == RunStepCode.RESOLVE.value,
+        )
+    ).one_or_none()
+    if resolve_step is None or resolve_step.status != RunStepStatus.SUCCEEDED.value:
+        _processing_error("resolve_step_incomplete")
+    assert resolve_step.output_hash is not None
+    input_hash = _fingerprint(
+        {
+            "processing_contract_version": run.processing_contract_version,
+            "resolve_output_hash": resolve_step.output_hash,
+        }
+    )
+    step, created = _begin_step_or_fail(
+        session=session,
+        run=run,
+        step_code=RunStepCode.CHECK_FINDINGS,
+        input_hash=input_hash,
+        request_ip=request_ip,
+    )
+    if not created:
+        if step.status == RunStepStatus.SUCCEEDED.value:
+            return
+        _execution_error("runner_step_already_started")
+    try:
+        observations = sorted(
+            session.exec(
+                select(Observation).where(
+                    Observation.governance_run_id == run.id,
+                    Observation.project_id == run.project_id,
+                    Observation.tenant_id == run.tenant_id,
+                )
+            ).all(),
+            key=lambda observation: ip_observation_sort_key(
+                observation.source_type,
+                observation.source_record_key,
+                observation.id,
+            ),
+        )
+        link_observation_ids = session.exec(
+            select(col(ObservationResourceLink.observation_id)).where(
+                ObservationResourceLink.governance_run_id == run.id,
+                ObservationResourceLink.project_id == run.project_id,
+                ObservationResourceLink.tenant_id == run.tenant_id,
+            )
+        ).all()
+        if len(link_observation_ids) != len(observations) or set(
+            link_observation_ids
+        ) != {observation.id for observation in observations}:
+            _processing_error("resolve_links_incomplete")
+        differences, check_payload = _stage4_check_payload(
+            run=run, observations=observations
+        )
+        output_hash = _fingerprint(check_payload)
+        completed_at = get_datetime_utc()
+        step.status = RunStepStatus.SUCCEEDED.value
+        step.output_hash = output_hash
+        step.completed_at = completed_at
+        step.updated_at = completed_at
+        session.add(step)
+        session.add(
+            _audit_event(
+                run=run,
+                action="run_step.succeeded",
+                target_type="run_step",
+                target_id=step.id,
+                before_data={"status": RunStepStatus.RUNNING.value},
+                after_data={
+                    "step_code": step.step_code,
+                    "status": step.status,
+                    "output_hash": output_hash,
+                    "difference_count": sum(
+                        len(items)
+                        for items in (
+                            differences.cloudatlas_only,
+                            differences.customer_upload_only,
+                        )
+                    ),
+                },
+                request_ip=request_ip,
+            )
+        )
+        session.commit()
+    except (GovernanceRunProcessingError, IPRecordContractError):
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="check_findings_contract_failed",
+            request_ip=request_ip,
+            retryable=False,
+        )
+        raise GovernanceRunProcessingError("check_findings_contract_failed")
+    except SQLAlchemyError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="check_findings_persistence_failed",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("check_findings_persistence_failed")
+    except Exception as unexpected_error:
+        logger.error(
+            "IP finding check failed unexpectedly: %s",
+            type(unexpected_error).__name__,
+        )
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="check_findings_unexpected_failure",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("check_findings_unexpected_failure")
+
+
+def _verify_snapshot_artifact(*, session: Session, snapshot: SourceSnapshot) -> None:
     artifact = session.exec(
         select(Artifact).where(
             Artifact.id == snapshot.artifact_id,
@@ -965,9 +1627,365 @@ def _verify_snapshot_artifact(
         _execution_error("snapshot_artifact_changed")
 
 
+def _stage4_check_payload(
+    *, run: GovernanceRun, observations: list[Observation]
+) -> tuple[Any, dict[str, Any]]:
+    differences = check_ip_differences(
+        [_ip_observation_from_model(observation) for observation in observations]
+    )
+    payload = {
+        "processing_contract_version": run.processing_contract_version,
+        "differences": differences.as_dict(),
+        "resource_keys": sorted(
+            {str(observation.canonical_ip) for observation in observations}
+        ),
+    }
+    return differences, payload
+
+
+def _publish_stage4_run(
+    *, session: Session, run: GovernanceRun, request_ip: str | None
+) -> None:
+    snapshots = session.exec(
+        select(SourceSnapshot).where(
+            SourceSnapshot.governance_run_id == run.id,
+            SourceSnapshot.project_id == run.project_id,
+            SourceSnapshot.tenant_id == run.tenant_id,
+        )
+    ).all()
+    publish_input_hash = _fingerprint(
+        {
+            "processing_contract_version": run.processing_contract_version,
+            "snapshot_hashes": sorted(
+                snapshot.content_sha256 for snapshot in snapshots
+            ),
+        }
+    )
+    step, created = _begin_step_or_fail(
+        session=session,
+        run=run,
+        step_code=RunStepCode.PUBLISH,
+        input_hash=publish_input_hash,
+        request_ip=request_ip,
+    )
+    if not created:
+        if step.status == RunStepStatus.SUCCEEDED.value:
+            return
+        _execution_error("runner_step_already_started")
+    try:
+        customer_snapshot, cloudatlas_snapshot = _stage4_snapshots(
+            session=session, run=run
+        )
+        _verify_snapshot_artifact(session=session, snapshot=customer_snapshot)
+        _verify_snapshot_artifact(session=session, snapshot=cloudatlas_snapshot)
+        check_step = session.exec(
+            select(RunStep).where(
+                RunStep.governance_run_id == run.id,
+                RunStep.step_code == RunStepCode.CHECK_FINDINGS.value,
+            )
+        ).one_or_none()
+        if (
+            check_step is None
+            or check_step.status != RunStepStatus.SUCCEEDED.value
+            or check_step.output_hash is None
+        ):
+            _processing_error("check_findings_step_incomplete")
+        observations = sorted(
+            session.exec(
+                select(Observation).where(
+                    Observation.governance_run_id == run.id,
+                    Observation.project_id == run.project_id,
+                    Observation.tenant_id == run.tenant_id,
+                )
+            ).all(),
+            key=lambda observation: ip_observation_sort_key(
+                observation.source_type,
+                observation.source_record_key,
+                observation.id,
+            ),
+        )
+        link_observation_ids = session.exec(
+            select(col(ObservationResourceLink.observation_id)).where(
+                ObservationResourceLink.governance_run_id == run.id,
+                ObservationResourceLink.project_id == run.project_id,
+                ObservationResourceLink.tenant_id == run.tenant_id,
+            )
+        ).all()
+        if len(link_observation_ids) != len(observations) or set(
+            link_observation_ids
+        ) != {observation.id for observation in observations}:
+            _processing_error("publish_links_incomplete")
+        differences, check_payload = _stage4_check_payload(
+            run=run, observations=observations
+        )
+        if _fingerprint(check_payload) != check_step.output_hash:
+            _processing_error("check_findings_hash_changed")
+        canonical_keys = sorted(
+            {str(observation.canonical_ip) for observation in observations}
+        )
+        resources = session.exec(
+            select(Resource).where(
+                Resource.project_id == run.project_id,
+                Resource.tenant_id == run.tenant_id,
+                col(Resource.resource_type) == ResourceType.IP.value,
+                col(Resource.canonical_key).in_(canonical_keys),
+            )
+        ).all()
+        resources_by_key = {
+            str(resource.canonical_key): resource for resource in resources
+        }
+        if set(resources_by_key) != set(canonical_keys):
+            _processing_error("publish_resources_incomplete")
+        observations_by_ip: defaultdict[str, list[Observation]] = defaultdict(list)
+        for observation in observations:
+            observations_by_ip[str(observation.canonical_ip)].append(observation)
+        differences_by_type = (
+            (
+                "UNREPORTED_ASSET",
+                differences.cloudatlas_only,
+                IP_CLOUDATLAS_SOURCE_TYPE,
+            ),
+            (
+                "UNOBSERVED_ASSET",
+                differences.customer_upload_only,
+                IP_CUSTOMER_UPLOAD_SOURCE_TYPE,
+            ),
+        )
+        published_occurrence_count = 0
+        published_transition_count = 0
+        detected_at = get_datetime_utc()
+        for finding_type, canonical_ips, appearing_source_type in differences_by_type:
+            for canonical_ip in canonical_ips:
+                resource = resources_by_key.get(canonical_ip)
+                if resource is None:
+                    _processing_error("publish_resource_missing")
+                assert resource is not None
+                finding = session.exec(
+                    select(Finding).where(
+                        Finding.project_id == run.project_id,
+                        Finding.tenant_id == run.tenant_id,
+                        Finding.finding_type == finding_type,
+                        Finding.resource_id == resource.id,
+                    )
+                ).one_or_none()
+                is_new_finding = finding is None
+                if finding is None:
+                    finding = Finding(
+                        tenant_id=run.tenant_id,
+                        project_id=run.project_id,
+                        resource_id=resource.id,
+                        finding_type=finding_type,
+                        dedupe_key=f"{finding_type}:{canonical_ip}",
+                        status="OPEN",
+                        first_detected_at=detected_at,
+                        last_detected_at=detected_at,
+                    )
+                    session.add(finding)
+                    session.flush()
+                else:
+                    if finding.status == "OPEN":
+                        finding.last_detected_at = detected_at
+                        finding.updated_at = detected_at
+                        session.add(finding)
+                occurrence = session.exec(
+                    select(FindingOccurrence).where(
+                        FindingOccurrence.finding_id == finding.id,
+                        FindingOccurrence.governance_run_id == run.id,
+                    )
+                ).one_or_none()
+                if occurrence is None:
+                    occurrence = FindingOccurrence(
+                        tenant_id=run.tenant_id,
+                        project_id=run.project_id,
+                        finding_id=finding.id,
+                        governance_run_id=run.id,
+                    )
+                    session.add(occurrence)
+                    session.flush()
+                    appearing_observations = [
+                        observation
+                        for observation in observations_by_ip[canonical_ip]
+                        if observation.source_type == appearing_source_type
+                    ]
+                    session.add_all(
+                        FindingOccurrenceObservation(
+                            tenant_id=run.tenant_id,
+                            project_id=run.project_id,
+                            governance_run_id=run.id,
+                            finding_occurrence_id=occurrence.id,
+                            observation_id=observation.id,
+                        )
+                        for observation in appearing_observations
+                    )
+                    session.add_all(
+                        (
+                            FindingOccurrenceSnapshot(
+                                tenant_id=run.tenant_id,
+                                project_id=run.project_id,
+                                governance_run_id=run.id,
+                                finding_occurrence_id=occurrence.id,
+                                source_snapshot_id=customer_snapshot.id,
+                            ),
+                            FindingOccurrenceSnapshot(
+                                tenant_id=run.tenant_id,
+                                project_id=run.project_id,
+                                governance_run_id=run.id,
+                                finding_occurrence_id=occurrence.id,
+                                source_snapshot_id=cloudatlas_snapshot.id,
+                            ),
+                        )
+                    )
+                    published_occurrence_count += 1
+                if is_new_finding:
+                    transition = FindingTransition(
+                        tenant_id=run.tenant_id,
+                        project_id=run.project_id,
+                        finding_id=finding.id,
+                        governance_run_id=run.id,
+                        transition_type="OPENED",
+                    )
+                    session.add(transition)
+                    session.flush()
+                    occurrence_observations = session.exec(
+                        select(FindingOccurrenceObservation).where(
+                            FindingOccurrenceObservation.finding_occurrence_id
+                            == occurrence.id
+                        )
+                    ).all()
+                    session.add_all(
+                        FindingTransitionObservation(
+                            tenant_id=run.tenant_id,
+                            project_id=run.project_id,
+                            governance_run_id=run.id,
+                            finding_transition_id=transition.id,
+                            observation_id=reference.observation_id,
+                        )
+                        for reference in occurrence_observations
+                    )
+                    session.add_all(
+                        (
+                            FindingTransitionSnapshot(
+                                tenant_id=run.tenant_id,
+                                project_id=run.project_id,
+                                governance_run_id=run.id,
+                                finding_transition_id=transition.id,
+                                source_snapshot_id=customer_snapshot.id,
+                            ),
+                            FindingTransitionSnapshot(
+                                tenant_id=run.tenant_id,
+                                project_id=run.project_id,
+                                governance_run_id=run.id,
+                                finding_transition_id=transition.id,
+                                source_snapshot_id=cloudatlas_snapshot.id,
+                            ),
+                        )
+                    )
+                    published_transition_count += 1
+        completed_at = get_datetime_utc()
+        step.status = RunStepStatus.SUCCEEDED.value
+        step.output_hash = _fingerprint(
+            {
+                "processing_contract_version": run.processing_contract_version,
+                "check_findings_output_hash": check_step.output_hash,
+            }
+        )
+        step.completed_at = completed_at
+        step.updated_at = completed_at
+        run.status = GovernanceRunStatus.COMPLETED.value
+        run.completed_at = completed_at
+        run.session_recovery_code = None
+        run.updated_at = completed_at
+        project = session.exec(
+            select(Project)
+            .where(
+                Project.id == run.project_id,
+                Project.tenant_id == run.tenant_id,
+            )
+            .with_for_update()
+        ).one()
+        project.latest_completed_run_id = run.id
+        project.updated_at = completed_at
+        session.add(step)
+        session.add(run)
+        session.add(project)
+        session.add(
+            _audit_event(
+                run=run,
+                action="run_step.succeeded",
+                target_type="run_step",
+                target_id=step.id,
+                before_data={"status": RunStepStatus.RUNNING.value},
+                after_data={
+                    "step_code": step.step_code,
+                    "status": step.status,
+                    "output_hash": step.output_hash,
+                },
+                request_ip=request_ip,
+            )
+        )
+        session.add(
+            _audit_event(
+                run=run,
+                action="governance_run.published",
+                target_type="governance_run",
+                target_id=run.id,
+                before_data={"status": GovernanceRunStatus.RUNNING.value},
+                after_data={
+                    "status": run.status,
+                    "source_snapshot_count": 2,
+                    "observation_count": len(observations),
+                    "resource_count": len(resources_by_key),
+                    "finding_count": published_occurrence_count,
+                    "transition_count": published_transition_count,
+                },
+                request_ip=request_ip,
+            )
+        )
+        session.commit()
+    except (GovernanceRunProcessingError, IPRecordContractError):
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="publish_contract_failed",
+            request_ip=request_ip,
+            retryable=False,
+        )
+        raise GovernanceRunProcessingError("publish_contract_failed")
+    except GovernanceRunExecutionError as error:
+        session.rollback()
+        non_retryable = error.code in _STAGE4_NON_RETRYABLE_ERRORS
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="publish_failed",
+            request_ip=request_ip,
+            retryable=not non_retryable,
+        )
+        raise GovernanceRunExecutionError("publish_failed")
+    except SQLAlchemyError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="publish_failed",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunExecutionError("publish_failed")
+
+
 def _publish_run(
     *, session: Session, run: GovernanceRun, request_ip: str | None
 ) -> None:
+    if run.processing_contract_version is not None:
+        _publish_stage4_run(session=session, run=run, request_ip=request_ip)
+        return
     snapshots = session.exec(
         select(SourceSnapshot).where(SourceSnapshot.governance_run_id == run.id)
     ).all()
@@ -994,8 +2012,7 @@ def _publish_run(
                 snapshot.project_id != run.project_id
                 or snapshot.tenant_id != run.tenant_id
                 or (
-                    snapshot.source_type
-                    == SourceSnapshotType.CUSTOMER_UPLOAD.value
+                    snapshot.source_type == SourceSnapshotType.CUSTOMER_UPLOAD.value
                     and snapshot.customer_upload_id != run.customer_upload_id
                 )
                 or (
@@ -1073,6 +2090,7 @@ def pinned_inputs_for_run(run: GovernanceRun) -> PinnedTriggerInputs:
         package_sha256=run.package_sha256,
         descriptor_sha256=run.descriptor_sha256,
         runner_build_version=run.runner_build_version,
+        processing_contract_version=run.processing_contract_version,
     )
 
 
@@ -1097,6 +2115,10 @@ def require_retry_readiness(
         raise GovernanceRunStateError("run_retry_newer_run_exists")
     if run.status in COMPLETED_RUN_STATUSES:
         raise GovernanceRunStateError("run_retry_completed")
+    if run.session_recovery_code is not None and run.session_recovery_code.startswith(
+        _NON_RETRYABLE_PREFIX
+    ):
+        raise GovernanceRunStateError("run_processing_not_retryable")
     if project.archived_at is not None:
         raise GovernanceRunStateError("run_project_archived")
     upload = session.exec(
@@ -1230,32 +2252,87 @@ def prepare_retry(
     attempted_at = get_datetime_utc()
     if step is None:
         existing_codes = {item.step_code for item in steps}
-        next_code = next(
+        step_order = (
             (
-                code
-                for code in (
-                    RunStepCode.LOAD_CUSTOMER,
-                    RunStepCode.PULL_CLOUDATLAS,
-                    RunStepCode.PUBLISH,
-                )
-                if code.value not in existing_codes
-            ),
+                RunStepCode.LOAD_CUSTOMER,
+                RunStepCode.PULL_CLOUDATLAS,
+                RunStepCode.NORMALIZE,
+                RunStepCode.RESOLVE,
+                RunStepCode.CHECK_FINDINGS,
+                RunStepCode.PUBLISH,
+            )
+            if run.processing_contract_version is not None
+            else (
+                RunStepCode.LOAD_CUSTOMER,
+                RunStepCode.PULL_CLOUDATLAS,
+                RunStepCode.PUBLISH,
+            )
+        )
+        next_code = next(
+            (code for code in step_order if code.value not in existing_codes),
             None,
         )
         if next_code is None:
             raise GovernanceRunStateError("run_retry_no_failed_step")
+        snapshots = session.exec(
+            select(SourceSnapshot).where(SourceSnapshot.governance_run_id == run.id)
+        ).all()
+        snapshot_hashes = sorted(snapshot.content_sha256 for snapshot in snapshots)
         if next_code is RunStepCode.LOAD_CUSTOMER:
             input_hash = run.customer_upload_sha256
         elif next_code is RunStepCode.PULL_CLOUDATLAS:
             input_hash = run.cloudatlas_validated_fingerprint
-        else:
-            snapshots = session.exec(
-                select(SourceSnapshot).where(
-                    SourceSnapshot.governance_run_id == run.id
-                )
-            ).all()
+        elif next_code is RunStepCode.NORMALIZE:
             input_hash = _fingerprint(
-                sorted(snapshot.content_sha256 for snapshot in snapshots)
+                {
+                    "processing_contract_version": run.processing_contract_version,
+                    "snapshot_hashes": snapshot_hashes,
+                }
+            )
+        elif next_code is RunStepCode.RESOLVE:
+            normalize_step = next(
+                (
+                    item
+                    for item in steps
+                    if item.step_code == RunStepCode.NORMALIZE.value
+                ),
+                None,
+            )
+            if normalize_step is None or normalize_step.output_hash is None:
+                raise GovernanceRunStateError("run_retry_no_failed_step")
+            input_hash = _fingerprint(
+                {
+                    "processing_contract_version": run.processing_contract_version,
+                    "normalize_output_hash": normalize_step.output_hash,
+                }
+            )
+        elif next_code is RunStepCode.CHECK_FINDINGS:
+            resolve_step = next(
+                (
+                    item
+                    for item in steps
+                    if item.step_code == RunStepCode.RESOLVE.value
+                ),
+                None,
+            )
+            if resolve_step is None or resolve_step.output_hash is None:
+                raise GovernanceRunStateError("run_retry_no_failed_step")
+            input_hash = _fingerprint(
+                {
+                    "processing_contract_version": run.processing_contract_version,
+                    "resolve_output_hash": resolve_step.output_hash,
+                }
+            )
+        else:
+            input_hash = (
+                _fingerprint(
+                    {
+                        "processing_contract_version": run.processing_contract_version,
+                        "snapshot_hashes": snapshot_hashes,
+                    }
+                )
+                if run.processing_contract_version is not None
+                else _fingerprint(snapshot_hashes)
             )
         step = RunStep(
             tenant_id=run.tenant_id,
@@ -1289,9 +2366,7 @@ def prepare_retry(
             target_type="run_step",
             target_id=step.id,
             before_data=(
-                None
-                if started_new_step
-                else {"status": RunStepStatus.FAILED.value}
+                None if started_new_step else {"status": RunStepStatus.FAILED.value}
             ),
             after_data={
                 "step_code": step.step_code,
@@ -1514,6 +2589,10 @@ def execute_governance_run(*, session: Session, inputs: RunnerInputs) -> Governa
         return run
     _load_customer_snapshot(session=session, run=run, request_ip=None)
     _pull_cloudatlas_snapshot(session=session, run=run, request_ip=None)
+    if run.processing_contract_version is not None:
+        _normalize_ip_observations(session=session, run=run, request_ip=None)
+        _resolve_ip_observations(session=session, run=run, request_ip=None)
+        _check_ip_findings(session=session, run=run, request_ip=None)
     _publish_run(session=session, run=run, request_ip=None)
     session.refresh(run)
     return run
@@ -1554,9 +2633,7 @@ def governance_run_public(
         ],
         snapshots=[
             SourceSnapshotPublic.model_validate(snapshot)
-            for snapshot in sorted(
-                snapshots, key=lambda item: item.source_type
-            )
+            for snapshot in sorted(snapshots, key=lambda item: item.source_type)
         ],
         reused_snapshot_count=reused_snapshot_count,
     )

@@ -464,6 +464,364 @@ export const CustomerUploadsPublicSchema = {
     title: 'CustomerUploadsPublic'
 } as const;
 
+export const FindingDetailPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        finding_type: {
+            type: 'string',
+            title: 'Finding Type'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        first_detected_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'First Detected At'
+        },
+        last_detected_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Detected At'
+        },
+        latest_occurrence_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Occurrence At'
+        },
+        latest_transition_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Transition At'
+        },
+        occurrence_count: {
+            type: 'integer',
+            title: 'Occurrence Count'
+        },
+        transition_count: {
+            type: 'integer',
+            title: 'Transition Count'
+        },
+        occurrences: {
+            items: {
+                '$ref': '#/components/schemas/FindingOccurrencePublic'
+            },
+            type: 'array',
+            title: 'Occurrences'
+        },
+        transitions: {
+            items: {
+                '$ref': '#/components/schemas/FindingTransitionPublic'
+            },
+            type: 'array',
+            title: 'Transitions'
+        }
+    },
+    type: 'object',
+    required: ['id', 'resource_id', 'finding_type', 'status', 'canonical_ip', 'first_detected_at', 'last_detected_at', 'latest_occurrence_at', 'latest_transition_at', 'occurrence_count', 'transition_count'],
+    title: 'FindingDetailPublic'
+} as const;
+
+export const FindingOccurrencePublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        observation_ids: {
+            items: {
+                type: 'string',
+                format: 'uuid'
+            },
+            type: 'array',
+            title: 'Observation Ids'
+        },
+        source_snapshot_ids: {
+            items: {
+                type: 'string',
+                format: 'uuid'
+            },
+            type: 'array',
+            title: 'Source Snapshot Ids'
+        },
+        source_snapshots: {
+            items: {
+                '$ref': '#/components/schemas/SourceSnapshotPublic'
+            },
+            type: 'array',
+            title: 'Source Snapshots'
+        },
+        observations: {
+            items: {
+                '$ref': '#/components/schemas/IPObservationPublic'
+            },
+            type: 'array',
+            title: 'Observations'
+        }
+    },
+    type: 'object',
+    required: ['id', 'governance_run_id', 'created_at'],
+    title: 'FindingOccurrencePublic'
+} as const;
+
+export const FindingPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        finding_type: {
+            type: 'string',
+            title: 'Finding Type'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        first_detected_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'First Detected At'
+        },
+        last_detected_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Detected At'
+        },
+        latest_occurrence_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Occurrence At'
+        },
+        latest_transition_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Transition At'
+        },
+        occurrence_count: {
+            type: 'integer',
+            title: 'Occurrence Count'
+        },
+        transition_count: {
+            type: 'integer',
+            title: 'Transition Count'
+        }
+    },
+    type: 'object',
+    required: ['id', 'resource_id', 'finding_type', 'status', 'canonical_ip', 'first_detected_at', 'last_detected_at', 'latest_occurrence_at', 'latest_transition_at', 'occurrence_count', 'transition_count'],
+    title: 'FindingPublic'
+} as const;
+
+export const FindingTransitionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        transition_type: {
+            type: 'string',
+            title: 'Transition Type'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        observation_ids: {
+            items: {
+                type: 'string',
+                format: 'uuid'
+            },
+            type: 'array',
+            title: 'Observation Ids'
+        },
+        source_snapshot_ids: {
+            items: {
+                type: 'string',
+                format: 'uuid'
+            },
+            type: 'array',
+            title: 'Source Snapshot Ids'
+        },
+        source_snapshots: {
+            items: {
+                '$ref': '#/components/schemas/SourceSnapshotPublic'
+            },
+            type: 'array',
+            title: 'Source Snapshots'
+        },
+        observations: {
+            items: {
+                '$ref': '#/components/schemas/IPObservationPublic'
+            },
+            type: 'array',
+            title: 'Observations'
+        }
+    },
+    type: 'object',
+    required: ['id', 'governance_run_id', 'transition_type', 'created_at'],
+    title: 'FindingTransitionPublic'
+} as const;
+
+export const FindingsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/FindingPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        latest_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Run Id'
+        },
+        latest_run_completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Run Completed At'
+        },
+        compatible: {
+            type: 'boolean',
+            title: 'Compatible'
+        },
+        compatibility_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Compatibility Code'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'status', 'latest_run_id', 'latest_run_completed_at', 'compatible', 'compatibility_code'],
+    title: 'FindingsPublic'
+} as const;
+
 export const GovernanceRunActionPublicSchema = {
     properties: {
         accepted: {
@@ -607,6 +965,17 @@ export const GovernanceRunPublicSchema = {
             type: 'string',
             title: 'Runner Build Version'
         },
+        processing_contract_version: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Processing Contract Version'
+        },
         created_at: {
             type: 'string',
             format: 'date-time',
@@ -689,7 +1058,7 @@ export const GovernanceRunPublicSchema = {
         }
     },
     type: 'object',
-    required: ['id', 'trigger_id', 'session_id', 'status', 'customer_upload_id', 'customer_upload_sha256', 'customer_upload_profile_id', 'customer_upload_profile_version', 'source_instance_id', 'cloudatlas_validated_fingerprint', 'cloudatlas_capset_id', 'cloudatlas_method', 'package_sha256', 'descriptor_sha256', 'runner_build_version', 'created_at', 'completed_at', 'session_terminal_at', 'session_recovery_code', 'steps', 'snapshots'],
+    required: ['id', 'trigger_id', 'session_id', 'status', 'customer_upload_id', 'customer_upload_sha256', 'customer_upload_profile_id', 'customer_upload_profile_version', 'source_instance_id', 'cloudatlas_validated_fingerprint', 'cloudatlas_capset_id', 'cloudatlas_method', 'package_sha256', 'descriptor_sha256', 'runner_build_version', 'processing_contract_version', 'created_at', 'completed_at', 'session_terminal_at', 'session_recovery_code', 'steps', 'snapshots'],
     title: 'GovernanceRunPublic'
 } as const;
 
@@ -786,6 +1155,273 @@ export const HTTPValidationErrorSchema = {
     },
     type: 'object',
     title: 'HTTPValidationError'
+} as const;
+
+export const IPAssetDetailPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        resource_type: {
+            type: 'string',
+            title: 'Resource Type'
+        },
+        canonical_key: {
+            type: 'string',
+            title: 'Canonical Key'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        customer_observation_count: {
+            type: 'integer',
+            title: 'Customer Observation Count'
+        },
+        cloudatlas_observation_count: {
+            type: 'integer',
+            title: 'Cloudatlas Observation Count'
+        },
+        observation_count: {
+            type: 'integer',
+            title: 'Observation Count'
+        },
+        customer_observed: {
+            type: 'boolean',
+            title: 'Customer Observed'
+        },
+        cloudatlas_observed: {
+            type: 'boolean',
+            title: 'Cloudatlas Observed'
+        },
+        open_finding_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Open Finding Id'
+        },
+        open_finding_type: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Open Finding Type'
+        },
+        observations: {
+            items: {
+                '$ref': '#/components/schemas/IPObservationPublic'
+            },
+            type: 'array',
+            title: 'Observations'
+        }
+    },
+    type: 'object',
+    required: ['id', 'resource_id', 'resource_type', 'canonical_key', 'canonical_ip', 'customer_observation_count', 'cloudatlas_observation_count', 'observation_count', 'customer_observed', 'cloudatlas_observed', 'open_finding_id', 'open_finding_type'],
+    title: 'IPAssetDetailPublic'
+} as const;
+
+export const IPAssetPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        resource_type: {
+            type: 'string',
+            title: 'Resource Type'
+        },
+        canonical_key: {
+            type: 'string',
+            title: 'Canonical Key'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        customer_observation_count: {
+            type: 'integer',
+            title: 'Customer Observation Count'
+        },
+        cloudatlas_observation_count: {
+            type: 'integer',
+            title: 'Cloudatlas Observation Count'
+        },
+        observation_count: {
+            type: 'integer',
+            title: 'Observation Count'
+        },
+        customer_observed: {
+            type: 'boolean',
+            title: 'Customer Observed'
+        },
+        cloudatlas_observed: {
+            type: 'boolean',
+            title: 'Cloudatlas Observed'
+        },
+        open_finding_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Open Finding Id'
+        },
+        open_finding_type: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Open Finding Type'
+        }
+    },
+    type: 'object',
+    required: ['id', 'resource_id', 'resource_type', 'canonical_key', 'canonical_ip', 'customer_observation_count', 'cloudatlas_observation_count', 'observation_count', 'customer_observed', 'cloudatlas_observed', 'open_finding_id', 'open_finding_type'],
+    title: 'IPAssetPublic'
+} as const;
+
+export const IPAssetsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/IPAssetPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        latest_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Run Id'
+        },
+        latest_run_completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Run Completed At'
+        },
+        compatible: {
+            type: 'boolean',
+            title: 'Compatible'
+        },
+        compatibility_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Compatibility Code'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'latest_run_id', 'latest_run_completed_at', 'compatible', 'compatibility_code'],
+    title: 'IPAssetsPublic'
+} as const;
+
+export const IPObservationPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        source_type: {
+            type: 'string',
+            title: 'Source Type'
+        },
+        source_record_key: {
+            type: 'string',
+            title: 'Source Record Key'
+        },
+        raw_ip: {
+            type: 'string',
+            title: 'Raw Ip'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        cloudatlas_asset_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Cloudatlas Asset Id'
+        },
+        cloudatlas_status: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Cloudatlas Status'
+        },
+        source_snapshot_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Snapshot Id'
+        }
+    },
+    type: 'object',
+    required: ['id', 'source_type', 'source_record_key', 'raw_ip', 'canonical_ip', 'cloudatlas_asset_id', 'cloudatlas_status', 'source_snapshot_id'],
+    title: 'IPObservationPublic'
 } as const;
 
 export const MessageSchema = {
