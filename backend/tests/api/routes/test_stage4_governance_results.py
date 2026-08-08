@@ -1,5 +1,6 @@
 import uuid
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -38,6 +39,7 @@ from tests.api.routes.test_governance_runs import (
     _mock_cloudatlas,
     _prepare_ready_project,
     _runner_environment,
+    _workbook_bytes,
 )
 from tests.utils.audit import reject_publish_audit_inserts
 
@@ -270,6 +272,253 @@ def test_stage4_run_publishes_ip_results_and_is_reentrant(
             .processing_contract_version
             == "ip-v1"
         )
+
+
+def test_stage4_finding_lifecycle_state_machine_is_exposed_by_public_api(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    target_ip = "192.0.2.10"
+    project_url = f"{settings.API_V1_STR}/projects/{project['id']}"
+
+    def run(
+        *,
+        trigger_id: str,
+        session_seed: str,
+        cloudatlas_items: list[dict[str, str]],
+        current_upload: dict[str, object] = upload,
+        expected_exit: int = 0,
+    ) -> None:
+        def list_page(
+            _client: object,
+            _source: object,
+            *,
+            capset_token: str,
+            page: int,
+            size: int,
+        ) -> dict[str, object]:
+            del capset_token
+            return {
+                "items": cloudatlas_items,
+                "page": page,
+                "size": size,
+                "total": len(cloudatlas_items),
+            }
+
+        monkeypatch.setattr(
+            OctobusCloudAtlasClient, "list_ip_assets_page", list_page
+        )
+        environment = _runner_environment(
+            project=project,
+            upload=current_upload,
+            source=source,
+            trigger_id=trigger_id,
+            session_seed=session_seed,
+        )
+        for name, value in environment.items():
+            monkeypatch.setenv(name, value)
+        assert run_governance_runner() == expected_exit
+
+    def items(*, ip: str, status: str = "valid") -> list[dict[str, str]]:
+        return [{"id": f"asset-{ip}", "ip": ip, "status": status}]
+
+    def read_findings(status: str = "OPEN") -> list[dict[str, object]]:
+        response = client.get(
+            f"{project_url}/findings?status={status}",
+            headers=superuser_token_headers,
+        )
+        assert response.status_code == 200, response.text
+        return cast(list[dict[str, object]], response.json()["data"])
+
+    def find_finding(status: str, finding_type: str) -> dict[str, object]:
+        matches = [
+            finding
+            for finding in read_findings(status)
+            if finding["finding_type"] == finding_type
+            and finding["canonical_ip"] == target_ip
+        ]
+        assert len(matches) == 1
+        return matches[0]
+
+    def read_detail(finding_id: object) -> dict[str, object]:
+        response = client.get(
+            f"{project_url}/findings/{finding_id}",
+            headers=superuser_token_headers,
+        )
+        assert response.status_code == 200, response.text
+        return cast(dict[str, object], response.json())
+
+    # OPENED, then a complete reproduction without another transition.
+    run(
+        trigger_id="lifecycle-opened",
+        session_seed="lifecycle-opened-session",
+        cloudatlas_items=[],
+    )
+    opened = find_finding("OPEN", "UNOBSERVED_ASSET")
+    finding_id = opened["id"]
+    assert opened["occurrence_count"] == 1
+    assert opened["transition_count"] == 1
+    run(
+        trigger_id="lifecycle-reproduced",
+        session_seed="lifecycle-reproduced-session",
+        cloudatlas_items=[],
+    )
+    reproduced = find_finding("OPEN", "UNOBSERVED_ASSET")
+    assert reproduced["id"] == finding_id
+    assert reproduced["occurrence_count"] == 2
+    assert reproduced["transition_count"] == 1
+
+    # A positive match closes the original finding and cites both sides.
+    run(
+        trigger_id="lifecycle-closed",
+        session_seed="lifecycle-closed-session",
+        cloudatlas_items=items(ip=target_ip),
+    )
+    closed = find_finding("CLOSED", "UNOBSERVED_ASSET")
+    assert closed["id"] == finding_id
+    assert closed["occurrence_count"] == 2
+    assert closed["transition_count"] == 2
+    closed_detail = read_detail(finding_id)
+    closed_transitions = cast(list[dict[str, Any]], closed_detail["transitions"])
+    closed_transition = closed_transitions[0]
+    assert closed_transition["transition_type"] == "CLOSED"
+    assert len(closed_transition["observation_ids"]) == 2
+    assert len(closed_transition["source_snapshot_ids"]) == 2
+    assert {
+        observation["source_type"]
+        for observation in closed_transition["observations"]
+    } == {"CUSTOMER_UPLOAD", "CLOUDATLAS"}
+
+    # The same difference reopens the same Finding with one new occurrence.
+    run(
+        trigger_id="lifecycle-reopened",
+        session_seed="lifecycle-reopened-session",
+        cloudatlas_items=[],
+    )
+    reopened = find_finding("OPEN", "UNOBSERVED_ASSET")
+    assert reopened["id"] == finding_id
+    assert reopened["occurrence_count"] == 3
+    assert reopened["transition_count"] == 3
+    reopened_detail = read_detail(finding_id)
+    reopened_transitions = cast(
+        list[dict[str, Any]], reopened_detail["transitions"]
+    )
+    reopened_transition = reopened_transitions[0]
+    assert reopened_transition["transition_type"] == "REOPENED"
+    assert len(reopened_transition["observation_ids"]) == 1
+    assert len(reopened_transition["source_snapshot_ids"]) == 2
+
+    # Flip the direction after selecting a new immutable customer input.  The
+    # old Finding remains open while the opposite type gets its own identity.
+    upload_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers=superuser_token_headers,
+        files={
+            "file": (
+                "customer-flipped.xlsx",
+                _workbook_bytes("198.51.100.7"),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert upload_response.status_code == 201, upload_response.text
+    flipped_upload = upload_response.json()
+    select_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads/{flipped_upload['id']}/select",
+        headers=superuser_token_headers,
+    )
+    assert select_response.status_code == 200, select_response.text
+    run(
+        trigger_id="lifecycle-direction-flip",
+        session_seed="lifecycle-direction-flip-session",
+        cloudatlas_items=items(ip=target_ip),
+        current_upload=flipped_upload,
+    )
+    still_open = find_finding("OPEN", "UNOBSERVED_ASSET")
+    opposite = find_finding("OPEN", "UNREPORTED_ASSET")
+    assert still_open["id"] == finding_id
+    assert still_open["occurrence_count"] == 3
+    assert still_open["transition_count"] == 3
+    assert opposite["id"] != finding_id
+    assert opposite["occurrence_count"] == 1
+    assert opposite["transition_count"] == 1
+
+    # With neither side observing the old IP, both open Findings are retained
+    # without a new occurrence or transition.
+    before_missing = {
+        finding["id"]: (
+            finding["occurrence_count"],
+            finding["transition_count"],
+        )
+        for finding in (still_open, opposite)
+    }
+    run(
+        trigger_id="lifecycle-both-missing",
+        session_seed="lifecycle-both-missing-session",
+        cloudatlas_items=[],
+        current_upload=flipped_upload,
+    )
+    after_missing = {
+        finding["id"]: (
+            finding["occurrence_count"],
+            finding["transition_count"],
+        )
+        for finding in read_findings()
+        if finding["id"] in before_missing
+    }
+    assert after_missing == before_missing
+
+    # A failed Run never reaches PUBLISH, so the last complete public result
+    # and every Finding lifecycle fact remain unchanged.
+    latest_complete = client.get(
+        f"{project_url}/governance-runs", headers=superuser_token_headers
+    ).json()["data"][0]["id"]
+    before_failed = {
+        finding["id"]: (
+            finding["status"],
+            finding["occurrence_count"],
+            finding["transition_count"],
+        )
+        for finding in read_findings()
+    }
+    run(
+        trigger_id="lifecycle-failed",
+        session_seed="lifecycle-failed-session",
+        cloudatlas_items=items(ip=target_ip, status="stale"),
+        current_upload=flipped_upload,
+        expected_exit=1,
+    )
+    after_failed = {
+        finding["id"]: (
+            finding["status"],
+            finding["occurrence_count"],
+            finding["transition_count"],
+        )
+        for finding in read_findings()
+    }
+    assert after_failed == before_failed
+    failed_result = client.get(
+        f"{project_url}/findings", headers=superuser_token_headers
+    ).json()
+    assert failed_result["latest_run_id"] == latest_complete
 
 
 def test_stage4_read_api_is_safe_until_a_compatible_run_exists(
