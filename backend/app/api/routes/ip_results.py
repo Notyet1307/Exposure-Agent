@@ -82,6 +82,8 @@ def read_ip_asset(
     project_id: uuid.UUID,
     resource_id: uuid.UUID,
     current_user: CurrentUser,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
 ) -> Any:
     project = _read_project(
         session=session,
@@ -92,6 +94,8 @@ def read_ip_asset(
         session=session,
         project=project,
         resource_id=resource_id,
+        skip=skip,
+        limit=limit,
     )
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -135,6 +139,8 @@ def read_finding(
     project_id: uuid.UUID,
     finding_id: uuid.UUID,
     current_user: CurrentUser,
+    occurrence_skip: Annotated[int, Query(ge=0)] = 0,
+    transition_skip: Annotated[int, Query(ge=0)] = 0,
     trace_limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> Any:
     project = _read_project(
@@ -146,6 +152,8 @@ def read_finding(
         session=session,
         project=project,
         finding_id=finding_id,
+        occurrence_skip=occurrence_skip,
+        transition_skip=transition_skip,
         trace_limit=trace_limit,
     )
     if finding is None:

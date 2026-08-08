@@ -54,7 +54,8 @@ trap finish EXIT
 stack_cleanup
 docker compose "${compose_files[@]}" build playwright
 docker compose "${compose_files[@]}" up --build -d --wait frontend
-RUN_GOVERNANCE_E2E=1 docker compose "${compose_files[@]}" run --rm --no-deps \
+docker compose "${compose_files[@]}" run --rm --no-deps \
   -e RUN_GOVERNANCE_E2E=1 playwright \
   bunx playwright test tests/governance-run.spec.ts \
-  --workers=1 --retries=0 --fail-on-flaky-tests --trace=retain-on-failure
+  --project=chromium --workers=1 --retries=0 --fail-on-flaky-tests \
+  --trace=retain-on-failure

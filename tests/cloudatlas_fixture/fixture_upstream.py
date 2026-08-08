@@ -20,6 +20,7 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
     failed_reads_remaining = 0
     miss_next_session_query = False
     remove_session_before_resume = False
+    assets = [{"id": 1, "ip": "192.0.2.10", "status": "valid"}]
 
     def write_raw(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -96,6 +97,24 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
             type(self).miss_next_session_query = True
         elif self.path == "/fixture/remove-session-before-resume":
             type(self).remove_session_before_resume = True
+        elif self.path == "/fixture/set-assets":
+            content_length = int(self.headers.get("Content-Length", "0"))
+            try:
+                payload = json.loads(self.rfile.read(content_length) or b"{}")
+                assets = payload["items"]
+                if not isinstance(assets, list) or any(
+                    not isinstance(item, dict)
+                    or set(item) != {"id", "ip", "status"}
+                    for item in assets
+                ):
+                    raise ValueError
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+                self.write_json(400, {"error": "invalid_assets"})
+                return
+            type(self).assets = assets
+            type(self).failed_reads_remaining = 0
+            type(self).miss_next_session_query = False
+            type(self).remove_session_before_resume = False
         else:
             self.write_json(404, {"error": "not_found"})
             return
@@ -146,17 +165,20 @@ class CloudAtlasFixtureHandler(BaseHTTPRequestHandler):
             self.connection.shutdown(socket.SHUT_RDWR)
             self.connection.close()
             return
+        page_number = int(page)
+        page_size = int(query.get("size", ["1"])[0])
+        all_assets = type(self).assets
+        start = (page_number - 1) * page_size
+        page_items = all_assets[start : start + page_size]
         self.write_json(
             200,
             {
                 "code": 200,
                 "data": {
-                    "current": int(page),
-                    "items": [
-                        {"id": 1, "ip": "192.0.2.10", "status": "valid"}
-                    ],
-                    "size": int(query.get("size", ["1"])[0]),
-                    "total": 1,
+                    "current": page_number,
+                    "items": page_items,
+                    "size": page_size,
+                    "total": len(all_assets),
                 },
                 "message": "",
             },

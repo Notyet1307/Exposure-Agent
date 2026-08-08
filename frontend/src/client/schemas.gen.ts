@@ -524,6 +524,18 @@ export const FindingDetailPublicSchema = {
             ],
             title: 'Latest Occurrence At'
         },
+        latest_occurrence_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Occurrence Run Id'
+        },
         latest_transition_at: {
             anyOf: [
                 {
@@ -560,7 +572,7 @@ export const FindingDetailPublicSchema = {
         }
     },
     type: 'object',
-    required: ['id', 'resource_id', 'finding_type', 'status', 'canonical_ip', 'first_detected_at', 'last_detected_at', 'latest_occurrence_at', 'latest_transition_at', 'occurrence_count', 'transition_count'],
+    required: ['id', 'resource_id', 'finding_type', 'status', 'canonical_ip', 'first_detected_at', 'last_detected_at', 'latest_occurrence_at', 'latest_occurrence_run_id', 'latest_transition_at', 'occurrence_count', 'transition_count'],
     title: 'FindingDetailPublic'
 } as const;
 
@@ -677,6 +689,18 @@ export const FindingPublicSchema = {
             ],
             title: 'Latest Occurrence At'
         },
+        latest_occurrence_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Occurrence Run Id'
+        },
         latest_transition_at: {
             anyOf: [
                 {
@@ -699,7 +723,7 @@ export const FindingPublicSchema = {
         }
     },
     type: 'object',
-    required: ['id', 'resource_id', 'finding_type', 'status', 'canonical_ip', 'first_detected_at', 'last_detected_at', 'latest_occurrence_at', 'latest_transition_at', 'occurrence_count', 'transition_count'],
+    required: ['id', 'resource_id', 'finding_type', 'status', 'canonical_ip', 'first_detected_at', 'last_detected_at', 'latest_occurrence_at', 'latest_occurrence_run_id', 'latest_transition_at', 'occurrence_count', 'transition_count'],
     title: 'FindingPublic'
 } as const;
 

@@ -899,6 +899,17 @@ def test_stage4_result_reads_are_paginated_and_trace_is_bounded(
         observation["source_record_key"]
         for observation in asset_detail.json()["observations"]
     ] == ["page:1:item:1", "page:1:item:2"]
+    asset_detail_page = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/ip-assets/{resource_id}"
+        "?skip=1&limit=1",
+        headers=superuser_token_headers,
+    )
+    assert asset_detail_page.status_code == 200, asset_detail_page.text
+    assert asset_detail_page.json()["observation_count"] == 2
+    assert [
+        observation["source_record_key"]
+        for observation in asset_detail_page.json()["observations"]
+    ] == ["page:1:item:2"]
 
     findings = client.get(
         f"{settings.API_V1_STR}/projects/{project['id']}/findings",
