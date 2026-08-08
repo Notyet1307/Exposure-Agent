@@ -993,6 +993,7 @@ def rerun_governance_run(
             if error.code not in {
                 "run_retry_customer_input_changed",
                 "run_retry_cloudatlas_input_changed",
+                "run_processing_not_retryable",
             }:
                 session.rollback()
                 _reject_run_action(

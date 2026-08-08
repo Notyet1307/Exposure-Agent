@@ -434,6 +434,89 @@ def test_legacy_run_can_resume_without_a_stage4_processing_contract(
         assert completed.processing_contract_version is None
 
 
+@pytest.mark.parametrize(
+    "processing_contract_version",
+    [None, "ip-v0"],
+    ids=["legacy-stage3", "unsupported-stage4"],
+)
+def test_stage4_retry_rejects_incompatible_processing_contract(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    processing_contract_version: str | None,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id=f"incompatible-contract-{processing_contract_version or 'legacy'}",
+        session_seed=f"incompatible-contract-{processing_contract_version or 'legacy'}-session",
+    )
+    inputs = RunnerInputs.from_environment(environment)
+    with Session(engine) as session:
+        run = GovernanceRun(
+            tenant_id=uuid.UUID(str(project["tenant_id"])),
+            project_id=inputs.project_id,
+            trigger_id=inputs.trigger_id,
+            session_id=inputs.session_id,
+            requested_by=inputs.requested_by,
+            status=GovernanceRunStatus.FAILED_PROCESSING.value,
+            customer_upload_id=inputs.customer_upload_id,
+            customer_upload_sha256=inputs.customer_upload_sha256,
+            customer_upload_profile_id=inputs.customer_upload_profile_id,
+            customer_upload_profile_version=inputs.customer_upload_profile_version,
+            source_instance_id=inputs.source_instance_id,
+            cloudatlas_validated_fingerprint=inputs.cloudatlas_validated_fingerprint,
+            cloudatlas_capset_id=inputs.cloudatlas_capset_id,
+            cloudatlas_method=inputs.cloudatlas_method,
+            package_sha256=inputs.package_sha256,
+            descriptor_sha256=inputs.descriptor_sha256,
+            runner_build_version=inputs.runner_build_version,
+            processing_contract_version=processing_contract_version,
+        )
+        session.add(run)
+        session.commit()
+        run_id = run.id
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry.status_code == 409, retry.text
+    assert retry.json()["detail"]["code"] == "run_processing_not_retryable"
+
+    view = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert view.status_code == 200, view.text
+    assert view.json()["data"][0]["can_retry"] is False
+    assert view.json()["data"][0]["blocking_code"] == (
+        "run_processing_not_retryable"
+    )
+
+
 def test_runner_retries_transient_page_and_atomically_publishes_completed(
     client: TestClient,
     superuser_token_headers: dict[str, str],
