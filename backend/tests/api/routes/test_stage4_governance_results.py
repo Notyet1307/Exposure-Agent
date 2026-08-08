@@ -272,6 +272,219 @@ def test_stage4_run_publishes_ip_results_and_is_reentrant(
         )
 
 
+def test_stage4_read_api_is_safe_until_a_compatible_run_exists(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    project = _create_project(client, superuser_token_headers)
+    project_url = f"{settings.API_V1_STR}/projects/{project['id']}"
+
+    assets = client.get(
+        f"{project_url}/ip-assets",
+        headers=superuser_token_headers,
+    )
+    assert assets.status_code == 200, assets.text
+    assert assets.json() == {
+        "data": [],
+        "count": 0,
+        "latest_run_id": None,
+        "latest_run_completed_at": None,
+        "compatible": False,
+        "compatibility_code": "stage4_run_required",
+    }
+
+    findings = client.get(
+        f"{project_url}/findings?status=OPEN",
+        headers=superuser_token_headers,
+    )
+    assert findings.status_code == 200, findings.text
+    assert findings.json() == {
+        "data": [],
+        "count": 0,
+        "status": "OPEN",
+        "latest_run_id": None,
+        "latest_run_completed_at": None,
+        "compatible": False,
+        "compatibility_code": "stage4_run_required",
+    }
+
+    invalid_status = client.get(
+        f"{project_url}/findings?status=NOT_A_STATUS",
+        headers=superuser_token_headers,
+    )
+    assert invalid_status.status_code == 400
+    assert invalid_status.json()["detail"]["code"] == "finding_status_invalid"
+
+    missing_asset = client.get(
+        f"{project_url}/ip-assets/{uuid.uuid4()}",
+        headers=superuser_token_headers,
+    )
+    missing_finding = client.get(
+        f"{project_url}/findings/{uuid.uuid4()}",
+        headers=superuser_token_headers,
+    )
+    assert missing_asset.status_code == 404
+    assert missing_finding.status_code == 404
+
+
+def test_stage4_matching_run_exposes_assets_without_open_findings(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage4-matching-assets",
+        session_seed="stage4-matching-assets-session",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    assert run_governance_runner() == 0
+
+    assets = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/ip-assets",
+        headers=superuser_token_headers,
+    )
+    assert assets.status_code == 200, assets.text
+    asset_payload = assets.json()
+    assert asset_payload["compatible"] is True
+    assert asset_payload["count"] == 1
+    assert asset_payload["data"][0] == {
+        "id": asset_payload["data"][0]["id"],
+        "resource_id": asset_payload["data"][0]["resource_id"],
+        "resource_type": "IP",
+        "canonical_key": "192.0.2.10",
+        "canonical_ip": "192.0.2.10",
+        "customer_observation_count": 1,
+        "cloudatlas_observation_count": 1,
+        "observation_count": 2,
+        "customer_observed": True,
+        "cloudatlas_observed": True,
+        "open_finding_id": None,
+        "open_finding_type": None,
+    }
+
+    findings = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/findings",
+        headers=superuser_token_headers,
+    )
+    assert findings.status_code == 200, findings.text
+    assert findings.json()["compatible"] is True
+    assert findings.json()["count"] == 0
+    assert findings.json()["data"] == []
+
+
+def test_stage4_result_reads_are_paginated_and_trace_is_bounded(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient,
+        "list_ip_assets_page",
+        lambda _client, _source, *, capset_token, page, size: {
+            "items": [
+                {"id": "matching", "ip": "192.0.2.10", "status": "valid"},
+                {"id": "cloud-only-1", "ip": "203.0.113.5", "status": "valid"},
+                {"id": "cloud-only-2", "ip": "203.0.113.5", "status": "valid"},
+            ],
+            "page": page,
+            "size": size,
+            "total": 3,
+        },
+    )
+
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage4-bounded-trace",
+        session_seed="stage4-bounded-trace-session",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    assert run_governance_runner() == 0
+
+    page = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/ip-assets?skip=1&limit=1",
+        headers=superuser_token_headers,
+    )
+    assert page.status_code == 200, page.text
+    assert page.json()["count"] == 2
+    assert [asset["canonical_ip"] for asset in page.json()["data"]] == [
+        "203.0.113.5"
+    ]
+    resource_id = page.json()["data"][0]["resource_id"]
+    asset_detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/ip-assets/{resource_id}",
+        headers=superuser_token_headers,
+    )
+    assert asset_detail.status_code == 200, asset_detail.text
+    assert [
+        observation["source_record_key"]
+        for observation in asset_detail.json()["observations"]
+    ] == ["page:1:item:1", "page:1:item:2"]
+
+    findings = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/findings",
+        headers=superuser_token_headers,
+    )
+    unreported = next(
+        item
+        for item in findings.json()["data"]
+        if item["finding_type"] == "UNREPORTED_ASSET"
+    )
+    finding_detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/findings/{unreported['id']}?trace_limit=1",
+        headers=superuser_token_headers,
+    )
+    assert finding_detail.status_code == 200, finding_detail.text
+    detail_payload = finding_detail.json()
+    assert len(detail_payload["occurrences"]) == 1
+    assert len(detail_payload["transitions"]) == 1
+    assert len(detail_payload["occurrences"][0]["observation_ids"]) == 1
+    assert len(detail_payload["occurrences"][0]["source_snapshot_ids"]) == 1
+    assert len(detail_payload["transitions"][0]["observation_ids"]) == 1
+    assert len(detail_payload["transitions"][0]["source_snapshot_ids"]) == 1
+
+
 @pytest.mark.parametrize(
     "invalid_payload",
     [

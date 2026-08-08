@@ -100,6 +100,67 @@ export type CustomerUploadWarningPublic = {
     count: number;
 };
 
+export type FindingDetailPublic = {
+    id: string;
+    resource_id: string;
+    finding_type: string;
+    status: string;
+    canonical_ip: string;
+    first_detected_at: (string | null);
+    last_detected_at: (string | null);
+    latest_occurrence_at: (string | null);
+    latest_transition_at: (string | null);
+    occurrence_count: number;
+    transition_count: number;
+    occurrences?: Array<FindingOccurrencePublic>;
+    transitions?: Array<FindingTransitionPublic>;
+};
+
+export type FindingOccurrencePublic = {
+    id: string;
+    governance_run_id: string;
+    created_at: string;
+    observation_ids?: Array<(string)>;
+    source_snapshot_ids?: Array<(string)>;
+    source_snapshots?: Array<SourceSnapshotPublic>;
+    observations?: Array<IPObservationPublic>;
+};
+
+export type FindingPublic = {
+    id: string;
+    resource_id: string;
+    finding_type: string;
+    status: string;
+    canonical_ip: string;
+    first_detected_at: (string | null);
+    last_detected_at: (string | null);
+    latest_occurrence_at: (string | null);
+    latest_transition_at: (string | null);
+    occurrence_count: number;
+    transition_count: number;
+};
+
+export type FindingsPublic = {
+    data: Array<FindingPublic>;
+    count: number;
+    status: string;
+    latest_run_id: (string | null);
+    latest_run_completed_at: (string | null);
+    compatible: boolean;
+    compatibility_code: (string | null);
+};
+
+export type FindingTransitionPublic = {
+    id: string;
+    governance_run_id: string;
+    transition_type: string;
+    created_at: string;
+    observation_ids?: Array<(string)>;
+    source_snapshot_ids?: Array<(string)>;
+    source_snapshots?: Array<SourceSnapshotPublic>;
+    observations?: Array<IPObservationPublic>;
+};
+
 export type GovernanceRunActionPublic = {
     accepted: boolean;
     action: string;
@@ -127,6 +188,7 @@ export type GovernanceRunPublic = {
     package_sha256: string;
     descriptor_sha256: string;
     runner_build_version: string;
+    processing_contract_version: (string | null);
     created_at: string;
     completed_at: (string | null);
     session_terminal_at: (string | null);
@@ -157,6 +219,57 @@ export type GovernanceRunTriggerPublic = {
 
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
+};
+
+export type IPAssetDetailPublic = {
+    id: string;
+    resource_id: string;
+    resource_type: string;
+    canonical_key: string;
+    canonical_ip: string;
+    customer_observation_count: number;
+    cloudatlas_observation_count: number;
+    observation_count: number;
+    customer_observed: boolean;
+    cloudatlas_observed: boolean;
+    open_finding_id: (string | null);
+    open_finding_type: (string | null);
+    observations?: Array<IPObservationPublic>;
+};
+
+export type IPAssetPublic = {
+    id: string;
+    resource_id: string;
+    resource_type: string;
+    canonical_key: string;
+    canonical_ip: string;
+    customer_observation_count: number;
+    cloudatlas_observation_count: number;
+    observation_count: number;
+    customer_observed: boolean;
+    cloudatlas_observed: boolean;
+    open_finding_id: (string | null);
+    open_finding_type: (string | null);
+};
+
+export type IPAssetsPublic = {
+    data: Array<IPAssetPublic>;
+    count: number;
+    latest_run_id: (string | null);
+    latest_run_completed_at: (string | null);
+    compatible: boolean;
+    compatibility_code: (string | null);
+};
+
+export type IPObservationPublic = {
+    id: string;
+    source_type: string;
+    source_record_key: string;
+    raw_ip: string;
+    canonical_ip: string;
+    cloudatlas_asset_id: (string | null);
+    cloudatlas_status: (string | null);
+    source_snapshot_id: string;
 };
 
 export type Message = {
@@ -366,6 +479,38 @@ export type GovernanceRunsRerunGovernanceRunResponse = (GovernanceRunActionPubli
 export type HealthHealthLiveResponse = (boolean);
 
 export type HealthHealthReadyResponse = (boolean);
+
+export type IpResultsReadIpAssetsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+};
+
+export type IpResultsReadIpAssetsResponse = (IPAssetsPublic);
+
+export type IpResultsReadIpAssetData = {
+    projectId: string;
+    resourceId: string;
+};
+
+export type IpResultsReadIpAssetResponse = (IPAssetDetailPublic);
+
+export type IpResultsReadFindingsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+    status?: string;
+};
+
+export type IpResultsReadFindingsResponse = (FindingsPublic);
+
+export type IpResultsReadFindingData = {
+    findingId: string;
+    projectId: string;
+    traceLimit?: number;
+};
+
+export type IpResultsReadFindingResponse = (FindingDetailPublic);
 
 export type LoginLoginAccessTokenData = {
     formData: Body_login_login_access_token;
