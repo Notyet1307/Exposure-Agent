@@ -85,6 +85,15 @@ _STEP_ORDER = {
 }
 COMPLETED_RUN_STATUSES = frozenset({GovernanceRunStatus.COMPLETED.value})
 _NON_RETRYABLE_PREFIX = "non_retryable:"
+_STAGE4_NON_RETRYABLE_ERRORS = frozenset(
+    {
+        "artifact_reference_invalid",
+        "snapshot_artifact_changed",
+        "stage4_snapshots_incomplete",
+        "stage4_snapshot_scope_invalid",
+        "stage4_snapshot_artifact_missing",
+    }
+)
 
 
 class GovernanceRunStateError(Exception):
@@ -1221,13 +1230,7 @@ def _normalize_ip_observations(
         raise GovernanceRunProcessingError("normalize_contract_failed")
     except GovernanceRunExecutionError as error:
         session.rollback()
-        non_retryable = error.code in {
-            "artifact_reference_invalid",
-            "snapshot_artifact_changed",
-            "stage4_snapshots_incomplete",
-            "stage4_snapshot_scope_invalid",
-            "stage4_snapshot_artifact_missing",
-        }
+        non_retryable = error.code in _STAGE4_NON_RETRYABLE_ERRORS
         error_code = (
             "normalize_contract_failed"
             if non_retryable
@@ -1463,6 +1466,21 @@ def _resolve_ip_observations(
             request_ip=request_ip,
         )
         raise GovernanceRunProcessingError("resolve_persistence_failed")
+    except Exception as unexpected_error:
+        logger.error(
+            "IP resolution failed unexpectedly: %s",
+            type(unexpected_error).__name__,
+        )
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="resolve_unexpected_failure",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("resolve_unexpected_failure")
 
 
 def _check_ip_findings(
@@ -1576,6 +1594,21 @@ def _check_ip_findings(
             request_ip=request_ip,
         )
         raise GovernanceRunProcessingError("check_findings_persistence_failed")
+    except Exception as unexpected_error:
+        logger.error(
+            "IP finding check failed unexpectedly: %s",
+            type(unexpected_error).__name__,
+        )
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="check_findings_unexpected_failure",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("check_findings_unexpected_failure")
 
 
 def _verify_snapshot_artifact(*, session: Session, snapshot: SourceSnapshot) -> None:
@@ -1921,8 +1954,9 @@ def _publish_stage4_run(
             retryable=False,
         )
         raise GovernanceRunProcessingError("publish_contract_failed")
-    except GovernanceRunExecutionError:
+    except GovernanceRunExecutionError as error:
         session.rollback()
+        non_retryable = error.code in _STAGE4_NON_RETRYABLE_ERRORS
         _fail_run(
             session=session,
             run=run,
@@ -1930,6 +1964,7 @@ def _publish_stage4_run(
             run_status=GovernanceRunStatus.FAILED_PROCESSING,
             error_code="publish_failed",
             request_ip=request_ip,
+            retryable=not non_retryable,
         )
         raise GovernanceRunExecutionError("publish_failed")
     except SQLAlchemyError:

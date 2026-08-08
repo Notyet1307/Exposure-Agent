@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.db import engine
 from app.domain.cloudatlas_sources import OctobusCloudAtlasClient
 from app.domain.models import (
+    Artifact,
     Finding,
     FindingOccurrence,
     FindingOccurrenceObservation,
@@ -23,8 +24,14 @@ from app.domain.models import (
     ObservationResourceLink,
     Resource,
     RunStep,
+    SourceSnapshot,
 )
 from app.governance_runner import main as run_governance_runner
+from app.integrations.agent_compose import (
+    AgentComposeRunStart,
+    AgentComposeSession,
+    AgentComposeSessionObservation,
+)
 from tests.api.routes.test_governance_runs import (
     _create_member,
     _create_project,
@@ -32,6 +39,7 @@ from tests.api.routes.test_governance_runs import (
     _prepare_ready_project,
     _runner_environment,
 )
+from tests.utils.audit import reject_publish_audit_inserts
 
 
 def test_stage4_run_publishes_ip_results_and_is_reentrant(
@@ -547,3 +555,200 @@ def test_failed_run_preserves_previous_results_and_all_project_read_roles_can_tr
         assert role_assets.status_code == 200
         assert role_findings.status_code == 200
         assert role_detail.status_code == 200
+
+
+def test_publish_snapshot_integrity_failure_is_not_retryable(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    db: Session,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="publish-integrity-failure",
+        session_seed="publish-integrity-failure-session",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    with reject_publish_audit_inserts(db):
+        assert run_governance_runner() == 1
+
+    failed = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    with Session(engine) as session:
+        cloudatlas_snapshot = session.exec(
+            select(SourceSnapshot).where(
+                SourceSnapshot.governance_run_id == uuid.UUID(str(failed["id"])),
+                SourceSnapshot.source_type == "CLOUDATLAS",
+            )
+        ).one()
+        artifact = session.get(Artifact, cloudatlas_snapshot.artifact_id)
+        assert artifact is not None
+        artifact_path = tmp_path / artifact.storage_key
+        artifact_path.chmod(0o640)
+        artifact_path.write_bytes(artifact_path.read_bytes() + b"tampered")
+
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
+        lambda _client, **kwargs: AgentComposeRunStart(
+            run_id="a" * 64,
+            started=True,
+            status="RUN_STATUS_PENDING",
+            session_id=kwargs["session_id"],
+        ),
+    )
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed['id']}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry.status_code == 202, retry.text
+
+    assert run_governance_runner() == 1
+    recovered = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert recovered["status"] == "FAILED_PROCESSING"
+    assert recovered["session_recovery_code"] == "non_retryable:publish_failed"
+    assert [
+        (step["step_code"], step["status"], step["error_code"])
+        for step in recovered["steps"]
+        if step["step_code"] == "PUBLISH"
+    ] == [("PUBLISH", "FAILED", "publish_failed")]
+
+
+@pytest.mark.parametrize(
+    ("failed_stage", "error_code"),
+    [
+        ("RESOLVE", "resolve_unexpected_failure"),
+        ("CHECK_FINDINGS", "check_findings_unexpected_failure"),
+    ],
+)
+def test_unexpected_stage4_processing_failure_is_recorded_atomically(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    failed_stage: str,
+    error_code: str,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id=f"{failed_stage.lower()}-unexpected-failure",
+        session_seed=f"{failed_stage.lower()}-unexpected-failure-session",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    if failed_stage == "RESOLVE":
+
+        def fail_sort(*_args: object, **_kwargs: object) -> object:
+            raise RuntimeError("unexpected resolution failure")
+
+        monkeypatch.setattr(
+            "app.domain.governance_runs.ip_observation_sort_key", fail_sort
+        )
+    else:
+
+        def fail_check(*_args: object, **_kwargs: object) -> object:
+            raise RuntimeError("unexpected finding check failure")
+
+        monkeypatch.setattr(
+            "app.domain.governance_runs._stage4_check_payload", fail_check
+        )
+
+    assert run_governance_runner() == 1
+    run = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert run["status"] == "FAILED_PROCESSING"
+    assert run["session_recovery_code"] is None
+    expected_steps: list[tuple[str, str, str | None]] = [
+        ("LOAD_CUSTOMER", "SUCCEEDED", None),
+        ("PULL_CLOUDATLAS", "SUCCEEDED", None),
+        ("NORMALIZE", "SUCCEEDED", None),
+    ]
+    if failed_stage == "CHECK_FINDINGS":
+        expected_steps.append(("RESOLVE", "SUCCEEDED", None))
+    expected_steps.append((failed_stage, "FAILED", error_code))
+    assert [
+        (step["step_code"], step["status"], step["error_code"])
+        for step in run["steps"]
+    ] == expected_steps
+
+    with Session(engine) as session:
+        run_id = uuid.UUID(str(run["id"]))
+        project_id = uuid.UUID(str(project["id"]))
+        assert session.exec(
+            select(func.count()).select_from(Observation).where(
+                Observation.governance_run_id == run_id
+            )
+        ).one() == 2
+        assert session.exec(
+            select(func.count()).select_from(ObservationResourceLink).where(
+                ObservationResourceLink.governance_run_id == run_id
+            )
+        ).one() == (0 if failed_stage == "RESOLVE" else 2)
+        assert session.exec(
+            select(func.count()).select_from(Resource).where(
+                Resource.project_id == project_id
+            )
+        ).one() == (0 if failed_stage == "RESOLVE" else 1)
+        assert session.exec(
+            select(func.count()).select_from(Finding).where(
+                Finding.project_id == project_id
+            )
+        ).one() == 0
