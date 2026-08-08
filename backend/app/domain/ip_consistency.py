@@ -455,7 +455,7 @@ def _customer_observations(path_value: Path | str) -> tuple[IPObservation, ...]:
 
 def _load_cloudatlas_payload(source: CloudAtlasArtifactInput) -> Mapping[str, Any]:
     if isinstance(source, Mapping):
-        return source
+        return dict(source)
     if isinstance(source, (bytes, bytearray)):
         raw = bytes(source)
     else:
