@@ -32,10 +32,15 @@ def _write_workbook(path: Path, rows: Sequence[Sequence[object]]) -> Path:
     return path
 
 
-def _write_cloudatlas(path: Path, pages: list[dict[str, object]]) -> Path:
+def _write_cloudatlas(
+    path: Path,
+    pages: list[dict[str, object]],
+    *,
+    schema: str = CLOUDATLAS_SNAPSHOT_SCHEMA,
+) -> Path:
     path.write_text(
         json.dumps(
-            {"pages": pages, "schema": CLOUDATLAS_SNAPSHOT_SCHEMA},
+            {"pages": pages, "schema": schema},
             ensure_ascii=False,
         ),
         encoding="utf-8",
@@ -310,3 +315,193 @@ def test_invalid_snapshot_envelope_is_stable_and_does_not_emit_output(
     assert caught.value.source_type == "CLOUDATLAS"
     assert caught.value.source_record_key is None
     assert str(caught.value) == "snapshot_incomplete"
+
+
+def test_processes_complete_multi_page_cloudatlas_snapshot(
+    tmp_path: Path,
+) -> None:
+    customer = _write_workbook(
+        tmp_path / "customer.xlsx",
+        [DEFAULT_HEADERS, ["192.0.2.10", 443, 443, "否", None]],
+    )
+    cloudatlas = _write_cloudatlas(
+        tmp_path / "cloudatlas.json",
+        [
+            _page(
+                [
+                    {"id": "cloud-1", "ip": "192.0.2.10", "status": "valid"},
+                    {"id": "cloud-2", "ip": "203.0.113.5", "status": "valid"},
+                ],
+                page=1,
+                size=2,
+                total=3,
+            ),
+            _page(
+                [
+                    {"id": "cloud-3", "ip": "198.51.100.7", "status": "valid"},
+                ],
+                page=2,
+                size=2,
+                total=3,
+            ),
+        ],
+    )
+
+    result = process_ip_snapshots(customer, cloudatlas)
+
+    assert [
+        (observation.source_record_key, observation.raw_ip)
+        for observation in result.observations[1:]
+    ] == [
+        ("page:1:item:0", "192.0.2.10"),
+        ("page:1:item:1", "203.0.113.5"),
+        ("page:2:item:0", "198.51.100.7"),
+    ]
+    assert result.differences.cloudatlas_only == (
+        "198.51.100.7",
+        "203.0.113.5",
+    )
+    assert result.differences.customer_upload_only == ()
+    assert result.differences.matched == ("192.0.2.10",)
+
+
+@pytest.mark.parametrize(
+    ("pages", "schema", "expected_code"),
+    [
+        (
+            [
+                _page(
+                    [{"id": "cloud-1", "ip": "192.0.2.10", "status": "valid"}],
+                    page=1,
+                    size=1,
+                    total=2,
+                ),
+                _page(
+                    [{"id": "cloud-2", "ip": "203.0.113.5", "status": "valid"}],
+                    page=3,
+                    size=1,
+                    total=2,
+                ),
+            ],
+            CLOUDATLAS_SNAPSHOT_SCHEMA,
+            "snapshot_incomplete",
+        ),
+        (
+            [
+                _page(
+                    [{"id": "cloud-1", "ip": "192.0.2.10", "status": "valid"}],
+                    page=1,
+                    size=1,
+                    total=2,
+                ),
+                _page(
+                    [{"id": "cloud-2", "ip": "203.0.113.5", "status": "valid"}],
+                    page=2,
+                    size=2,
+                    total=2,
+                ),
+            ],
+            CLOUDATLAS_SNAPSHOT_SCHEMA,
+            "snapshot_incomplete",
+        ),
+        (
+            [
+                _page(
+                    [{"id": "cloud-1", "ip": "192.0.2.10", "status": "valid"}],
+                    page=1,
+                    size=1,
+                    total=2,
+                ),
+                _page(
+                    [{"id": "cloud-2", "ip": "203.0.113.5", "status": "valid"}],
+                    page=2,
+                    size=1,
+                    total=3,
+                ),
+            ],
+            CLOUDATLAS_SNAPSHOT_SCHEMA,
+            "snapshot_incomplete",
+        ),
+        (
+            [
+                _page(
+                    [
+                        {"id": "cloud-1", "ip": "192.0.2.10", "status": "valid"},
+                        {"id": "cloud-2", "ip": "203.0.113.5", "status": "valid"},
+                    ],
+                    page=1,
+                    size=1,
+                    total=2,
+                ),
+            ],
+            CLOUDATLAS_SNAPSHOT_SCHEMA,
+            "snapshot_incomplete",
+        ),
+        (
+            [
+                _page(
+                    [{"id": "cloud-1", "ip": "192.0.2.10", "status": "valid"}],
+                    page=1,
+                    size=1,
+                    total=1,
+                ),
+                _page([], page=2, size=1, total=1),
+            ],
+            CLOUDATLAS_SNAPSHOT_SCHEMA,
+            "snapshot_incomplete",
+        ),
+        (
+            [
+                _page([], page=1, size=1, total=2),
+                _page(
+                    [{"id": "cloud-2", "ip": "203.0.113.5", "status": "valid"}],
+                    page=2,
+                    size=1,
+                    total=2,
+                ),
+            ],
+            CLOUDATLAS_SNAPSHOT_SCHEMA,
+            "snapshot_incomplete",
+        ),
+        (
+            [
+                _page([], page=1, size=1, total=0),
+                _page([], page=2, size=1, total=0),
+            ],
+            CLOUDATLAS_SNAPSHOT_SCHEMA,
+            "snapshot_incomplete",
+        ),
+        ([_page([], total=0)], "unknown-schema", "cloudatlas_snapshot_schema_invalid"),
+    ],
+    ids=[
+        "non_sequential_page",
+        "page_size_mismatch",
+        "page_total_mismatch",
+        "items_exceed_page_size",
+        "trailing_page_after_total",
+        "empty_non_final_page",
+        "zero_total_multiple_pages",
+        "schema_mismatch",
+    ],
+)
+def test_rejects_inconsistent_cloudatlas_page_envelopes(
+    tmp_path: Path,
+    pages: list[dict[str, object]],
+    schema: str,
+    expected_code: str,
+) -> None:
+    customer = _write_workbook(
+        tmp_path / "customer.xlsx",
+        [DEFAULT_HEADERS, ["192.0.2.10", 443, 443, "否", None]],
+    )
+    cloudatlas = _write_cloudatlas(
+        tmp_path / "cloudatlas.json", pages, schema=schema
+    )
+
+    with pytest.raises(IPRecordContractError) as caught:
+        process_ip_snapshots(customer, cloudatlas)
+
+    assert caught.value.code == expected_code
+    assert caught.value.source_type == "CLOUDATLAS"
+    assert caught.value.source_record_key is None
+    assert str(caught.value) == expected_code

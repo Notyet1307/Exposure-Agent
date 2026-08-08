@@ -57,16 +57,6 @@ class IPRecordContractError(Exception):
         self.field = field
         self.row = row
 
-    @property
-    def record_key(self) -> str | None:
-        return self.source_record_key
-
-
-# These aliases make the processing seam explicit to callers that use either
-# the source-record or processing vocabulary.
-RecordContractError = IPRecordContractError
-IPProcessingError = IPRecordContractError
-
 
 @dataclass(frozen=True, slots=True)
 class IPObservation:
@@ -78,14 +68,6 @@ class IPObservation:
     canonical_ip: str
     cloudatlas_asset_id: str | None = None
     cloudatlas_status: str | None = None
-
-    @property
-    def source_location(self) -> str:
-        return self.source_record_key
-
-    @property
-    def cloudatlas_id(self) -> str | None:
-        return self.cloudatlas_asset_id
 
     def as_dict(self) -> dict[str, str]:
         value = {
@@ -108,14 +90,6 @@ class IPResource:
 
     canonical_key: str
 
-    @property
-    def resource_type(self) -> str:
-        return IP_RESOURCE_TYPE
-
-    @property
-    def canonical_ip(self) -> str:
-        return self.canonical_key
-
     def as_dict(self) -> dict[str, str]:
         return {
             "resource_type": IP_RESOURCE_TYPE,
@@ -132,18 +106,6 @@ class IPObservationResourceLink:
     source_record_key: str
     resource_key: str
     processing_contract_version: str
-
-    @property
-    def canonical_ip(self) -> str:
-        return self.resource_key
-
-    @property
-    def resource_canonical_ip(self) -> str:
-        return self.resource_key
-
-    @property
-    def observation_key(self) -> str:
-        return f"{self.source_type}:{self.source_record_key}"
 
     def as_dict(self) -> dict[str, int | str]:
         return {
@@ -177,30 +139,6 @@ class IPDifferenceSet:
     customer_upload_only: tuple[str, ...]
     matched: tuple[str, ...]
 
-    @property
-    def unreported_ips(self) -> tuple[str, ...]:
-        return self.cloudatlas_only
-
-    @property
-    def unobserved_ips(self) -> tuple[str, ...]:
-        return self.customer_upload_only
-
-    @property
-    def matched_ips(self) -> tuple[str, ...]:
-        return self.matched
-
-    @property
-    def unreported(self) -> tuple[str, ...]:
-        return self.cloudatlas_only
-
-    @property
-    def unobserved(self) -> tuple[str, ...]:
-        return self.customer_upload_only
-
-    @property
-    def positive_matches(self) -> tuple[str, ...]:
-        return self.matched
-
     def as_dict(self) -> dict[str, list[str]]:
         return {
             "cloudatlas_only": list(self.cloudatlas_only),
@@ -220,53 +158,14 @@ class IPConsistencyResult:
     differences: IPDifferenceSet
     output_hash: str
 
-    @property
-    def resolution(self) -> IPResolution:
-        return IPResolution(resources=self.resources, links=self.links)
-
-    @property
-    def resource_links(self) -> tuple[IPObservationResourceLink, ...]:
-        return self.links
-
-    @property
-    def cloudatlas_only(self) -> tuple[str, ...]:
-        return self.differences.cloudatlas_only
-
-    @property
-    def customer_upload_only(self) -> tuple[str, ...]:
-        return self.differences.customer_upload_only
-
-    @property
-    def matched_ips(self) -> tuple[str, ...]:
-        return self.differences.matched
-
-    @property
-    def matched(self) -> tuple[str, ...]:
-        return self.differences.matched
-
-    @property
-    def unreported_ips(self) -> tuple[str, ...]:
-        return self.differences.cloudatlas_only
-
-    @property
-    def unobserved_ips(self) -> tuple[str, ...]:
-        return self.differences.customer_upload_only
-
-    @property
-    def unreported_assets(self) -> tuple[str, ...]:
-        return self.differences.cloudatlas_only
-
-    @property
-    def unobserved_assets(self) -> tuple[str, ...]:
-        return self.differences.customer_upload_only
-
     def as_dict(self) -> dict[str, Any]:
-        return _result_payload(self)
-
-
-# A narrow alias is useful to downstream Run code without changing the pure
-# seam's name.
-IPProcessingResult = IPConsistencyResult
+        return _result_payload(
+            self.processing_contract_version,
+            self.observations,
+            self.resources,
+            self.links,
+            self.differences,
+        )
 
 
 def _error(
@@ -689,13 +588,19 @@ def check_ip_differences(
     )
 
 
-def _result_payload(result: IPConsistencyResult) -> dict[str, Any]:
+def _result_payload(
+    processing_contract_version: str,
+    observations: Sequence[IPObservation],
+    resources: Sequence[IPResource],
+    links: Sequence[IPObservationResourceLink],
+    differences: IPDifferenceSet,
+) -> dict[str, Any]:
     return {
-        "processing_contract_version": result.processing_contract_version,
-        "observations": [observation.as_dict() for observation in result.observations],
-        "resources": [resource.as_dict() for resource in result.resources],
-        "links": [link.as_dict() for link in result.links],
-        "differences": result.differences.as_dict(),
+        "processing_contract_version": processing_contract_version,
+        "observations": [observation.as_dict() for observation in observations],
+        "resources": [resource.as_dict() for resource in resources],
+        "links": [link.as_dict() for link in links],
+        "differences": differences.as_dict(),
     }
 
 
@@ -731,13 +636,13 @@ def process_ip_snapshots(
         processing_contract_version=version,
     )
     differences = check_ip_differences(observations)
-    payload = {
-        "processing_contract_version": version,
-        "observations": [observation.as_dict() for observation in observations],
-        "resources": [resource.as_dict() for resource in resolution.resources],
-        "links": [link.as_dict() for link in resolution.links],
-        "differences": differences.as_dict(),
-    }
+    payload = _result_payload(
+        version,
+        observations,
+        resolution.resources,
+        resolution.links,
+        differences,
+    )
     return IPConsistencyResult(
         processing_contract_version=version,
         observations=observations,
@@ -746,8 +651,3 @@ def process_ip_snapshots(
         differences=differences,
         output_hash=_output_hash(payload),
     )
-
-
-# Explicit name for callers that frame the seam as a processing operation.
-process_ip_consistency = process_ip_snapshots
-process_ip_snapshot_artifacts = process_ip_snapshots
