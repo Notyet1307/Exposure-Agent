@@ -13,6 +13,7 @@ from app.core.db import engine
 from app.domain.cloudatlas_sources import OctobusCloudAtlasClient
 from app.domain.models import (
     Artifact,
+    AuditEvent,
     Finding,
     FindingOccurrence,
     FindingOccurrenceObservation,
@@ -23,12 +24,14 @@ from app.domain.models import (
     GovernanceRun,
     Observation,
     ObservationResourceLink,
+    Project,
     Resource,
     RunStep,
     SourceSnapshot,
 )
 from app.governance_runner import main as run_governance_runner
 from app.integrations.agent_compose import (
+    AgentComposeClient,
     AgentComposeRunStart,
     AgentComposeSession,
     AgentComposeSessionObservation,
@@ -41,7 +44,10 @@ from tests.api.routes.test_governance_runs import (
     _runner_environment,
     _workbook_bytes,
 )
-from tests.utils.audit import reject_publish_audit_inserts
+from tests.utils.audit import (
+    reject_project_latest_run_updates,
+    reject_publish_audit_inserts,
+)
 
 
 def test_stage4_run_publishes_ip_results_and_is_reentrant(
@@ -272,6 +278,189 @@ def test_stage4_run_publishes_ip_results_and_is_reentrant(
             .processing_contract_version
             == "ip-v1"
         )
+
+
+def test_stage4_publish_pointer_failure_rolls_back_and_retries_once(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    db: Session,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient,
+        "list_ip_assets_page",
+        lambda _client, _source, *, capset_token, page, size: {
+            "items": [
+                {
+                    "id": "fixture-cloud-only",
+                    "ip": "203.0.113.5",
+                    "status": "valid",
+                }
+            ],
+            "page": page,
+            "size": size,
+            "total": 1,
+        },
+    )
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage4-pointer-failure",
+        session_seed="stage4-pointer-failure-session",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    with reject_project_latest_run_updates(db):
+        assert run_governance_runner() == 1
+
+    failed = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert failed["status"] == "FAILED_PROCESSING"
+    assert [
+        (step["step_code"], step["status"], step["attempt"])
+        for step in failed["steps"]
+    ] == [
+        ("LOAD_CUSTOMER", "SUCCEEDED", 1),
+        ("PULL_CLOUDATLAS", "SUCCEEDED", 1),
+        ("NORMALIZE", "SUCCEEDED", 1),
+        ("RESOLVE", "SUCCEEDED", 1),
+        ("CHECK_FINDINGS", "SUCCEEDED", 1),
+        ("PUBLISH", "FAILED", 1),
+    ]
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert stored_project.latest_completed_run_id is None
+        assert session.exec(
+            select(func.count()).select_from(Finding).where(
+                Finding.project_id == stored_project.id
+            )
+        ).one() == 0
+        assert session.exec(
+            select(func.count()).select_from(FindingOccurrence).where(
+                FindingOccurrence.governance_run_id == uuid.UUID(str(failed["id"]))
+            )
+        ).one() == 0
+        assert session.exec(
+            select(func.count()).select_from(FindingTransition).where(
+                FindingTransition.governance_run_id == uuid.UUID(str(failed["id"]))
+            )
+        ).one() == 0
+        assert session.exec(
+            select(func.count()).select_from(AuditEvent).where(
+                AuditEvent.target_id == uuid.UUID(str(failed["id"])),
+                AuditEvent.action == "governance_run.published",
+            )
+        ).one() == 0
+
+    session_id = environment["SANDBOX_ID"]
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "start_governance_run",
+        lambda _client, **kwargs: AgentComposeRunStart(
+            run_id="b" * 64,
+            started=True,
+            status="RUN_STATUS_PENDING",
+            session_id=kwargs["session_id"],
+        ),
+    )
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed['id']}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry.status_code == 202, retry.text
+    assert retry.json()["session_id"] == session_id
+
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient,
+        "list_ip_assets_page",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("PUBLISH Retry must not reread CloudAtlas")
+        ),
+    )
+    assert run_governance_runner() == 0
+
+    completed = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert completed["status"] == "COMPLETED"
+    assert completed["session_id"] == session_id
+    assert {
+        step["step_code"]: step["attempt"] for step in completed["steps"]
+    } == {
+        "LOAD_CUSTOMER": 1,
+        "PULL_CLOUDATLAS": 1,
+        "NORMALIZE": 1,
+        "RESOLVE": 1,
+        "CHECK_FINDINGS": 1,
+        "PUBLISH": 2,
+    }
+    with Session(engine) as session:
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert stored_project.latest_completed_run_id == uuid.UUID(
+            str(completed["id"])
+        )
+        assert session.exec(
+            select(func.count()).select_from(Finding).where(
+                Finding.project_id == stored_project.id
+            )
+        ).one() == 2
+        assert session.exec(
+            select(func.count()).select_from(FindingOccurrence).where(
+                FindingOccurrence.governance_run_id
+                == uuid.UUID(str(completed["id"]))
+            )
+        ).one() == 2
+        assert session.exec(
+            select(func.count()).select_from(FindingTransition).where(
+                FindingTransition.governance_run_id
+                == uuid.UUID(str(completed["id"]))
+            )
+        ).one() == 2
+        assert session.exec(
+            select(func.count()).select_from(AuditEvent).where(
+                AuditEvent.target_id == uuid.UUID(str(completed["id"])),
+                AuditEvent.action == "governance_run.published",
+            )
+        ).one() == 1
 
 
 def test_stage4_finding_lifecycle_state_machine_is_exposed_by_public_api(

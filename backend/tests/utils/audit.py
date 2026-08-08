@@ -83,6 +83,49 @@ def reject_source_snapshot_inserts(db: Session) -> Iterator[None]:
 
 
 @contextmanager
+def reject_project_latest_run_updates(db: Session) -> Iterator[None]:
+    db.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION fail_test_project_latest_run_update()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF NEW.latest_completed_run_id IS DISTINCT FROM OLD.latest_completed_run_id THEN
+                    RAISE EXCEPTION 'test project pointer failure';
+                END IF;
+                RETURN NEW;
+            END;
+            $$
+            """
+        )
+    )
+    db.execute(
+        text(
+            """
+            CREATE TRIGGER fail_test_project_latest_run_update
+            BEFORE UPDATE ON projects
+            FOR EACH ROW EXECUTE FUNCTION fail_test_project_latest_run_update()
+            """
+        )
+    )
+    db.commit()
+    try:
+        yield
+    finally:
+        db.rollback()
+        db.execute(
+            text(
+                "DROP TRIGGER IF EXISTS fail_test_project_latest_run_update "
+                "ON projects"
+            )
+        )
+        db.execute(text("DROP FUNCTION IF EXISTS fail_test_project_latest_run_update()"))
+        db.commit()
+
+
+@contextmanager
 def reject_publish_audit_inserts(db: Session) -> Iterator[None]:
     """Reject only governance_run.published audit inserts, leaving other events visible."""
     db.execute(

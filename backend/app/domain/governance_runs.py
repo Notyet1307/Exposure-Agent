@@ -90,6 +90,8 @@ _NON_RETRYABLE_PREFIX = "non_retryable:"
 _STAGE4_NON_RETRYABLE_ERRORS = frozenset(
     {
         "artifact_reference_invalid",
+        "customer_artifact_changed",
+        "cloudatlas_material_changed",
         "snapshot_artifact_changed",
         "stage4_snapshots_incomplete",
         "stage4_snapshot_scope_invalid",
@@ -825,6 +827,7 @@ def _load_customer_snapshot(
             run_status=GovernanceRunStatus.FAILED_DATA,
             error_code="customer_snapshot_failed",
             request_ip=request_ip,
+            retryable=error.code not in _STAGE4_NON_RETRYABLE_ERRORS,
         )
         raise GovernanceRunExecutionError("customer_snapshot_failed")
     except SQLAlchemyError:
@@ -1042,6 +1045,11 @@ def _pull_cloudatlas_snapshot(
             ),
             error_code=error_code,
             request_ip=request_ip,
+            retryable=(
+                error.code not in _STAGE4_NON_RETRYABLE_ERRORS
+                if isinstance(error, GovernanceRunExecutionError)
+                else True
+            ),
         )
         raise GovernanceRunExecutionError(error_code)
 
@@ -2176,6 +2184,8 @@ def require_retry_readiness(
         raise GovernanceRunStateError("run_retry_newer_run_exists")
     if run.status in COMPLETED_RUN_STATUSES:
         raise GovernanceRunStateError("run_retry_completed")
+    if run.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION:
+        raise GovernanceRunStateError("run_processing_not_retryable")
     if run.session_recovery_code is not None and run.session_recovery_code.startswith(
         _NON_RETRYABLE_PREFIX
     ):
