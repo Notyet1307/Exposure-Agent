@@ -71,8 +71,7 @@ Run focused checks while implementing and the relevant full checks before commit
 
 ```bash
 cd backend
-uv run ruff check .
-uv run mypy .
+uv run bash scripts/lint.sh
 uv run bash scripts/tests-start.sh
 
 cd ../frontend

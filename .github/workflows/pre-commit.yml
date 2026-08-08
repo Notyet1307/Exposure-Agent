@@ -34,14 +34,8 @@ jobs:
         run: |
           bash scripts/generate-client.sh
           git diff --exit-code
-      - name: Lint backend
-        run: uv run ruff check .
-        working-directory: backend
-      - name: Type check backend
-        run: uv run mypy .
-        working-directory: backend
-      - name: Check backend annotations
-        run: uv run ty check app
+      - name: Lint and type check backend
+        run: uv run bash scripts/lint.sh
         working-directory: backend
       - name: Build frontend
         run: bun run build
