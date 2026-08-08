@@ -14,7 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
@@ -190,9 +190,7 @@ class Artifact(SQLModel, table=True):
     __tablename__: ClassVar[str] = "artifacts"
     __table_args__ = (
         CheckConstraint("byte_size > 0", name="ck_artifacts_byte_size_positive"),
-        CheckConstraint(
-            "sha256 ~ '^[0-9a-f]{64}$'", name="ck_artifacts_sha256_format"
-        ),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_artifacts_sha256_format"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -246,9 +244,7 @@ class CustomerUpload(SQLModel, table=True):
             name="fk_customer_uploads_profile_project_version",
             ondelete="RESTRICT",
         ),
-        UniqueConstraint(
-            "id", "project_id", name="uq_customer_uploads_id_project"
-        ),
+        UniqueConstraint("id", "project_id", name="uq_customer_uploads_id_project"),
         UniqueConstraint(
             "project_id",
             "raw_sha256",
@@ -340,12 +336,9 @@ class CloudAtlasSourceValidationRequest(SQLModel):
 class SourceInstance(SQLModel, table=True):
     __tablename__: ClassVar[str] = "source_instances"
     __table_args__ = (
+        CheckConstraint("source_type = 'cloudatlas'", name="ck_source_instances_type"),
         CheckConstraint(
-            "source_type = 'cloudatlas'", name="ck_source_instances_type"
-        ),
-        CheckConstraint(
-            "validated_fingerprint IS NULL OR "
-            "validated_fingerprint ~ '^[0-9a-f]{64}$'",
+            "validated_fingerprint IS NULL OR validated_fingerprint ~ '^[0-9a-f]{64}$'",
             name="ck_source_instances_fingerprint_format",
         ),
         UniqueConstraint("id", "project_id", name="uq_source_instances_id_project"),
@@ -416,6 +409,9 @@ class GovernanceRunStatus(StrEnum):
 class RunStepCode(StrEnum):
     LOAD_CUSTOMER = "LOAD_CUSTOMER"
     PULL_CLOUDATLAS = "PULL_CLOUDATLAS"
+    NORMALIZE = "NORMALIZE"
+    RESOLVE = "RESOLVE"
+    CHECK_FINDINGS = "CHECK_FINDINGS"
     PUBLISH = "PUBLISH"
 
 
@@ -430,12 +426,31 @@ class SourceSnapshotType(StrEnum):
     CLOUDATLAS = "CLOUDATLAS"
 
 
+class ResourceType(StrEnum):
+    IP = "IP"
+
+
+class FindingType(StrEnum):
+    UNREPORTED_ASSET = "UNREPORTED_ASSET"
+    UNOBSERVED_ASSET = "UNOBSERVED_ASSET"
+
+
+class FindingStatus(StrEnum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+
+class FindingTransitionType(StrEnum):
+    OPENED = "OPENED"
+    CLOSED = "CLOSED"
+    REOPENED = "REOPENED"
+
+
 class GovernanceRun(SQLModel, table=True):
     __tablename__: ClassVar[str] = "governance_runs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', "
-            "'COMPLETED')",
+            "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', 'COMPLETED')",
             name="ck_governance_runs_status",
         ),
         CheckConstraint(
@@ -455,6 +470,11 @@ class GovernanceRun(SQLModel, table=True):
             "customer_upload_profile_version > 0",
             name="ck_governance_runs_profile_version_positive",
         ),
+        CheckConstraint(
+            "processing_contract_version IS NULL OR "
+            "btrim(processing_contract_version) <> ''",
+            name="ck_governance_runs_processing_contract_version",
+        ),
         ForeignKeyConstraint(
             ["project_id", "tenant_id"],
             ["projects.id", "projects.tenant_id"],
@@ -463,13 +483,21 @@ class GovernanceRun(SQLModel, table=True):
         ),
         ForeignKeyConstraint(
             ["customer_upload_id", "project_id", "tenant_id"],
-            ["customer_uploads.id", "customer_uploads.project_id", "customer_uploads.tenant_id"],
+            [
+                "customer_uploads.id",
+                "customer_uploads.project_id",
+                "customer_uploads.tenant_id",
+            ],
             name="fk_governance_runs_customer_upload_scope",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
             ["source_instance_id", "project_id", "tenant_id"],
-            ["source_instances.id", "source_instances.project_id", "source_instances.tenant_id"],
+            [
+                "source_instances.id",
+                "source_instances.project_id",
+                "source_instances.tenant_id",
+            ],
             name="fk_governance_runs_source_instance_scope",
             ondelete="RESTRICT",
         ),
@@ -487,7 +515,9 @@ class GovernanceRun(SQLModel, table=True):
             name="fk_governance_runs_profile_scope",
             ondelete="RESTRICT",
         ),
-        UniqueConstraint("id", "project_id", "tenant_id", name="uq_governance_runs_scope"),
+        UniqueConstraint(
+            "id", "project_id", "tenant_id", name="uq_governance_runs_scope"
+        ),
         UniqueConstraint("project_id", "trigger_id", name="uq_governance_runs_trigger"),
         UniqueConstraint("session_id", name="uq_governance_runs_session"),
         Index(
@@ -516,6 +546,7 @@ class GovernanceRun(SQLModel, table=True):
     package_sha256: str = Field(max_length=64)
     descriptor_sha256: str = Field(max_length=64)
     runner_build_version: str = Field(max_length=255)
+    processing_contract_version: str | None = Field(default=None, max_length=100)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -539,7 +570,8 @@ class RunStep(SQLModel, table=True):
     __tablename__: ClassVar[str] = "run_steps"
     __table_args__ = (
         CheckConstraint(
-            "step_code IN ('LOAD_CUSTOMER', 'PULL_CLOUDATLAS', 'PUBLISH')",
+            "step_code IN ('LOAD_CUSTOMER', 'PULL_CLOUDATLAS', 'NORMALIZE', "
+            "'RESOLVE', 'CHECK_FINDINGS', 'PUBLISH')",
             name="ck_run_steps_code",
         ),
         CheckConstraint(
@@ -557,11 +589,17 @@ class RunStep(SQLModel, table=True):
         ),
         ForeignKeyConstraint(
             ["governance_run_id", "project_id", "tenant_id"],
-            ["governance_runs.id", "governance_runs.project_id", "governance_runs.tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
             name="fk_run_steps_governance_run_scope",
             ondelete="RESTRICT",
         ),
-        UniqueConstraint("governance_run_id", "step_code", name="uq_run_steps_run_code"),
+        UniqueConstraint(
+            "governance_run_id", "step_code", name="uq_run_steps_run_code"
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -615,19 +653,31 @@ class SourceSnapshot(SQLModel, table=True):
         ),
         ForeignKeyConstraint(
             ["governance_run_id", "project_id", "tenant_id"],
-            ["governance_runs.id", "governance_runs.project_id", "governance_runs.tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
             name="fk_source_snapshots_governance_run_scope",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
             ["customer_upload_id", "project_id", "tenant_id"],
-            ["customer_uploads.id", "customer_uploads.project_id", "customer_uploads.tenant_id"],
+            [
+                "customer_uploads.id",
+                "customer_uploads.project_id",
+                "customer_uploads.tenant_id",
+            ],
             name="fk_source_snapshots_customer_upload_scope",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
             ["source_instance_id", "project_id", "tenant_id"],
-            ["source_instances.id", "source_instances.project_id", "source_instances.tenant_id"],
+            [
+                "source_instances.id",
+                "source_instances.project_id",
+                "source_instances.tenant_id",
+            ],
             name="fk_source_snapshots_source_instance_scope",
             ondelete="RESTRICT",
         ),
@@ -639,6 +689,21 @@ class SourceSnapshot(SQLModel, table=True):
         ),
         UniqueConstraint(
             "governance_run_id", "source_type", name="uq_source_snapshots_run_type"
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_source_snapshots_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            "source_type",
+            name="uq_source_snapshots_scope_type",
         ),
     )
 
@@ -654,6 +719,551 @@ class SourceSnapshot(SQLModel, table=True):
     schema_fingerprint: str = Field(max_length=64)
     method_fingerprint: str | None = Field(default=None, max_length=64)
     record_count: int
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class Resource(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "resources"
+    __table_args__ = (
+        CheckConstraint("resource_type = 'IP'", name="ck_resources_type"),
+        CheckConstraint(
+            "masklen(canonical_key) = CASE WHEN family(canonical_key) = 4 "
+            "THEN 32 ELSE 128 END",
+            name="ck_resources_canonical_ip_host",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            name="fk_resources_project_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_resources_scope"),
+        UniqueConstraint(
+            "project_id",
+            "resource_type",
+            "canonical_key",
+            name="uq_resources_project_type_key",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    resource_type: str = Field(max_length=30)
+    canonical_key: str = Field(sa_type=INET)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class Observation(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "observations"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('CUSTOMER_UPLOAD', 'CLOUDATLAS')",
+            name="ck_observations_source_type",
+        ),
+        CheckConstraint(
+            "btrim(source_record_key) <> ''",
+            name="ck_observations_source_record_key",
+        ),
+        CheckConstraint("btrim(raw_ip) <> ''", name="ck_observations_raw_ip"),
+        CheckConstraint(
+            "masklen(canonical_ip) = CASE WHEN family(canonical_ip) = 4 "
+            "THEN 32 ELSE 128 END",
+            name="ck_observations_canonical_ip_host",
+        ),
+        CheckConstraint(
+            "(source_type = 'CUSTOMER_UPLOAD' AND cloudatlas_asset_id IS NULL "
+            "AND cloudatlas_status IS NULL) OR "
+            "(source_type = 'CLOUDATLAS' AND cloudatlas_asset_id IS NOT NULL "
+            "AND cloudatlas_status IS NOT NULL "
+            "AND btrim(cloudatlas_asset_id) <> '' "
+            "AND btrim(cloudatlas_status) <> '')",
+            name="ck_observations_cloudatlas_fields",
+        ),
+        ForeignKeyConstraint(
+            ["governance_run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            name="fk_observations_governance_run_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "source_snapshot_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+                "source_type",
+            ],
+            [
+                "source_snapshots.id",
+                "source_snapshots.governance_run_id",
+                "source_snapshots.project_id",
+                "source_snapshots.tenant_id",
+                "source_snapshots.source_type",
+            ],
+            name="fk_observations_source_snapshot_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_observations_scope",
+        ),
+        UniqueConstraint(
+            "source_snapshot_id",
+            "source_record_key",
+            name="uq_observations_snapshot_record",
+        ),
+        Index(
+            "ix_observations_run_snapshot",
+            "governance_run_id",
+            "source_snapshot_id",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    source_snapshot_id: uuid.UUID = Field(index=True)
+    source_type: str = Field(max_length=30)
+    source_record_key: str = Field(max_length=255)
+    raw_ip: str = Field(max_length=255)
+    canonical_ip: str = Field(sa_type=INET, index=True)
+    cloudatlas_asset_id: str | None = Field(default=None, max_length=255)
+    cloudatlas_status: str | None = Field(default=None, max_length=30)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class ObservationResourceLink(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "observation_resource_links"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["governance_run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            name="fk_observation_resource_links_run_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["observation_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "observations.id",
+                "observations.governance_run_id",
+                "observations.project_id",
+                "observations.tenant_id",
+            ],
+            name="fk_observation_resource_links_observation_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["resource_id", "project_id", "tenant_id"],
+            ["resources.id", "resources.project_id", "resources.tenant_id"],
+            name="fk_observation_resource_links_resource_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_observation_resource_links_scope",
+        ),
+        UniqueConstraint(
+            "observation_id", name="uq_observation_resource_links_observation"
+        ),
+        CheckConstraint(
+            "btrim(processing_contract_version) <> ''",
+            name="ck_observation_resource_links_processing_contract_version",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    observation_id: uuid.UUID = Field(index=True)
+    resource_id: uuid.UUID = Field(index=True)
+    processing_contract_version: str = Field(max_length=100)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class Finding(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "findings"
+    __table_args__ = (
+        CheckConstraint(
+            "finding_type IN ('UNREPORTED_ASSET', 'UNOBSERVED_ASSET')",
+            name="ck_findings_type",
+        ),
+        CheckConstraint("status IN ('OPEN', 'CLOSED')", name="ck_findings_status"),
+        CheckConstraint("btrim(dedupe_key) <> ''", name="ck_findings_dedupe_key"),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            name="fk_findings_project_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["resource_id", "project_id", "tenant_id"],
+            ["resources.id", "resources.project_id", "resources.tenant_id"],
+            name="fk_findings_resource_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_findings_scope"),
+        UniqueConstraint("project_id", "dedupe_key", name="uq_findings_project_dedupe"),
+        UniqueConstraint(
+            "project_id",
+            "finding_type",
+            "resource_id",
+            name="uq_findings_project_type_resource",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    resource_id: uuid.UUID = Field(index=True)
+    finding_type: str = Field(max_length=50, index=True)
+    dedupe_key: str = Field(max_length=255)
+    status: str = Field(max_length=20, index=True)
+    first_detected_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    last_detected_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class FindingOccurrence(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "finding_occurrences"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["finding_id", "project_id", "tenant_id"],
+            ["findings.id", "findings.project_id", "findings.tenant_id"],
+            name="fk_finding_occurrences_finding_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["governance_run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            name="fk_finding_occurrences_run_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_finding_occurrences_scope",
+        ),
+        UniqueConstraint(
+            "finding_id",
+            "governance_run_id",
+            name="uq_finding_occurrences_finding_run",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    finding_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class FindingTransition(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "finding_transitions"
+    __table_args__ = (
+        CheckConstraint(
+            "transition_type IN ('OPENED', 'CLOSED', 'REOPENED')",
+            name="ck_finding_transitions_type",
+        ),
+        ForeignKeyConstraint(
+            ["finding_id", "project_id", "tenant_id"],
+            ["findings.id", "findings.project_id", "findings.tenant_id"],
+            name="fk_finding_transitions_finding_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["governance_run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            name="fk_finding_transitions_run_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_finding_transitions_scope",
+        ),
+        UniqueConstraint(
+            "finding_id",
+            "governance_run_id",
+            name="uq_finding_transitions_finding_run",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    finding_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    transition_type: str = Field(max_length=20)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class FindingOccurrenceObservation(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "finding_occurrence_observations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["finding_occurrence_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "finding_occurrences.id",
+                "finding_occurrences.governance_run_id",
+                "finding_occurrences.project_id",
+                "finding_occurrences.tenant_id",
+            ],
+            name="fk_finding_occurrence_observations_occurrence_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["observation_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "observations.id",
+                "observations.governance_run_id",
+                "observations.project_id",
+                "observations.tenant_id",
+            ],
+            name="fk_finding_occurrence_observations_observation_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "finding_occurrence_id",
+            "observation_id",
+            name="uq_finding_occurrence_observations_pair",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    finding_occurrence_id: uuid.UUID = Field(index=True)
+    observation_id: uuid.UUID = Field(index=True)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class FindingOccurrenceSnapshot(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "finding_occurrence_snapshots"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["finding_occurrence_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "finding_occurrences.id",
+                "finding_occurrences.governance_run_id",
+                "finding_occurrences.project_id",
+                "finding_occurrences.tenant_id",
+            ],
+            name="fk_finding_occurrence_snapshots_occurrence_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_snapshot_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "source_snapshots.id",
+                "source_snapshots.governance_run_id",
+                "source_snapshots.project_id",
+                "source_snapshots.tenant_id",
+            ],
+            name="fk_finding_occurrence_snapshots_snapshot_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "finding_occurrence_id",
+            "source_snapshot_id",
+            name="uq_finding_occurrence_snapshots_pair",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    finding_occurrence_id: uuid.UUID = Field(index=True)
+    source_snapshot_id: uuid.UUID = Field(index=True)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class FindingTransitionObservation(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "finding_transition_observations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["finding_transition_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "finding_transitions.id",
+                "finding_transitions.governance_run_id",
+                "finding_transitions.project_id",
+                "finding_transitions.tenant_id",
+            ],
+            name="fk_finding_transition_observations_transition_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["observation_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "observations.id",
+                "observations.governance_run_id",
+                "observations.project_id",
+                "observations.tenant_id",
+            ],
+            name="fk_finding_transition_observations_observation_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "finding_transition_id",
+            "observation_id",
+            name="uq_finding_transition_observations_pair",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    finding_transition_id: uuid.UUID = Field(index=True)
+    observation_id: uuid.UUID = Field(index=True)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class FindingTransitionSnapshot(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "finding_transition_snapshots"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["finding_transition_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "finding_transitions.id",
+                "finding_transitions.governance_run_id",
+                "finding_transitions.project_id",
+                "finding_transitions.tenant_id",
+            ],
+            name="fk_finding_transition_snapshots_transition_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_snapshot_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "source_snapshots.id",
+                "source_snapshots.governance_run_id",
+                "source_snapshots.project_id",
+                "source_snapshots.tenant_id",
+            ],
+            name="fk_finding_transition_snapshots_snapshot_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "finding_transition_id",
+            "source_snapshot_id",
+            name="uq_finding_transition_snapshots_pair",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    finding_transition_id: uuid.UUID = Field(index=True)
+    source_snapshot_id: uuid.UUID = Field(index=True)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
