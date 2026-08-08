@@ -344,7 +344,10 @@ def _audit_event(
 
 
 def _validate_runner_inputs(
-    *, session: Session, inputs: RunnerInputs
+    *,
+    session: Session,
+    inputs: RunnerInputs,
+    allow_legacy_processing_contract: bool = False,
 ) -> tuple[Project, CustomerUpload, SourceInstance]:
     project = session.exec(
         select(Project).where(Project.id == inputs.project_id).with_for_update()
@@ -354,8 +357,9 @@ def _validate_runner_inputs(
     if project.governance_launch_trigger_id not in (None, inputs.trigger_id):
         _execution_error("runner_project_has_active_launch")
     if inputs.processing_contract_version is None:
-        _execution_error("runner_processing_contract_required")
-    if inputs.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION:
+        if not allow_legacy_processing_contract:
+            _execution_error("runner_processing_contract_required")
+    elif inputs.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION:
         _execution_error("runner_processing_contract_unsupported")
     if not settings.CLOUDATLAS_CAPSET_TOKEN.get_secret_value():
         _execution_error("runner_cloudatlas_credential_not_ready")
@@ -420,7 +424,13 @@ def establish_governance_run(
             existing.status == GovernanceRunStatus.RUNNING.value
             and existing.session_recovery_code == "retry_prepared"
         ):
-            _validate_runner_inputs(session=session, inputs=inputs)
+            _validate_runner_inputs(
+                session=session,
+                inputs=inputs,
+                allow_legacy_processing_contract=(
+                    existing.processing_contract_version is None
+                ),
+            )
             existing.session_terminal_at = None
             existing.session_recovery_code = None
             existing.updated_at = get_datetime_utc()
