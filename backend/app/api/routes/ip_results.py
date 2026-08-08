@@ -50,11 +50,6 @@ def _validate_status(value: str) -> str:
     response_model=IPAssetsPublic,
     name="read_ip_assets",
 )
-@router.get(
-    "/{project_id}/assets",
-    response_model=IPAssetsPublic,
-    name="read_assets",
-)
 def read_ip_assets(
     *,
     session: SessionDep,
@@ -80,11 +75,6 @@ def read_ip_assets(
     "/{project_id}/ip-assets/{resource_id}",
     response_model=IPAssetDetailPublic,
     name="read_ip_asset",
-)
-@router.get(
-    "/{project_id}/assets/{resource_id}",
-    response_model=IPAssetDetailPublic,
-    name="read_asset",
 )
 def read_ip_asset(
     *,

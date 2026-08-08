@@ -1422,11 +1422,6 @@ class FindingsPublic(SQLModel):
     compatibility_code: str | None
 
 
-class FindingTracePublic(SQLModel):
-    occurrences: list[FindingOccurrencePublic] = Field(default_factory=list)
-    transitions: list[FindingTransitionPublic] = Field(default_factory=list)
-
-
 class GovernanceRunTriggerPublic(SQLModel):
     accepted: bool
     agent_compose_run_id: str

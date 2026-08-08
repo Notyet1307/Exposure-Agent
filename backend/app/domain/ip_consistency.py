@@ -31,6 +31,47 @@ CLOUDATLAS_SNAPSHOT_SCHEMA: Final = (
     "exposure-agent.cloudatlas-ip-assets.snapshot.v1"
 )
 
+
+def ip_observation_sort_key(
+    source_type: str, source_record_key: str, observation_id: object
+) -> tuple[int, int, int, str, str]:
+    """Return the stable source-location order used by IP result views."""
+
+    source_order = {
+        CUSTOMER_UPLOAD_SOURCE_TYPE: 0,
+        CLOUDATLAS_SOURCE_TYPE: 1,
+    }.get(source_type, 2)
+    if source_type == CUSTOMER_UPLOAD_SOURCE_TYPE and source_record_key.startswith(
+        "row:"
+    ):
+        try:
+            return (
+                source_order,
+                int(source_record_key[4:]),
+                0,
+                source_record_key,
+                str(observation_id),
+            )
+        except ValueError:
+            pass
+    if source_type == CLOUDATLAS_SOURCE_TYPE and source_record_key.startswith(
+        "page:"
+    ):
+        parts = source_record_key.split(":")
+        if len(parts) == 4 and parts[2] == "item":
+            try:
+                return (
+                    source_order,
+                    int(parts[1]),
+                    int(parts[3]),
+                    source_record_key,
+                    str(observation_id),
+                )
+            except ValueError:
+                pass
+    return (source_order, 0, 0, source_record_key, str(observation_id))
+
+
 _CUSTOMER_IP_HEADER: Final = REQUIRED_HEADERS[0]
 _CLOUDATLAS_PAGE_KEYS: Final = frozenset({"items", "page", "size", "total"})
 _CLOUDATLAS_ITEM_KEYS: Final = frozenset({"id", "ip", "status"})

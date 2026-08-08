@@ -690,7 +690,7 @@ test("shows only the server safe upload explanation", async ({ page }) => {
   await expect(page.getByText("sensitive-cell-value")).not.toBeVisible()
 })
 
-test("shows the three Run steps and triggers with a caller-owned stable ID", async ({
+test("shows the six Run steps and triggers with a caller-owned stable ID", async ({
   page,
 }) => {
   const run = {
@@ -711,7 +711,14 @@ test("shows the three Run steps and triggers with a caller-owned stable ID", asy
     runner_build_version: "runner-v1",
     created_at: "2026-07-30T13:00:00Z",
     completed_at: "2026-07-30T13:01:00Z",
-    steps: ["LOAD_CUSTOMER", "PULL_CLOUDATLAS", "PUBLISH"].map((step_code) => ({
+    steps: [
+      "LOAD_CUSTOMER",
+      "PULL_CLOUDATLAS",
+      "NORMALIZE",
+      "RESOLVE",
+      "CHECK_FINDINGS",
+      "PUBLISH",
+    ].map((step_code) => ({
       step_code,
       status: "SUCCEEDED",
       attempt: 1,
@@ -773,7 +780,14 @@ test("shows the three Run steps and triggers with a caller-owned stable ID", asy
   await page.goto("/")
 
   await expect(page.getByText("Inputs ready")).toBeVisible()
-  for (const step of ["LOAD_CUSTOMER", "PULL_CLOUDATLAS", "PUBLISH"]) {
+  for (const step of [
+    "LOAD_CUSTOMER",
+    "PULL_CLOUDATLAS",
+    "NORMALIZE",
+    "RESOLVE",
+    "CHECK_FINDINGS",
+    "PUBLISH",
+  ]) {
     await expect(page.getByRole("cell", { name: step })).toBeVisible()
   }
   await expect(page.getByText("CUSTOMER_UPLOAD")).toBeVisible()

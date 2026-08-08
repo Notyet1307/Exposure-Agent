@@ -8,7 +8,12 @@ from typing import Any
 from sqlalchemy import distinct, func
 from sqlmodel import Session, col, select
 
-from app.domain.ip_consistency import IP_PROCESSING_CONTRACT_VERSION
+from app.domain.ip_consistency import (
+    CLOUDATLAS_SOURCE_TYPE,
+    CUSTOMER_UPLOAD_SOURCE_TYPE,
+    IP_PROCESSING_CONTRACT_VERSION,
+    ip_observation_sort_key,
+)
 from app.domain.models import (
     Finding,
     FindingDetailPublic,
@@ -102,44 +107,6 @@ def _canonical_key(value: object) -> str:
     return str(value)
 
 
-def _observation_sort_key(observation: Observation) -> tuple[int, int, int, str, str]:
-    source_order = {
-        "CUSTOMER_UPLOAD": 0,
-        "CLOUDATLAS": 1,
-    }.get(observation.source_type, 2)
-    if (
-        observation.source_type == "CUSTOMER_UPLOAD"
-        and observation.source_record_key.startswith("row:")
-    ):
-        try:
-            return (
-                source_order,
-                int(observation.source_record_key[4:]),
-                0,
-                observation.source_record_key,
-                str(observation.id),
-            )
-        except ValueError:
-            pass
-    if (
-        observation.source_type == "CLOUDATLAS"
-        and observation.source_record_key.startswith("page:")
-    ):
-        parts = observation.source_record_key.split(":")
-        if len(parts) == 4 and parts[2] == "item":
-            try:
-                return (
-                    source_order,
-                    int(parts[1]),
-                    int(parts[3]),
-                    observation.source_record_key,
-                    str(observation.id),
-                )
-            except ValueError:
-                pass
-    return (source_order, 0, 0, observation.source_record_key, str(observation.id))
-
-
 def _observation_public(observation: Observation) -> IPObservationPublic:
     return IPObservationPublic(
         id=observation.id,
@@ -168,7 +135,7 @@ def _asset_counts(
     *, session: Session, run_id: Any, resource_ids: list[Any]
 ) -> dict[Any, dict[str, int]]:
     counts: dict[Any, dict[str, int]] = defaultdict(
-        lambda: {"CUSTOMER_UPLOAD": 0, "CLOUDATLAS": 0}
+        lambda: {CUSTOMER_UPLOAD_SOURCE_TYPE: 0, CLOUDATLAS_SOURCE_TYPE: 0}
     )
     if not resource_ids:
         return counts
@@ -220,8 +187,8 @@ def _asset_public(
     counts: dict[str, int],
     open_finding: Finding | None,
 ) -> IPAssetPublic:
-    customer_count = counts.get("CUSTOMER_UPLOAD", 0)
-    cloudatlas_count = counts.get("CLOUDATLAS", 0)
+    customer_count = counts.get(CUSTOMER_UPLOAD_SOURCE_TYPE, 0)
+    cloudatlas_count = counts.get(CLOUDATLAS_SOURCE_TYPE, 0)
     canonical_ip = _canonical_key(resource.canonical_key)
     return IPAssetPublic(
         id=resource.id,
@@ -349,7 +316,14 @@ def get_ip_asset(
         if observation_ids
         else []
     )
-    ordered_observations = sorted(observations, key=_observation_sort_key)
+    ordered_observations = sorted(
+        observations,
+        key=lambda observation: ip_observation_sort_key(
+            observation.source_type,
+            observation.source_record_key,
+            observation.id,
+        ),
+    )
     counts = _asset_counts(
         session=session,
         run_id=run.id,
@@ -588,7 +562,14 @@ def _occurrence_public(
         ],
         observations=[
             _observation_public(item)
-            for item in sorted(observations, key=_observation_sort_key)
+            for item in sorted(
+                observations,
+                key=lambda observation: ip_observation_sort_key(
+                    observation.source_type,
+                    observation.source_record_key,
+                    observation.id,
+                ),
+            )
         ],
     )
 
@@ -638,7 +619,14 @@ def _transition_public(
         ],
         observations=[
             _observation_public(item)
-            for item in sorted(observations, key=_observation_sort_key)
+            for item in sorted(
+                observations,
+                key=lambda observation: ip_observation_sort_key(
+                    observation.source_type,
+                    observation.source_record_key,
+                    observation.id,
+                ),
+            )
         ],
     )
 
