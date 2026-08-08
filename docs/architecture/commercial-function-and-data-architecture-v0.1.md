@@ -86,6 +86,8 @@ IP 和端口是第一批核心资产字段，但不是系统唯一的数据模�
 - 查看部门、责任人及责任关系；
 - 对来源冲突和低置信度实体匹配进行人工确认。
 
+第四交付阶段只展示最新兼容完整 Run 的 IP Resource；“兼容”表示 Run 固定了当前服务支持的非空 `processing_contract_version`，且 `NORMALIZE`、`RESOLVE`、`CHECK_FINDINGS` 和 `PUBLISH` 均成功。每个 IP 一行，包含客户侧与 CloudAtlas 的存在状态、Observation 数量和开放 Finding；详情按服务端分页展示原始 IP 文本、Canonical IP、来源定位及 CloudAtlas `id/status`。历史 Run 选择、原始 Artifact 或完整客户行预览、其他 Resource 类型和人工匹配确认均不进入该阶段。
+
 ### 3.4 Finding 治理中心
 
 资产类首期覆盖：
@@ -123,6 +125,10 @@ URL 差异
 - 责任主体；
 - 推荐动作；
 - 当前处置状态。
+
+第四交付阶段只展示“未报备资产”“未观测资产”的确定性 `OPEN/CLOSED` 生命周期，默认列表为 OPEN 并可切换 CLOSED，按最近一次 Occurrence 或 Transition 时间倒序稳定排列。即使目标 Resource 在最新 Run 两侧都未再次观测到，只要没有两侧正向匹配的关闭证据，开放 Finding 仍须展示并标明最后出现 Run；人工确认和上述风险详情字段留到后续阶段。
+
+现有单路由 Project 工作区在该阶段使用 Inputs、CloudAtlas、Runs、Assets、Findings 标签页，不新增项目级路由。旧第三阶段 Run 没有兼容资产结果时明确提示创建新 Run，不就地解释或补写历史结果。
 
 ### 3.5 报告中心
 
@@ -345,6 +351,10 @@ Agent 可以协助生成 Service Package 草稿，但草稿必须经过代码审
 
 第三交付阶段的管理页面只包含：Project 输入页的 CustomerUpload 上传、列表、选择和 warning 汇总；CloudAtlas 来源页的 Instance 绑定、验证状态、指纹及 Admin 配置、验证、启停操作；Run 页的 Trigger、Retry/Rerun、三步状态、固定输入和两个 SourceSnapshot 的 Hash 与记录数。该阶段不提供资产明细、比对结果、Finding、报告或原始数据预览；依赖项 10 的客户 Web 是后续包含资产和 Finding 的完整页面，不由此处提前实现。
 
+第四交付阶段采用最小纵向 Tracer Bullet，只使用当前两侧都具备可靠契约的 IP。`ListIPAssets` 当前只提供来源 `id`、`ip` 和 `status`，没有端口或协议；CustomerUpload 虽有单端口，但没有可靠协议字段。因此本阶段不得从 Web 标识、URL、服务类型或常见端口猜测 Endpoint，也不扩展新的 CloudAtlas 读取方法。
+
+该阶段从两个 SourceSnapshot 生成逐来源 Observation 和 Project 级 IP Resource，只执行“未报备资产”“未观测资产”两类检查及其跨 Run 生命周期，并在现有 Project 工作区增加 Runs、Assets、Findings 结果视图。Endpoint、Domain、URL、Application、责任主体、CloudAtlas SourceFinding、人工确认、严重性、置信度、推荐动作、报告和处置仍留给后续交付。
+
 ## 6. 端到端数据流
 
 ### 6.1 Run 触发
@@ -375,7 +385,9 @@ Cron / 手动 / API
 
 Runner 在创建或恢复 `GovernanceRun` 前检查 Project 的来源前置条件。初期测试要求一个当前选定且已通过校验的 CustomerUpload，以及唯一一个启用且连接有效的云图 Source Instance；客户系统可达后，客户 Source Instance 替代 CustomerUpload。缺少任一输入、文件未通过校验、外部来源未启用或连接尚未验证时，启动前拒绝且不创建业务 Run；输入就绪后开始执行、但实际读取失败时，才创建并保留 `FAILED_DATA` Run。
 
-创建 `GovernanceRun` 时，初期固定 CustomerUpload ID 与内容 Hash、云图 Source Instance 的已验证连接配置版本，以及实际 Runner 镜像摘要或构建版本；最终固定客户系统与云图两侧 Source Instance。Retry 始终复用原 CustomerUpload，选择不同上传版本必须创建新 Run。网络抖动、限流等配置与处理版本均未变化的失败可以 Retry；任一已固定的 Instance 绑定、地址、凭据、Capset 或 Runner 版本变化后，旧 Run 不再可恢复，必须通过 `Run Rerun` 创建新 Run。规范化规则、字段映射或 Policy 功能实际引入后再固定其版本，不为尚不存在的模块预建空字段。
+创建 `GovernanceRun` 时，初期固定 CustomerUpload ID 与内容 Hash、云图 Source Instance 的已验证连接配置版本，以及实际 Runner 镜像摘要或构建版本；最终固定客户系统与云图两侧 Source Instance。Retry 始终复用原 CustomerUpload，选择不同上传版本必须创建新 Run。网络抖动、限流等配置与处理版本均未变化的失败可以 Retry；任一已固定的 Instance 绑定、地址、凭据、Capset 或 Runner 版本变化后，旧 Run 不再可恢复，必须通过 `Run Rerun` 创建新 Run。
+
+第四交付阶段开始为新 Run 固定一个显式 `processing_contract_version`，统一标识当前 IP Observation 映射、Canonical IP、精确 Resource Resolution 和两类资产检查契约，并与 Runner 版本一起参与步骤 Hash、Retry 和不可变事实校验。第三交付阶段已经完成的历史 Run 不补填该版本，也不追加 Observation、Resource 链接、FindingOccurrence 或 FindingTransition；部署新能力后必须创建新 Run 才能产生新契约结果。后续只有在字段映射或 Policy 等能力真实引入时才固定其实际版本，不为尚不存在的模块预建空字段。
 
 同一 Project 同时最多执行一个 GovernanceRun。相同 `trigger_id` 进入恢复逻辑；不同 `trigger_id` 在已有执行中 Run 时启动前拒绝且不创建空 Run，不同 Project 可以并行。失败 Run 停止后，普通不同 `trigger_id` 也不得直接开启新一轮；新一轮必须由 Operator 显式执行 `Run Rerun`，使用新的 `trigger_id`、GovernanceRun 和 Session。该边界必须由 PostgreSQL 事务或约束兜底，不能只依赖 agent-compose 的调度行为。
 
@@ -396,10 +408,10 @@ flowchart LR
 
 要求：
 
-- API 来源使用分页和游标，文件上传采用流式保存；
+- API 来源按各自契约使用页码或游标并记录相应分页元数据，文件上传采用流式保存；
 - 每页原始响应或上传文件立即写入 Artifact；
 - 客户侧 SourceSnapshot 直接引用既有不可变 CustomerUpload Artifact，不复制上传文件；云图侧为本轮拉取写入独立原始 Artifact；
-- 记录 Schema 版本、记录数、游标和 SHA-256；
+- 记录 Schema 版本、记录数、页码或游标等分页元数据和 SHA-256；
 - 不把完整 API 响应一次性放入内存；
 - 原始快照创建后不可覆盖。
 
@@ -416,6 +428,10 @@ Raw SourceSnapshot
 3. `Resource` 保存经过实体识别后的统一资产视图。
 
 不同来源的字段不能直接相互覆盖。例如客户系统和云图责任人不一致时，两条 Observation 都必须保留。
+
+第四交付阶段采用一条来源记录对应一条不可变 Observation：CustomerUpload 的每个非空数据行和 CloudAtlas 的每个 item 分别形成记录，完全重复的来源记录也不合并。CustomerUpload 使用工作表数据行位置作为快照内来源定位；CloudAtlas 使用页码与页内位置定位，来源 `id` 和 `status` 只作为来源元数据，不作为跨 Run 资产身份。
+
+该阶段 Observation 只结构化来源类型、来源定位、原始 IP 文本和 Canonical IP，CloudAtlas 额外保留来源 `id/status`；客户端口、URL、服务和责任字段继续留在原始 Artifact，不提前形成 Endpoint、URL 或责任事实。CloudAtlas 成功返回且分页总数一致的零记录是有效完整输入；非法 IP、非 `valid` item 或分页契约不一致使 `NORMALIZE` 确定性失败，不得跳过记录后发布部分结果。
 
 ### 6.4 资产与责任主体
 
@@ -440,6 +456,10 @@ URL hosted_on Endpoint
 URL belongs_to Application
 Application exposed_by URL
 ```
+
+第四交付阶段只创建 `IP` Resource。相同 Project 内的相同 Canonical IP 跨 GovernanceRun 始终引用同一个 Resource；Resource 不复制来源的“当前值”，即使后续两侧都不再观测到也不删除，当前资产视图是否出现只由最新完整 Run 的 Observation 链接决定。
+
+Canonical IP 使用确定性 IPv4/IPv6 规范表示，并按 [ADR-0005](../adr/0005-collapse-ipv4-mapped-ipv6-resource-identity.md) 只把标准 IPv4-mapped IPv6 折叠为其中承载的 IPv4；其他地址族保持区分。每条 Observation 通过不可变 `ObservationResourceLink` 精确链接到一个 IP Resource，记录处理契约版本；本阶段没有候选集合、数值置信度或人工确认。
 
 ### 6.5 Finding 生成
 
@@ -466,6 +486,12 @@ policies/
 ```
 
 不建设通用规则引擎、DSL、插件加载系统或可视化规则编辑器。
+
+第四交付阶段只对最新 Run 中两侧 Canonical IP 集合执行以下检查：CloudAtlas 存在而 CustomerUpload 不存在时产生“未报备资产”，CustomerUpload 存在而 CloudAtlas 不存在时产生“未观测资产”；两侧都存在时形成正向匹配。重复 Observation 只影响来源计数和追溯，不重复创建 Finding。
+
+Finding 以 Project、Finding 类型和 IP Resource 形成稳定去重身份，当前事实状态只有 `OPEN` 与 `CLOSED`。首次差异创建 FindingOccurrence 和 `OPENED` FindingTransition；开放问题再次出现只增加 Occurrence；关闭问题再次出现时增加 Occurrence 和 `REOPENED` Transition；只有后续完整成功 Run 在两侧正向匹配同一 Resource 时才产生 `CLOSED` Transition。来源失败、单纯未再次出现、两侧都未观测到或差异方向翻转都不能关闭旧 Finding；方向翻转可以使两类 Finding 同时保持开放。
+
+本阶段不增加 Finding 人工确认、严重性、置信度、推荐动作或独立 Evidence。每个 Occurrence 引用出现侧的全部相关 Observation 和本轮两份 SourceSnapshot；每个 CLOSED Transition 引用两侧匹配 Observation 和两份 Snapshot，保证缺失判断和关闭结论都有有界来源追溯。
 
 ### 6.6 云图风险归一
 
@@ -550,7 +576,18 @@ LOAD_CUSTOMER
 
 `PUBLISH` 是真实的最终步骤，不使用重复顶层状态的 `COMPLETE` 步骤。第三交付阶段只会在一个事务中把 GovernanceRun 写为 `COMPLETED` 并更新 `projects.latest_completed_run_id`；CustomerUpload warning 仍属于上传，不产生 `COMPLETED_WITH_WARNINGS`。任一发布写入失败时整个事务回滚，随后把本轮收敛为 `FAILED_PROCESSING`；Retry 只重试失败的 `PUBLISH`，不重复输入未变化且已经成功的步骤。
 
-`NORMALIZE`、`RESOLVE`、`CHECK_FINDINGS`、`BUILD_REPORT` 和 `VALIDATE_REPORT` 只在对应后续交付阶段实现时才加入，不为尚不存在的步骤预建记录。
+第四交付阶段把同一 Governance Session 的代码定义顺序扩展为：
+
+```text
+LOAD_CUSTOMER
+→ PULL_CLOUDATLAS
+→ NORMALIZE
+→ RESOLVE
+→ CHECK_FINDINGS
+→ PUBLISH
+```
+
+`BUILD_REPORT`、`VALIDATE_REPORT` 及其他未来步骤仍只在对应能力实际交付时加入，不为尚不存在的步骤预建记录。
 
 每个 `run_step` 保存：
 
@@ -562,6 +599,10 @@ LOAD_CUSTOMER
 - 错误摘要。
 
 `run_step` 在对应步骤第一次真正开始时才创建，不为尚未执行的未来步骤预建 `PENDING` 记录。它的状态只有 `RUNNING`、`SUCCEEDED` 和 `FAILED`；没有记录表示尚未开始。步骤顺序由 Runner 代码定义，不由数据库空行表达。
+
+`NORMALIZE` 和 `RESOLVE` 各自必须原子地产生本步骤完整输出；失败步骤不得留下部分输出，已经成功的前序步骤输出可在 Retry 时按 Hash 复用。`CHECK_FINDINGS` 计算确定性差异集和输出 Hash，但不创建 `FindingCandidate`、不写临时 Artifact，也不提前改变权威 Finding。
+
+`CHECK_FINDINGS` 成功而 `PUBLISH` 失败时，前者保持 `SUCCEEDED`，只有 `PUBLISH` 进入 `FAILED`。Retry 只增加 `PUBLISH` attempt，并重新计算差异集以验证保存的 CHECK 输出 Hash 未变化；该验证不形成新的 CHECK attempt。
 
 `Run Retry` 使用相同的 `trigger_id`、`governance_run_id` 和 agent-compose `session_id`，在对应 `run_step` 上增加尝试，并跳过输入未变化且已经成功的步骤。成功完成的 Run 不再 Retry；失败 Run 停止执行后，只有 Project 中不存在更新 Run、原 Session 可恢复，且该 Run 固定的 CustomerUpload 或客户 Source Instance、暴露面来源绑定、已验证连接配置与实际参与计算的版本均未变化时才能 Retry。普通不同 `trigger_id` 不会因为失败 Run 停止而直接创建新 Run；用户必须明确选择 `Run Rerun`，使用新的 `trigger_id` 创建新的 GovernanceRun 和 Session。新 Run 一旦创建，旧 Run 永久保留为历史记录且不能再次恢复，不需要额外的 `SUPERSEDED` 状态。
 
@@ -585,7 +626,11 @@ Retry 直接把失败 Run 转回 `RUNNING` 并增加步骤尝试，不增加 `RE
 projects.latest_completed_run_id
 ```
 
-Runner 可以分步骤写入本轮数据，但客户默认页面只读取最新完整 Run。`PUBLISH` 在同一事务中写入 Run 完成状态并更新该指针；不能出现 Run 已完成但 Project 指针未更新，或指针指向未完成 Run 的部分发布状态。
+Runner 可以分步骤写入本轮数据，但客户默认页面只读取最新完整 Run。成功的 Observation、ObservationResourceLink 和仅由失败 Run 首次发现的稳定 Resource 可以保留用于 Retry，但在该 Run 完成前不得进入默认客户视图；新 Run 失败时页面继续展示上一个完整结果并明确其完成时间。第四交付阶段的客户 API 与 Web 对失败 Run 只暴露步骤、Hash、计数和稳定错误类别，不提供 Observation 或 Resolution 列表与详情入口。
+
+第四交付阶段的 `PUBLISH` 在同一事务中创建或复用 Finding、写入 FindingOccurrence 与 FindingTransition、更新 Finding 当前状态、把 GovernanceRun 写为 `COMPLETED`，并更新 `projects.latest_completed_run_id`。任一写入失败时全部回滚；不能出现 Finding 生命周期已变化但 Run 未完成、Run 已完成但 Project 指针未更新，或指针指向未完成 Run 的状态。
+
+完成状态建立后，不允许再向该 GovernanceRun 或其 SourceSnapshot 追加 Observation、ObservationResourceLink、FindingOccurrence、FindingTransition 或来源引用。历史第三交付阶段 Run 保持原完成边界，不通过迁移或后台任务补写新业务子事实。
 
 ### 7.4 失败分类
 
@@ -597,6 +642,8 @@ Runner 可以分步骤写入本轮数据，但客户默认页面只读取最新�
 | Runner 失联且已确认关联 Session 终止 | `FAILED_PROCESSING`，允许按原 Run Retry |
 | PI 或 pi-workflow | 生成模板报告，`COMPLETED_WITH_WARNINGS` |
 | OctoBus 处置 | 只影响 `ActionJob`，不修改事实 Run |
+
+`FAILED_PROCESSING` 还必须保存稳定的可恢复性分类。非法 IP、来源响应契约不一致、处理版本不支持等确定性错误不可 Retry，修复来源或处理契约后必须显式 Rerun；短暂数据库、文件系统或其他不改变固定输入和处理版本的系统故障才可以在满足既有 Session 与最新 Run 条件时 Retry。不得通过重复执行不可变输入来掩盖确定性失败。
 
 ## 8. PostgreSQL 数据模型
 
@@ -625,13 +672,23 @@ erDiagram
     SOURCE_INSTANCES ||--o{ SOURCE_SNAPSHOTS : produces
     SOURCE_SNAPSHOTS ||--o{ OBSERVATIONS : contains
     SOURCE_SNAPSHOTS ||--o{ SOURCE_FINDINGS : contains
-    OBSERVATIONS ||--o{ OBSERVATION_RESOURCE_LINKS : resolves
+    OBSERVATIONS ||--o| OBSERVATION_RESOURCE_LINKS : resolves
     RESOURCES ||--o{ OBSERVATION_RESOURCE_LINKS : receives
     RESOURCES ||--o{ RESOURCE_RELATIONS : connects
     RESOURCES ||--o{ RESOURCE_RESPONSIBILITIES : assigned
     RESPONSIBLE_PARTIES ||--o{ RESOURCE_RESPONSIBILITIES : owns
     FINDINGS ||--o{ FINDING_OCCURRENCES : appears
     GOVERNANCE_RUNS ||--o{ FINDING_OCCURRENCES : detects
+    FINDINGS ||--o{ FINDING_TRANSITIONS : changes
+    GOVERNANCE_RUNS ||--o{ FINDING_TRANSITIONS : decides
+    FINDING_OCCURRENCES ||--o{ FINDING_OCCURRENCE_OBSERVATIONS : cites
+    OBSERVATIONS ||--o{ FINDING_OCCURRENCE_OBSERVATIONS : supports
+    FINDING_OCCURRENCES ||--o{ FINDING_OCCURRENCE_SNAPSHOTS : bounds
+    SOURCE_SNAPSHOTS ||--o{ FINDING_OCCURRENCE_SNAPSHOTS : supports
+    FINDING_TRANSITIONS ||--o{ FINDING_TRANSITION_OBSERVATIONS : cites
+    OBSERVATIONS ||--o{ FINDING_TRANSITION_OBSERVATIONS : supports
+    FINDING_TRANSITIONS ||--o{ FINDING_TRANSITION_SNAPSHOTS : bounds
+    SOURCE_SNAPSHOTS ||--o{ FINDING_TRANSITION_SNAPSHOTS : supports
     FINDING_OCCURRENCES ||--o{ EVIDENCE : supported
     FINDING_OCCURRENCES ||--o{ POLICY_DECISIONS : evaluated
     GOVERNANCE_RUNS ||--o{ MODEL_INVOCATIONS : invokes
@@ -667,6 +724,11 @@ erDiagram
 治理结果
 ├─ findings
 ├─ finding_occurrences
+├─ finding_occurrence_observations
+├─ finding_occurrence_snapshots
+├─ finding_transitions
+├─ finding_transition_observations
+├─ finding_transition_snapshots
 ├─ evidence
 └─ policy_decisions
 
@@ -686,17 +748,24 @@ Agent 与产物
 
 ### 8.3 Finding 生命周期
 
-`Finding` 和 `FindingOccurrence` 分开：
+`Finding`、`FindingOccurrence` 和 `FindingTransition` 分开：
 
 ```text
 Finding
-  跨 Run 持续存在的治理问题
+  跨 Run 持续存在的问题及当前 OPEN / CLOSED 状态
 
 FindingOccurrence
-  某次 Run 再次发现该问题
+  某个完整 Run 再次发现该问题的不可变事实
+
+FindingTransition
+  某个完整 Run 对该问题执行 OPENED / CLOSED / REOPENED 的不可变事实
 ```
 
-`findings` 使用稳定 `dedupe_key`，保存首次发现、最后发现和当前状态；每次运行写入对应的 `finding_occurrence`。
+`findings` 使用稳定 `dedupe_key`，保存首次发现、最后发现和当前状态；每个产生差异的完整 Run 最多写入一个对应 Occurrence，只有状态实际变化时才写入 Transition。FindingTransition 不是 AuditEvent：前者记录确定性治理事实，后者只记录受治理的操作者行为。
+
+首次差异写入 Occurrence 与 `OPENED`；开放问题复现只写 Occurrence；已关闭问题复现写 Occurrence 与 `REOPENED`；两侧正向匹配开放问题时只写 `CLOSED` Transition。旧问题没有再次出现、两侧都缺失或差异方向翻转均不构成关闭证据。
+
+Occurrence 与 Transition 必须引用参与判断的 Observation 和本轮两份 SourceSnapshot。所有来源引用通过作用域外键保证 tenant、Project 和 GovernanceRun 与 Finding 事实一致；每个 Occurrence 或 Transition 恰好引用该 Run 的客户侧与 CloudAtlas 两个不同 SourceSnapshot，引用的 Observation 也必须属于其中之一。Finding 当前状态、这些不可变事实和 Run Publish 在同一事务中生效；不存在只更新 Finding 当前状态而没有来源引用的路径。
 
 ### 8.4 核心唯一约束
 
@@ -708,11 +777,15 @@ governance_runs.status 只允许 v0.1 的五个状态
 run_steps.status 只允许 RUNNING、SUCCEEDED、FAILED
 同一 project_id + source_type 最多一个启用的 source_instance
 UNIQUE(snapshot_id, source_record_key)
+UNIQUE(observation_resource_links.observation_id)
 UNIQUE(project_id, resource_type, canonical_key)
 UNIQUE(project_id, dedupe_key)
-UNIQUE(finding_id, run_id)
+UNIQUE(finding_occurrences.finding_id, finding_occurrences.run_id)
+UNIQUE(finding_transitions.finding_id, finding_transitions.run_id)
 UNIQUE(action_jobs.idempotency_key)
 ```
+
+第四交付阶段的数据库约束只接受 `IP` Resource、“未报备资产”“未观测资产”两类 Finding，以及 `OPENED`、`CLOSED`、`REOPENED` Transition；成功的 `RESOLVE` 要求本轮每条 Observation 恰好存在一个 ObservationResourceLink。不预建未来 Resource/Finding 枚举或可空治理字段。`processing_contract_version` 只允许第三交付阶段的历史 Run 为空，新 Run 创建后与其他固定事实一样不可修改。
 
 IP 字段原则上使用 PostgreSQL `inet`。v0.1 的 `AuditEvent.ip_address` 是显式例外：按 [#26](https://github.com/Notyet1307/Exposure-Agent/issues/26) 保留 `varchar(45)`。当前受支持的 HTTP 审计写入仅持久化经共享请求地址解析器验证的单个 IPv4 或 IPv6 地址；可信入口按部署边界提供 `X-Real-IP`，解析器不解析或保存原始 `X-Forwarded-For` 代理链。只有在出现绕过应用解析器的受支持写入方、已持久化异常数据、数据库级 IP/网段查询或索引需求，或客户/安全基线明确要求原生网络类型且生产及备份数据盘点条件已经具备时，才重新评估 `inet` 迁移。高频且需要索引的其他字段使用类型化列，客户扩展字段使用受 Schema 管理的 JSONB。
 
@@ -856,18 +929,19 @@ Endpoint
 → 模糊匹配只生成待确认项
 ```
 
+第四交付阶段只实现 IP：标准 IPv4 和 IPv6 使用确定性规范表示，IPv4-mapped IPv6 按 [ADR-0005](../adr/0005-collapse-ipv4-mapped-ipv6-resource-identity.md) 折叠到所承载的 IPv4；不进行 DNS、CIDR 展开或模糊匹配。
+
 ### 11.3 首期索引
 
 ```text
 (project_id, resource_type, canonical_key)
 (run_id, snapshot_id)
 (snapshot_id, source_record_key)
-(ip, protocol, port)
-(run_id, finding_type, severity)
+(run_id, finding_type)
 (project_id, dedupe_key)
 ```
 
-首期不做表分区；普通索引和批量写入出现实测瓶颈后，再按 Run 或时间分区。
+第四交付阶段不创建尚不存在的 protocol、port 或 severity 索引；对应类型化字段实际进入后再随迁移添加。首期不做表分区；普通索引和批量写入出现实测瓶颈后，再按 Run 或时间分区。
 
 ### 11.4 性能测试矩阵
 
@@ -884,6 +958,8 @@ Endpoint
 - 重试不重新拉取已经成功且 Hash 未变化的快照；
 - 匹配算法不能退化为 `O(R × E)`。
 
+第四交付阶段把 10,000 条作为自动化确定性与非二次复杂度回归，不绑定尚未确认的交付硬件绝对耗时阈值。100,000 与 1,000,000 条的正式性能、内存和恢复验收仍属于依赖项 13；真实 CloudAtlas 验收是独立的 `ready-for-human` 门禁，必须在隔离数据库和专用 canary Project 中运行，不混入 AFK 实现票，也不把真实 IP、Observation 或 Finding 输出写入仓库。
+
 ## 12. 权限与安全
 
 ### 12.1 人员角色
@@ -898,6 +974,8 @@ Endpoint
 Viewer、Operator 和 Approver 通过 `ProjectMembership` 按项目授权。Admin 是全局身份，不写入 `ProjectMembership`。
 
 当前第三交付阶段由系统为 Project 建立默认 CustomerUploadProfile v1，不提供人工创建或切换。未来真实客户表头证明需要新版本时，只有 Admin 可以创建新的不可变版本或切换当前版本。Operator 使用 Project 当前版本接收 CustomerUpload，并为 GovernanceRun 选择已接受的上传；Viewer 和仅拥有 Approver 的成员只能查看。不为该职责新增角色。
+
+第四交付阶段的 Assets、Findings、Occurrence 和 Transition 详情对具有项目基础读取能力的 Viewer、Operator、Approver 以及全局 Admin 开放，并使用服务端分页限制来源引用数量。该阶段不提供 Finding 人工确认写操作；上表中的 Operator 确认能力留到与后续 Plan 前置条件共同交付时实现。
 
 ### 12.2 系统身份
 
@@ -1042,7 +1120,7 @@ v0.1 不提供 Helm Chart、跨节点高可用或自动扩缩容。
 1. 相同输入快照、处理版本和 Policy 版本产生相同确定性 Finding；
 2. 原始 SourceSnapshot、Observation 和 SourceFinding 不可被覆盖；
 3. 云图原始风险判断可追溯；
-4. 每个用户可见结论都能沿 SourceSnapshot、Observation 或 SourceFinding、FindingOccurrence 追溯到来源事实；独立 Evidence 对象只在报告或审批需要稳定引用契约时引入；
+4. 每个用户可见结论都能沿 SourceSnapshot、Observation 或 SourceFinding、FindingOccurrence 或 FindingTransition 追溯到来源事实；独立 Evidence 对象只在报告或审批需要稳定引用契约时引入；
 5. Agent 不计算权威统计，也不能修改 Finding；
 6. Agent 失败不阻断确定性结果和模板报告；
 7. 客户默认只看到最新完整 Run；
@@ -1050,7 +1128,9 @@ v0.1 不提供 Helm Chart、跨节点高可用或自动扩缩容。
 9. 报告 Agent 永远没有真实写权限；
 10. 所有真实动作绑定 Plan Hash、审批身份、有效期和幂等键；
 11. agent-compose Session 不是业务事实源；
-12. 数据量增长不导致 LLM 上下文线性增长。
+12. 数据量增长不导致 LLM 上下文线性增长；
+13. GovernanceRun 完成后不得再追加本轮 Observation、解析链接、FindingOccurrence、FindingTransition 或来源引用；
+14. Finding 生命周期变化、Run 完成状态和 Project 最新完整 Run 指针必须在同一发布事务中生效或回滚。
 
 ## 16. v0.1 非目标
 
@@ -1091,6 +1171,8 @@ Elasticsearch
 以下编号只表示依赖关系，不与交付阶段编号一一对应，也不代表第 3 项及之后已经达到 agent-ready。每个交付阶段仍需经过调查或针对性 grilling，再进入 `/to-spec`、`/to-tickets` 和 factory。
 
 当前第三交付阶段由下列依赖项 4–6 组成，验收边界是从已验证输入产生不可变 `SourceSnapshot`：CustomerUpload 与云图 SourceInstance 控制面、GovernanceRun 最小闭环、客户文件正式摄取和云图 OctoBus 正式拉取。该阶段不包含依赖项 7 及之后的 Observation、Resource Resolution、Finding、报告、处置，也不把 CustomerUpload 当作最终客户系统接入。
+
+已确认的第四交付阶段（[#70](https://github.com/Notyet1307/Exposure-Agent/issues/70)）不是一次完成依赖项 7–10 的全部能力，而是贯穿它们的 IP-only 最小纵向 Tracer Bullet：逐来源 Observation、Project 级稳定 IP Resource、精确 IP 解析、“未报备资产”“未观测资产”的完整 Finding 生命周期，以及最新完整 Run 的最小资产/Finding Web。它不宣称完成 Endpoint/Domain/URL/Application、责任主体、其他资产检查、CloudAtlas SourceFinding 归一或完整历史资产浏览；这些能力仍按下列依赖顺序另行 grilling 和交付。
 
 ```text
 1. 固定版本模板基线导入并证明上游检查可运行

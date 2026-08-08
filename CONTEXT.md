@@ -28,6 +28,22 @@ _Avoid_: Project、长期资产范围、排队中的触发请求
 GovernanceRun 对一个输入来源实际读取结果的不可变批次记录，固定来源版本、原始 Artifact 引用、内容 Hash、Schema 或连接指纹及记录数。它不保存后续规范化的 Observation，也不是统一资产 Resource。
 _Avoid_: CustomerUpload、SourceInstance、Observation、Resource、可变行表
 
+**Observation**:
+从 SourceSnapshot 中一条来源记录确定性形成的不可变、带来源结构化事实；重复来源记录仍形成不同 Observation，多条 Observation 可以解析到同一个 Resource。
+_Avoid_: SourceSnapshot、去重后资产、跨来源合并结果、Resource
+
+**Resource**:
+Project 内跨 GovernanceRun 稳定存在的规范技术资产身份；相同资源类型与 Canonical Key 始终表示同一个 Resource，每轮及每个来源的具体事实仍由 Observation 和解析关系表达。即使后续两侧均未观测到也不删除，当前出现状态由最新完整 Run 的 Observation 表达。
+_Avoid_: Observation、单轮资产副本、来源当前值汇总
+
+**ObservationResourceLink**:
+特定处理契约将一条 Observation 解析到一个 Resource 的不可变关系；当前 IP 精确解析中每条 Observation 恰有一个链接，不表示模糊候选或人工确认。
+_Avoid_: Observation 上的可变 Resource 字段、候选匹配、确认记录
+
+**Canonical IP**:
+IP Resource 使用的确定性地址身份；标准 IPv4-mapped IPv6 与其承载的 IPv4 表示同一地址，除此以外 IPv4 与 IPv6 保持各自的规范地址语义。
+_Avoid_: 原始 IP 文本、主机名、CIDR、任意 IPv6 到 IPv4 折叠
+
 **GovernanceRun Status**:
 v0.1 只使用 `RUNNING`、`FAILED_DATA`、`FAILED_PROCESSING`、`COMPLETED` 和 `COMPLETED_WITH_WARNINGS`。失败状态表示执行已停止且可能 Retry；完成状态不可变。
 _Avoid_: PENDING、QUEUED、RETRYING、CANCELLED、PAUSED、SUPERSEDED
@@ -41,7 +57,7 @@ GovernanceRun 的最终原子动作，同时写入完成状态并更新 Project 
 _Avoid_: COMPLETE RunStep、部分发布
 
 **Run Retry**:
-对一个未成功完成的 GovernanceRun 再次执行，沿用同一 Run、触发标识和 agent-compose Session，并在 RunStep 中增加尝试；它不创建新的治理周期。只有 Project 中不存在更新 Run、原 Session 可恢复，且该 Run 固定的客户侧输入、暴露面来源绑定、已验证连接配置与实际参与计算的版本均未变化时才可 Retry；更新 Run 一旦创建，旧 Run 永久成为历史记录。
+对一个未成功完成的 GovernanceRun 再次执行，沿用同一 Run、触发标识和 agent-compose Session，并在 RunStep 中增加尝试；它不创建新的治理周期。只有失败被分类为可恢复、Project 中不存在更新 Run、原 Session 可恢复，且该 Run 固定的客户侧输入、暴露面来源绑定、已验证连接配置与实际参与计算的版本均未变化时才可 Retry；确定性来源或处理契约错误必须修复后 Rerun，更新 Run 一旦创建，旧 Run 永久成为历史记录。
 _Avoid_: Rerun、新 GovernanceRun
 
 **Run Rerun**:
@@ -61,12 +77,16 @@ _Avoid_: 自动写回结果
 _Avoid_: 不存在的资产、自动写回结果
 
 **Finding**:
-跨 GovernanceRun 持续存在的治理问题；同一差异复现时沿用原 Finding 并增加 FindingOccurrence。后续完整成功的 GovernanceRun 只有在两边正向匹配到同一资产时，才可作为复测证据自动关闭该 Finding；数据源失败、单纯未再次发现或两边都未观测到都不能自动关闭。
+跨 GovernanceRun 持续存在的治理问题；同一差异复现时沿用原 Finding、增加 FindingOccurrence，并在原 Finding 已关闭时重新打开。后续完整成功的 GovernanceRun 只有在两边正向匹配到同一资产时，才可自动关闭该 Finding；当前状态保存在 Finding，变化历史由 FindingTransition 保留，数据源失败、单纯未再次发现或两边都未观测到都不能自动关闭。
 _Avoid_: 单次 Run 差异记录、缺失即关闭
 
 **FindingOccurrence**:
-某个 Finding 在一次 GovernanceRun 中再次出现的记录。
-_Avoid_: 新 Finding
+某个 Finding 在一次完整 GovernanceRun 中被确定性发现的不可变记录，关联出现侧的 Observation 和两侧 SourceSnapshot；它不表示 Finding 已关闭。
+_Avoid_: 新 Finding、关闭记录、AuditEvent
+
+**FindingTransition**:
+完整 GovernanceRun 对 Finding 执行 `OPENED`、`CLOSED` 或 `REOPENED` 的不可变生命周期事实，关联作出该判断的来源事实；它不是操作者行为审计。
+_Avoid_: FindingOccurrence、AuditEvent、可变状态日志
 
 **Evidence**:
 某个用户可见治理结论对特定 GovernanceRun 中来源事实和确定性判断依据的结构化引用；用于追溯结论，不复制原始 Artifact，也不记录操作者行为。
