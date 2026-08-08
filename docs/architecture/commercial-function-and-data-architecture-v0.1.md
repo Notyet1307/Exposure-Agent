@@ -431,7 +431,7 @@ Raw SourceSnapshot
 
 第四交付阶段采用一条来源记录对应一条不可变 Observation：CustomerUpload 的每个非空数据行和 CloudAtlas 的每个 item 分别形成记录，完全重复的来源记录也不合并。CustomerUpload 使用工作表数据行位置作为快照内来源定位；CloudAtlas 使用页码与页内位置定位，来源 `id` 和 `status` 只作为来源元数据，不作为跨 Run 资产身份。
 
-该阶段 Observation 只结构化来源类型、来源定位、原始 IP 文本和 Canonical IP，CloudAtlas 额外保留来源 `id/status`；客户端口、URL、服务和责任字段继续留在原始 Artifact，不提前形成 Endpoint、URL 或责任事实。CloudAtlas 成功返回且分页总数一致的零记录是有效完整输入；非法 IP、非 `valid` item 或分页契约不一致使 `NORMALIZE` 确定性失败，不得跳过记录后发布部分结果。
+该阶段 Observation 只结构化来源类型、来源定位、原始 IP 文本和 Canonical IP，CloudAtlas 额外保留来源 `id/status`；客户端口、URL、服务和责任字段继续留在原始 Artifact，不提前形成 Endpoint、URL 或责任事实。CloudAtlas 成功返回且分页总数一致的零记录是有效完整输入。页码、总数或分页包络不一致仍由 `PULL_CLOUDATLAS` 按来源读取失败收敛为 `FAILED_DATA`，且不得创建不完整 CloudAtlas SourceSnapshot；只有完整 Snapshot 内的非法 IP 或非 `valid` item 才使 `NORMALIZE` 确定性失败，不得跳过记录后发布部分结果。
 
 ### 6.4 资产与责任主体
 
@@ -643,7 +643,7 @@ Runner 可以分步骤写入本轮数据，但客户默认页面只读取最新�
 | PI 或 pi-workflow | 生成模板报告，`COMPLETED_WITH_WARNINGS` |
 | OctoBus 处置 | 只影响 `ActionJob`，不修改事实 Run |
 
-`FAILED_PROCESSING` 还必须保存稳定的可恢复性分类。非法 IP、来源响应契约不一致、处理版本不支持等确定性错误不可 Retry，修复来源或处理契约后必须显式 Rerun；短暂数据库、文件系统或其他不改变固定输入和处理版本的系统故障才可以在满足既有 Session 与最新 Run 条件时 Retry。不得通过重复执行不可变输入来掩盖确定性失败。
+`FAILED_PROCESSING` 还必须保存稳定的可恢复性分类。完整 Snapshot 内的非法 IP、非 `valid` item、处理版本不支持等确定性错误不可 Retry，修复来源或处理契约后必须显式 Rerun；短暂数据库、文件系统或其他不改变固定输入和处理版本的系统故障才可以在满足既有 Session 与最新 Run 条件时 Retry。页码、总数或分页包络不一致发生在 SourceSnapshot 完成前，继续按 `PULL_CLOUDATLAS` 的 `FAILED_DATA` 处理并允许在既有输入与 Session 条件满足时重试读取。不得通过重复执行不可变输入来掩盖确定性失败。
 
 ## 8. PostgreSQL 数据模型
 
