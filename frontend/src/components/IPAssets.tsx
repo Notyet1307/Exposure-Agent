@@ -106,7 +106,7 @@ function AssetDetailDialog({
 }) {
   const [page, setPage] = useState(0)
   useEffect(() => {
-    if (resourceId !== null) setPage(0)
+    if (resourceId === null) setPage(0)
   }, [resourceId])
   const detailQuery = useQuery({
     queryKey: ["ip-asset", projectId, resourceId, page],

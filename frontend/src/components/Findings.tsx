@@ -186,9 +186,10 @@ function FindingDetailDialog({
   const [occurrencePage, setOccurrencePage] = useState(0)
   const [transitionPage, setTransitionPage] = useState(0)
   useEffect(() => {
-    if (findingId === null) return
-    setOccurrencePage(0)
-    setTransitionPage(0)
+    if (findingId === null) {
+      setOccurrencePage(0)
+      setTransitionPage(0)
+    }
   }, [findingId])
   const detailQuery = useQuery({
     queryKey: ["finding", projectId, findingId, occurrencePage, transitionPage],
