@@ -6,6 +6,7 @@ import logging
 import os
 import uuid
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
@@ -77,6 +78,7 @@ logger = logging.getLogger(__name__)
 CLOUDATLAS_SNAPSHOT_MEDIA_TYPE = "application/json"
 CLOUDATLAS_SNAPSHOT_SCHEMA = "exposure-agent.cloudatlas-ip-assets.snapshot.v1"
 CLOUDATLAS_PAGE_SIZE = 200
+STAGE4_DB_BATCH_SIZE = 500
 _STEP_ORDER = {
     RunStepCode.LOAD_CUSTOMER.value: 0,
     RunStepCode.PULL_CLOUDATLAS.value: 1,
@@ -256,6 +258,14 @@ def _execution_error(code: str) -> NoReturn:
 
 def _processing_error(code: str) -> NoReturn:
     raise GovernanceRunProcessingError(code)
+
+
+def _add_all_in_batches(session: Session, items: Sequence[Any]) -> None:
+    """Flush a collection in bounded batches without splitting its transaction."""
+
+    for start in range(0, len(items), STAGE4_DB_BATCH_SIZE):
+        session.add_all(items[start : start + STAGE4_DB_BATCH_SIZE])
+        session.flush()
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -1195,7 +1205,7 @@ def _normalize_ip_observations(
         step.output_hash = output_hash
         step.completed_at = completed_at
         step.updated_at = completed_at
-        session.add_all(observations)
+        _add_all_in_batches(session, observations)
         session.add(step)
         session.add(
             _audit_event(
@@ -1353,17 +1363,23 @@ def _resolve_ip_observations(
         resources_by_key = {
             str(resource.canonical_key): resource for resource in resources
         }
-        for canonical_key in canonical_keys:
-            if canonical_key not in resources_by_key:
-                resource = Resource(
-                    tenant_id=run.tenant_id,
-                    project_id=run.project_id,
-                    resource_type=ResourceType.IP.value,
-                    canonical_key=canonical_key,
-                )
-                session.add(resource)
-                session.flush()
-                resources_by_key[canonical_key] = resource
+        new_resources = [
+            Resource(
+                tenant_id=run.tenant_id,
+                project_id=run.project_id,
+                resource_type=ResourceType.IP.value,
+                canonical_key=canonical_key,
+            )
+            for canonical_key in canonical_keys
+            if canonical_key not in resources_by_key
+        ]
+        _add_all_in_batches(session, new_resources)
+        resources_by_key.update(
+            {
+                str(resource.canonical_key): resource
+                for resource in new_resources
+            }
+        )
         existing_link_rows = session.exec(
             select(
                 col(ObservationResourceLink.observation_id),
@@ -1396,7 +1412,7 @@ def _resolve_ip_observations(
                     ),
                 )
             )
-        session.add_all(new_links)
+        _add_all_in_batches(session, new_links)
         output_hash = _fingerprint(
             {
                 "processing_contract_version": run.processing_contract_version,
@@ -1653,57 +1669,6 @@ def _stage4_check_payload(
     return differences, payload
 
 
-def _add_finding_transition(
-    *,
-    session: Session,
-    run: GovernanceRun,
-    finding: Finding,
-    transition_type: FindingTransitionType,
-    observations: list[Observation],
-    customer_snapshot: SourceSnapshot,
-    cloudatlas_snapshot: SourceSnapshot,
-) -> None:
-    if not observations:
-        _processing_error("publish_transition_observations_missing")
-    transition = FindingTransition(
-        tenant_id=run.tenant_id,
-        project_id=run.project_id,
-        finding_id=finding.id,
-        governance_run_id=run.id,
-        transition_type=transition_type.value,
-    )
-    session.add(transition)
-    session.flush()
-    session.add_all(
-        FindingTransitionObservation(
-            tenant_id=run.tenant_id,
-            project_id=run.project_id,
-            governance_run_id=run.id,
-            finding_transition_id=transition.id,
-            observation_id=observation.id,
-        )
-        for observation in observations
-    )
-    session.add_all(
-        (
-            FindingTransitionSnapshot(
-                tenant_id=run.tenant_id,
-                project_id=run.project_id,
-                governance_run_id=run.id,
-                finding_transition_id=transition.id,
-                source_snapshot_id=customer_snapshot.id,
-            ),
-            FindingTransitionSnapshot(
-                tenant_id=run.tenant_id,
-                project_id=run.project_id,
-                governance_run_id=run.id,
-                finding_transition_id=transition.id,
-                source_snapshot_id=cloudatlas_snapshot.id,
-            ),
-        )
-    )
-
-
 def _publish_stage4_run(
     *, session: Session, run: GovernanceRun, request_ip: str | None
 ) -> None:
@@ -1812,25 +1777,59 @@ def _publish_stage4_run(
                 IP_CUSTOMER_UPLOAD_SOURCE_TYPE,
             ),
         )
+        resource_ids = [resource.id for resource in resources]
+        existing_findings = session.exec(
+            select(Finding).where(
+                Finding.project_id == run.project_id,
+                Finding.tenant_id == run.tenant_id,
+                col(Finding.resource_id).in_(resource_ids),
+            )
+        ).all()
+        findings_by_identity = {
+            (finding.finding_type, finding.resource_id): finding
+            for finding in existing_findings
+        }
+        findings_by_resource: defaultdict[uuid.UUID, list[Finding]] = defaultdict(list)
+        for finding in existing_findings:
+            findings_by_resource[finding.resource_id].append(finding)
+
+        existing_occurrences_by_finding: dict[uuid.UUID, FindingOccurrence] = {}
+        existing_finding_ids = [finding.id for finding in existing_findings]
+        if existing_finding_ids:
+            existing_occurrences = session.exec(
+                select(FindingOccurrence).where(
+                    FindingOccurrence.governance_run_id == run.id,
+                    col(FindingOccurrence.finding_id).in_(existing_finding_ids),
+                )
+            ).all()
+            existing_occurrences_by_finding = {
+                occurrence.finding_id: occurrence
+                for occurrence in existing_occurrences
+            }
+
         published_occurrence_count = 0
         published_transition_count = 0
         detected_at = get_datetime_utc()
+        new_findings: list[Finding] = []
+        changed_findings: list[Finding] = []
+        occurrences: list[FindingOccurrence] = []
+        occurrence_observations: list[FindingOccurrenceObservation] = []
+        occurrence_snapshots: list[FindingOccurrenceSnapshot] = []
+        transitions: list[FindingTransition] = []
+        transition_observations: list[FindingTransitionObservation] = []
+        transition_snapshots: list[FindingTransitionSnapshot] = []
+
         for finding_type, canonical_ips, appearing_source_type in differences_by_type:
             for canonical_ip in canonical_ips:
                 resource = resources_by_key.get(canonical_ip)
                 if resource is None:
                     _processing_error("publish_resource_missing")
                 assert resource is not None
-                finding = session.exec(
-                    select(Finding).where(
-                        Finding.project_id == run.project_id,
-                        Finding.tenant_id == run.tenant_id,
-                        Finding.finding_type == finding_type,
-                        Finding.resource_id == resource.id,
-                    )
-                ).one_or_none()
+                finding_candidate = findings_by_identity.get(
+                    (finding_type, resource.id)
+                )
                 transition_type: FindingTransitionType | None = None
-                if finding is None:
+                if finding_candidate is None:
                     finding = Finding(
                         tenant_id=run.tenant_id,
                         project_id=run.project_id,
@@ -1841,19 +1840,22 @@ def _publish_stage4_run(
                         first_detected_at=detected_at,
                         last_detected_at=detected_at,
                     )
-                    session.add(finding)
-                    session.flush()
+                    findings_by_identity[(finding_type, resource.id)] = finding
+                    findings_by_resource[resource.id].append(finding)
+                    new_findings.append(finding)
                     transition_type = FindingTransitionType.OPENED
-                elif finding.status == FindingStatus.CLOSED.value:
-                    finding.status = FindingStatus.OPEN.value
-                    finding.last_detected_at = detected_at
-                    finding.updated_at = detected_at
-                    session.add(finding)
-                    transition_type = FindingTransitionType.REOPENED
                 else:
-                    finding.last_detected_at = detected_at
-                    finding.updated_at = detected_at
-                    session.add(finding)
+                    finding = finding_candidate
+                    if finding.status == FindingStatus.CLOSED.value:
+                        finding.status = FindingStatus.OPEN.value
+                        finding.last_detected_at = detected_at
+                        finding.updated_at = detected_at
+                        changed_findings.append(finding)
+                        transition_type = FindingTransitionType.REOPENED
+                    else:
+                        finding.last_detected_at = detected_at
+                        finding.updated_at = detected_at
+                        changed_findings.append(finding)
 
                 appearing_observations = [
                     observation
@@ -1862,22 +1864,15 @@ def _publish_stage4_run(
                 ]
                 if not appearing_observations:
                     _processing_error("publish_occurrence_observations_missing")
-                occurrence = session.exec(
-                    select(FindingOccurrence).where(
-                        FindingOccurrence.finding_id == finding.id,
-                        FindingOccurrence.governance_run_id == run.id,
-                    )
-                ).one_or_none()
-                if occurrence is None:
+                if finding.id not in existing_occurrences_by_finding:
                     occurrence = FindingOccurrence(
                         tenant_id=run.tenant_id,
                         project_id=run.project_id,
                         finding_id=finding.id,
                         governance_run_id=run.id,
                     )
-                    session.add(occurrence)
-                    session.flush()
-                    session.add_all(
+                    occurrences.append(occurrence)
+                    occurrence_observations.extend(
                         FindingOccurrenceObservation(
                             tenant_id=run.tenant_id,
                             project_id=run.project_id,
@@ -1887,7 +1882,7 @@ def _publish_stage4_run(
                         )
                         for observation in appearing_observations
                     )
-                    session.add_all(
+                    occurrence_snapshots.extend(
                         (
                             FindingOccurrenceSnapshot(
                                 tenant_id=run.tenant_id,
@@ -1907,14 +1902,41 @@ def _publish_stage4_run(
                     )
                     published_occurrence_count += 1
                 if transition_type is not None:
-                    _add_finding_transition(
-                        session=session,
-                        run=run,
-                        finding=finding,
-                        transition_type=transition_type,
-                        observations=appearing_observations,
-                        customer_snapshot=customer_snapshot,
-                        cloudatlas_snapshot=cloudatlas_snapshot,
+                    transition = FindingTransition(
+                        tenant_id=run.tenant_id,
+                        project_id=run.project_id,
+                        finding_id=finding.id,
+                        governance_run_id=run.id,
+                        transition_type=transition_type.value,
+                    )
+                    transitions.append(transition)
+                    transition_observations.extend(
+                        FindingTransitionObservation(
+                            tenant_id=run.tenant_id,
+                            project_id=run.project_id,
+                            governance_run_id=run.id,
+                            finding_transition_id=transition.id,
+                            observation_id=observation.id,
+                        )
+                        for observation in appearing_observations
+                    )
+                    transition_snapshots.extend(
+                        (
+                            FindingTransitionSnapshot(
+                                tenant_id=run.tenant_id,
+                                project_id=run.project_id,
+                                governance_run_id=run.id,
+                                finding_transition_id=transition.id,
+                                source_snapshot_id=customer_snapshot.id,
+                            ),
+                            FindingTransitionSnapshot(
+                                tenant_id=run.tenant_id,
+                                project_id=run.project_id,
+                                governance_run_id=run.id,
+                                finding_transition_id=transition.id,
+                                source_snapshot_id=cloudatlas_snapshot.id,
+                            ),
+                        )
                     )
                     published_transition_count += 1
 
@@ -1928,28 +1950,63 @@ def _publish_stage4_run(
                 observation.source_type for observation in matched_observations
             } != {IP_CUSTOMER_UPLOAD_SOURCE_TYPE, IP_CLOUDATLAS_SOURCE_TYPE}:
                 _processing_error("publish_match_observations_incomplete")
-            matched_findings = session.exec(
-                select(Finding).where(
-                    Finding.project_id == run.project_id,
-                    Finding.tenant_id == run.tenant_id,
-                    Finding.resource_id == resource.id,
-                    Finding.status == FindingStatus.OPEN.value,
-                )
-            ).all()
-            for finding in matched_findings:
+            for finding in sorted(
+                (
+                    finding
+                    for finding in findings_by_resource.get(resource.id, [])
+                    if finding.status == FindingStatus.OPEN.value
+                ),
+                key=lambda item: (item.finding_type, str(item.id)),
+            ):
                 finding.status = FindingStatus.CLOSED.value
                 finding.updated_at = detected_at
-                session.add(finding)
-                _add_finding_transition(
-                    session=session,
-                    run=run,
-                    finding=finding,
-                    transition_type=FindingTransitionType.CLOSED,
-                    observations=matched_observations,
-                    customer_snapshot=customer_snapshot,
-                    cloudatlas_snapshot=cloudatlas_snapshot,
+                changed_findings.append(finding)
+                transition = FindingTransition(
+                    tenant_id=run.tenant_id,
+                    project_id=run.project_id,
+                    finding_id=finding.id,
+                    governance_run_id=run.id,
+                    transition_type=FindingTransitionType.CLOSED.value,
+                )
+                transitions.append(transition)
+                transition_observations.extend(
+                    FindingTransitionObservation(
+                        tenant_id=run.tenant_id,
+                        project_id=run.project_id,
+                        governance_run_id=run.id,
+                        finding_transition_id=transition.id,
+                        observation_id=observation.id,
+                    )
+                    for observation in matched_observations
+                )
+                transition_snapshots.extend(
+                    (
+                        FindingTransitionSnapshot(
+                            tenant_id=run.tenant_id,
+                            project_id=run.project_id,
+                            governance_run_id=run.id,
+                            finding_transition_id=transition.id,
+                            source_snapshot_id=customer_snapshot.id,
+                        ),
+                        FindingTransitionSnapshot(
+                            tenant_id=run.tenant_id,
+                            project_id=run.project_id,
+                            governance_run_id=run.id,
+                            finding_transition_id=transition.id,
+                            source_snapshot_id=cloudatlas_snapshot.id,
+                        ),
+                    )
                 )
                 published_transition_count += 1
+
+        _add_all_in_batches(session, changed_findings)
+        _add_all_in_batches(session, new_findings)
+        _add_all_in_batches(session, occurrences)
+        _add_all_in_batches(session, transitions)
+        _add_all_in_batches(session, occurrence_observations)
+        _add_all_in_batches(session, occurrence_snapshots)
+        _add_all_in_batches(session, transition_observations)
+        _add_all_in_batches(session, transition_snapshots)
         completed_at = get_datetime_utc()
         step.status = RunStepStatus.SUCCEEDED.value
         step.output_hash = _fingerprint(
