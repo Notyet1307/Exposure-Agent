@@ -242,6 +242,10 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     )
     .toBe(true)
 
+  // Stop the Runs tab polling before arming the one-shot Session probe. A
+  // background read can otherwise consume the fixture's probe and make the
+  // explicit retry appear recoverable (202) instead of fail-closed (409).
+  await page.getByRole("tab", { name: "Inputs", exact: true }).click()
   const missNextSession = await request.post(
     "http://cloudatlas-fixture:18080/fixture/miss-next-session-query",
   )
