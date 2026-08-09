@@ -12,7 +12,9 @@ import {
   ProjectsService,
 } from "@/client"
 import CloudAtlasSources from "@/components/CloudAtlasSources"
+import Findings from "@/components/Findings"
 import GovernanceRuns from "@/components/GovernanceRuns"
+import IPAssets from "@/components/IPAssets"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -41,6 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import useAuth from "@/hooks/useAuth"
 
 const UPLOAD_PAGE_SIZE = 10
@@ -374,10 +377,6 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
         </CardContent>
       </Card>
 
-      <CloudAtlasSources projectId={project.id} />
-
-      <GovernanceRuns projectId={project.id} />
-
       {uploads.can_upload ? (
         <Card>
           <CardHeader>
@@ -470,6 +469,35 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
   )
 }
 
+function ProjectWorkspace({ project }: { project: ProjectPublic }) {
+  return (
+    <Tabs defaultValue="inputs" className="space-y-4">
+      <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 md:w-fit">
+        <TabsTrigger value="inputs">Inputs</TabsTrigger>
+        <TabsTrigger value="cloudatlas">CloudAtlas</TabsTrigger>
+        <TabsTrigger value="runs">Runs</TabsTrigger>
+        <TabsTrigger value="assets">Assets</TabsTrigger>
+        <TabsTrigger value="findings">Findings</TabsTrigger>
+      </TabsList>
+      <TabsContent value="inputs">
+        <ProjectInputs project={project} />
+      </TabsContent>
+      <TabsContent value="cloudatlas">
+        <CloudAtlasSources projectId={project.id} />
+      </TabsContent>
+      <TabsContent value="runs">
+        <GovernanceRuns projectId={project.id} />
+      </TabsContent>
+      <TabsContent value="assets">
+        <IPAssets projectId={project.id} />
+      </TabsContent>
+      <TabsContent value="findings">
+        <Findings projectId={project.id} />
+      </TabsContent>
+    </Tabs>
+  )
+}
+
 function Dashboard() {
   const { user: currentUser } = useAuth()
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
@@ -524,10 +552,10 @@ function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Project inputs</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Project workspace</h1>
         <p className="text-muted-foreground">
           Welcome back, nice to see you again! Select a Project to manage its
-          customer input.
+          inputs, sources, Runs, Assets, and Findings.
           {currentUser?.full_name
             ? ` Signed in as ${currentUser.full_name}.`
             : ""}
@@ -549,7 +577,7 @@ function Dashboard() {
           </SelectContent>
         </Select>
       </div>
-      <ProjectInputs key={selectedProject.id} project={selectedProject} />
+      <ProjectWorkspace key={selectedProject.id} project={selectedProject} />
     </div>
   )
 }

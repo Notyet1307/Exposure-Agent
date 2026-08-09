@@ -109,6 +109,7 @@ export type FindingDetailPublic = {
     first_detected_at: (string | null);
     last_detected_at: (string | null);
     latest_occurrence_at: (string | null);
+    latest_occurrence_run_id: (string | null);
     latest_transition_at: (string | null);
     occurrence_count: number;
     transition_count: number;
@@ -135,6 +136,7 @@ export type FindingPublic = {
     first_detected_at: (string | null);
     last_detected_at: (string | null);
     latest_occurrence_at: (string | null);
+    latest_occurrence_run_id: (string | null);
     latest_transition_at: (string | null);
     occurrence_count: number;
     transition_count: number;
@@ -489,8 +491,10 @@ export type IpResultsReadIpAssetsData = {
 export type IpResultsReadIpAssetsResponse = (IPAssetsPublic);
 
 export type IpResultsReadIpAssetData = {
+    limit?: number;
     projectId: string;
     resourceId: string;
+    skip?: number;
 };
 
 export type IpResultsReadIpAssetResponse = (IPAssetDetailPublic);
@@ -506,8 +510,10 @@ export type IpResultsReadFindingsResponse = (FindingsPublic);
 
 export type IpResultsReadFindingData = {
     findingId: string;
+    occurrenceSkip?: number;
     projectId: string;
     traceLimit?: number;
+    transitionSkip?: number;
 };
 
 export type IpResultsReadFindingResponse = (FindingDetailPublic);

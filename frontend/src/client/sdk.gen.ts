@@ -320,6 +320,8 @@ export class IpResultsService {
      * @param data The data for the request.
      * @param data.projectId
      * @param data.resourceId
+     * @param data.skip
+     * @param data.limit
      * @returns IPAssetDetailPublic Successful Response
      * @throws ApiError
      */
@@ -330,6 +332,10 @@ export class IpResultsService {
             path: {
                 project_id: data.projectId,
                 resource_id: data.resourceId
+            },
+            query: {
+                skip: data.skip,
+                limit: data.limit
             },
             errors: {
                 422: 'Validation Error'
@@ -370,6 +376,8 @@ export class IpResultsService {
      * @param data The data for the request.
      * @param data.projectId
      * @param data.findingId
+     * @param data.occurrenceSkip
+     * @param data.transitionSkip
      * @param data.traceLimit
      * @returns FindingDetailPublic Successful Response
      * @throws ApiError
@@ -383,6 +391,8 @@ export class IpResultsService {
                 finding_id: data.findingId
             },
             query: {
+                occurrence_skip: data.occurrenceSkip,
+                transition_skip: data.transitionSkip,
                 trace_limit: data.traceLimit
             },
             errors: {

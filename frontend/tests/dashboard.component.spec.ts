@@ -1,5 +1,7 @@
 import { expect, type Page, type Route, test } from "@playwright/test"
 
+import type { CloudAtlasSourcePublic } from "../src/client"
+
 const projects = [
   {
     name: "North Plant",
@@ -240,6 +242,7 @@ test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
   )
 
   await page.goto("/")
+  await page.getByRole("tab", { name: "Runs", exact: true }).click()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(page.getByRole("status")).toHaveText(
     "The previous launch ended before creating a Run. Use a new Trigger ID.",
@@ -466,7 +469,9 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
       },
     }),
   )
-  let source = { ...cloudatlasSources[projects[0].id].data[0] }
+  let source: CloudAtlasSourcePublic = {
+    ...cloudatlasSources[projects[0].id].data[0],
+  }
   const requests: Array<{ method: string; path: string; body: unknown }> = []
   const handleSourceRequest = async (route: Route) => {
     const request = route.request()
@@ -512,6 +517,7 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   await page.route(sourceUrl, handleSourceRequest)
   await page.route(`${sourceUrl}/**`, handleSourceRequest)
   await page.goto("/")
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
 
   await expect(page.getByText("CloudAtlas source")).toBeVisible()
   const tokenInput = page.getByLabel("Capset token")
@@ -534,6 +540,7 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
     fingerprint_summary: "abcdef012345",
   }
   await page.reload()
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
   await page.getByRole("button", { name: "Disable source" }).click()
   await expect(page.getByText("Disabled", { exact: true })).toBeVisible()
 
@@ -579,6 +586,7 @@ test("keeps the local session after a structured CloudAtlas authentication failu
     }),
   )
   await page.goto("/")
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
 
   const tokenInput = page.getByLabel("Capset token")
   await tokenInput.fill("transient-test-token")
@@ -638,6 +646,7 @@ test("lets an Admin manage an older enabled source from disabled history", async
     await route.fulfill({ json: olderEnabled })
   })
   await page.goto("/")
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
 
   await expect(page.getByLabel("OctoBus Instance ID")).toHaveValue(
     "cloudatlas-older-enabled",
@@ -778,6 +787,7 @@ test("shows the six Run steps and triggers with a caller-owned stable ID", async
     },
   )
   await page.goto("/")
+  await page.getByRole("tab", { name: "Runs", exact: true }).click()
 
   await expect(page.getByText("Inputs ready")).toBeVisible()
   for (const step of [
@@ -871,7 +881,7 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
     `**/api/v1/projects/${projects[0].id}/governance-runs/${runId}/**`,
     async (route) => {
       const action =
-        new URL(route.request().url()).pathname.split("/").at(-1) ?? ""
+        new URL(route.request().url()).pathname.split("/").pop() ?? ""
       actions.push(action)
       if (action === "rerun") {
         rerunKeys.push(route.request().headers()["idempotency-key"] ?? "")
@@ -921,6 +931,7 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
       }),
   )
   await page.goto("/")
+  await page.getByRole("tab", { name: "Runs", exact: true }).click()
 
   await expect(page.getByText("FAILED_DATA", { exact: true })).toBeVisible()
   await expect(page.getByText("Snapshots reused: 1")).toBeVisible()
@@ -992,6 +1003,7 @@ test("hides Rerun while a same-Session Retry is in progress", async ({
       }),
   )
   await page.goto("/")
+  await page.getByRole("tab", { name: "Runs", exact: true }).click()
 
   await expect(page.getByText("RUNNING", { exact: true })).toBeVisible()
   await expect(page.getByText("Snapshots reused: 0")).toBeVisible()
@@ -1061,6 +1073,7 @@ for (const role of ["Viewer", "Approver"] as const) {
         }),
     )
     await page.goto("/")
+    await page.getByRole("tab", { name: "Runs", exact: true }).click()
 
     await expect(page.getByText("Recovery status")).toBeVisible()
     await expect(

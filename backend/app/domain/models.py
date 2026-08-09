@@ -1402,6 +1402,7 @@ class FindingPublic(SQLModel):
     first_detected_at: datetime | None
     last_detected_at: datetime | None
     latest_occurrence_at: datetime | None
+    latest_occurrence_run_id: uuid.UUID | None
     latest_transition_at: datetime | None
     occurrence_count: int
     transition_count: int

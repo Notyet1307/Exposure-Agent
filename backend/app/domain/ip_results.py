@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import distinct, func
+from sqlalchemy import Integer, case, cast, distinct, func
 from sqlmodel import Session, col, select
 
 from app.domain.ip_consistency import (
@@ -164,13 +164,18 @@ def _asset_counts(
 
 
 def _open_findings(
-    *, session: Session, project_id: Any, resource_ids: list[Any]
+    *,
+    session: Session,
+    project_id: Any,
+    tenant_id: Any,
+    resource_ids: list[Any],
 ) -> dict[Any, Finding]:
     if not resource_ids:
         return {}
     findings = session.exec(
         select(Finding).where(
             col(Finding.project_id) == project_id,
+            col(Finding.tenant_id) == tenant_id,
             col(Finding.resource_id).in_(resource_ids),
             col(Finding.status) == "OPEN",
         )
@@ -261,6 +266,7 @@ def list_ip_assets(
     open_findings = _open_findings(
         session=session,
         project_id=project.id,
+        tenant_id=project.tenant_id,
         resource_ids=resource_ids,
     )
     return IPAssetsPublic(
@@ -281,7 +287,12 @@ def list_ip_assets(
 
 
 def get_ip_asset(
-    *, session: Session, project: Project, resource_id: Any
+    *,
+    session: Session,
+    project: Project,
+    resource_id: Any,
+    skip: int,
+    limit: int,
 ) -> IPAssetDetailPublic | None:
     published = published_run_view(session=session, project=project)
     run = published.compatible_run
@@ -300,30 +311,52 @@ def get_ip_asset(
     ).one_or_none()
     if resource is None:
         return None
-    links = session.exec(
-        select(ObservationResourceLink).where(
+    observations = session.exec(
+        select(Observation)
+        .join(
+            ObservationResourceLink,
+            col(ObservationResourceLink.observation_id) == col(Observation.id),
+        )
+        .where(
             ObservationResourceLink.resource_id == resource.id,
             ObservationResourceLink.governance_run_id == run.id,
             ObservationResourceLink.project_id == project.id,
             ObservationResourceLink.tenant_id == project.tenant_id,
         )
+        .order_by(
+            case(
+                (
+                    col(Observation.source_type) == CUSTOMER_UPLOAD_SOURCE_TYPE,
+                    0,
+                ),
+                else_=1,
+            ),
+            case(
+                (
+                    col(Observation.source_type) == CUSTOMER_UPLOAD_SOURCE_TYPE,
+                    cast(func.substr(col(Observation.source_record_key), 5), Integer),
+                ),
+                else_=cast(
+                    func.split_part(col(Observation.source_record_key), ":", 2),
+                    Integer,
+                ),
+            ),
+            case(
+                (
+                    col(Observation.source_type) == CLOUDATLAS_SOURCE_TYPE,
+                    cast(
+                        func.split_part(col(Observation.source_record_key), ":", 4),
+                        Integer,
+                    ),
+                ),
+                else_=0,
+            ),
+            col(Observation.source_record_key),
+            col(Observation.id),
+        )
+        .offset(skip)
+        .limit(limit)
     ).all()
-    observation_ids = [link.observation_id for link in links]
-    observations = (
-        session.exec(
-            select(Observation).where(col(Observation.id).in_(observation_ids))
-        ).all()
-        if observation_ids
-        else []
-    )
-    ordered_observations = sorted(
-        observations,
-        key=lambda observation: ip_observation_sort_key(
-            observation.source_type,
-            observation.source_record_key,
-            observation.id,
-        ),
-    )
     counts = _asset_counts(
         session=session,
         run_id=run.id,
@@ -332,6 +365,7 @@ def get_ip_asset(
     open_finding = _open_findings(
         session=session,
         project_id=project.id,
+        tenant_id=project.tenant_id,
         resource_ids=[resource.id],
     ).get(resource.id)
     asset = _asset_public(
@@ -341,7 +375,7 @@ def get_ip_asset(
     )
     return IPAssetDetailPublic(
         **asset.model_dump(),
-        observations=[_observation_public(item) for item in ordered_observations],
+        observations=[_observation_public(item) for item in observations],
     )
 
 
@@ -352,17 +386,20 @@ def _finding_times(
     dict[Any, int],
     dict[Any, datetime | None],
     dict[Any, datetime | None],
+    dict[Any, Any],
 ]:
     occurrence_counts: dict[Any, int] = {}
     transition_counts: dict[Any, int] = {}
     latest_occurrences: dict[Any, datetime | None] = {}
     latest_transitions: dict[Any, datetime | None] = {}
+    latest_occurrence_run_ids: dict[Any, Any] = {}
     if not finding_ids:
         return (
             occurrence_counts,
             transition_counts,
             latest_occurrences,
             latest_transitions,
+            latest_occurrence_run_ids,
         )
     occurrence_rows = session.exec(
         select(
@@ -376,6 +413,18 @@ def _finding_times(
     for finding_id, count, latest in occurrence_rows:
         occurrence_counts[finding_id] = int(count)
         latest_occurrences[finding_id] = latest
+    ordered_occurrences = session.exec(
+        select(FindingOccurrence)
+        .where(col(FindingOccurrence.finding_id).in_(finding_ids))
+        .order_by(
+            col(FindingOccurrence.created_at).desc(),
+            col(FindingOccurrence.id).asc(),
+        )
+    ).all()
+    for occurrence in ordered_occurrences:
+        latest_occurrence_run_ids.setdefault(
+            occurrence.finding_id, occurrence.governance_run_id
+        )
     transition_rows = session.exec(
         select(
             col(FindingTransition.finding_id),
@@ -393,6 +442,7 @@ def _finding_times(
         transition_counts,
         latest_occurrences,
         latest_transitions,
+        latest_occurrence_run_ids,
     )
 
 
@@ -403,6 +453,7 @@ def _finding_public(
     occurrence_count: int,
     transition_count: int,
     latest_occurrence: datetime | None,
+    latest_occurrence_run_id: Any,
     latest_transition: datetime | None,
 ) -> FindingPublic:
     return FindingPublic(
@@ -414,6 +465,7 @@ def _finding_public(
         first_detected_at=finding.first_detected_at,
         last_detected_at=finding.last_detected_at,
         latest_occurrence_at=latest_occurrence,
+        latest_occurrence_run_id=latest_occurrence_run_id,
         latest_transition_at=latest_transition,
         occurrence_count=occurrence_count,
         transition_count=transition_count,
@@ -470,9 +522,13 @@ def list_findings(
         ).all()
     )
     finding_ids = [finding.id for finding in findings]
-    occurrence_counts, transition_counts, latest_occurrences, latest_transitions = (
-        _finding_times(session=session, finding_ids=finding_ids)
-    )
+    (
+        occurrence_counts,
+        transition_counts,
+        latest_occurrences,
+        latest_transitions,
+        latest_occurrence_run_ids,
+    ) = _finding_times(session=session, finding_ids=finding_ids)
     resource_ids = [finding.resource_id for finding in findings]
     resources = (
         session.exec(
@@ -505,6 +561,7 @@ def list_findings(
                 occurrence_count=occurrence_counts.get(finding.id, 0),
                 transition_count=transition_counts.get(finding.id, 0),
                 latest_occurrence=latest_occurrences.get(finding.id),
+                latest_occurrence_run_id=latest_occurrence_run_ids.get(finding.id),
                 latest_transition=latest_transitions.get(finding.id),
             )
             for finding in page
@@ -632,7 +689,13 @@ def _transition_public(
 
 
 def get_finding_detail(
-    *, session: Session, project: Project, finding_id: Any, trace_limit: int
+    *,
+    session: Session,
+    project: Project,
+    finding_id: Any,
+    occurrence_skip: int,
+    transition_skip: int,
+    trace_limit: int,
 ) -> FindingDetailPublic | None:
     published = published_run_view(session=session, project=project)
     if published.compatible_run is None:
@@ -653,9 +716,13 @@ def get_finding_detail(
             Resource.tenant_id == project.tenant_id,
         )
     ).one()
-    occurrence_count, transition_count, latest_occurrence, latest_transition = (
-        _finding_times(session=session, finding_ids=[finding.id])
-    )
+    (
+        occurrence_count,
+        transition_count,
+        latest_occurrence,
+        latest_transition,
+        latest_occurrence_run_ids,
+    ) = _finding_times(session=session, finding_ids=[finding.id])
     occurrences = session.exec(
         select(FindingOccurrence)
         .where(FindingOccurrence.finding_id == finding.id)
@@ -663,6 +730,7 @@ def get_finding_detail(
             col(FindingOccurrence.created_at).desc(),
             col(FindingOccurrence.id).asc(),
         )
+        .offset(occurrence_skip)
         .limit(trace_limit)
     ).all()
     transitions = session.exec(
@@ -672,6 +740,7 @@ def get_finding_detail(
             col(FindingTransition.created_at).desc(),
             col(FindingTransition.id).asc(),
         )
+        .offset(transition_skip)
         .limit(trace_limit)
     ).all()
     summary = _finding_public(
@@ -680,6 +749,7 @@ def get_finding_detail(
         occurrence_count=occurrence_count.get(finding.id, 0),
         transition_count=transition_count.get(finding.id, 0),
         latest_occurrence=latest_occurrence.get(finding.id),
+        latest_occurrence_run_id=latest_occurrence_run_ids.get(finding.id),
         latest_transition=latest_transition.get(finding.id),
     )
     return FindingDetailPublic(
