@@ -526,14 +526,58 @@ def test_stage5_retry_reuses_succeeded_report_steps_and_completes(
                 GovernanceRun.project_id == uuid.UUID(str(project["id"]))
             )
         ).one()
-        governance_runs_domain.prepare_retry(
-            session=session,
-            run=run,
-            actor_subject="test-runner",
-            request_ip=None,
-        )
         run_id = run.id
+        session_id = run.session_id
 
+    captured_environment: dict[str, str] = {}
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+
+    def capture_retry_start(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del client_request_id
+        captured_environment.update(environment)
+        return AgentComposeRunStart(
+            run_id="d" * 64,
+            started=True,
+            status="RUN_STATUS_RUNNING",
+            session_id=session_id,
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
+        capture_retry_start,
+    )
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry.status_code == 202, retry.text
+    assert captured_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] == (
+        "deterministic-report-v1"
+    )
+
+    monkeypatch.delenv("GOVERNANCE_REPORT_CONTRACT_VERSION", raising=False)
+    for name, value in captured_environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("SANDBOX_ID", session_id)
     assert run_governance_runner() == 0
 
     with Session(engine) as session:

@@ -184,8 +184,9 @@ class PinnedTriggerInputs:
         *,
         trigger_id: str,
         requested_by: str,
+        report_contract_version: str | None = None,
     ) -> dict[str, str]:
-        return {
+        environment = {
             "GOVERNANCE_PROJECT_ID": str(self.project_id),
             "GOVERNANCE_TRIGGER_ID": trigger_id,
             "GOVERNANCE_REQUESTED_BY": requested_by,
@@ -208,6 +209,11 @@ class PinnedTriggerInputs:
                 self.processing_contract_version or ""
             ),
         }
+        if report_contract_version is not None:
+            environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
+                report_contract_version
+            )
+        return environment
 
 
 @dataclass(frozen=True)

@@ -749,6 +749,7 @@ def retry_governance_run(
             environment=pinned.runner_environment(
                 trigger_id=run.trigger_id,
                 requested_by=run.requested_by,
+                report_contract_version=run.report_contract_version,
             ),
             session_id=run.session_id,
         )
