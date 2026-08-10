@@ -267,17 +267,14 @@ def test_stage4_run_publishes_ip_results_and_is_reentrant(
         assert session.exec(
             select(RunStep).where(RunStep.governance_run_id == run_id)
         ).all()
-        assert (
-            session.exec(
-                select(GovernanceRun).where(
-                    GovernanceRun.project_id == project_id,
-                    GovernanceRun.trigger_id == "stage4-happy-path",
-                )
+        stored_run = session.exec(
+            select(GovernanceRun).where(
+                GovernanceRun.project_id == project_id,
+                GovernanceRun.trigger_id == "stage4-happy-path",
             )
-            .one()
-            .processing_contract_version
-            == "ip-v1"
-        )
+        ).one()
+        assert stored_run.processing_contract_version == "ip-v1"
+        assert stored_run.report_contract_version is None
 
 
 def test_stage4_publish_pointer_failure_rolls_back_and_retries_once(

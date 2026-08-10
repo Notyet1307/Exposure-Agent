@@ -85,7 +85,9 @@ _STEP_ORDER = {
     RunStepCode.NORMALIZE.value: 2,
     RunStepCode.RESOLVE.value: 3,
     RunStepCode.CHECK_FINDINGS.value: 4,
-    RunStepCode.PUBLISH.value: 5,
+    RunStepCode.BUILD_REPORT.value: 5,
+    RunStepCode.VALIDATE_REPORT.value: 6,
+    RunStepCode.PUBLISH.value: 7,
 }
 COMPLETED_RUN_STATUSES = frozenset({GovernanceRunStatus.COMPLETED.value})
 _NON_RETRYABLE_PREFIX = "non_retryable:"

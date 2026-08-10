@@ -412,6 +412,8 @@ class RunStepCode(StrEnum):
     NORMALIZE = "NORMALIZE"
     RESOLVE = "RESOLVE"
     CHECK_FINDINGS = "CHECK_FINDINGS"
+    BUILD_REPORT = "BUILD_REPORT"
+    VALIDATE_REPORT = "VALIDATE_REPORT"
     PUBLISH = "PUBLISH"
 
 
@@ -474,6 +476,10 @@ class GovernanceRun(SQLModel, table=True):
             "processing_contract_version IS NULL OR "
             "btrim(processing_contract_version) <> ''",
             name="ck_governance_runs_processing_contract_version",
+        ),
+        CheckConstraint(
+            "report_contract_version IS NULL OR btrim(report_contract_version) <> ''",
+            name="ck_governance_runs_report_contract_version",
         ),
         ForeignKeyConstraint(
             ["project_id", "tenant_id"],
@@ -547,6 +553,7 @@ class GovernanceRun(SQLModel, table=True):
     descriptor_sha256: str = Field(max_length=64)
     runner_build_version: str = Field(max_length=255)
     processing_contract_version: str | None = Field(default=None, max_length=100)
+    report_contract_version: str | None = Field(default=None, max_length=100)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -571,7 +578,8 @@ class RunStep(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint(
             "step_code IN ('LOAD_CUSTOMER', 'PULL_CLOUDATLAS', 'NORMALIZE', "
-            "'RESOLVE', 'CHECK_FINDINGS', 'PUBLISH')",
+            "'RESOLVE', 'CHECK_FINDINGS', 'BUILD_REPORT', 'VALIDATE_REPORT', "
+            "'PUBLISH')",
             name="ck_run_steps_code",
         ),
         CheckConstraint(

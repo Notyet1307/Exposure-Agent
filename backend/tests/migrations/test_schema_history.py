@@ -19,7 +19,8 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
+CURRENT_GOVERNANCE_RUN_REVISION = "e4f5a6b7c8d9"
+STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 DEFAULT_PROFILE_DEFINITION = {
@@ -596,10 +597,15 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             FROM information_schema.columns
             WHERE table_schema = 'public'
               AND table_name = 'governance_runs'
-              AND column_name IN ('session_terminal_at', 'session_recovery_code')
+              AND column_name IN (
+                'report_contract_version',
+                'session_terminal_at',
+                'session_recovery_code'
+              )
             ORDER BY column_name
             """
         ).fetchall() == [
+            ("report_contract_version", "YES"),
             ("session_recovery_code", "YES"),
             ("session_terminal_at", "YES"),
         ]
@@ -682,6 +688,8 @@ def test_stage4_schema_is_installed_on_a_fresh_database(
         ).fetchone()
         assert step_constraint is not None
         assert "NORMALIZE" in step_constraint[0]
+        assert "BUILD_REPORT" in step_constraint[0]
+        assert "VALIDATE_REPORT" in step_constraint[0]
 
 
 def test_membership_migration_preserves_revoked_history_and_rejects_duplicates(
@@ -749,6 +757,12 @@ def _seed_stage3_run_facts(
     complete: bool = True,
     status: str = "RUNNING",
     processing_contract_version: str | None = None,
+    report_contract_version: str | None = None,
+    step_codes: tuple[str, ...] = (
+        "LOAD_CUSTOMER",
+        "PULL_CLOUDATLAS",
+        "PUBLISH",
+    ),
 ) -> dict[str, uuid.UUID]:
     project_id = uuid.uuid4()
     profile_id = uuid.uuid4()
@@ -854,13 +868,17 @@ def _seed_stage3_run_facts(
             run_columns += ", processing_contract_version"
             run_values += (processing_contract_version,)
             run_value_placeholders += ", %s"
+        if report_contract_version is not None:
+            run_columns += ", report_contract_version"
+            run_values += (report_contract_version,)
+            run_value_placeholders += ", %s"
         connection.execute(
             f"INSERT INTO governance_runs ({run_columns}, created_at, updated_at) "
             "VALUES (%s, %s, %s, %s, %s, %s, 'RUNNING', %s, %s, %s, 1, "
             f"{run_value_placeholders}, now(), now())",
             run_values,
         )
-        for step_code in ("LOAD_CUSTOMER", "PULL_CLOUDATLAS", "PUBLISH"):
+        for step_code in step_codes:
             connection.execute(
                 "INSERT INTO run_steps "
                 "(id, tenant_id, project_id, governance_run_id, step_code, status, "
@@ -949,6 +967,49 @@ def _seed_stage3_run_facts(
     }
 
 
+def test_report_contract_version_and_steps_are_persistable(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+    report_steps = (
+        "LOAD_CUSTOMER",
+        "PULL_CLOUDATLAS",
+        "NORMALIZE",
+        "RESOLVE",
+        "CHECK_FINDINGS",
+        "BUILD_REPORT",
+        "VALIDATE_REPORT",
+        "PUBLISH",
+    )
+    ids = _seed_stage3_run_facts(
+        template_baseline_database,
+        complete=False,
+        processing_contract_version="ip-v1",
+        report_contract_version="deterministic-report-v1",
+        step_codes=report_steps,
+    )
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT report_contract_version FROM governance_runs WHERE id = %s",
+            (ids["run_id"],),
+        ).fetchone() == ("deterministic-report-v1",)
+        persisted_steps = connection.execute(
+            "SELECT step_code FROM run_steps WHERE governance_run_id = %s",
+            (ids["run_id"],),
+        ).fetchall()
+        assert {row[0] for row in persisted_steps} == set(report_steps)
+        assert len(persisted_steps) == len(report_steps)
+
+    with pytest.raises(psycopg.errors.RaiseException, match="pinned facts"):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "UPDATE governance_runs SET report_contract_version = %s "
+                "WHERE id = %s",
+                ("deterministic-report-v2", ids["run_id"]),
+            )
+
+
 def test_stage3_facts_upgrade_without_reinterpretation(
     template_baseline_database: str,
 ) -> None:
@@ -1026,6 +1087,57 @@ def test_failed_stage3_facts_upgrade_without_reinterpretation(
             "SELECT count(*) FROM finding_occurrences WHERE governance_run_id = %s",
             (ids["run_id"],),
         ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    ("complete", "status", "expected_status"),
+    [
+        (True, "RUNNING", "COMPLETED"),
+        (False, "FAILED_PROCESSING", "FAILED_PROCESSING"),
+    ],
+)
+def test_stage4_run_history_upgrades_without_report_backfill_or_new_steps(
+    template_baseline_database: str,
+    complete: bool,
+    status: str,
+    expected_status: str,
+) -> None:
+    run_migration(template_baseline_database, STAGE4_GOVERNANCE_RUN_REVISION)
+    stage4_steps = (
+        "LOAD_CUSTOMER",
+        "PULL_CLOUDATLAS",
+        "NORMALIZE",
+        "RESOLVE",
+        "CHECK_FINDINGS",
+        "PUBLISH",
+    )
+    ids = _seed_stage3_run_facts(
+        template_baseline_database,
+        complete=complete,
+        status=status,
+        processing_contract_version="ip-v1",
+        step_codes=stage4_steps,
+    )
+    with connect(template_baseline_database) as connection:
+        steps_before_upgrade = connection.execute(
+            "SELECT id, step_code, status, attempt FROM run_steps "
+            "WHERE governance_run_id = %s ORDER BY step_code",
+            (ids["run_id"],),
+        ).fetchall()
+
+    run_migration(template_baseline_database, "head")
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT status, processing_contract_version, report_contract_version "
+            "FROM governance_runs WHERE id = %s",
+            (ids["run_id"],),
+        ).fetchone() == (expected_status, "ip-v1", None)
+        assert connection.execute(
+            "SELECT id, step_code, status, attempt FROM run_steps "
+            "WHERE governance_run_id = %s ORDER BY step_code",
+            (ids["run_id"],),
+        ).fetchall() == steps_before_upgrade
 
 
 def test_stage4_scope_uniqueness_immutability_and_completed_run_guards(
