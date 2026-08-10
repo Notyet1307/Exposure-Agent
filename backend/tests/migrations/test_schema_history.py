@@ -20,7 +20,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_GOVERNANCE_RUN_REVISION = "f5a6b7c8d9e0"
+CURRENT_GOVERNANCE_RUN_REVISION = "a2b3c4d5e6f7"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -1148,6 +1148,7 @@ def test_stage4_run_history_upgrades_without_report_backfill_or_new_steps(
         assert connection.execute(
             "SELECT count(*) FROM governance_reports"
         ).fetchone() == (0,)
+        assert connection.execute("SELECT count(*) FROM evidence").fetchone() == (0,)
 
 
 def test_governance_report_persists_canonical_content_and_artifact_hashes(
