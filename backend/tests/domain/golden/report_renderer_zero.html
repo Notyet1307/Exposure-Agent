@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>确定性治理报告</title>
+<style>body{font-family:sans-serif;line-height:1.5;margin:2rem;max-width:72rem}section{margin:2rem 0}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem;text-align:left}.evidence-card{border:1px solid #bbb;padding:1rem;margin:.75rem 0}</style>
+</head>
+<body>
+<h1>确定性治理报告</h1>
+<section id="report-identity">
+<h2>报告身份与生成模式</h2>
+<p>GovernanceRun：<code>run-current</code></p>
+<p>Project：<code>project-1</code></p>
+<p>完成时间：<time>2026-03-20T12:00:00Z</time></p>
+<p>报告契约：<code>deterministic-report-v1</code></p>
+<p>生成模式：<strong>DETERMINISTIC_TEMPLATE</strong></p>
+</section>
+<section id="input-completeness">
+<h2>输入完整性</h2>
+<p>两个输入 SourceSnapshot 均已完整读取。</p>
+<table><thead><tr><th>来源</th><th>Snapshot ID</th><th>内容 SHA-256</th><th>Schema</th><th>记录数</th></tr></thead><tbody>
+<tr><td>CUSTOMER_UPLOAD</td><td>snapshot-a</td><td><code>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code></td><td>customer_upload-v1</td><td>1</td></tr>
+<tr><td>CLOUDATLAS</td><td>snapshot-b</td><td><code>bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</code></td><td>cloudatlas-v1</td><td>1</td></tr>
+</tbody></table>
+</section>
+<section id="ip-consistency-summary">
+<h2>IP 一致性摘要</h2>
+<p>客户侧观测资产：1；CloudAtlas 观测资产：1；匹配资产：1；本轮 Finding：0。</p>
+<p>所有已观测 IP 身份均匹配。</p>
+<ul>
+<li>UNREPORTED_ASSET：0</li>
+<li>UNOBSERVED_ASSET：0</li>
+</ul>
+</section>
+<section id="current-run-lifecycle-changes">
+<h2>本轮生命周期变化</h2>
+<p>本轮共发生 0 个 Finding Transition。</p>
+<ul>
+<li>OPENED：0</li>
+<li>REOPENED：0</li>
+<li>CLOSED：0</li>
+</ul>
+</section>
+<section id="open-backlog-as-of-run">
+<h2>截至本轮的开放积压</h2>
+<p>截至 GovernanceRun <code>run-current</code> 仍 OPEN 的 Finding 共 0 个。</p>
+<ul>
+<li>UNREPORTED_ASSET：0</li>
+<li>UNOBSERVED_ASSET：0</li>
+</ul>
+</section>
+<section id="evidence-examples">
+<h2>Evidence 示例</h2>
+<p>无可展示的 Evidence 示例。</p>
+</section>
+<section id="directions-and-limitations">
+<h2>Finding 类型处置方向与限制</h2>
+<ul>
+<li>本报告没有需要处置的 Finding。</li>
+</ul>
+<h3>限制</h3>
+<ul>
+<li>未观测资产不表示资产不存在</li>
+<li>本报告不分配严重性、优先级、责任、置信度或根因</li>
+<li>本报告不构成已批准动作，也不提供资产级处置动作</li>
+</ul>
+</section>
+<section id="provenance">
+<h2>来源追溯</h2>
+<p>GovernanceRun：<code>run-current</code>；处理契约：<code>ip-v1</code>；Finding 生命周期事实：0。</p>
+<ul>
+<li>Snapshot <code>snapshot-a</code> / SHA-256 <code>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code></li>
+<li>Snapshot <code>snapshot-b</code> / SHA-256 <code>bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</code></li>
+</ul>
+</section>
+</body>
+</html>

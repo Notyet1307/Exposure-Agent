@@ -219,6 +219,20 @@ class Provenance(_FrozenModel):
     finding_lifecycle_fact_count: int
 
 
+class FindingExportRow(_FrozenModel):
+    """Frozen lifecycle values used only by the complete CSV representation."""
+
+    finding_id: str
+    finding_type: FindingType
+    canonical_ip: str
+    status_as_of_run: Literal["OPEN", "CLOSED"]
+    current_run_transition: TransitionType | None
+    first_occurrence_at: datetime
+    last_occurrence_at: datetime
+    occurrence_count_as_of_run: int
+    transition_count_as_of_run: int
+
+
 class CanonicalReportCore(_FrozenModel):
     """The fixed canonical section set for deterministic report generation."""
 
@@ -230,6 +244,10 @@ class CanonicalReportCore(_FrozenModel):
     bounded_evidence_examples: BoundedEvidenceExamples
     finding_type_directions_and_limitations: FindingTypeDirectionsAndLimitations
     provenance: Provenance
+    # The canonical JSON remains the fixed eight-section report.  Complete CSV
+    # lifecycle facts travel with the validated model without becoming a ninth
+    # customer-facing report section.
+    finding_export_rows: tuple[FindingExportRow, ...] = Field(exclude=True, repr=False)
 
 
 class _LifecycleState(_FrozenModel):
@@ -526,6 +544,36 @@ def compile_report_core(
     snapshots = {snapshot.source_type: snapshot for snapshot in facts.source_snapshots}
     ordered_snapshots = tuple(snapshots[source_type] for source_type in _SOURCE_TYPES)
     current_finding_count = sum(current_counts.values())
+    export_states = sorted(
+        (
+            state
+            for state in states
+            if state.status == "OPEN" or state.current_transition is not None
+        ),
+        key=lambda item: _finding_sort_key(
+            item.fact.finding_type,
+            item.fact.canonical_ip,
+            item.fact.finding_id,
+        ),
+    )
+    finding_export_rows = tuple(
+        FindingExportRow(
+            finding_id=state.fact.finding_id,
+            finding_type=state.fact.finding_type,
+            canonical_ip=state.fact.canonical_ip,
+            status_as_of_run=state.status,
+            current_run_transition=state.current_transition,
+            first_occurrence_at=min(
+                occurrence.run_completed_at for occurrence in state.fact.occurrences
+            ),
+            last_occurrence_at=max(
+                occurrence.run_completed_at for occurrence in state.fact.occurrences
+            ),
+            occurrence_count_as_of_run=len(state.fact.occurrences),
+            transition_count_as_of_run=len(state.fact.transitions),
+        )
+        for state in export_states
+    )
 
     return CanonicalReportCore(
         report_identity=ReportIdentity(
@@ -604,4 +652,5 @@ def compile_report_core(
             ),
             finding_lifecycle_fact_count=len(states),
         ),
+        finding_export_rows=finding_export_rows,
     )
