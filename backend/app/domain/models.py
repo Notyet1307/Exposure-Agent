@@ -191,6 +191,35 @@ class Artifact(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint("byte_size > 0", name="ck_artifacts_byte_size_positive"),
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_artifacts_sha256_format"),
+        CheckConstraint(
+            "governance_run_id IS NULL OR project_id IS NOT NULL",
+            name="ck_artifacts_governance_run_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            name="fk_artifacts_project_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["governance_run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            name="fk_artifacts_governance_run_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("id", "tenant_id", name="uq_artifacts_id_tenant"),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            "sha256",
+            name="uq_artifacts_report_scope_hash",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -200,6 +229,8 @@ class Artifact(SQLModel, table=True):
         ondelete="RESTRICT",
         index=True,
     )
+    project_id: uuid.UUID | None = Field(default=None, index=True)
+    governance_run_id: uuid.UUID | None = Field(default=None, index=True)
     storage_key: str = Field(max_length=255, unique=True)
     media_type: str = Field(max_length=255)
     byte_size: int
@@ -245,6 +276,12 @@ class CustomerUpload(SQLModel, table=True):
             ondelete="RESTRICT",
         ),
         UniqueConstraint("id", "project_id", name="uq_customer_uploads_id_project"),
+        UniqueConstraint(
+            "id",
+            "project_id",
+            "tenant_id",
+            name="uq_customer_uploads_scope",
+        ),
         UniqueConstraint(
             "project_id",
             "raw_sha256",
@@ -342,6 +379,12 @@ class SourceInstance(SQLModel, table=True):
             name="ck_source_instances_fingerprint_format",
         ),
         UniqueConstraint("id", "project_id", name="uq_source_instances_id_project"),
+        UniqueConstraint(
+            "id",
+            "project_id",
+            "tenant_id",
+            name="uq_source_instances_scope",
+        ),
         Index(
             "uq_source_instances_one_enabled_type_per_project",
             "project_id",
@@ -524,6 +567,13 @@ class GovernanceRun(SQLModel, table=True):
         UniqueConstraint(
             "id", "project_id", "tenant_id", name="uq_governance_runs_scope"
         ),
+        UniqueConstraint(
+            "id",
+            "project_id",
+            "tenant_id",
+            "report_contract_version",
+            name="uq_governance_runs_report_contract_scope",
+        ),
         UniqueConstraint("project_id", "trigger_id", name="uq_governance_runs_trigger"),
         UniqueConstraint("session_id", name="uq_governance_runs_session"),
         Index(
@@ -571,6 +621,122 @@ class GovernanceRun(SQLModel, table=True):
         sa_type=DateTime(timezone=True),  # type: ignore
     )
     session_recovery_code: str | None = Field(default=None, max_length=100)
+
+
+class GovernanceReport(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "governance_reports"
+    __table_args__ = (
+        CheckConstraint(
+            "btrim(report_contract_version) <> ''",
+            name="ck_governance_reports_contract_version",
+        ),
+        CheckConstraint(
+            "generation_mode = 'DETERMINISTIC_TEMPLATE'",
+            name="ck_governance_reports_generation_mode",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(canonical_content) = 'object' "
+            "AND canonical_content <> '{}'::jsonb",
+            name="ck_governance_reports_canonical_content",
+        ),
+        CheckConstraint(
+            "html_sha256 ~ '^[0-9a-f]{64}$' "
+            "AND csv_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_governance_reports_artifact_hashes",
+        ),
+        CheckConstraint(
+            "html_artifact_id <> csv_artifact_id",
+            name="ck_governance_reports_distinct_artifacts",
+        ),
+        ForeignKeyConstraint(
+            [
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+                "report_contract_version",
+            ],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+                "governance_runs.report_contract_version",
+            ],
+            name="fk_governance_reports_run_contract_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "html_artifact_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+                "html_sha256",
+            ],
+            [
+                "artifacts.id",
+                "artifacts.governance_run_id",
+                "artifacts.project_id",
+                "artifacts.tenant_id",
+                "artifacts.sha256",
+            ],
+            name="fk_governance_reports_html_artifact_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "csv_artifact_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+                "csv_sha256",
+            ],
+            [
+                "artifacts.id",
+                "artifacts.governance_run_id",
+                "artifacts.project_id",
+                "artifacts.tenant_id",
+                "artifacts.sha256",
+            ],
+            name="fk_governance_reports_csv_artifact_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_governance_reports_scope",
+        ),
+        UniqueConstraint(
+            "governance_run_id", name="uq_governance_reports_governance_run"
+        ),
+        UniqueConstraint(
+            "html_artifact_id", name="uq_governance_reports_html_artifact_id"
+        ),
+        UniqueConstraint(
+            "csv_artifact_id", name="uq_governance_reports_csv_artifact_id"
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID
+    report_contract_version: str = Field(max_length=100)
+    generation_mode: str = Field(default="DETERMINISTIC_TEMPLATE", max_length=30)
+    canonical_content: dict[str, Any] = Field(sa_type=JSONB)
+    html_artifact_id: uuid.UUID
+    html_sha256: str = Field(max_length=64)
+    csv_artifact_id: uuid.UUID
+    csv_sha256: str = Field(max_length=64)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
 
 
 class RunStep(SQLModel, table=True):
