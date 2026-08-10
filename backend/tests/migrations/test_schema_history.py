@@ -5,6 +5,7 @@ import sys
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import psycopg
 import pytest
@@ -19,7 +20,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_GOVERNANCE_RUN_REVISION = "e4f5a6b7c8d9"
+CURRENT_GOVERNANCE_RUN_REVISION = "f5a6b7c8d9e0"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -495,6 +496,9 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             (DEPLOYMENT_TENANT_ID,)
         ]
         assert connection.execute(
+            "SELECT count(*) FROM governance_reports"
+        ).fetchone() == (0,)
+        assert connection.execute(
             """
             SELECT table_name
             FROM information_schema.tables
@@ -507,6 +511,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
                 'customer_upload_profiles',
                 'customer_uploads',
                 'governance_runs',
+                'governance_reports',
                 'run_steps',
                 'source_instances',
                 'source_snapshots'
@@ -518,6 +523,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
             ("audit_events",),
             ("customer_upload_profiles",),
             ("customer_uploads",),
+            ("governance_reports",),
             ("governance_runs",),
             ("project_memberships",),
             ("projects",),
@@ -763,6 +769,7 @@ def _seed_stage3_run_facts(
         "PULL_CLOUDATLAS",
         "PUBLISH",
     ),
+    identity_suffix: str = "",
 ) -> dict[str, uuid.UUID]:
     project_id = uuid.uuid4()
     profile_id = uuid.uuid4()
@@ -832,7 +839,7 @@ def _seed_stage3_run_facts(
                 source_id,
                 DEPLOYMENT_TENANT_ID,
                 project_id,
-                "stage3-instance",
+                f"stage3-instance{identity_suffix}",
                 "stage3-capset",
                 "c" * 64,
             ),
@@ -849,8 +856,8 @@ def _seed_stage3_run_facts(
             run_id,
             DEPLOYMENT_TENANT_ID,
             project_id,
-            "stage3-trigger",
-            "stage3-session",
+            f"stage3-trigger{identity_suffix}",
+            f"stage3-session{identity_suffix}",
             "legacy-runner",
             upload_id,
             "b" * 64,
@@ -1138,6 +1145,266 @@ def test_stage4_run_history_upgrades_without_report_backfill_or_new_steps(
             "WHERE governance_run_id = %s ORDER BY step_code",
             (ids["run_id"],),
         ).fetchall() == steps_before_upgrade
+        assert connection.execute(
+            "SELECT count(*) FROM governance_reports"
+        ).fetchone() == (0,)
+
+
+def test_governance_report_persists_canonical_content_and_artifact_hashes(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+    ids = _seed_stage3_run_facts(
+        template_baseline_database,
+        complete=False,
+        processing_contract_version="ip-v1",
+        report_contract_version="deterministic-report-v1",
+    )
+    report_id = uuid.uuid4()
+    html_artifact_id = uuid.uuid4()
+    csv_artifact_id = uuid.uuid4()
+    canonical_content = {
+        "report_identity": {
+            "governance_run_id": str(ids["run_id"]),
+            "generation_mode": "DETERMINISTIC_TEMPLATE",
+        }
+    }
+
+    with connect(template_baseline_database) as connection:
+        for artifact_id, media_type, sha256 in (
+            (html_artifact_id, "text/html", "8" * 64),
+            (csv_artifact_id, "text/csv", "9" * 64),
+        ):
+            connection.execute(
+                "INSERT INTO artifacts "
+                "(id, tenant_id, project_id, governance_run_id, storage_key, "
+                "media_type, byte_size, sha256, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 1, %s, now(), now())",
+                (
+                    artifact_id,
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    ids["run_id"],
+                    f"reports/{artifact_id}",
+                    media_type,
+                    sha256,
+                ),
+            )
+        connection.execute(
+            "INSERT INTO governance_reports "
+            "(id, tenant_id, project_id, governance_run_id, "
+            "report_contract_version, generation_mode, canonical_content, "
+            "html_artifact_id, html_sha256, csv_artifact_id, csv_sha256, "
+            "created_at, updated_at) "
+            "VALUES (%s, %s, %s, %s, %s, 'DETERMINISTIC_TEMPLATE', %s::jsonb, "
+            "%s, %s, %s, %s, now(), now())",
+            (
+                report_id,
+                DEPLOYMENT_TENANT_ID,
+                ids["project_id"],
+                ids["run_id"],
+                "deterministic-report-v1",
+                json.dumps(canonical_content),
+                html_artifact_id,
+                "8" * 64,
+                csv_artifact_id,
+                "9" * 64,
+            ),
+        )
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT governance_run_id, report_contract_version, generation_mode, "
+            "canonical_content, html_artifact_id, html_sha256, csv_artifact_id, "
+            "csv_sha256 FROM governance_reports WHERE id = %s",
+            (report_id,),
+        ).fetchone() == (
+            ids["run_id"],
+            "deterministic-report-v1",
+            "DETERMINISTIC_TEMPLATE",
+            canonical_content,
+            html_artifact_id,
+            "8" * 64,
+            csv_artifact_id,
+            "9" * 64,
+        )
+        report_columns = {
+            row[0]
+            for row in connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' "
+                "AND table_name = 'governance_reports'"
+            ).fetchall()
+        }
+        assert report_columns.isdisjoint(
+            {"filesystem_path", "storage_key", "source_payload", "raw_payload"}
+        )
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with connect(template_baseline_database) as connection:
+            connection.execute(
+                "INSERT INTO governance_reports "
+                "(id, tenant_id, project_id, governance_run_id, "
+                "report_contract_version, generation_mode, canonical_content, "
+                "html_artifact_id, html_sha256, csv_artifact_id, csv_sha256, "
+                "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, "
+                "'DETERMINISTIC_TEMPLATE', %s::jsonb, %s, %s, %s, %s, "
+                "now(), now())",
+                (
+                    uuid.uuid4(),
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    ids["run_id"],
+                    "deterministic-report-v1",
+                    json.dumps(canonical_content),
+                    html_artifact_id,
+                    "8" * 64,
+                    csv_artifact_id,
+                    "9" * 64,
+                ),
+            )
+
+
+def _insert_scoped_report_artifacts(
+    database: str,
+    ids: dict[str, uuid.UUID],
+) -> tuple[uuid.UUID, uuid.UUID]:
+    html_artifact_id = uuid.uuid4()
+    csv_artifact_id = uuid.uuid4()
+    with connect(database) as connection:
+        for artifact_id, media_type, sha256 in (
+            (html_artifact_id, "text/html", "8" * 64),
+            (csv_artifact_id, "text/csv", "9" * 64),
+        ):
+            connection.execute(
+                "INSERT INTO artifacts "
+                "(id, tenant_id, project_id, governance_run_id, storage_key, "
+                "media_type, byte_size, sha256, created_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 1, %s, now(), now())",
+                (
+                    artifact_id,
+                    DEPLOYMENT_TENANT_ID,
+                    ids["project_id"],
+                    ids["run_id"],
+                    f"reports/{artifact_id}",
+                    media_type,
+                    sha256,
+                ),
+            )
+    return html_artifact_id, csv_artifact_id
+
+
+def _insert_governance_report(
+    database: str,
+    *,
+    ids: dict[str, uuid.UUID],
+    html_artifact_id: uuid.UUID,
+    csv_artifact_id: uuid.UUID,
+    tenant_id: uuid.UUID = DEPLOYMENT_TENANT_ID,
+    project_id: uuid.UUID | None = None,
+    report_contract_version: str = "deterministic-report-v1",
+    generation_mode: str = "DETERMINISTIC_TEMPLATE",
+    canonical_content: str = '{"report_identity": {"complete": true}}',
+    html_sha256: str = "8" * 64,
+    csv_sha256: str = "9" * 64,
+) -> None:
+    with connect(database) as connection:
+        connection.execute(
+            "INSERT INTO governance_reports "
+            "(id, tenant_id, project_id, governance_run_id, "
+            "report_contract_version, generation_mode, canonical_content, "
+            "html_artifact_id, html_sha256, csv_artifact_id, csv_sha256, "
+            "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, "
+            "%s::jsonb, %s, %s, %s, %s, now(), now())",
+            (
+                uuid.uuid4(),
+                tenant_id,
+                project_id or ids["project_id"],
+                ids["run_id"],
+                report_contract_version,
+                generation_mode,
+                canonical_content,
+                html_artifact_id,
+                html_sha256,
+                csv_artifact_id,
+                csv_sha256,
+            ),
+        )
+
+
+def test_governance_report_checks_reject_partial_or_noncanonical_records(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+    ids = _seed_stage3_run_facts(
+        template_baseline_database,
+        complete=False,
+        processing_contract_version="ip-v1",
+        report_contract_version="deterministic-report-v1",
+    )
+    html_artifact_id, csv_artifact_id = _insert_scoped_report_artifacts(
+        template_baseline_database, ids
+    )
+
+    invalid_values: tuple[dict[str, Any], ...] = (
+        {"generation_mode": "PI_VALIDATED"},
+        {"report_contract_version": " "},
+        {"canonical_content": "[]"},
+        {"html_sha256": "not-a-sha256"},
+        {"csv_artifact_id": html_artifact_id, "csv_sha256": "8" * 64},
+    )
+    for overrides in invalid_values:
+        report_values: dict[str, Any] = {
+            "ids": ids,
+            "html_artifact_id": html_artifact_id,
+            "csv_artifact_id": csv_artifact_id,
+        }
+        report_values.update(overrides)
+        with pytest.raises(
+            (psycopg.errors.CheckViolation, psycopg.errors.ForeignKeyViolation)
+        ):
+            _insert_governance_report(
+                template_baseline_database,
+                **report_values,
+            )
+
+
+def test_governance_report_rejects_cross_scope_run_and_artifact_relations(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+    report_ids = _seed_stage3_run_facts(
+        template_baseline_database,
+        complete=False,
+        processing_contract_version="ip-v1",
+        report_contract_version="deterministic-report-v1",
+    )
+    other_ids = _seed_stage3_run_facts(
+        template_baseline_database,
+        complete=False,
+        processing_contract_version="ip-v1",
+        report_contract_version="deterministic-report-v1",
+        identity_suffix="-other",
+    )
+    other_html_id, other_csv_id = _insert_scoped_report_artifacts(
+        template_baseline_database, other_ids
+    )
+
+    scope_overrides_list: tuple[dict[str, Any], ...] = (
+        {},
+        {"project_id": other_ids["project_id"]},
+        {"tenant_id": uuid.uuid4()},
+        {"report_contract_version": "deterministic-report-v2"},
+    )
+    for scope_overrides in scope_overrides_list:
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            _insert_governance_report(
+                template_baseline_database,
+                ids=report_ids,
+                html_artifact_id=other_html_id,
+                csv_artifact_id=other_csv_id,
+                **scope_overrides,
+            )
 
 
 def test_stage4_scope_uniqueness_immutability_and_completed_run_guards(
