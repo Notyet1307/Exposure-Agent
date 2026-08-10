@@ -1834,7 +1834,7 @@ def _report_candidate_facts(
     if len(completed_at_by_run) != len(history_run_ids):
         _processing_error("report_lifecycle_run_incomplete")
     latest_history_at = max(completed_at_by_run.values(), default=None)
-    candidate_completed_at = get_datetime_utc()
+    candidate_completed_at = run.created_at
     if latest_history_at is not None and candidate_completed_at <= latest_history_at:
         candidate_completed_at = latest_history_at + timedelta(microseconds=1)
 
@@ -2078,12 +2078,16 @@ def _candidate_storage_path(storage_key: str) -> Path:
 
 
 def _write_report_candidate(
-    *, rendered: RenderedReport
+    *, run_id: uuid.UUID, rendered: RenderedReport
 ) -> tuple[str, str]:
     candidate_directory = settings.ARTIFACT_ROOT.resolve() / "report_candidates"
     candidate_directory.mkdir(parents=True, exist_ok=True)
-    html_storage_key = f"report_candidates/{uuid.uuid4()}.html"
-    csv_storage_key = f"report_candidates/{uuid.uuid4()}.csv"
+    html_storage_key = (
+        f"report_candidates/{uuid.uuid5(run_id, 'report-candidate-html')}.html"
+    )
+    csv_storage_key = (
+        f"report_candidates/{uuid.uuid5(run_id, 'report-candidate-csv')}.csv"
+    )
     final_outputs = (
         (_candidate_storage_path(html_storage_key), rendered.html),
         (_candidate_storage_path(csv_storage_key), rendered.csv),
@@ -2135,7 +2139,9 @@ def _prepare_report_candidate(
     report_model = compile_report_core(report_facts, run.report_contract_version)
     evidence_plan = select_evidence(evidence_facts, run.report_contract_version)
     rendered = render_report(report_model, evidence_plan)
-    html_storage_key, csv_storage_key = _write_report_candidate(rendered=rendered)
+    html_storage_key, csv_storage_key = _write_report_candidate(
+        run_id=run.id, rendered=rendered
+    )
     return ReportCandidate(
         report_facts=report_facts,
         evidence_facts=evidence_facts,
@@ -2261,11 +2267,15 @@ def _build_report_candidate(
         input_hash=input_hash,
         request_ip=request_ip,
     )
-    if not created:
+    if not created and step.status != RunStepStatus.SUCCEEDED.value:
         _execution_error("runner_step_already_started")
     candidate: ReportCandidate | None = None
     try:
         candidate = _prepare_report_candidate(session=session, run=run)
+        if not created:
+            if candidate.build_output_hash != step.output_hash:
+                raise ReportCandidateValidationError("candidate_build_hash_changed")
+            return candidate
         _complete_report_step(
             session=session,
             run=run,
@@ -2280,6 +2290,7 @@ def _build_report_candidate(
         EvidenceSelectorError,
         ReportRendererError,
         GovernanceRunProcessingError,
+        ReportCandidateValidationError,
         OSError,
         SQLAlchemyError,
     ):
@@ -2324,10 +2335,16 @@ def _validate_report_candidate(
         input_hash=candidate.build_output_hash,
         request_ip=request_ip,
     )
-    if not created:
+    if not created and step.status != RunStepStatus.SUCCEEDED.value:
         _execution_error("runner_step_already_started")
     try:
         output_hash = _validate_prepared_report_candidate(candidate)
+        if not created:
+            if output_hash != step.output_hash:
+                raise ReportCandidateValidationError(
+                    "candidate_validation_hash_changed"
+                )
+            return
         _complete_report_step(
             session=session,
             run=run,
@@ -2395,7 +2412,11 @@ def _stage4_check_payload(
 
 
 def _publish_stage4_run(
-    *, session: Session, run: GovernanceRun, request_ip: str | None
+    *,
+    session: Session,
+    run: GovernanceRun,
+    request_ip: str | None,
+    report_candidate: ReportCandidate | None,
 ) -> None:
     snapshots = session.exec(
         select(SourceSnapshot).where(
@@ -2424,6 +2445,8 @@ def _publish_stage4_run(
             return
         _execution_error("runner_step_already_started")
     try:
+        if run.report_contract_version is not None and report_candidate is None:
+            _processing_error("validated_report_candidate_missing")
         customer_snapshot, cloudatlas_snapshot = _stage4_snapshots(
             session=session, run=run
         )
@@ -2838,10 +2861,13 @@ def _publish_run(
     request_ip: str | None,
     report_candidate: ReportCandidate | None = None,
 ) -> None:
-    if run.report_contract_version is not None and report_candidate is None:
-        _processing_error("validated_report_candidate_missing")
     if run.processing_contract_version is not None:
-        _publish_stage4_run(session=session, run=run, request_ip=request_ip)
+        _publish_stage4_run(
+            session=session,
+            run=run,
+            request_ip=request_ip,
+            report_candidate=report_candidate,
+        )
         return
     snapshots = session.exec(
         select(SourceSnapshot).where(SourceSnapshot.governance_run_id == run.id)
@@ -3111,8 +3137,20 @@ def prepare_retry(
     attempted_at = get_datetime_utc()
     if step is None:
         existing_codes = {item.step_code for item in steps}
-        step_order = (
-            (
+        step_order: tuple[RunStepCode, ...]
+        if run.report_contract_version is not None:
+            step_order = (
+                RunStepCode.LOAD_CUSTOMER,
+                RunStepCode.PULL_CLOUDATLAS,
+                RunStepCode.NORMALIZE,
+                RunStepCode.RESOLVE,
+                RunStepCode.CHECK_FINDINGS,
+                RunStepCode.BUILD_REPORT,
+                RunStepCode.VALIDATE_REPORT,
+                RunStepCode.PUBLISH,
+            )
+        elif run.processing_contract_version is not None:
+            step_order = (
                 RunStepCode.LOAD_CUSTOMER,
                 RunStepCode.PULL_CLOUDATLAS,
                 RunStepCode.NORMALIZE,
@@ -3120,13 +3158,12 @@ def prepare_retry(
                 RunStepCode.CHECK_FINDINGS,
                 RunStepCode.PUBLISH,
             )
-            if run.processing_contract_version is not None
-            else (
+        else:
+            step_order = (
                 RunStepCode.LOAD_CUSTOMER,
                 RunStepCode.PULL_CLOUDATLAS,
                 RunStepCode.PUBLISH,
             )
-        )
         next_code = next(
             (code for code in step_order if code.value not in existing_codes),
             None,
@@ -3167,11 +3204,7 @@ def prepare_retry(
             )
         elif next_code is RunStepCode.CHECK_FINDINGS:
             resolve_step = next(
-                (
-                    item
-                    for item in steps
-                    if item.step_code == RunStepCode.RESOLVE.value
-                ),
+                (item for item in steps if item.step_code == RunStepCode.RESOLVE.value),
                 None,
             )
             if resolve_step is None or resolve_step.output_hash is None:
@@ -3182,6 +3215,35 @@ def prepare_retry(
                     "resolve_output_hash": resolve_step.output_hash,
                 }
             )
+        elif next_code is RunStepCode.BUILD_REPORT:
+            check_step = next(
+                (
+                    item
+                    for item in steps
+                    if item.step_code == RunStepCode.CHECK_FINDINGS.value
+                ),
+                None,
+            )
+            if check_step is None or check_step.output_hash is None:
+                raise GovernanceRunStateError("run_retry_no_failed_step")
+            input_hash = _fingerprint(
+                {
+                    "report_contract_version": run.report_contract_version,
+                    "check_findings_output_hash": check_step.output_hash,
+                }
+            )
+        elif next_code is RunStepCode.VALIDATE_REPORT:
+            build_step = next(
+                (
+                    item
+                    for item in steps
+                    if item.step_code == RunStepCode.BUILD_REPORT.value
+                ),
+                None,
+            )
+            if build_step is None or build_step.output_hash is None:
+                raise GovernanceRunStateError("run_retry_no_failed_step")
+            input_hash = build_step.output_hash
         else:
             input_hash = (
                 _fingerprint(
