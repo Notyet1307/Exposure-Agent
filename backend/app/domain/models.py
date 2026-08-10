@@ -447,6 +447,7 @@ class GovernanceRunStatus(StrEnum):
     FAILED_DATA = "FAILED_DATA"
     FAILED_PROCESSING = "FAILED_PROCESSING"
     COMPLETED = "COMPLETED"
+    COMPLETED_WITH_WARNINGS = "COMPLETED_WITH_WARNINGS"
 
 
 class RunStepCode(StrEnum):
@@ -495,7 +496,8 @@ class GovernanceRun(SQLModel, table=True):
     __tablename__: ClassVar[str] = "governance_runs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', 'COMPLETED')",
+            "status IN ('RUNNING', 'FAILED_DATA', 'FAILED_PROCESSING', "
+            "'COMPLETED', 'COMPLETED_WITH_WARNINGS')",
             name="ck_governance_runs_status",
         ),
         CheckConstraint(
@@ -729,6 +731,117 @@ class GovernanceReport(SQLModel, table=True):
     html_sha256: str = Field(max_length=64)
     csv_artifact_id: uuid.UUID
     csv_sha256: str = Field(max_length=64)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class Evidence(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "num_nonnulls(source_snapshot_id, observation_id, "
+            "finding_occurrence_id, finding_transition_id) = 1",
+            name="ck_evidence_exactly_one_target",
+        ),
+        ForeignKeyConstraint(
+            [
+                "governance_report_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+            ],
+            [
+                "governance_reports.id",
+                "governance_reports.governance_run_id",
+                "governance_reports.project_id",
+                "governance_reports.tenant_id",
+            ],
+            name="fk_evidence_governance_report_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "source_snapshot_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+            ],
+            [
+                "source_snapshots.id",
+                "source_snapshots.governance_run_id",
+                "source_snapshots.project_id",
+                "source_snapshots.tenant_id",
+            ],
+            name="fk_evidence_source_snapshot_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["observation_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "observations.id",
+                "observations.governance_run_id",
+                "observations.project_id",
+                "observations.tenant_id",
+            ],
+            name="fk_evidence_observation_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "finding_occurrence_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+            ],
+            [
+                "finding_occurrences.id",
+                "finding_occurrences.governance_run_id",
+                "finding_occurrences.project_id",
+                "finding_occurrences.tenant_id",
+            ],
+            name="fk_evidence_finding_occurrence_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "finding_transition_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+            ],
+            [
+                "finding_transitions.id",
+                "finding_transitions.governance_run_id",
+                "finding_transitions.project_id",
+                "finding_transitions.tenant_id",
+            ],
+            name="fk_evidence_finding_transition_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_evidence_scope",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    governance_report_id: uuid.UUID = Field(index=True)
+    source_snapshot_id: uuid.UUID | None = Field(default=None, index=True)
+    observation_id: uuid.UUID | None = Field(default=None, index=True)
+    finding_occurrence_id: uuid.UUID | None = Field(default=None, index=True)
+    finding_transition_id: uuid.UUID | None = Field(default=None, index=True)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
