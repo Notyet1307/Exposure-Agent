@@ -2100,8 +2100,8 @@ def _write_report_candidate(
                 os.fsync(output.fileno())
             os.replace(temporary_path, final_path)
             temporary_paths.remove(temporary_path)
-            final_path.chmod(0o440)
             written_paths.append(final_path)
+            final_path.chmod(0o440)
     except OSError:
         for path in (*temporary_paths, *written_paths):
             path.unlink(missing_ok=True)
