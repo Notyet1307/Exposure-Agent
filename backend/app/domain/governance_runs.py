@@ -52,6 +52,7 @@ from app.domain.models import (
     AuditEvent,
     CustomerUpload,
     CustomerUploadProfile,
+    Evidence,
     Finding,
     FindingOccurrence,
     FindingOccurrenceObservation,
@@ -62,6 +63,7 @@ from app.domain.models import (
     FindingTransitionSnapshot,
     FindingTransitionType,
     FindingType,
+    GovernanceReport,
     GovernanceRun,
     GovernanceRunPublic,
     GovernanceRunStatus,
@@ -1840,7 +1842,15 @@ def _report_candidate_facts(
     if len(completed_at_by_run) != len(history_run_ids):
         _processing_error("report_lifecycle_run_incomplete")
     latest_history_at = max(completed_at_by_run.values(), default=None)
-    candidate_completed_at = run.created_at
+    build_step = session.exec(
+        select(RunStep).where(
+            RunStep.governance_run_id == run.id,
+            RunStep.step_code == RunStepCode.BUILD_REPORT.value,
+        )
+    ).one_or_none()
+    if build_step is None:
+        _processing_error("report_build_step_missing")
+    candidate_completed_at = build_step.started_at
     if latest_history_at is not None and candidate_completed_at <= latest_history_at:
         candidate_completed_at = latest_history_at + timedelta(microseconds=1)
 
@@ -2385,6 +2395,124 @@ def _validate_report_candidate(
     raise GovernanceRunProcessingError("validate_report_failed")
 
 
+def _verify_report_candidate_for_publish(
+    *, session: Session, run: GovernanceRun, candidate: ReportCandidate
+) -> str:
+    build_step = session.exec(
+        select(RunStep).where(
+            RunStep.governance_run_id == run.id,
+            RunStep.step_code == RunStepCode.BUILD_REPORT.value,
+        )
+    ).one_or_none()
+    validate_step = session.exec(
+        select(RunStep).where(
+            RunStep.governance_run_id == run.id,
+            RunStep.step_code == RunStepCode.VALIDATE_REPORT.value,
+        )
+    ).one_or_none()
+    if (
+        build_step is None
+        or build_step.status != RunStepStatus.SUCCEEDED.value
+        or build_step.output_hash != candidate.build_output_hash
+        or validate_step is None
+        or validate_step.status != RunStepStatus.SUCCEEDED.value
+        or validate_step.output_hash is None
+    ):
+        raise ReportCandidateValidationError("candidate_validation_missing")
+    # This intentionally reopens both files at the PUBLISH boundary. A prior
+    # VALIDATE_REPORT success is not accepted as proof that the bytes still
+    # match immediately before their metadata becomes customer-visible.
+    verified_output_hash = _validate_prepared_report_candidate(candidate)
+    if verified_output_hash != validate_step.output_hash:
+        raise ReportCandidateValidationError("candidate_validation_hash_changed")
+    return verified_output_hash
+
+
+def _report_publication_records(
+    *, run: GovernanceRun, candidate: ReportCandidate
+) -> tuple[list[Artifact], GovernanceReport, list[Evidence]]:
+    report_id = uuid.uuid5(run.id, "stage5-governance-report")
+    html_artifact = Artifact(
+        id=uuid.uuid5(run.id, "stage5-report-html-artifact"),
+        tenant_id=run.tenant_id,
+        project_id=run.project_id,
+        governance_run_id=run.id,
+        storage_key=candidate.html_storage_key,
+        media_type="text/html",
+        byte_size=len(candidate.rendered.html),
+        sha256=candidate.rendered.html_sha256,
+    )
+    csv_artifact = Artifact(
+        id=uuid.uuid5(run.id, "stage5-report-csv-artifact"),
+        tenant_id=run.tenant_id,
+        project_id=run.project_id,
+        governance_run_id=run.id,
+        storage_key=candidate.csv_storage_key,
+        media_type="text/csv",
+        byte_size=len(candidate.rendered.csv),
+        sha256=candidate.rendered.csv_sha256,
+    )
+    try:
+        canonical_content = json.loads(candidate.rendered.canonical_json)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise ReportCandidateValidationError(
+            "candidate_canonical_json_invalid"
+        ) from None
+    if not isinstance(canonical_content, dict):
+        raise ReportCandidateValidationError("candidate_canonical_json_invalid")
+    report = GovernanceReport(
+        id=report_id,
+        tenant_id=run.tenant_id,
+        project_id=run.project_id,
+        governance_run_id=run.id,
+        report_contract_version=candidate.report_model.report_identity.report_contract_version,
+        generation_mode="DETERMINISTIC_TEMPLATE",
+        canonical_content=canonical_content,
+        html_artifact_id=html_artifact.id,
+        html_sha256=html_artifact.sha256,
+        csv_artifact_id=csv_artifact.id,
+        csv_sha256=csv_artifact.sha256,
+    )
+    evidence: list[Evidence] = []
+    for index, entry in enumerate(candidate.evidence_plan.entries):
+        reference = entry.evidence_reference
+        try:
+            target_id = uuid.UUID(reference.fact_id)
+        except ValueError:
+            raise ReportCandidateValidationError(
+                "candidate_evidence_reference_invalid"
+            ) from None
+        evidence.append(
+            Evidence(
+                id=uuid.uuid5(
+                    report_id,
+                    f"{index}:{reference.fact_type}:{reference.fact_id}",
+                ),
+                tenant_id=run.tenant_id,
+                project_id=run.project_id,
+                governance_run_id=run.id,
+                governance_report_id=report.id,
+                source_snapshot_id=(
+                    target_id if reference.fact_type == "SOURCE_SNAPSHOT" else None
+                ),
+                observation_id=(
+                    target_id if reference.fact_type == "OBSERVATION" else None
+                ),
+                finding_occurrence_id=(
+                    target_id
+                    if reference.fact_type == "FINDING_OCCURRENCE"
+                    else None
+                ),
+                finding_transition_id=(
+                    target_id
+                    if reference.fact_type == "FINDING_TRANSITION"
+                    else None
+                ),
+            )
+        )
+    return [html_artifact, csv_artifact], report, evidence
+
+
 def _verify_snapshot_artifact(*, session: Session, snapshot: SourceSnapshot) -> None:
     artifact = session.exec(
         select(Artifact).where(
@@ -2431,14 +2559,30 @@ def _publish_stage4_run(
             SourceSnapshot.tenant_id == run.tenant_id,
         )
     ).all()
-    publish_input_hash = _fingerprint(
-        {
-            "processing_contract_version": run.processing_contract_version,
-            "snapshot_hashes": sorted(
-                snapshot.content_sha256 for snapshot in snapshots
-            ),
-        }
-    )
+    publish_inputs: dict[str, Any] = {
+        "processing_contract_version": run.processing_contract_version,
+        "snapshot_hashes": sorted(snapshot.content_sha256 for snapshot in snapshots),
+    }
+    if run.report_contract_version is not None:
+        validate_step = session.exec(
+            select(RunStep).where(
+                RunStep.governance_run_id == run.id,
+                RunStep.step_code == RunStepCode.VALIDATE_REPORT.value,
+            )
+        ).one_or_none()
+        if (
+            validate_step is None
+            or validate_step.status != RunStepStatus.SUCCEEDED.value
+            or validate_step.output_hash is None
+        ):
+            _processing_error("validated_report_step_incomplete")
+        publish_inputs.update(
+            {
+                "report_contract_version": run.report_contract_version,
+                "validated_report_output_hash": validate_step.output_hash,
+            }
+        )
+    publish_input_hash = _fingerprint(publish_inputs)
     step, created = _begin_step_or_fail(
         session=session,
         run=run,
@@ -2585,6 +2729,13 @@ def _publish_stage4_run(
                 transition_type: FindingTransitionType | None = None
                 if finding_candidate is None:
                     finding = Finding(
+                        id=uuid.UUID(
+                            _report_candidate_uuid(
+                                run, "finding", finding_type, canonical_ip
+                            )
+                        )
+                        if report_candidate is not None
+                        else uuid.uuid4(),
                         tenant_id=run.tenant_id,
                         project_id=run.project_id,
                         resource_id=resource.id,
@@ -2620,6 +2771,13 @@ def _publish_stage4_run(
                     _processing_error("publish_occurrence_observations_missing")
                 if finding.id not in existing_occurrences_by_finding:
                     occurrence = FindingOccurrence(
+                        id=uuid.UUID(
+                            _report_candidate_uuid(
+                                run, "occurrence", finding_type, canonical_ip
+                            )
+                        )
+                        if report_candidate is not None
+                        else uuid.uuid4(),
                         tenant_id=run.tenant_id,
                         project_id=run.project_id,
                         finding_id=finding.id,
@@ -2657,6 +2815,13 @@ def _publish_stage4_run(
                     published_occurrence_count += 1
                 if transition_type is not None:
                     transition = FindingTransition(
+                        id=uuid.UUID(
+                            _report_candidate_uuid(
+                                run, "transition", finding_type, canonical_ip
+                            )
+                        )
+                        if report_candidate is not None
+                        else uuid.uuid4(),
                         tenant_id=run.tenant_id,
                         project_id=run.project_id,
                         finding_id=finding.id,
@@ -2716,6 +2881,16 @@ def _publish_stage4_run(
                 finding.updated_at = detected_at
                 changed_findings.append(finding)
                 transition = FindingTransition(
+                    id=uuid.UUID(
+                        _report_candidate_uuid(
+                            run,
+                            "transition",
+                            finding.finding_type,
+                            canonical_ip,
+                        )
+                    )
+                    if report_candidate is not None
+                    else uuid.uuid4(),
                     tenant_id=run.tenant_id,
                     project_id=run.project_id,
                     finding_id=finding.id,
@@ -2753,6 +2928,17 @@ def _publish_stage4_run(
                 )
                 published_transition_count += 1
 
+        validated_report_output_hash: str | None = None
+        report_artifacts: list[Artifact] = []
+        governance_report: GovernanceReport | None = None
+        evidence_records: list[Evidence] = []
+        if report_candidate is not None:
+            (
+                report_artifacts,
+                governance_report,
+                evidence_records,
+            ) = _report_publication_records(run=run, candidate=report_candidate)
+
         _add_all_in_batches(session, changed_findings)
         _add_all_in_batches(session, new_findings)
         _add_all_in_batches(session, occurrences)
@@ -2761,14 +2947,35 @@ def _publish_stage4_run(
         _add_all_in_batches(session, occurrence_snapshots)
         _add_all_in_batches(session, transition_observations)
         _add_all_in_batches(session, transition_snapshots)
-        completed_at = get_datetime_utc()
-        step.status = RunStepStatus.SUCCEEDED.value
-        step.output_hash = _fingerprint(
-            {
-                "processing_contract_version": run.processing_contract_version,
-                "check_findings_output_hash": check_step.output_hash,
-            }
+        _add_all_in_batches(session, report_artifacts)
+        if governance_report is not None:
+            session.add(governance_report)
+            session.flush()
+        _add_all_in_batches(session, evidence_records)
+        if report_candidate is not None:
+            validated_report_output_hash = _verify_report_candidate_for_publish(
+                session=session,
+                run=run,
+                candidate=report_candidate,
+            )
+        completed_at = (
+            report_candidate.report_model.report_identity.run_completed_at
+            if report_candidate is not None
+            else get_datetime_utc()
         )
+        step.status = RunStepStatus.SUCCEEDED.value
+        publish_output = {
+            "processing_contract_version": run.processing_contract_version,
+            "check_findings_output_hash": check_step.output_hash,
+        }
+        if governance_report is not None:
+            publish_output.update(
+                {
+                    "validated_report_output_hash": validated_report_output_hash,
+                    "governance_report_id": str(governance_report.id),
+                }
+            )
+        step.output_hash = _fingerprint(publish_output)
         step.completed_at = completed_at
         step.updated_at = completed_at
         run.status = GovernanceRunStatus.COMPLETED.value
@@ -2785,6 +2992,21 @@ def _publish_stage4_run(
         ).one()
         project.latest_completed_run_id = run.id
         project.updated_at = completed_at
+        publication_data: dict[str, Any] = {
+            "status": run.status,
+            "source_snapshot_count": 2,
+            "observation_count": len(observations),
+            "resource_count": len(resources_by_key),
+            "finding_count": published_occurrence_count,
+            "transition_count": published_transition_count,
+        }
+        if governance_report is not None:
+            publication_data.update(
+                {
+                    "governance_report_id": str(governance_report.id),
+                    "report_generation_mode": governance_report.generation_mode,
+                }
+            )
         session.add(step)
         session.add(run)
         session.add(project)
@@ -2810,19 +3032,19 @@ def _publish_stage4_run(
                 target_type="governance_run",
                 target_id=run.id,
                 before_data={"status": GovernanceRunStatus.RUNNING.value},
-                after_data={
-                    "status": run.status,
-                    "source_snapshot_count": 2,
-                    "observation_count": len(observations),
-                    "resource_count": len(resources_by_key),
-                    "finding_count": published_occurrence_count,
-                    "transition_count": published_transition_count,
-                },
+                after_data=publication_data,
                 request_ip=request_ip,
             )
         )
         session.commit()
-    except (GovernanceRunProcessingError, IPRecordContractError):
+    except (
+        GovernanceRunProcessingError,
+        IPRecordContractError,
+        ReportCandidateValidationError,
+        ReportCoreError,
+        EvidenceSelectorError,
+        ReportRendererError,
+    ):
         session.rollback()
         _fail_run(
             session=session,
@@ -3251,16 +3473,31 @@ def prepare_retry(
                 raise GovernanceRunStateError("run_retry_no_failed_step")
             input_hash = build_step.output_hash
         else:
-            input_hash = (
-                _fingerprint(
-                    {
-                        "processing_contract_version": run.processing_contract_version,
-                        "snapshot_hashes": snapshot_hashes,
-                    }
-                )
-                if run.processing_contract_version is not None
-                else _fingerprint(snapshot_hashes)
-            )
+            if run.processing_contract_version is not None:
+                publish_inputs: dict[str, Any] = {
+                    "processing_contract_version": run.processing_contract_version,
+                    "snapshot_hashes": snapshot_hashes,
+                }
+                if run.report_contract_version is not None:
+                    validate_step = next(
+                        (
+                            item
+                            for item in steps
+                            if item.step_code == RunStepCode.VALIDATE_REPORT.value
+                        ),
+                        None,
+                    )
+                    if validate_step is None or validate_step.output_hash is None:
+                        raise GovernanceRunStateError("run_retry_no_failed_step")
+                    publish_inputs.update(
+                        {
+                            "report_contract_version": run.report_contract_version,
+                            "validated_report_output_hash": validate_step.output_hash,
+                        }
+                    )
+                input_hash = _fingerprint(publish_inputs)
+            else:
+                input_hash = _fingerprint(snapshot_hashes)
         step = RunStep(
             tenant_id=run.tenant_id,
             project_id=run.project_id,

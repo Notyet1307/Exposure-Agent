@@ -24,6 +24,7 @@ from app.domain.models import (
     RunStep,
     RunStepStatus,
 )
+from app.domain.report_core import REPORT_CONTRACT_VERSION
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
     AgentComposeClient,
@@ -505,6 +506,7 @@ def trigger_governance_run(
             environment=pinned.runner_environment(
                 trigger_id=trigger_id,
                 requested_by=str(current_user.id),
+                report_contract_version=REPORT_CONTRACT_VERSION,
             ),
         )
     except AgentComposeBoundaryError as error:
@@ -1068,6 +1070,7 @@ def rerun_governance_run(
             environment=pinned.runner_environment(
                 trigger_id=trigger_id,
                 requested_by=actor_subject,
+                report_contract_version=REPORT_CONTRACT_VERSION,
             ),
         )
     except AgentComposeBoundaryError as error:
