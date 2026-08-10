@@ -15,6 +15,7 @@ from pytest import MonkeyPatch
 from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 from sqlmodel import Session, col, func, select
 
+import app.domain.governance_runs as governance_runs_domain
 from app.core.config import settings
 from app.core.db import engine
 from app.domain.cloudatlas_sources import (
@@ -31,6 +32,7 @@ from app.domain.models import (
     Artifact,
     AuditEvent,
     CustomerUpload,
+    GovernanceReport,
     GovernanceRun,
     GovernanceRunStatus,
     Project,
@@ -38,6 +40,7 @@ from app.domain.models import (
     SourceInstance,
     SourceSnapshot,
 )
+from app.domain.report_renderer import ReportRendererError
 from app.governance_runner import main as run_governance_runner
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
@@ -205,6 +208,518 @@ def _mock_cloudatlas(monkeypatch: MonkeyPatch) -> None:
             "total": 1,
         },
     )
+
+
+def test_stage5_runner_prepares_and_validates_hidden_report_candidate(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient,
+        "list_ip_assets_page",
+        lambda _client, _source, *, capset_token, page, size: {
+            "items": [
+                {"id": "fixture-asset-2", "ip": "192.0.2.20", "status": "valid"}
+            ],
+            "page": page,
+            "size": size,
+            "total": 1,
+        },
+    )
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    runner_environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage5-hidden-candidate",
+        session_seed="stage5-hidden-candidate-session",
+    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
+        "deterministic-report-v1"
+    )
+    for name, value in runner_environment.items():
+        monkeypatch.setenv(name, value)
+
+    assert run_governance_runner() == 0
+
+    run_payload = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert [
+        (step["step_code"], step["status"])
+        for step in run_payload["steps"]
+    ] == [
+        ("LOAD_CUSTOMER", "SUCCEEDED"),
+        ("PULL_CLOUDATLAS", "SUCCEEDED"),
+        ("NORMALIZE", "SUCCEEDED"),
+        ("RESOLVE", "SUCCEEDED"),
+        ("CHECK_FINDINGS", "SUCCEEDED"),
+        ("BUILD_REPORT", "SUCCEEDED"),
+        ("VALIDATE_REPORT", "SUCCEEDED"),
+        ("PUBLISH", "SUCCEEDED"),
+    ]
+    run_id = uuid.UUID(str(run_payload["id"]))
+    candidate_paths = sorted((tmp_path / "report_candidates").iterdir())
+    assert {path.suffix for path in candidate_paths} == {".csv", ".html"}
+    assert all(uuid.UUID(path.stem) for path in candidate_paths)
+
+    with Session(engine) as session:
+        stored_run = session.get(GovernanceRun, run_id)
+        assert stored_run is not None
+        assert stored_run.report_contract_version == "deterministic-report-v1"
+        assert session.exec(
+            select(GovernanceReport).where(
+                GovernanceReport.governance_run_id == run_id
+            )
+        ).all() == []
+        assert session.exec(
+            select(Artifact).where(
+                Artifact.governance_run_id == run_id,
+                col(Artifact.media_type).in_(("text/html", "text/csv")),
+            )
+        ).all() == []
+        build_step = session.exec(
+            select(RunStep).where(
+                RunStep.governance_run_id == run_id,
+                RunStep.step_code == "BUILD_REPORT",
+            )
+        ).one()
+        validate_step = session.exec(
+            select(RunStep).where(
+                RunStep.governance_run_id == run_id,
+                RunStep.step_code == "VALIDATE_REPORT",
+            )
+        ).one()
+        assert validate_step.input_hash == build_step.output_hash
+        assert validate_step.output_hash is not None
+        build_event = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.target_id == build_step.id,
+                AuditEvent.action == "run_step.succeeded",
+            )
+        ).one()
+        assert build_event.after_data is not None
+        assert len(build_event.after_data["canonical_json_sha256"]) == 64
+        path_by_suffix = {path.suffix: path for path in candidate_paths}
+        assert hashlib.sha256(path_by_suffix[".html"].read_bytes()).hexdigest() == (
+            build_event.after_data["html_sha256"]
+        )
+        assert hashlib.sha256(path_by_suffix[".csv"].read_bytes()).hexdigest() == (
+            build_event.after_data["csv_sha256"]
+        )
+
+
+def test_stage5_build_failure_stops_before_validation_and_publish(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    runner_environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage5-build-failure",
+        session_seed="stage5-build-failure-session",
+    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
+        "deterministic-report-v1"
+    )
+    for name, value in runner_environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        governance_runs_domain,
+        "render_report",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ReportRendererError("render_failed")
+        ),
+    )
+
+    assert run_governance_runner() == 1
+
+    run_payload = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert run_payload["status"] == "FAILED_PROCESSING"
+    assert [
+        (step["step_code"], step["status"], step["error_code"])
+        for step in run_payload["steps"]
+    ][-2:] == [
+        ("CHECK_FINDINGS", "SUCCEEDED", None),
+        ("BUILD_REPORT", "FAILED", "build_report_failed"),
+    ]
+    assert not any(
+        step["step_code"] in {"VALIDATE_REPORT", "PUBLISH"}
+        for step in run_payload["steps"]
+    )
+
+
+def test_stage5_validation_reopens_candidate_bytes_and_fails_closed(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    runner_environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage5-validation-failure",
+        session_seed="stage5-validation-failure-session",
+    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
+        "deterministic-report-v1"
+    )
+    for name, value in runner_environment.items():
+        monkeypatch.setenv(name, value)
+
+    prepare_candidate = governance_runs_domain._prepare_report_candidate
+
+    def prepare_tampered_candidate(
+        *, session: Session, run: GovernanceRun
+    ) -> governance_runs_domain.ReportCandidate:
+        candidate = prepare_candidate(session=session, run=run)
+        html_path = settings.ARTIFACT_ROOT / candidate.html_storage_key
+        html_path.chmod(0o640)
+        html_path.write_bytes(candidate.rendered.html + b"tampered")
+        return candidate
+
+    monkeypatch.setattr(
+        governance_runs_domain,
+        "_prepare_report_candidate",
+        prepare_tampered_candidate,
+    )
+
+    assert run_governance_runner() == 1
+
+    run_payload = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert run_payload["status"] == "FAILED_PROCESSING"
+    assert [
+        (step["step_code"], step["status"], step["error_code"])
+        for step in run_payload["steps"]
+    ][-3:] == [
+        ("CHECK_FINDINGS", "SUCCEEDED", None),
+        ("BUILD_REPORT", "SUCCEEDED", None),
+        ("VALIDATE_REPORT", "FAILED", "validate_report_failed"),
+    ]
+    assert not any(
+        step["step_code"] == "PUBLISH" for step in run_payload["steps"]
+    )
+    run_id = uuid.UUID(str(run_payload["id"]))
+    with Session(engine) as session:
+        assert session.exec(
+            select(GovernanceReport).where(
+                GovernanceReport.governance_run_id == run_id
+            )
+        ).all() == []
+
+
+def test_stage5_retry_reuses_succeeded_report_steps_and_completes(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    runner_environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage5-validation-retry",
+        session_seed="stage5-validation-retry-session",
+    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = "deterministic-report-v1"
+    for name, value in runner_environment.items():
+        monkeypatch.setenv(name, value)
+
+    prepare_candidate = governance_runs_domain._prepare_report_candidate
+    candidate_count = 0
+
+    def prepare_first_candidate_tampered(
+        *, session: Session, run: GovernanceRun
+    ) -> governance_runs_domain.ReportCandidate:
+        nonlocal candidate_count
+        candidate = prepare_candidate(session=session, run=run)
+        candidate_count += 1
+        if candidate_count == 1:
+            html_path = settings.ARTIFACT_ROOT / candidate.html_storage_key
+            html_path.chmod(0o640)
+            html_path.write_bytes(candidate.rendered.html + b"tampered")
+        return candidate
+
+    monkeypatch.setattr(
+        governance_runs_domain,
+        "_prepare_report_candidate",
+        prepare_first_candidate_tampered,
+    )
+
+    assert run_governance_runner() == 1
+
+    with Session(engine) as session:
+        run = session.exec(
+            select(GovernanceRun).where(
+                GovernanceRun.project_id == uuid.UUID(str(project["id"]))
+            )
+        ).one()
+        run_id = run.id
+        session_id = run.session_id
+
+    captured_environment: dict[str, str] = {}
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+
+    def capture_retry_start(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del client_request_id
+        captured_environment.update(environment)
+        return AgentComposeRunStart(
+            run_id="d" * 64,
+            started=True,
+            status="RUN_STATUS_RUNNING",
+            session_id=session_id,
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
+        capture_retry_start,
+    )
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry.status_code == 202, retry.text
+    assert captured_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] == (
+        "deterministic-report-v1"
+    )
+
+    monkeypatch.delenv("GOVERNANCE_REPORT_CONTRACT_VERSION", raising=False)
+    for name, value in captured_environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("SANDBOX_ID", session_id)
+    assert run_governance_runner() == 0
+
+    with Session(engine) as session:
+        stored_run = session.get(GovernanceRun, run_id)
+        assert stored_run is not None
+        assert stored_run.status == GovernanceRunStatus.COMPLETED.value
+        steps = session.exec(
+            select(RunStep).where(RunStep.governance_run_id == run_id)
+        ).all()
+        attempts = {step.step_code: step.attempt for step in steps}
+        assert attempts["BUILD_REPORT"] == 1
+        assert attempts["VALIDATE_REPORT"] == 2
+        assert attempts["PUBLISH"] == 1
+    assert len(list((tmp_path / "report_candidates").iterdir())) == 2
+
+
+def test_stage5_retry_prepares_build_as_the_next_unstarted_step(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    runner_environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage5-before-build-interruption",
+        session_seed="stage5-before-build-interruption-session",
+    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = "deterministic-report-v1"
+    for name, value in runner_environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        governance_runs_domain,
+        "_build_report_candidate",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            GovernanceRunExecutionError("runner_interrupted")
+        ),
+    )
+
+    assert run_governance_runner() == 1
+
+    with Session(engine) as session:
+        run = session.exec(
+            select(GovernanceRun).where(
+                GovernanceRun.project_id == uuid.UUID(str(project["id"]))
+            )
+        ).one()
+        run.status = GovernanceRunStatus.FAILED_PROCESSING.value
+        session.add(run)
+        session.commit()
+        step = governance_runs_domain.prepare_retry(
+            session=session,
+            run=run,
+            actor_subject="test-runner",
+            request_ip=None,
+        )
+        assert step.step_code == "BUILD_REPORT"
+        assert step.status == "RUNNING"
+
+
+def test_stage5_publish_without_validated_candidate_fails_the_publish_step(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    runner_environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage5-before-publish-interruption",
+        session_seed="stage5-before-publish-interruption-session",
+    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = "deterministic-report-v1"
+    for name, value in runner_environment.items():
+        monkeypatch.setenv(name, value)
+
+    publish_run = governance_runs_domain._publish_run
+    monkeypatch.setattr(
+        governance_runs_domain,
+        "_publish_run",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            GovernanceRunExecutionError("runner_interrupted")
+        ),
+    )
+    assert run_governance_runner() == 1
+    monkeypatch.setattr(governance_runs_domain, "_publish_run", publish_run)
+
+    with Session(engine) as session:
+        run = session.exec(
+            select(GovernanceRun).where(
+                GovernanceRun.project_id == uuid.UUID(str(project["id"]))
+            )
+        ).one()
+        with pytest.raises(GovernanceRunExecutionError):
+            publish_run(
+                session=session,
+                run=run,
+                request_ip=None,
+                report_candidate=None,
+            )
+        session.refresh(run)
+        assert run.status == GovernanceRunStatus.FAILED_PROCESSING.value
+        publish_step = session.exec(
+            select(RunStep).where(
+                RunStep.governance_run_id == run.id,
+                RunStep.step_code == "PUBLISH",
+            )
+        ).one()
+        assert publish_step.status == "FAILED"
+        assert publish_step.error_code == "publish_contract_failed"
 
 
 def test_terminal_launch_without_business_run_is_reconciled_by_mutation(
