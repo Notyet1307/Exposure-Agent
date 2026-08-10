@@ -299,7 +299,7 @@ def select_evidence(
             if isinstance(frozen_run_facts, FrozenRunEvidenceFacts)
             else FrozenRunEvidenceFacts.model_validate(frozen_run_facts)
         )
-    except ValidationError, TypeError:
+    except (ValidationError, TypeError):
         raise EvidenceSelectorError("fact_schema_invalid") from None
 
     _validate_facts(facts)
