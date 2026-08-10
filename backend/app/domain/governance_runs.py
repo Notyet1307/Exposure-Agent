@@ -8,8 +8,9 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, col, select
@@ -22,6 +23,15 @@ from app.domain.cloudatlas_sources import (
     PACKAGE_SHA256,
     CloudAtlasBoundaryError,
     OctobusCloudAtlasClient,
+)
+from app.domain.evidence_selector import (
+    CurrentRunTransitionEvidenceCandidate,
+    EvidenceBundle,
+    EvidenceSelectorError,
+    FrozenEvidenceFactReference,
+    FrozenRunEvidenceFacts,
+    OpenBacklogEvidenceCandidate,
+    select_evidence,
 )
 from app.domain.ip_consistency import (
     CLOUDATLAS_SOURCE_TYPE as IP_CLOUDATLAS_SOURCE_TYPE,
@@ -51,6 +61,7 @@ from app.domain.models import (
     FindingTransitionObservation,
     FindingTransitionSnapshot,
     FindingTransitionType,
+    FindingType,
     GovernanceRun,
     GovernanceRunPublic,
     GovernanceRunStatus,
@@ -67,6 +78,31 @@ from app.domain.models import (
     SourceSnapshot,
     SourceSnapshotPublic,
     SourceSnapshotType,
+)
+from app.domain.report_core import (
+    REPORT_CONTRACT_VERSION,
+    CanonicalReportCore,
+    FindingLifecycleFact,
+    FindingRunFact,
+    FindingTransitionFact,
+    FrozenRunReportFacts,
+    ReportCoreError,
+    SourceSnapshotFact,
+    compile_report_core,
+)
+from app.domain.report_core import (
+    FindingType as ReportFindingType,
+)
+from app.domain.report_core import (
+    SourceType as ReportSourceType,
+)
+from app.domain.report_core import (
+    TransitionType as ReportTransitionType,
+)
+from app.domain.report_renderer import (
+    RenderedReport,
+    ReportRendererError,
+    render_report,
 )
 from app.integrations.agent_compose import (
     AgentComposeClient,
@@ -192,6 +228,7 @@ class RunnerInputs:
     descriptor_sha256: str
     runner_build_version: str
     processing_contract_version: str | None
+    report_contract_version: str | None
 
     @classmethod
     def from_environment(cls, environment: dict[str, str]) -> RunnerInputs:
@@ -205,6 +242,9 @@ class RunnerInputs:
             profile_version = int(required("GOVERNANCE_CUSTOMER_PROFILE_VERSION"))
             raw_processing_contract = environment.get(
                 "GOVERNANCE_PROCESSING_CONTRACT_VERSION", ""
+            ).strip()
+            raw_report_contract = environment.get(
+                "GOVERNANCE_REPORT_CONTRACT_VERSION", ""
             ).strip()
             inputs = cls(
                 project_id=uuid.UUID(required("GOVERNANCE_PROJECT_ID")),
@@ -227,6 +267,7 @@ class RunnerInputs:
                 descriptor_sha256=required("GOVERNANCE_DESCRIPTOR_SHA256"),
                 runner_build_version=required("GOVERNANCE_RUNNER_BUILD_VERSION"),
                 processing_contract_version=raw_processing_contract or None,
+                report_contract_version=raw_report_contract or None,
             )
         except ValueError:
             raise GovernanceRunExecutionError("runner_input_invalid")
@@ -241,6 +282,10 @@ class RunnerInputs:
                 inputs.processing_contract_version is not None
                 and len(inputs.processing_contract_version) > 100
             )
+            or (
+                inputs.report_contract_version is not None
+                and len(inputs.report_contract_version) > 100
+            )
         ):
             raise GovernanceRunExecutionError("runner_input_invalid")
         return inputs
@@ -252,6 +297,24 @@ class CloudAtlasArtifactDraft:
     byte_size: int
     sha256: str
     record_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReportCandidate:
+    report_facts: FrozenRunReportFacts
+    evidence_facts: FrozenRunEvidenceFacts
+    report_model: CanonicalReportCore
+    evidence_plan: EvidenceBundle
+    rendered: RenderedReport
+    html_storage_key: str
+    csv_storage_key: str
+    build_output_hash: str
+
+
+class ReportCandidateValidationError(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 def _execution_error(code: str) -> NoReturn:
@@ -386,6 +449,16 @@ def _validate_runner_inputs(
             _execution_error("runner_processing_contract_required")
     elif inputs.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION:
         _execution_error("runner_processing_contract_unsupported")
+    if (
+        inputs.report_contract_version is not None
+        and inputs.report_contract_version != REPORT_CONTRACT_VERSION
+    ):
+        _execution_error("runner_report_contract_unsupported")
+    if (
+        inputs.report_contract_version is not None
+        and inputs.processing_contract_version is None
+    ):
+        _execution_error("runner_processing_contract_required")
     if not settings.CLOUDATLAS_CAPSET_TOKEN.get_secret_value():
         _execution_error("runner_cloudatlas_credential_not_ready")
     upload = session.exec(
@@ -445,6 +518,8 @@ def establish_governance_run(
             _execution_error("runner_trigger_session_conflict")
         if existing.processing_contract_version != inputs.processing_contract_version:
             _execution_error("runner_processing_contract_changed")
+        if existing.report_contract_version != inputs.report_contract_version:
+            _execution_error("runner_report_contract_changed")
         if (
             existing.status == GovernanceRunStatus.RUNNING.value
             and existing.session_recovery_code == "retry_prepared"
@@ -506,6 +581,7 @@ def establish_governance_run(
         descriptor_sha256=inputs.descriptor_sha256,
         runner_build_version=inputs.runner_build_version,
         processing_contract_version=inputs.processing_contract_version,
+        report_contract_version=inputs.report_contract_version,
     )
     triggered = _audit_event(
         run=run,
@@ -1639,6 +1715,653 @@ def _check_ip_findings(
         raise GovernanceRunProcessingError("check_findings_unexpected_failure")
 
 
+def _report_candidate_uuid(
+    run: GovernanceRun, kind: str, finding_type: str, canonical_ip: str
+) -> str:
+    return str(
+        uuid.uuid5(
+            run.id,
+            f"stage5-report:{kind}:{finding_type}:{canonical_ip}",
+        )
+    )
+
+
+def _report_candidate_facts(
+    *, session: Session, run: GovernanceRun
+) -> tuple[FrozenRunReportFacts, FrozenRunEvidenceFacts]:
+    if (
+        run.processing_contract_version is None
+        or run.report_contract_version != REPORT_CONTRACT_VERSION
+    ):
+        _processing_error("report_contract_invalid")
+
+    snapshots = session.exec(
+        select(SourceSnapshot).where(
+            SourceSnapshot.governance_run_id == run.id,
+            SourceSnapshot.project_id == run.project_id,
+            SourceSnapshot.tenant_id == run.tenant_id,
+        )
+    ).all()
+    snapshots_by_type = {snapshot.source_type: snapshot for snapshot in snapshots}
+    if set(snapshots_by_type) != {
+        SourceSnapshotType.CUSTOMER_UPLOAD.value,
+        SourceSnapshotType.CLOUDATLAS.value,
+    }:
+        _processing_error("report_snapshots_incomplete")
+
+    observations = session.exec(
+        select(Observation).where(
+            Observation.governance_run_id == run.id,
+            Observation.project_id == run.project_id,
+            Observation.tenant_id == run.tenant_id,
+        )
+    ).all()
+    customer_keys = {
+        str(observation.canonical_ip)
+        for observation in observations
+        if observation.source_type == IP_CUSTOMER_UPLOAD_SOURCE_TYPE
+    }
+    cloudatlas_keys = {
+        str(observation.canonical_ip)
+        for observation in observations
+        if observation.source_type == IP_CLOUDATLAS_SOURCE_TYPE
+    }
+    cloudatlas_only = cloudatlas_keys - customer_keys
+    customer_only = customer_keys - cloudatlas_keys
+    matched_keys = customer_keys & cloudatlas_keys
+
+    resources = session.exec(
+        select(Resource).where(
+            Resource.project_id == run.project_id,
+            Resource.tenant_id == run.tenant_id,
+            Resource.resource_type == ResourceType.IP.value,
+        )
+    ).all()
+    canonical_by_resource = {
+        resource.id: str(resource.canonical_key) for resource in resources
+    }
+    findings = session.exec(
+        select(Finding).where(
+            Finding.project_id == run.project_id,
+            Finding.tenant_id == run.tenant_id,
+        )
+    ).all()
+    for finding in findings:
+        if finding.resource_id not in canonical_by_resource:
+            _processing_error("report_finding_resource_missing")
+    finding_ids = [finding.id for finding in findings]
+    occurrences = (
+        session.exec(
+            select(FindingOccurrence).where(
+                FindingOccurrence.project_id == run.project_id,
+                FindingOccurrence.tenant_id == run.tenant_id,
+                col(FindingOccurrence.finding_id).in_(finding_ids),
+            )
+        ).all()
+        if finding_ids
+        else []
+    )
+    transitions = (
+        session.exec(
+            select(FindingTransition).where(
+                FindingTransition.project_id == run.project_id,
+                FindingTransition.tenant_id == run.tenant_id,
+                col(FindingTransition.finding_id).in_(finding_ids),
+            )
+        ).all()
+        if finding_ids
+        else []
+    )
+    history_run_ids = {
+        occurrence.governance_run_id for occurrence in occurrences
+    } | {transition.governance_run_id for transition in transitions}
+    history_runs = (
+        session.exec(
+            select(GovernanceRun).where(
+                GovernanceRun.project_id == run.project_id,
+                GovernanceRun.tenant_id == run.tenant_id,
+                col(GovernanceRun.id).in_(history_run_ids),
+            )
+        ).all()
+        if history_run_ids
+        else []
+    )
+    completed_at_by_run = {
+        history.id: history.completed_at
+        for history in history_runs
+        if history.completed_at is not None
+    }
+    if len(completed_at_by_run) != len(history_run_ids):
+        _processing_error("report_lifecycle_run_incomplete")
+    latest_history_at = max(completed_at_by_run.values(), default=None)
+    candidate_completed_at = get_datetime_utc()
+    if latest_history_at is not None and candidate_completed_at <= latest_history_at:
+        candidate_completed_at = latest_history_at + timedelta(microseconds=1)
+
+    occurrence_facts: defaultdict[uuid.UUID, list[FindingRunFact]] = defaultdict(list)
+    transition_facts: defaultdict[uuid.UUID, list[FindingTransitionFact]] = defaultdict(
+        list
+    )
+    for occurrence in occurrences:
+        occurrence_facts[occurrence.finding_id].append(
+            FindingRunFact(
+                run_id=str(occurrence.governance_run_id),
+                run_completed_at=completed_at_by_run[occurrence.governance_run_id],
+            )
+        )
+    for transition in transitions:
+        transition_facts[transition.finding_id].append(
+            FindingTransitionFact(
+                run_id=str(transition.governance_run_id),
+                run_completed_at=completed_at_by_run[transition.governance_run_id],
+                transition_type=cast(
+                    ReportTransitionType, transition.transition_type
+                ),
+            )
+        )
+
+    current_differences = {
+        **{
+            (FindingType.UNREPORTED_ASSET.value, canonical_ip): None
+            for canonical_ip in cloudatlas_only
+        },
+        **{
+            (FindingType.UNOBSERVED_ASSET.value, canonical_ip): None
+            for canonical_ip in customer_only
+        },
+    }
+    current_occurrence_ids: dict[str, str] = {}
+    current_transition_ids: dict[str, str] = {}
+    lifecycle_by_identity: dict[tuple[str, str], FindingLifecycleFact] = {}
+
+    for finding in findings:
+        identity = (
+            finding.finding_type,
+            canonical_by_resource[finding.resource_id],
+        )
+        current_occurrences = list(occurrence_facts[finding.id])
+        current_transitions = list(transition_facts[finding.id])
+        if identity in current_differences:
+            current_occurrences.append(
+                FindingRunFact(
+                    run_id=str(run.id),
+                    run_completed_at=candidate_completed_at,
+                )
+            )
+            current_occurrence_ids[str(finding.id)] = _report_candidate_uuid(
+                run, "occurrence", *identity
+            )
+            if finding.status == FindingStatus.CLOSED.value:
+                current_transitions.append(
+                    FindingTransitionFact(
+                        run_id=str(run.id),
+                        run_completed_at=candidate_completed_at,
+                        transition_type="REOPENED",
+                    )
+                )
+                current_transition_ids[str(finding.id)] = _report_candidate_uuid(
+                    run, "transition", *identity
+                )
+        elif (
+            identity[1] in matched_keys
+            and finding.status == FindingStatus.OPEN.value
+        ):
+            current_transitions.append(
+                FindingTransitionFact(
+                    run_id=str(run.id),
+                    run_completed_at=candidate_completed_at,
+                    transition_type="CLOSED",
+                )
+            )
+            current_transition_ids[str(finding.id)] = _report_candidate_uuid(
+                run, "transition", *identity
+            )
+        lifecycle_by_identity[identity] = FindingLifecycleFact(
+            finding_id=str(finding.id),
+            finding_type=cast(ReportFindingType, finding.finding_type),
+            canonical_ip=identity[1],
+            occurrences=tuple(current_occurrences),
+            transitions=tuple(current_transitions),
+        )
+
+    for identity in current_differences:
+        if identity in lifecycle_by_identity:
+            continue
+        finding_id = _report_candidate_uuid(run, "finding", *identity)
+        lifecycle_by_identity[identity] = FindingLifecycleFact(
+            finding_id=finding_id,
+            finding_type=cast(ReportFindingType, identity[0]),
+            canonical_ip=identity[1],
+            occurrences=(
+                FindingRunFact(
+                    run_id=str(run.id),
+                    run_completed_at=candidate_completed_at,
+                ),
+            ),
+            transitions=(
+                FindingTransitionFact(
+                    run_id=str(run.id),
+                    run_completed_at=candidate_completed_at,
+                    transition_type="OPENED",
+                ),
+            ),
+        )
+        current_occurrence_ids[finding_id] = _report_candidate_uuid(
+            run, "occurrence", *identity
+        )
+        current_transition_ids[finding_id] = _report_candidate_uuid(
+            run, "transition", *identity
+        )
+
+    ordered_source_types: tuple[ReportSourceType, ...] = (
+        "CUSTOMER_UPLOAD",
+        "CLOUDATLAS",
+    )
+    report_facts = FrozenRunReportFacts(
+        run_id=str(run.id),
+        project_id=str(run.project_id),
+        completed_at=candidate_completed_at,
+        processing_contract_version=run.processing_contract_version,
+        source_snapshots=tuple(
+            SourceSnapshotFact(
+                source_type=source_type,
+                source_snapshot_id=str(snapshots_by_type[source_type].id),
+                content_sha256=snapshots_by_type[source_type].content_sha256,
+                schema_version=snapshots_by_type[source_type].schema_fingerprint,
+                record_count=snapshots_by_type[source_type].record_count,
+                complete=True,
+            )
+            for source_type in ordered_source_types
+        ),
+        customer_observed_resource_keys=tuple(sorted(customer_keys)),
+        cloudatlas_observed_resource_keys=tuple(sorted(cloudatlas_keys)),
+        finding_lifecycles=tuple(lifecycle_by_identity.values()),
+    )
+    report_model = compile_report_core(report_facts, run.report_contract_version)
+
+    available_references = [
+        FrozenEvidenceFactReference(
+            governance_run_id=str(run.id),
+            fact_type="SOURCE_SNAPSHOT",
+            fact_id=str(snapshot.id),
+        )
+        for snapshot in snapshots
+    ]
+    available_references.extend(
+        FrozenEvidenceFactReference(
+            governance_run_id=str(run.id),
+            fact_type="OBSERVATION",
+            fact_id=str(observation.id),
+        )
+        for observation in observations
+    )
+    available_references.extend(
+        FrozenEvidenceFactReference(
+            governance_run_id=str(run.id),
+            fact_type="FINDING_OCCURRENCE",
+            fact_id=occurrence_id,
+        )
+        for occurrence_id in current_occurrence_ids.values()
+    )
+    available_references.extend(
+        FrozenEvidenceFactReference(
+            governance_run_id=str(run.id),
+            fact_type="FINDING_TRANSITION",
+            fact_id=transition_id,
+        )
+        for transition_id in current_transition_ids.values()
+    )
+    current_transition_candidates = tuple(
+        CurrentRunTransitionEvidenceCandidate(
+            finding_id=change.finding_id,
+            finding_type=change.finding_type,
+            canonical_ip=change.canonical_ip,
+            transition_type=change.transition_type,
+            evidence_reference=FrozenEvidenceFactReference(
+                governance_run_id=str(run.id),
+                fact_type="FINDING_TRANSITION",
+                fact_id=current_transition_ids[change.finding_id],
+            ),
+        )
+        for change in report_model.current_run_lifecycle_changes.changes
+    )
+    customer_snapshot = snapshots_by_type[SourceSnapshotType.CUSTOMER_UPLOAD.value]
+    backlog_candidates = tuple(
+        OpenBacklogEvidenceCandidate(
+            finding_id=finding.finding_id,
+            finding_type=finding.finding_type,
+            canonical_ip=finding.canonical_ip,
+            evidence_reference=FrozenEvidenceFactReference(
+                governance_run_id=str(run.id),
+                fact_type=(
+                    "FINDING_TRANSITION"
+                    if finding.finding_id in current_transition_ids
+                    else "FINDING_OCCURRENCE"
+                    if finding.finding_id in current_occurrence_ids
+                    else "SOURCE_SNAPSHOT"
+                ),
+                fact_id=(
+                    current_transition_ids.get(finding.finding_id)
+                    or current_occurrence_ids.get(finding.finding_id)
+                    or str(customer_snapshot.id)
+                ),
+            ),
+        )
+        for finding in report_model.open_backlog_as_of_run.findings
+    )
+    evidence_facts = FrozenRunEvidenceFacts(
+        governance_run_id=str(run.id),
+        available_facts=tuple(available_references),
+        current_run_transitions=current_transition_candidates,
+        open_backlog=backlog_candidates,
+    )
+    return report_facts, evidence_facts
+
+
+def _candidate_storage_path(storage_key: str) -> Path:
+    relative = Path(storage_key)
+    if (
+        len(relative.parts) != 2
+        or relative.parts[0] != "report_candidates"
+        or relative.suffix not in {".html", ".csv"}
+    ):
+        raise ReportCandidateValidationError("candidate_storage_key_invalid")
+    try:
+        uuid.UUID(relative.stem)
+    except ValueError:
+        raise ReportCandidateValidationError("candidate_storage_key_invalid") from None
+    root = settings.ARTIFACT_ROOT.resolve()
+    path = (root / relative).resolve()
+    if root not in path.parents:
+        raise ReportCandidateValidationError("candidate_storage_key_invalid")
+    return path
+
+
+def _write_report_candidate(
+    *, rendered: RenderedReport
+) -> tuple[str, str]:
+    candidate_directory = settings.ARTIFACT_ROOT.resolve() / "report_candidates"
+    candidate_directory.mkdir(parents=True, exist_ok=True)
+    html_storage_key = f"report_candidates/{uuid.uuid4()}.html"
+    csv_storage_key = f"report_candidates/{uuid.uuid4()}.csv"
+    final_outputs = (
+        (_candidate_storage_path(html_storage_key), rendered.html),
+        (_candidate_storage_path(csv_storage_key), rendered.csv),
+    )
+    temporary_paths: list[Path] = []
+    written_paths: list[Path] = []
+    try:
+        for final_path, content in final_outputs:
+            temporary_path = candidate_directory / f"{uuid.uuid4()}.tmp"
+            temporary_paths.append(temporary_path)
+            with temporary_path.open("xb") as output:
+                output.write(content)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary_path, final_path)
+            temporary_paths.remove(temporary_path)
+            final_path.chmod(0o440)
+            written_paths.append(final_path)
+    except OSError:
+        for path in (*temporary_paths, *written_paths):
+            path.unlink(missing_ok=True)
+        raise
+    return html_storage_key, csv_storage_key
+
+
+def _report_build_output_hash(
+    *,
+    rendered: RenderedReport,
+    html_storage_key: str,
+    csv_storage_key: str,
+) -> str:
+    return _fingerprint(
+        {
+            "report_contract_version": REPORT_CONTRACT_VERSION,
+            "canonical_json_sha256": rendered.canonical_json_sha256,
+            "html_sha256": rendered.html_sha256,
+            "csv_sha256": rendered.csv_sha256,
+            "html_storage_key": html_storage_key,
+            "csv_storage_key": csv_storage_key,
+        }
+    )
+
+
+def _prepare_report_candidate(
+    *, session: Session, run: GovernanceRun
+) -> ReportCandidate:
+    report_facts, evidence_facts = _report_candidate_facts(session=session, run=run)
+    assert run.report_contract_version is not None
+    report_model = compile_report_core(report_facts, run.report_contract_version)
+    evidence_plan = select_evidence(evidence_facts, run.report_contract_version)
+    rendered = render_report(report_model, evidence_plan)
+    html_storage_key, csv_storage_key = _write_report_candidate(rendered=rendered)
+    return ReportCandidate(
+        report_facts=report_facts,
+        evidence_facts=evidence_facts,
+        report_model=report_model,
+        evidence_plan=evidence_plan,
+        rendered=rendered,
+        html_storage_key=html_storage_key,
+        csv_storage_key=csv_storage_key,
+        build_output_hash=_report_build_output_hash(
+            rendered=rendered,
+            html_storage_key=html_storage_key,
+            csv_storage_key=csv_storage_key,
+        ),
+    )
+
+
+def _validate_prepared_report_candidate(candidate: ReportCandidate) -> str:
+    report_model = compile_report_core(
+        candidate.report_facts,
+        candidate.report_model.report_identity.report_contract_version,
+    )
+    evidence_plan = select_evidence(
+        candidate.evidence_facts,
+        candidate.report_model.report_identity.report_contract_version,
+    )
+    rendered = render_report(report_model, evidence_plan)
+    if report_model != candidate.report_model or evidence_plan != candidate.evidence_plan:
+        raise ReportCandidateValidationError("candidate_contract_changed")
+    if rendered != candidate.rendered:
+        raise ReportCandidateValidationError("candidate_render_changed")
+    expected_build_hash = _report_build_output_hash(
+        rendered=rendered,
+        html_storage_key=candidate.html_storage_key,
+        csv_storage_key=candidate.csv_storage_key,
+    )
+    if expected_build_hash != candidate.build_output_hash:
+        raise ReportCandidateValidationError("candidate_hash_changed")
+    try:
+        html_bytes = _candidate_storage_path(candidate.html_storage_key).read_bytes()
+        csv_bytes = _candidate_storage_path(candidate.csv_storage_key).read_bytes()
+    except OSError:
+        raise ReportCandidateValidationError("candidate_artifact_unavailable") from None
+    if (
+        html_bytes != rendered.html
+        or csv_bytes != rendered.csv
+        or hashlib.sha256(rendered.canonical_json).hexdigest()
+        != rendered.canonical_json_sha256
+        or hashlib.sha256(html_bytes).hexdigest() != rendered.html_sha256
+        or hashlib.sha256(csv_bytes).hexdigest() != rendered.csv_sha256
+    ):
+        raise ReportCandidateValidationError("candidate_artifact_hash_mismatch")
+    return _fingerprint(
+        {
+            "build_output_hash": candidate.build_output_hash,
+            "canonical_json_sha256": rendered.canonical_json_sha256,
+            "html_sha256": rendered.html_sha256,
+            "csv_sha256": rendered.csv_sha256,
+        }
+    )
+
+
+def _complete_report_step(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    step: RunStep,
+    output_hash: str,
+    request_ip: str | None,
+    hashes: RenderedReport,
+) -> None:
+    completed_at = get_datetime_utc()
+    step.status = RunStepStatus.SUCCEEDED.value
+    step.output_hash = output_hash
+    step.completed_at = completed_at
+    step.updated_at = completed_at
+    session.add(step)
+    session.add(
+        _audit_event(
+            run=run,
+            action="run_step.succeeded",
+            target_type="run_step",
+            target_id=step.id,
+            before_data={"status": RunStepStatus.RUNNING.value},
+            after_data={
+                "step_code": step.step_code,
+                "status": step.status,
+                "output_hash": output_hash,
+                "canonical_json_sha256": hashes.canonical_json_sha256,
+                "html_sha256": hashes.html_sha256,
+                "csv_sha256": hashes.csv_sha256,
+            },
+            request_ip=request_ip,
+        )
+    )
+    session.commit()
+
+
+def _build_report_candidate(
+    *, session: Session, run: GovernanceRun, request_ip: str | None
+) -> ReportCandidate:
+    check_step = session.exec(
+        select(RunStep).where(
+            RunStep.governance_run_id == run.id,
+            RunStep.step_code == RunStepCode.CHECK_FINDINGS.value,
+        )
+    ).one_or_none()
+    if (
+        check_step is None
+        or check_step.status != RunStepStatus.SUCCEEDED.value
+        or check_step.output_hash is None
+    ):
+        _processing_error("check_findings_step_incomplete")
+    input_hash = _fingerprint(
+        {
+            "report_contract_version": run.report_contract_version,
+            "check_findings_output_hash": check_step.output_hash,
+        }
+    )
+    step, created = _begin_step_or_fail(
+        session=session,
+        run=run,
+        step_code=RunStepCode.BUILD_REPORT,
+        input_hash=input_hash,
+        request_ip=request_ip,
+    )
+    if not created:
+        _execution_error("runner_step_already_started")
+    candidate: ReportCandidate | None = None
+    try:
+        candidate = _prepare_report_candidate(session=session, run=run)
+        _complete_report_step(
+            session=session,
+            run=run,
+            step=step,
+            output_hash=candidate.build_output_hash,
+            request_ip=request_ip,
+            hashes=candidate.rendered,
+        )
+        return candidate
+    except (
+        ReportCoreError,
+        EvidenceSelectorError,
+        ReportRendererError,
+        GovernanceRunProcessingError,
+        OSError,
+        SQLAlchemyError,
+    ):
+        session.rollback()
+    except Exception as unexpected_error:
+        logger.error(
+            "Report candidate build failed unexpectedly: %s",
+            type(unexpected_error).__name__,
+        )
+        session.rollback()
+    if candidate is not None:
+        for storage_key in (
+            candidate.html_storage_key,
+            candidate.csv_storage_key,
+        ):
+            try:
+                _candidate_storage_path(storage_key).unlink(missing_ok=True)
+            except OSError:
+                logger.error("Failed to remove an unpublished report candidate")
+    _fail_run(
+        session=session,
+        run=run,
+        step=step,
+        run_status=GovernanceRunStatus.FAILED_PROCESSING,
+        error_code="build_report_failed",
+        request_ip=request_ip,
+    )
+    raise GovernanceRunProcessingError("build_report_failed")
+
+
+def _validate_report_candidate(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    candidate: ReportCandidate,
+    request_ip: str | None,
+) -> None:
+    step, created = _begin_step_or_fail(
+        session=session,
+        run=run,
+        step_code=RunStepCode.VALIDATE_REPORT,
+        input_hash=candidate.build_output_hash,
+        request_ip=request_ip,
+    )
+    if not created:
+        _execution_error("runner_step_already_started")
+    try:
+        output_hash = _validate_prepared_report_candidate(candidate)
+        _complete_report_step(
+            session=session,
+            run=run,
+            step=step,
+            output_hash=output_hash,
+            request_ip=request_ip,
+            hashes=candidate.rendered,
+        )
+        return
+    except (
+        ReportCandidateValidationError,
+        ReportCoreError,
+        EvidenceSelectorError,
+        ReportRendererError,
+        SQLAlchemyError,
+    ):
+        session.rollback()
+    except Exception as unexpected_error:
+        logger.error(
+            "Report candidate validation failed unexpectedly: %s",
+            type(unexpected_error).__name__,
+        )
+        session.rollback()
+    _fail_run(
+        session=session,
+        run=run,
+        step=step,
+        run_status=GovernanceRunStatus.FAILED_PROCESSING,
+        error_code="validate_report_failed",
+        request_ip=request_ip,
+    )
+    raise GovernanceRunProcessingError("validate_report_failed")
+
+
 def _verify_snapshot_artifact(*, session: Session, snapshot: SourceSnapshot) -> None:
     artifact = session.exec(
         select(Artifact).where(
@@ -2109,8 +2832,14 @@ def _publish_stage4_run(
 
 
 def _publish_run(
-    *, session: Session, run: GovernanceRun, request_ip: str | None
+    *,
+    session: Session,
+    run: GovernanceRun,
+    request_ip: str | None,
+    report_candidate: ReportCandidate | None = None,
 ) -> None:
+    if run.report_contract_version is not None and report_candidate is None:
+        _processing_error("validated_report_candidate_missing")
     if run.processing_contract_version is not None:
         _publish_stage4_run(session=session, run=run, request_ip=request_ip)
         return
@@ -2717,13 +3446,29 @@ def execute_governance_run(*, session: Session, inputs: RunnerInputs) -> Governa
     run = establish_governance_run(session=session, inputs=inputs)
     if run.status != GovernanceRunStatus.RUNNING.value:
         return run
+    report_candidate: ReportCandidate | None = None
     _load_customer_snapshot(session=session, run=run, request_ip=None)
     _pull_cloudatlas_snapshot(session=session, run=run, request_ip=None)
     if run.processing_contract_version is not None:
         _normalize_ip_observations(session=session, run=run, request_ip=None)
         _resolve_ip_observations(session=session, run=run, request_ip=None)
         _check_ip_findings(session=session, run=run, request_ip=None)
-    _publish_run(session=session, run=run, request_ip=None)
+    if run.report_contract_version is not None:
+        report_candidate = _build_report_candidate(
+            session=session, run=run, request_ip=None
+        )
+        _validate_report_candidate(
+            session=session,
+            run=run,
+            candidate=report_candidate,
+            request_ip=None,
+        )
+    _publish_run(
+        session=session,
+        run=run,
+        request_ip=None,
+        report_candidate=report_candidate,
+    )
     session.refresh(run)
     return run
 
