@@ -332,6 +332,22 @@ def test_canonical_output_has_no_asset_governance_decision_fields() -> None:
     assert keys(payload).isdisjoint(prohibited)
 
 
+@pytest.mark.parametrize(
+    "noncanonical_ip",
+    ["::ffff:c000:201", "fe80::1%eth0"],
+)
+def test_frozen_resource_keys_must_use_the_contract_canonical_ip(
+    noncanonical_ip: str,
+) -> None:
+    facts = _facts()
+    facts["customer_observed_resource_keys"] = [noncanonical_ip]
+
+    with pytest.raises(ReportCoreError) as caught:
+        compile_report_core(facts, REPORT_CONTRACT_VERSION)
+
+    assert caught.value.code == "fact_schema_invalid"
+
+
 def test_unknown_report_contract_and_extra_governance_fields_are_rejected() -> None:
     with pytest.raises(ReportCoreError) as version_error:
         compile_report_core(_facts(), "deterministic-report-v2")

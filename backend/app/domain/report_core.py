@@ -23,6 +23,8 @@ from pydantic import (
     field_validator,
 )
 
+from app.domain.ip_consistency import IPRecordContractError, normalize_ip
+
 REPORT_CONTRACT_VERSION: Final = "deterministic-report-v1"
 GENERATION_MODE: Final = "DETERMINISTIC_TEMPLATE"
 
@@ -237,14 +239,12 @@ class _LifecycleState(_FrozenModel):
 
 
 def _canonical_ip(value: str) -> str:
+    """Require the already-frozen Resource key to be contract-canonical."""
+
     try:
-        address = ipaddress.ip_address(value)
-    except ValueError:
+        canonical = normalize_ip(value)
+    except IPRecordContractError:
         raise ReportCoreError("fact_schema_invalid") from None
-    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
-        canonical = str(address.ipv4_mapped)
-    else:
-        canonical = str(address)
     if canonical != value:
         raise ReportCoreError("fact_schema_invalid")
     return canonical
@@ -465,7 +465,7 @@ def compile_report_core(
             if isinstance(frozen_run_facts, FrozenRunReportFacts)
             else FrozenRunReportFacts.model_validate(frozen_run_facts)
         )
-    except ValidationError, TypeError:
+    except (ValidationError, TypeError):
         raise ReportCoreError("fact_schema_invalid") from None
 
     _validate_run_facts(facts)
