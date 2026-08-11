@@ -23,6 +23,7 @@ from app.domain.cloudatlas_sources import (
     CloudAtlasFingerprint,
     OctobusCloudAtlasClient,
 )
+from app.domain.evidence_selector import EvidenceSelectorError
 from app.domain.governance_runs import (
     GovernanceRunExecutionError,
     RunnerInputs,
@@ -42,7 +43,7 @@ from app.domain.models import (
     SourceInstance,
     SourceSnapshot,
 )
-from app.domain.report_core import REPORT_CONTRACT_VERSION
+from app.domain.report_core import REPORT_CONTRACT_VERSION, ReportCoreError
 from app.domain.report_renderer import ReportRendererError
 from app.governance_runner import main as run_governance_runner
 from app.integrations.agent_compose import (
@@ -211,6 +212,45 @@ def _mock_cloudatlas(monkeypatch: MonkeyPatch) -> None:
             "total": 1,
         },
     )
+
+
+def _trigger_stage5_run(
+    *,
+    client: TestClient,
+    headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+    project: dict[str, object],
+    trigger_id: str,
+) -> dict[str, str]:
+    captured_environment: dict[str, str] = {}
+
+    def start(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del client_request_id, session_id
+        captured_environment.update(environment)
+        return AgentComposeRunStart(
+            run_id=hashlib.sha256(trigger_id.encode()).hexdigest(),
+            started=True,
+            status="RUN_STATUS_PENDING",
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_governance_run", start)
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers={**headers, "Idempotency-Key": trigger_id},
+    )
+    assert response.status_code == 202, response.text
+    captured_environment["SANDBOX_ID"] = hashlib.sha256(
+        f"{trigger_id}-session".encode()
+    ).hexdigest()
+    for name, value in captured_environment.items():
+        monkeypatch.setenv(name, value)
+    return captured_environment
 
 
 def test_public_trigger_enables_stage5_report_contract(
@@ -427,7 +467,7 @@ def test_public_trigger_atomically_publishes_stage5_report(
         assert report.csv_sha256 == build_event.after_data["csv_sha256"]
 
 
-def test_stage5_build_failure_stops_before_validation_and_publish(
+def test_stage5_build_storage_failure_retries_only_build_attempt(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
@@ -443,49 +483,372 @@ def test_stage5_build_failure_stops_before_validation_and_publish(
     monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
     _mock_cloudatlas(monkeypatch)
     project = _create_project(client, superuser_token_headers)
-    upload, source = _prepare_ready_project(
+    _prepare_ready_project(
         client=client,
         headers=superuser_token_headers,
         project=project,
     )
-    runner_environment = _runner_environment(
+    _trigger_stage5_run(
+        client=client,
+        headers=superuser_token_headers,
+        monkeypatch=monkeypatch,
         project=project,
-        upload=upload,
-        source=source,
-        trigger_id="stage5-build-failure",
-        session_seed="stage5-build-failure-session",
+        trigger_id="stage5-build-storage-failure",
     )
-    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
-        "deterministic-report-v1"
-    )
-    for name, value in runner_environment.items():
-        monkeypatch.setenv(name, value)
+    write_candidate = governance_runs_domain._write_report_candidate
+    sensitive_detail = "/private/customer/report/key: raw report content"
     monkeypatch.setattr(
         governance_runs_domain,
-        "render_report",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            ReportRendererError("render_failed")
-        ),
+        "_write_report_candidate",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError(sensitive_detail)),
     )
 
     assert run_governance_runner() == 1
 
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
     run_payload = client.get(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
         headers=superuser_token_headers,
     ).json()["data"][0]
     assert run_payload["status"] == "FAILED_PROCESSING"
-    assert [
-        (step["step_code"], step["status"], step["error_code"])
-        for step in run_payload["steps"]
-    ][-2:] == [
-        ("CHECK_FINDINGS", "SUCCEEDED", None),
-        ("BUILD_REPORT", "FAILED", "build_report_failed"),
-    ]
+    assert run_payload["can_retry"] is True
+    assert run_payload["session_recovery_code"] is None
+    assert run_payload["steps"][-1]["error_code"] == "build_report_storage_failed"
+    assert sensitive_detail not in str(run_payload)
     assert not any(
         step["step_code"] in {"VALIDATE_REPORT", "PUBLISH"}
         for step in run_payload["steps"]
     )
+    run_id = uuid.UUID(str(run_payload["id"]))
+    with Session(engine) as session:
+        assert session.exec(
+            select(GovernanceReport).where(
+                GovernanceReport.governance_run_id == run_id
+            )
+        ).all() == []
+
+    monkeypatch.setattr(
+        governance_runs_domain, "_write_report_candidate", write_candidate
+    )
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+    retry_environment: dict[str, str] = {}
+
+    def start_retry(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del client_request_id
+        retry_environment.update(environment)
+        return AgentComposeRunStart(
+            run_id="d" * 64,
+            started=True,
+            status="RUN_STATUS_RUNNING",
+            session_id=session_id,
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_governance_run", start_retry)
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry.status_code == 202, retry.text
+    for name, value in retry_environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("SANDBOX_ID", run_payload["session_id"])
+
+    assert run_governance_runner() == 0
+
+    with Session(engine) as session:
+        steps = session.exec(
+            select(RunStep).where(RunStep.governance_run_id == run_id)
+        ).all()
+        attempts = {step.step_code: step.attempt for step in steps}
+        assert attempts == {
+            "LOAD_CUSTOMER": 1,
+            "PULL_CLOUDATLAS": 1,
+            "NORMALIZE": 1,
+            "RESOLVE": 1,
+            "CHECK_FINDINGS": 1,
+            "BUILD_REPORT": 2,
+            "VALIDATE_REPORT": 1,
+            "PUBLISH": 1,
+        }
+
+
+@pytest.mark.parametrize(
+    ("failure_name", "target_name", "error_type", "error_code", "retryable"),
+    (
+        (
+            "build-contract",
+            "_prepare_report_candidate",
+            ReportRendererError,
+            "build_report_contract_failed",
+            False,
+        ),
+        (
+            "build-persistence",
+            "_prepare_report_candidate",
+            SQLAlchemyError,
+            "build_report_persistence_failed",
+            True,
+        ),
+        (
+            "build-processing",
+            "_prepare_report_candidate",
+            RuntimeError,
+            "build_report_processing_failed",
+            True,
+        ),
+        (
+            "validate-persistence",
+            "_validate_prepared_report_candidate",
+            SQLAlchemyError,
+            "validate_report_persistence_failed",
+            True,
+        ),
+        (
+            "validate-processing",
+            "_validate_prepared_report_candidate",
+            RuntimeError,
+            "validate_report_processing_failed",
+            True,
+        ),
+    ),
+)
+def test_stage5_report_failure_categories_are_stable_and_redacted(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    failure_name: str,
+    target_name: str,
+    error_type: type[Exception],
+    error_code: str,
+    retryable: bool,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    _trigger_stage5_run(
+        client=client,
+        headers=superuser_token_headers,
+        monkeypatch=monkeypatch,
+        project=project,
+        trigger_id=f"stage5-{failure_name}",
+    )
+    sensitive_detail = f"/{failure_name}/customer/storage-key report-body"
+    monkeypatch.setattr(
+        governance_runs_domain,
+        target_name,
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            error_type(sensitive_detail)
+        ),
+    )
+
+    assert run_governance_runner() == 1
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    response = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert response.status_code == 200, response.text
+    failed = response.json()["data"][0]
+    assert failed["status"] == "FAILED_PROCESSING"
+    assert failed["can_retry"] is retryable
+    assert failed["steps"][-1]["error_code"] == error_code
+    assert failed["session_recovery_code"] == (
+        None if retryable else f"non_retryable:{error_code}"
+    )
+    assert sensitive_detail not in response.text
+    run_id = uuid.UUID(str(failed["id"]))
+    with Session(engine) as session:
+        assert session.exec(
+            select(GovernanceReport).where(
+                GovernanceReport.governance_run_id == run_id
+            )
+        ).all() == []
+        assert session.exec(
+            select(Artifact).where(
+                Artifact.governance_run_id == run_id,
+                col(Artifact.media_type).in_(("text/html", "text/csv")),
+            )
+        ).all() == []
+
+    if not retryable:
+        retry = client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+            headers=superuser_token_headers,
+        )
+        assert retry.status_code == 409, retry.text
+        assert retry.json()["detail"]["code"] == "run_processing_not_retryable"
+
+
+def test_stage5_validation_artifact_failure_retries_only_validation_attempt(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    _trigger_stage5_run(
+        client=client,
+        headers=superuser_token_headers,
+        monkeypatch=monkeypatch,
+        project=project,
+        trigger_id="stage5-validate-artifact-failure",
+    )
+    validate_candidate = governance_runs_domain._validate_prepared_report_candidate
+    fail_once = True
+
+    def fail_artifact_read_once(
+        candidate: governance_runs_domain.ReportCandidate,
+    ) -> str:
+        nonlocal fail_once
+        if fail_once:
+            fail_once = False
+            for storage_key in (
+                candidate.html_storage_key,
+                candidate.csv_storage_key,
+            ):
+                (settings.ARTIFACT_ROOT / storage_key).unlink()
+        return validate_candidate(candidate)
+
+    monkeypatch.setattr(
+        governance_runs_domain,
+        "_validate_prepared_report_candidate",
+        fail_artifact_read_once,
+    )
+
+    assert run_governance_runner() == 1
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    failed = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert failed["status"] == "FAILED_PROCESSING"
+    assert failed["can_retry"] is True
+    assert failed["session_recovery_code"] is None
+    assert failed["steps"][-1]["error_code"] == "validate_report_storage_failed"
+    run_id = uuid.UUID(str(failed["id"]))
+    with Session(engine) as session:
+        assert session.exec(
+            select(GovernanceReport).where(
+                GovernanceReport.governance_run_id == run_id
+            )
+        ).all() == []
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "resume_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.RUNNING,
+        ),
+    )
+    retry_environment: dict[str, str] = {}
+
+    def start_retry(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del client_request_id
+        retry_environment.update(environment)
+        return AgentComposeRunStart(
+            run_id="e" * 64,
+            started=True,
+            status="RUN_STATUS_RUNNING",
+            session_id=session_id,
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_governance_run", start_retry)
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry.status_code == 202, retry.text
+    for name, value in retry_environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("SANDBOX_ID", failed["session_id"])
+
+    assert run_governance_runner() == 0
+
+    with Session(engine) as session:
+        steps = session.exec(
+            select(RunStep).where(RunStep.governance_run_id == run_id)
+        ).all()
+        attempts = {step.step_code: step.attempt for step in steps}
+        assert attempts == {
+            "LOAD_CUSTOMER": 1,
+            "PULL_CLOUDATLAS": 1,
+            "NORMALIZE": 1,
+            "RESOLVE": 1,
+            "CHECK_FINDINGS": 1,
+            "BUILD_REPORT": 1,
+            "VALIDATE_REPORT": 2,
+            "PUBLISH": 1,
+        }
 
 
 def test_stage5_validation_reopens_candidate_bytes_and_fails_closed(
@@ -552,7 +915,7 @@ def test_stage5_validation_reopens_candidate_bytes_and_fails_closed(
     ][-3:] == [
         ("CHECK_FINDINGS", "SUCCEEDED", None),
         ("BUILD_REPORT", "SUCCEEDED", None),
-        ("VALIDATE_REPORT", "FAILED", "validate_report_failed"),
+        ("VALIDATE_REPORT", "FAILED", "validate_report_contract_failed"),
     ]
     assert not any(
         step["step_code"] == "PUBLISH" for step in run_payload["steps"]
@@ -564,6 +927,153 @@ def test_stage5_validation_reopens_candidate_bytes_and_fails_closed(
                 GovernanceReport.governance_run_id == run_id
             )
         ).all() == []
+
+
+@pytest.mark.parametrize(
+    ("failure_name", "error_type"),
+    (
+        ("schema", ReportCoreError),
+        ("numbers", ReportCoreError),
+        ("evidence", EvidenceSelectorError),
+        ("as-of", ReportCoreError),
+        ("render", ReportRendererError),
+        ("hash", governance_runs_domain.ReportCandidateValidationError),
+    ),
+)
+def test_stage5_validation_contract_failures_require_public_rerun(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    failure_name: str,
+    error_type: type[Exception],
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    trigger_id = f"stage5-validate-{failure_name}"
+    _trigger_stage5_run(
+        client=client,
+        headers=superuser_token_headers,
+        monkeypatch=monkeypatch,
+        project=project,
+        trigger_id=trigger_id,
+    )
+    validate_candidate = governance_runs_domain._validate_prepared_report_candidate
+    sensitive_detail = f"/{failure_name}/customer/storage-key report-body"
+    monkeypatch.setattr(
+        governance_runs_domain,
+        "_validate_prepared_report_candidate",
+        lambda _candidate: (_ for _ in ()).throw(error_type(sensitive_detail)),
+    )
+
+    assert run_governance_runner() == 1
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    response = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert response.status_code == 200, response.text
+    failed = response.json()["data"][0]
+    assert failed["status"] == "FAILED_PROCESSING"
+    assert failed["can_retry"] is False
+    assert failed["can_rerun"] is True
+    assert failed["blocking_code"] == "run_processing_not_retryable"
+    assert failed["session_recovery_code"] == (
+        "non_retryable:validate_report_contract_failed"
+    )
+    assert failed["steps"][-1]["error_code"] == "validate_report_contract_failed"
+    assert sensitive_detail not in response.text
+    failed_run_id = uuid.UUID(str(failed["id"]))
+    with Session(engine) as session:
+        assert session.exec(
+            select(GovernanceReport).where(
+                GovernanceReport.governance_run_id == failed_run_id
+            )
+        ).all() == []
+        assert session.exec(
+            select(Artifact).where(
+                Artifact.governance_run_id == failed_run_id,
+                col(Artifact.media_type).in_(("text/html", "text/csv")),
+            )
+        ).all() == []
+
+    retry = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed_run_id}/retry",
+        headers=superuser_token_headers,
+    )
+    assert retry.status_code == 409, retry.text
+    assert retry.json()["detail"]["code"] == "run_processing_not_retryable"
+
+    monkeypatch.setattr(
+        governance_runs_domain,
+        "_validate_prepared_report_candidate",
+        validate_candidate,
+    )
+    rerun_environment: dict[str, str] = {}
+
+    def start_rerun(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del client_request_id
+        assert session_id is None
+        rerun_environment.update(environment)
+        return AgentComposeRunStart(
+            run_id=hashlib.sha256(f"{failure_name}-rerun".encode()).hexdigest(),
+            started=True,
+            status="RUN_STATUS_PENDING",
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_governance_run", start_rerun)
+    rerun = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed_run_id}/rerun",
+        headers={
+            **superuser_token_headers,
+            "Idempotency-Key": f"{trigger_id}-fixed",
+        },
+    )
+    assert rerun.status_code == 202, rerun.text
+    assert rerun_environment["GOVERNANCE_TRIGGER_ID"] == f"{trigger_id}-fixed"
+    for name, value in rerun_environment.items():
+        monkeypatch.setenv(name, value)
+    new_session_id = hashlib.sha256(f"{trigger_id}-fixed-session".encode()).hexdigest()
+    monkeypatch.setenv("SANDBOX_ID", new_session_id)
+
+    assert run_governance_runner() == 0
+
+    runs = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"]
+    assert len(runs) == 2
+    assert runs[0]["status"] == "COMPLETED"
+    assert runs[0]["id"] != failed["id"]
+    assert runs[0]["session_id"] == new_session_id
+    assert runs[1]["status"] == "FAILED_PROCESSING"
 
 
 def test_stage5_publish_reopens_candidate_bytes_and_rolls_back_on_tamper(
@@ -656,7 +1166,7 @@ def test_stage5_publish_reopens_candidate_bytes_and_rolls_back_on_tamper(
         ).one() == 0
 
 
-def test_stage5_retry_reuses_succeeded_report_steps_and_completes(
+def test_stage5_deterministic_validation_failure_is_not_retryable(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
@@ -711,78 +1221,23 @@ def test_stage5_retry_reuses_succeeded_report_steps_and_completes(
 
     assert run_governance_runner() == 1
 
-    with Session(engine) as session:
-        run = session.exec(
-            select(GovernanceRun).where(
-                GovernanceRun.project_id == uuid.UUID(str(project["id"]))
-            )
-        ).one()
-        run_id = run.id
-        session_id = run.session_id
-
-    captured_environment: dict[str, str] = {}
-    monkeypatch.setattr(
-        "app.api.routes.governance_runs.AgentComposeClient.get_session",
-        lambda _client, requested_id: AgentComposeSession(
-            session_id=requested_id,
-            observation=AgentComposeSessionObservation.TERMINAL,
-        ),
+    run_payload = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert run_payload["session_recovery_code"] == (
+        "non_retryable:validate_report_contract_failed"
     )
-    monkeypatch.setattr(
-        "app.api.routes.governance_runs.AgentComposeClient.resume_session",
-        lambda _client, requested_id: AgentComposeSession(
-            session_id=requested_id,
-            observation=AgentComposeSessionObservation.RUNNING,
-        ),
+    assert run_payload["steps"][-1]["error_code"] == (
+        "validate_report_contract_failed"
     )
 
-    def capture_retry_start(
-        _client: object,
-        *,
-        client_request_id: str,
-        environment: dict[str, str],
-        session_id: str | None = None,
-    ) -> AgentComposeRunStart:
-        del client_request_id
-        captured_environment.update(environment)
-        return AgentComposeRunStart(
-            run_id="d" * 64,
-            started=True,
-            status="RUN_STATUS_RUNNING",
-            session_id=session_id,
-        )
-
-    monkeypatch.setattr(
-        "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
-        capture_retry_start,
-    )
     retry = client.post(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_id}/retry",
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_payload['id']}/retry",
         headers=superuser_token_headers,
     )
-    assert retry.status_code == 202, retry.text
-    assert captured_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] == (
-        "deterministic-report-v1"
-    )
-
-    monkeypatch.delenv("GOVERNANCE_REPORT_CONTRACT_VERSION", raising=False)
-    for name, value in captured_environment.items():
-        monkeypatch.setenv(name, value)
-    monkeypatch.setenv("SANDBOX_ID", session_id)
-    assert run_governance_runner() == 0
-
-    with Session(engine) as session:
-        stored_run = session.get(GovernanceRun, run_id)
-        assert stored_run is not None
-        assert stored_run.status == GovernanceRunStatus.COMPLETED.value
-        steps = session.exec(
-            select(RunStep).where(RunStep.governance_run_id == run_id)
-        ).all()
-        attempts = {step.step_code: step.attempt for step in steps}
-        assert attempts["BUILD_REPORT"] == 1
-        assert attempts["VALIDATE_REPORT"] == 2
-        assert attempts["PUBLISH"] == 1
-    assert len(list((tmp_path / "report_candidates").iterdir())) == 2
+    assert retry.status_code == 409, retry.text
+    assert retry.json()["detail"]["code"] == "run_processing_not_retryable"
 
 
 def test_stage5_retry_prepares_build_as_the_next_unstarted_step(
@@ -1152,16 +1607,17 @@ def test_legacy_run_can_resume_without_a_stage4_processing_contract(
 
 
 @pytest.mark.parametrize(
-    "processing_contract_version",
-    [None, "ip-v0"],
-    ids=["legacy-stage3", "unsupported-stage4"],
+    ("processing_contract_version", "report_contract_version"),
+    [(None, None), ("ip-v0", None), ("ip-v1", "deterministic-report-v0")],
+    ids=["legacy-stage3", "unsupported-stage4", "unsupported-stage5"],
 )
-def test_stage4_retry_rejects_incompatible_processing_contract(
+def test_retry_rejects_incompatible_processing_contract(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
     processing_contract_version: str | None,
+    report_contract_version: str | None,
 ) -> None:
     monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     monkeypatch.setattr(
@@ -1179,8 +1635,14 @@ def test_stage4_retry_rejects_incompatible_processing_contract(
         project=project,
         upload=upload,
         source=source,
-        trigger_id=f"incompatible-contract-{processing_contract_version or 'legacy'}",
-        session_seed=f"incompatible-contract-{processing_contract_version or 'legacy'}-session",
+        trigger_id=(
+            "incompatible-contract-"
+            f"{report_contract_version or processing_contract_version or 'legacy'}"
+        ),
+        session_seed=(
+            "incompatible-contract-"
+            f"{report_contract_version or processing_contract_version or 'legacy'}-session"
+        ),
     )
     inputs = RunnerInputs.from_environment(environment)
     with Session(engine) as session:
@@ -1203,6 +1665,7 @@ def test_stage4_retry_rejects_incompatible_processing_contract(
             descriptor_sha256=inputs.descriptor_sha256,
             runner_build_version=inputs.runner_build_version,
             processing_contract_version=processing_contract_version,
+            report_contract_version=report_contract_version,
         )
         session.add(run)
         session.commit()
