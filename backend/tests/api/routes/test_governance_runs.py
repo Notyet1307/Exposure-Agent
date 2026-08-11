@@ -32,6 +32,8 @@ from app.domain.models import (
     Artifact,
     AuditEvent,
     CustomerUpload,
+    Evidence,
+    Finding,
     GovernanceReport,
     GovernanceRun,
     GovernanceRunStatus,
@@ -40,6 +42,7 @@ from app.domain.models import (
     SourceInstance,
     SourceSnapshot,
 )
+from app.domain.report_core import REPORT_CONTRACT_VERSION
 from app.domain.report_renderer import ReportRendererError
 from app.governance_runner import main as run_governance_runner
 from app.integrations.agent_compose import (
@@ -210,11 +213,67 @@ def _mock_cloudatlas(monkeypatch: MonkeyPatch) -> None:
     )
 
 
-def test_stage5_runner_prepares_and_validates_hidden_report_candidate(
+def test_public_trigger_enables_stage5_report_contract(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    captured_environment: dict[str, str] = {}
+
+    def capture_start(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del client_request_id, session_id
+        captured_environment.update(environment)
+        return AgentComposeRunStart(
+            run_id="a" * 64,
+            started=True,
+            status="RUN_STATUS_PENDING",
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_governance_run", capture_start)
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers={
+            **superuser_token_headers,
+            "Idempotency-Key": "public-stage5-trigger",
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    assert captured_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] == (
+        REPORT_CONTRACT_VERSION
+    )
+
+
+@pytest.mark.parametrize(
+    ("cloud_ip", "finding_count", "evidence_count"),
+    (("192.0.2.10", 0, 0), ("192.0.2.20", 2, 2)),
+)
+def test_public_trigger_atomically_publishes_stage5_report(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    cloud_ip: str,
+    finding_count: int,
+    evidence_count: int,
 ) -> None:
     monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     monkeypatch.setattr(
@@ -230,7 +289,7 @@ def test_stage5_runner_prepares_and_validates_hidden_report_candidate(
         "list_ip_assets_page",
         lambda _client, _source, *, capset_token, page, size: {
             "items": [
-                {"id": "fixture-asset-2", "ip": "192.0.2.20", "status": "valid"}
+                {"id": "fixture-asset-2", "ip": cloud_ip, "status": "valid"}
             ],
             "page": page,
             "size": size,
@@ -238,21 +297,43 @@ def test_stage5_runner_prepares_and_validates_hidden_report_candidate(
         },
     )
     project = _create_project(client, superuser_token_headers)
-    upload, source = _prepare_ready_project(
+    _prepare_ready_project(
         client=client,
         headers=superuser_token_headers,
         project=project,
     )
-    runner_environment = _runner_environment(
-        project=project,
-        upload=upload,
-        source=source,
-        trigger_id="stage5-hidden-candidate",
-        session_seed="stage5-hidden-candidate-session",
+    runner_environment: dict[str, str] = {}
+
+    def capture_start(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del client_request_id, session_id
+        runner_environment.update(environment)
+        return AgentComposeRunStart(
+            run_id="b" * 64,
+            started=True,
+            status="RUN_STATUS_PENDING",
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_governance_run", capture_start)
+    trigger = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers={
+            **superuser_token_headers,
+            "Idempotency-Key": f"stage5-publish-{finding_count}",
+        },
     )
-    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
-        "deterministic-report-v1"
+    assert trigger.status_code == 202, trigger.text
+    assert runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] == (
+        REPORT_CONTRACT_VERSION
     )
+    runner_environment["SANDBOX_ID"] = hashlib.sha256(
+        f"stage5-publish-{finding_count}-session".encode()
+    ).hexdigest()
     for name, value in runner_environment.items():
         monkeypatch.setenv(name, value)
 
@@ -283,18 +364,36 @@ def test_stage5_runner_prepares_and_validates_hidden_report_candidate(
     with Session(engine) as session:
         stored_run = session.get(GovernanceRun, run_id)
         assert stored_run is not None
-        assert stored_run.report_contract_version == "deterministic-report-v1"
-        assert session.exec(
+        assert stored_run.report_contract_version == REPORT_CONTRACT_VERSION
+        assert stored_run.status == GovernanceRunStatus.COMPLETED.value
+        report = session.exec(
             select(GovernanceReport).where(
                 GovernanceReport.governance_run_id == run_id
             )
-        ).all() == []
-        assert session.exec(
+        ).one()
+        assert report.generation_mode == "DETERMINISTIC_TEMPLATE"
+        assert report.report_contract_version == REPORT_CONTRACT_VERSION
+        assert report.canonical_content["report"]["report_identity"][
+            "governance_run_id"
+        ] == str(run_id)
+        assert report.canonical_content["report"]["ip_consistency_summary"][
+            "current_run_finding_count"
+        ] == finding_count
+        artifacts = session.exec(
             select(Artifact).where(
                 Artifact.governance_run_id == run_id,
                 col(Artifact.media_type).in_(("text/html", "text/csv")),
             )
-        ).all() == []
+        ).all()
+        assert {artifact.id for artifact in artifacts} == {
+            report.html_artifact_id,
+            report.csv_artifact_id,
+        }
+        assert session.exec(
+            select(func.count()).select_from(Evidence).where(
+                Evidence.governance_report_id == report.id
+            )
+        ).one() == evidence_count
         build_step = session.exec(
             select(RunStep).where(
                 RunStep.governance_run_id == run_id,
@@ -324,6 +423,8 @@ def test_stage5_runner_prepares_and_validates_hidden_report_candidate(
         assert hashlib.sha256(path_by_suffix[".csv"].read_bytes()).hexdigest() == (
             build_event.after_data["csv_sha256"]
         )
+        assert report.html_sha256 == build_event.after_data["html_sha256"]
+        assert report.csv_sha256 == build_event.after_data["csv_sha256"]
 
 
 def test_stage5_build_failure_stops_before_validation_and_publish(
@@ -463,6 +564,96 @@ def test_stage5_validation_reopens_candidate_bytes_and_fails_closed(
                 GovernanceReport.governance_run_id == run_id
             )
         ).all() == []
+
+
+def test_stage5_publish_reopens_candidate_bytes_and_rolls_back_on_tamper(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    upload, source = _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    runner_environment = _runner_environment(
+        project=project,
+        upload=upload,
+        source=source,
+        trigger_id="stage5-publish-tamper",
+        session_seed="stage5-publish-tamper-session",
+    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
+        REPORT_CONTRACT_VERSION
+    )
+    for name, value in runner_environment.items():
+        monkeypatch.setenv(name, value)
+
+    publish_run = governance_runs_domain._publish_run
+
+    def tamper_before_publish(
+        *,
+        session: Session,
+        run: GovernanceRun,
+        request_ip: str | None,
+        report_candidate: governance_runs_domain.ReportCandidate | None = None,
+    ) -> None:
+        assert report_candidate is not None
+        html_path = settings.ARTIFACT_ROOT / report_candidate.html_storage_key
+        html_path.chmod(0o640)
+        html_path.write_bytes(report_candidate.rendered.html + b"tampered")
+        publish_run(
+            session=session,
+            run=run,
+            request_ip=request_ip,
+            report_candidate=report_candidate,
+        )
+
+    monkeypatch.setattr(
+        governance_runs_domain,
+        "_publish_run",
+        tamper_before_publish,
+    )
+
+    assert run_governance_runner() == 1
+
+    run_payload = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    ).json()["data"][0]
+    assert run_payload["status"] == "FAILED_PROCESSING"
+    assert [
+        (step["step_code"], step["status"], step["error_code"])
+        for step in run_payload["steps"]
+    ][-3:] == [
+        ("BUILD_REPORT", "SUCCEEDED", None),
+        ("VALIDATE_REPORT", "SUCCEEDED", None),
+        ("PUBLISH", "FAILED", "publish_contract_failed"),
+    ]
+    run_id = uuid.UUID(str(run_payload["id"]))
+    with Session(engine) as session:
+        assert session.exec(
+            select(func.count()).select_from(GovernanceReport).where(
+                GovernanceReport.governance_run_id == run_id
+            )
+        ).one() == 0
+        assert session.exec(
+            select(func.count()).select_from(Artifact).where(
+                Artifact.governance_run_id == run_id,
+                col(Artifact.media_type).in_(("text/html", "text/csv")),
+            )
+        ).one() == 0
 
 
 def test_stage5_retry_reuses_succeeded_report_steps_and_completes(
@@ -703,6 +894,17 @@ def test_stage5_publish_without_validated_candidate_fails_the_publish_step(
                 GovernanceRun.project_id == uuid.UUID(str(project["id"]))
             )
         ).one()
+        assert session.exec(
+            select(GovernanceReport).where(
+                GovernanceReport.governance_run_id == run.id
+            )
+        ).all() == []
+        assert session.exec(
+            select(Artifact).where(
+                Artifact.governance_run_id == run.id,
+                col(Artifact.media_type).in_(("text/html", "text/csv")),
+            )
+        ).all() == []
         with pytest.raises(GovernanceRunExecutionError):
             publish_run(
                 session=session,
@@ -2558,6 +2760,9 @@ def test_unrecoverable_retry_requires_an_explicit_rerun(
 
     assert rerun_response.status_code == 202, rerun_response.text
     assert captured_environment["GOVERNANCE_TRIGGER_ID"] == "unrecoverable-rerun"
+    assert captured_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] == (
+        REPORT_CONTRACT_VERSION
+    )
     with Session(engine) as session:
         stored = session.get(GovernanceRun, uuid.UUID(str(original["id"])))
         assert stored is not None
@@ -2688,6 +2893,9 @@ def test_changed_input_requires_rerun_with_a_new_run_and_session(
     assert rerun_response.status_code == 202, rerun_response.text
     assert captured_environment["GOVERNANCE_CUSTOMER_UPLOAD_ID"] == new_upload["id"]
     assert captured_environment["GOVERNANCE_TRIGGER_ID"] == "rerun-new"
+    assert captured_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] == (
+        REPORT_CONTRACT_VERSION
+    )
 
     _mock_cloudatlas(monkeypatch)
     for name, value in captured_environment.items():
@@ -3419,6 +3627,21 @@ def test_publish_audit_insert_failure_rolls_back_completion(
         trigger_id="audit-atomic",
         session_seed="audit-atomic-session",
     )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
+        REPORT_CONTRACT_VERSION
+    )
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient,
+        "list_ip_assets_page",
+        lambda _client, _source, *, capset_token, page, size: {
+            "items": [
+                {"id": "atomic-cloud-only", "ip": "192.0.2.20", "status": "valid"}
+            ],
+            "page": page,
+            "size": size,
+            "total": 1,
+        },
+    )
     for name, value in runner_environment.items():
         monkeypatch.setenv(name, value)
 
@@ -3441,6 +3664,28 @@ def test_publish_audit_insert_failure_rolls_back_completion(
         stored_project = session.get(Project, uuid.UUID(str(project["id"])))
         assert stored_project is not None
         assert stored_project.latest_completed_run_id is None
+        run_id = uuid.UUID(str(run["id"]))
+        assert session.exec(
+            select(func.count()).select_from(Finding).where(
+                Finding.project_id == stored_project.id
+            )
+        ).one() == 0
+        assert session.exec(
+            select(func.count()).select_from(GovernanceReport).where(
+                GovernanceReport.governance_run_id == run_id
+            )
+        ).one() == 0
+        assert session.exec(
+            select(func.count()).select_from(Evidence).where(
+                Evidence.governance_run_id == run_id
+            )
+        ).one() == 0
+        assert session.exec(
+            select(func.count()).select_from(Artifact).where(
+                Artifact.governance_run_id == run_id,
+                col(Artifact.media_type).in_(("text/html", "text/csv")),
+            )
+        ).one() == 0
 
     snapshot_ids = {snapshot["id"] for snapshot in run["snapshots"]}
     session_id = runner_environment["SANDBOX_ID"]
@@ -3496,12 +3741,26 @@ def test_publish_audit_insert_failure_rolls_back_completion(
         "NORMALIZE": 1,
         "RESOLVE": 1,
         "CHECK_FINDINGS": 1,
+        "BUILD_REPORT": 1,
+        "VALIDATE_REPORT": 1,
         "PUBLISH": 2,
     }
     with Session(engine) as session:
         stored_project = session.get(Project, uuid.UUID(str(project["id"])))
         assert stored_project is not None
         assert str(stored_project.latest_completed_run_id) == completed["id"]
+        report = session.exec(
+            select(GovernanceReport).where(
+                GovernanceReport.governance_run_id
+                == uuid.UUID(str(completed["id"]))
+            )
+        ).one()
+        assert report.generation_mode == "DETERMINISTIC_TEMPLATE"
+        assert session.exec(
+            select(func.count()).select_from(Finding).where(
+                Finding.project_id == stored_project.id
+            )
+        ).one() == 2
 
 
 def test_two_projects_run_independently_in_parallel(

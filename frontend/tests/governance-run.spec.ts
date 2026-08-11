@@ -120,6 +120,8 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     "NORMALIZE",
     "RESOLVE",
     "CHECK_FINDINGS",
+    "BUILD_REPORT",
+    "VALIDATE_REPORT",
     "PUBLISH",
   ]) {
     await expect(page.getByRole("cell", { name: step })).toBeVisible()
@@ -194,6 +196,8 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     NORMALIZE: 1,
     RESOLVE: 1,
     CHECK_FINDINGS: 1,
+    BUILD_REPORT: 1,
+    VALIDATE_REPORT: 1,
     PUBLISH: 1,
   })
   expect(recovered.reused_snapshot_count).toBe(1)
