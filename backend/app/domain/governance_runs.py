@@ -2286,6 +2286,8 @@ def _build_report_candidate(
     if not created and step.status != RunStepStatus.SUCCEEDED.value:
         _execution_error("runner_step_already_started")
     candidate: ReportCandidate | None = None
+    error_code = "build_report_processing_failed"
+    retryable = True
     try:
         candidate = _prepare_report_candidate(session=session, run=run)
         if not created:
@@ -2307,9 +2309,12 @@ def _build_report_candidate(
         ReportRendererError,
         GovernanceRunProcessingError,
         ReportCandidateValidationError,
-        OSError,
-        SQLAlchemyError,
     ):
+        error_code = "build_report_contract_failed"
+        retryable = False
+        session.rollback()
+    except (OSError, SQLAlchemyError):
+        error_code = "build_report_storage_failed"
         session.rollback()
     except Exception as unexpected_error:
         logger.error(
@@ -2331,10 +2336,11 @@ def _build_report_candidate(
         run=run,
         step=step,
         run_status=GovernanceRunStatus.FAILED_PROCESSING,
-        error_code="build_report_failed",
+        error_code=error_code,
         request_ip=request_ip,
+        retryable=retryable,
     )
-    raise GovernanceRunProcessingError("build_report_failed")
+    raise GovernanceRunProcessingError(error_code)
 
 
 def _validate_report_candidate(
@@ -2353,6 +2359,8 @@ def _validate_report_candidate(
     )
     if not created and step.status != RunStepStatus.SUCCEEDED.value:
         _execution_error("runner_step_already_started")
+    error_code = "validate_report_processing_failed"
+    retryable = True
     try:
         output_hash = _validate_prepared_report_candidate(candidate)
         if not created:
@@ -2375,8 +2383,12 @@ def _validate_report_candidate(
         ReportCoreError,
         EvidenceSelectorError,
         ReportRendererError,
-        SQLAlchemyError,
     ):
+        error_code = "validate_report_contract_failed"
+        retryable = False
+        session.rollback()
+    except SQLAlchemyError:
+        error_code = "validate_report_persistence_failed"
         session.rollback()
     except Exception as unexpected_error:
         logger.error(
@@ -2389,10 +2401,11 @@ def _validate_report_candidate(
         run=run,
         step=step,
         run_status=GovernanceRunStatus.FAILED_PROCESSING,
-        error_code="validate_report_failed",
+        error_code=error_code,
         request_ip=request_ip,
+        retryable=retryable,
     )
-    raise GovernanceRunProcessingError("validate_report_failed")
+    raise GovernanceRunProcessingError(error_code)
 
 
 def _verify_report_candidate_for_publish(
@@ -3227,6 +3240,11 @@ def require_retry_readiness(
     if run.status in COMPLETED_RUN_STATUSES:
         raise GovernanceRunStateError("run_retry_completed")
     if run.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION:
+        raise GovernanceRunStateError("run_processing_not_retryable")
+    if (
+        run.report_contract_version is not None
+        and run.report_contract_version != REPORT_CONTRACT_VERSION
+    ):
         raise GovernanceRunStateError("run_processing_not_retryable")
     if run.session_recovery_code is not None and run.session_recovery_code.startswith(
         _NON_RETRYABLE_PREFIX
