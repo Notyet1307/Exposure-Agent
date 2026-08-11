@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from pytest import MonkeyPatch
-from sqlalchemy import update
+from sqlalchemy import event, update
 from sqlmodel import Session, col, select
 
 from app.core.config import settings
@@ -47,7 +47,7 @@ def _configure_runner(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     _mock_cloudatlas(monkeypatch)
 
 
-def _start_rerun(
+def _prepare_rerun(
     *,
     client: TestClient,
     headers: dict[str, str],
@@ -55,7 +55,7 @@ def _start_rerun(
     project_id: object,
     run_id: object,
     trigger_id: str,
-) -> None:
+) -> dict[str, str]:
     captured_environment: dict[str, str] = {}
 
     def start(
@@ -90,7 +90,27 @@ def _start_rerun(
     captured_environment["SANDBOX_ID"] = hashlib.sha256(
         f"{trigger_id}-session".encode()
     ).hexdigest()
-    for name, value in captured_environment.items():
+    return captured_environment
+
+
+def _start_rerun(
+    *,
+    client: TestClient,
+    headers: dict[str, str],
+    monkeypatch: MonkeyPatch,
+    project_id: object,
+    run_id: object,
+    trigger_id: str,
+) -> None:
+    environment = _prepare_rerun(
+        client=client,
+        headers=headers,
+        monkeypatch=monkeypatch,
+        project_id=project_id,
+        run_id=run_id,
+        trigger_id=trigger_id,
+    )
+    for name, value in environment.items():
         monkeypatch.setenv(name, value)
     assert run_governance_runner() == 0
 
@@ -207,6 +227,84 @@ def test_report_list_uses_bounded_stable_cursor_pagination(
     )
     assert invalid_cursor.status_code == 400
     assert invalid_cursor.json()["detail"]["code"] == "report_cursor_invalid"
+
+
+def test_report_list_is_consistent_when_publication_commits_during_the_read(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _configure_runner(tmp_path, monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client, headers=superuser_token_headers, project=project
+    )
+    _trigger_stage5_run(
+        client=client,
+        headers=superuser_token_headers,
+        monkeypatch=monkeypatch,
+        project=project,
+        trigger_id="report-consistent-baseline",
+    )
+    assert run_governance_runner() == 0
+    baseline = client.get(
+        _reports_url(project["id"]), headers=superuser_token_headers
+    ).json()
+    baseline_report = baseline["data"][0]
+    environment = _prepare_rerun(
+        client=client,
+        headers=superuser_token_headers,
+        monkeypatch=monkeypatch,
+        project_id=project["id"],
+        run_id=baseline_report["governance_run_id"],
+        trigger_id="report-published-during-list",
+    )
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    publication_results: list[int] = []
+    publication_started = False
+
+    def publish_after_report_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        nonlocal publication_started
+        if publication_started or "governance_reports" not in statement:
+            return
+        publication_started = True
+        publication_results.append(run_governance_runner())
+
+    event.listen(engine, "after_cursor_execute", publish_after_report_statement)
+    try:
+        response = client.get(
+            _reports_url(project["id"]), headers=superuser_token_headers
+        )
+    finally:
+        event.remove(engine, "after_cursor_execute", publish_after_report_statement)
+
+    assert response.status_code == 200, response.text
+    assert publication_results == [0]
+    payload = response.json()
+    assert payload["count"] == payload["page_size"] == len(payload["data"]) == 1
+    assert payload["data"] == baseline["data"]
+    assert payload["compatible"] is True
+    assert payload["latest_completed_run_id"] == baseline_report["governance_run_id"]
+    assert payload["latest_completed_run_at"] == baseline_report["run_completed_at"]
+
+    after_publication = client.get(
+        _reports_url(project["id"]), headers=superuser_token_headers
+    )
+    assert after_publication.status_code == 200, after_publication.text
+    assert after_publication.json()["count"] == 2
+    assert after_publication.json()["latest_completed_run_id"] != baseline_report[
+        "governance_run_id"
+    ]
 
 
 def test_report_detail_is_project_scoped_bounded_and_readable_by_all_read_roles(

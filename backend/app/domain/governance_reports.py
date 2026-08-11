@@ -5,10 +5,13 @@ import binascii
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Final
+from typing import Any, Final, cast
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, func, or_, true
+from sqlalchemy import select as sa_select
+from sqlalchemy.orm import Bundle
 from sqlmodel import Session, col, select
+from sqlmodel.sql.expression import Select
 
 from app.domain.models import (
     Evidence,
@@ -74,20 +77,6 @@ def _summary(
     )
 
 
-def _latest_completed_run(
-    *, session: Session, project: Project
-) -> GovernanceRun | None:
-    if project.latest_completed_run_id is None:
-        return None
-    return session.exec(
-        select(GovernanceRun).where(
-            GovernanceRun.id == project.latest_completed_run_id,
-            GovernanceRun.project_id == project.id,
-            GovernanceRun.tenant_id == project.tenant_id,
-        )
-    ).one_or_none()
-
-
 def list_reports(
     *,
     session: Session,
@@ -95,54 +84,117 @@ def list_reports(
     limit: int,
     cursor: ReportCursor | None,
 ) -> GovernanceReportsPublic:
-    scope = (
-        col(GovernanceReport.project_id) == project.id,
-        col(GovernanceReport.tenant_id) == project.tenant_id,
-        col(GovernanceRun.id) == col(GovernanceReport.governance_run_id),
-        col(GovernanceRun.project_id) == project.id,
-        col(GovernanceRun.tenant_id) == project.tenant_id,
-        col(GovernanceRun.completed_at).is_not(None),
-    )
-    count = int(
-        session.exec(
-            select(func.count())
-            .select_from(GovernanceReport)
-            .join(
-                GovernanceRun,
-                col(GovernanceRun.id) == col(GovernanceReport.governance_run_id),
-            )
-            .where(*scope)
-        ).one()
-    )
-    statement = (
-        select(GovernanceReport, col(GovernanceRun.completed_at))
+    report_scope = (
+        sa_select(
+            col(GovernanceReport.id).label("report_id"),
+            col(GovernanceReport.governance_run_id).label("governance_run_id"),
+            col(GovernanceRun.completed_at).label("run_completed_at"),
+            col(GovernanceReport.report_contract_version).label(
+                "report_contract_version"
+            ),
+            col(GovernanceReport.generation_mode).label("generation_mode"),
+            col(GovernanceReport.html_sha256).label("html_sha256"),
+            col(GovernanceReport.csv_sha256).label("csv_sha256"),
+            col(GovernanceReport.created_at).label("report_created_at"),
+        )
         .join(
             GovernanceRun,
             col(GovernanceRun.id) == col(GovernanceReport.governance_run_id),
         )
-        .where(*scope)
+        .where(
+            col(GovernanceReport.project_id) == project.id,
+            col(GovernanceReport.tenant_id) == project.tenant_id,
+            col(GovernanceRun.project_id) == project.id,
+            col(GovernanceRun.tenant_id) == project.tenant_id,
+            col(GovernanceRun.completed_at).is_not(None),
+        )
+        .cte("report_scope")
     )
+    page_statement = sa_select(report_scope)
     if cursor is not None:
-        statement = statement.where(
+        page_statement = page_statement.where(
             or_(
-                col(GovernanceRun.completed_at) < cursor.completed_at,
+                report_scope.c.run_completed_at < cursor.completed_at,
                 and_(
-                    col(GovernanceRun.completed_at) == cursor.completed_at,
-                    col(GovernanceReport.id) < cursor.report_id,
+                    report_scope.c.run_completed_at == cursor.completed_at,
+                    report_scope.c.report_id < cursor.report_id,
                 ),
             )
         )
-    rows = session.exec(
-        statement.order_by(
-            col(GovernanceRun.completed_at).desc(),
-            col(GovernanceReport.id).desc(),
-        ).limit(limit + 1)
-    ).all()
-    page_rows = rows[:limit]
+    report_page = (
+        page_statement.order_by(
+            report_scope.c.run_completed_at.desc(),
+            report_scope.c.report_id.desc(),
+        )
+        .limit(limit + 1)
+        .cte("report_page")
+    )
+    latest_completed_run_at = (
+        sa_select(col(GovernanceRun.completed_at))
+        .where(
+            col(GovernanceRun.id) == col(Project.latest_completed_run_id),
+            col(GovernanceRun.project_id) == col(Project.id),
+            col(GovernanceRun.tenant_id) == col(Project.tenant_id),
+        )
+        .scalar_subquery()
+    )
+    count = sa_select(func.count()).select_from(report_scope).scalar_subquery()
+    report_summary: Bundle[Any] = Bundle(
+        "report_summary",
+        report_page.c.report_id,
+        report_page.c.governance_run_id,
+        report_page.c.run_completed_at,
+        report_page.c.report_contract_version,
+        report_page.c.generation_mode,
+        report_page.c.html_sha256,
+        report_page.c.csv_sha256,
+        report_page.c.report_created_at,
+    )
+    statement = (
+        sa_select(
+            col(Project.latest_completed_run_id),
+            latest_completed_run_at.label("latest_completed_run_at"),
+            count.label("report_count"),
+            report_summary,
+        )
+        .select_from(Project)
+        .outerjoin(report_page, true())
+        .where(
+            col(Project.id) == project.id,
+            col(Project.tenant_id) == project.tenant_id,
+        )
+        .order_by(
+            report_page.c.run_completed_at.desc(),
+            report_page.c.report_id.desc(),
+        )
+    )
+    rows = session.exec(cast(Select[Any], statement)).all()
+    if not rows:
+        return GovernanceReportsPublic(
+            data=[],
+            count=0,
+            page_size=0,
+            next_cursor=None,
+            compatible=False,
+            compatibility_code="stage5_run_required",
+            latest_completed_run_id=None,
+            latest_completed_run_at=None,
+        )
+
+    latest_run_id, latest_run_at, report_count, _ = rows[0]
     data = [
-        _summary(report, run_completed_at=run_completed_at)
-        for report, run_completed_at in page_rows
-        if run_completed_at is not None
+        GovernanceReportSummaryPublic(
+            id=report_summary.report_id,
+            governance_run_id=report_summary.governance_run_id,
+            run_completed_at=report_summary.run_completed_at,
+            report_contract_version=report_summary.report_contract_version,
+            generation_mode=report_summary.generation_mode,
+            html_sha256=report_summary.html_sha256,
+            csv_sha256=report_summary.csv_sha256,
+            created_at=report_summary.report_created_at,
+        )
+        for _, _, _, report_summary in rows[:limit]
+        if report_summary.report_id is not None
     ]
     next_cursor = None
     if len(rows) > limit and data:
@@ -154,26 +206,24 @@ def list_reports(
             )
         )
 
-    latest_run = _latest_completed_run(session=session, project=project)
-    if count > 0:
-        compatible = True
-        compatibility_code = None
-    else:
-        compatible = False
-        compatibility_code = (
-            "stage5_run_required" if latest_run is None else "stage5_rerun_required"
-        )
+    compatible = report_count > 0
     return GovernanceReportsPublic(
         data=data,
-        count=count,
+        count=report_count,
         page_size=len(data),
         next_cursor=next_cursor,
         compatible=compatible,
-        compatibility_code=compatibility_code,
-        latest_completed_run_id=latest_run.id if latest_run is not None else None,
-        latest_completed_run_at=(
-            latest_run.completed_at if latest_run is not None else None
+        compatibility_code=(
+            None
+            if compatible
+            else (
+                "stage5_run_required"
+                if latest_run_id is None
+                else "stage5_rerun_required"
+            )
         ),
+        latest_completed_run_id=latest_run_id,
+        latest_completed_run_at=latest_run_at,
     )
 
 
