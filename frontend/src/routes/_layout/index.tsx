@@ -13,6 +13,7 @@ import {
 } from "@/client"
 import CloudAtlasSources from "@/components/CloudAtlasSources"
 import Findings from "@/components/Findings"
+import GovernanceReports from "@/components/GovernanceReports"
 import GovernanceRuns from "@/components/GovernanceRuns"
 import IPAssets from "@/components/IPAssets"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -478,6 +479,7 @@ function ProjectWorkspace({ project }: { project: ProjectPublic }) {
         <TabsTrigger value="runs">Runs</TabsTrigger>
         <TabsTrigger value="assets">Assets</TabsTrigger>
         <TabsTrigger value="findings">Findings</TabsTrigger>
+        <TabsTrigger value="reports">Reports</TabsTrigger>
       </TabsList>
       <TabsContent value="inputs">
         <ProjectInputs project={project} />
@@ -493,6 +495,9 @@ function ProjectWorkspace({ project }: { project: ProjectPublic }) {
       </TabsContent>
       <TabsContent value="findings">
         <Findings projectId={project.id} />
+      </TabsContent>
+      <TabsContent value="reports">
+        <GovernanceReports projectId={project.id} />
       </TabsContent>
     </Tabs>
   )
@@ -555,7 +560,7 @@ function Dashboard() {
         <h1 className="text-2xl font-bold tracking-tight">Project workspace</h1>
         <p className="text-muted-foreground">
           Welcome back, nice to see you again! Select a Project to manage its
-          inputs, sources, Runs, Assets, and Findings.
+          inputs, sources, Runs, Assets, Findings, and Reports.
           {currentUser?.full_name
             ? ` Signed in as ${currentUser.full_name}.`
             : ""}
