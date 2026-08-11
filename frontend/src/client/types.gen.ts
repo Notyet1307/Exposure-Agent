@@ -450,6 +450,13 @@ export type CloudatlasSourceInstancesDisableCloudatlasSourceData = {
 
 export type CloudatlasSourceInstancesDisableCloudatlasSourceResponse = (CloudAtlasSourcePublic);
 
+export type GovernanceReportsDownloadGovernanceReportCsvData = {
+    projectId: string;
+    reportId: string;
+};
+
+export type GovernanceReportsDownloadGovernanceReportCsvResponse = (unknown);
+
 export type GovernanceRunsReadGovernanceRunsData = {
     projectId: string;
 };
