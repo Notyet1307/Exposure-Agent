@@ -100,6 +100,13 @@ export type CustomerUploadWarningPublic = {
     count: number;
 };
 
+export type EvidenceReferencePublic = {
+    id: string;
+    governance_run_id: string;
+    fact_type: string;
+    fact_id: string;
+};
+
 export type FindingDetailPublic = {
     id: string;
     resource_id: string;
@@ -161,6 +168,45 @@ export type FindingTransitionPublic = {
     source_snapshot_ids?: Array<(string)>;
     source_snapshots?: Array<SourceSnapshotPublic>;
     observations?: Array<IPObservationPublic>;
+};
+
+export type GovernanceReportDetailPublic = {
+    id: string;
+    governance_run_id: string;
+    run_completed_at: string;
+    report_contract_version: string;
+    generation_mode: string;
+    html_sha256: string;
+    csv_sha256: string;
+    created_at: string;
+    canonical_content: {
+        [key: string]: unknown;
+    };
+    evidence?: Array<EvidenceReferencePublic>;
+    evidence_count: number;
+    evidence_max_entries: number;
+};
+
+export type GovernanceReportsPublic = {
+    data: Array<GovernanceReportSummaryPublic>;
+    count: number;
+    page_size: number;
+    next_cursor: (string | null);
+    compatible: boolean;
+    compatibility_code: (string | null);
+    latest_completed_run_id: (string | null);
+    latest_completed_run_at: (string | null);
+};
+
+export type GovernanceReportSummaryPublic = {
+    id: string;
+    governance_run_id: string;
+    run_completed_at: string;
+    report_contract_version: string;
+    generation_mode: string;
+    html_sha256: string;
+    csv_sha256: string;
+    created_at: string;
 };
 
 export type GovernanceRunActionPublic = {
@@ -449,6 +495,21 @@ export type CloudatlasSourceInstancesDisableCloudatlasSourceData = {
 };
 
 export type CloudatlasSourceInstancesDisableCloudatlasSourceResponse = (CloudAtlasSourcePublic);
+
+export type GovernanceReportsReadGovernanceReportsData = {
+    cursor?: (string | null);
+    limit?: number;
+    projectId: string;
+};
+
+export type GovernanceReportsReadGovernanceReportsResponse = (GovernanceReportsPublic);
+
+export type GovernanceReportsReadGovernanceReportData = {
+    projectId: string;
+    reportId: string;
+};
+
+export type GovernanceReportsReadGovernanceReportResponse = (GovernanceReportDetailPublic);
 
 export type GovernanceReportsDownloadGovernanceReportCsvData = {
     projectId: string;

@@ -464,6 +464,33 @@ export const CustomerUploadsPublicSchema = {
     title: 'CustomerUploadsPublic'
 } as const;
 
+export const EvidenceReferencePublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        fact_type: {
+            type: 'string',
+            title: 'Fact Type'
+        },
+        fact_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Fact Id'
+        }
+    },
+    type: 'object',
+    required: ['id', 'governance_run_id', 'fact_type', 'fact_id'],
+    title: 'EvidenceReferencePublic'
+} as const;
+
 export const FindingDetailPublicSchema = {
     properties: {
         id: {
@@ -844,6 +871,187 @@ export const FindingsPublicSchema = {
     type: 'object',
     required: ['data', 'count', 'status', 'latest_run_id', 'latest_run_completed_at', 'compatible', 'compatibility_code'],
     title: 'FindingsPublic'
+} as const;
+
+export const GovernanceReportDetailPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        run_completed_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Run Completed At'
+        },
+        report_contract_version: {
+            type: 'string',
+            title: 'Report Contract Version'
+        },
+        generation_mode: {
+            type: 'string',
+            title: 'Generation Mode'
+        },
+        html_sha256: {
+            type: 'string',
+            title: 'Html Sha256'
+        },
+        csv_sha256: {
+            type: 'string',
+            title: 'Csv Sha256'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        canonical_content: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Canonical Content'
+        },
+        evidence: {
+            items: {
+                '$ref': '#/components/schemas/EvidenceReferencePublic'
+            },
+            type: 'array',
+            title: 'Evidence'
+        },
+        evidence_count: {
+            type: 'integer',
+            title: 'Evidence Count'
+        },
+        evidence_max_entries: {
+            type: 'integer',
+            title: 'Evidence Max Entries'
+        }
+    },
+    type: 'object',
+    required: ['id', 'governance_run_id', 'run_completed_at', 'report_contract_version', 'generation_mode', 'html_sha256', 'csv_sha256', 'created_at', 'canonical_content', 'evidence_count', 'evidence_max_entries'],
+    title: 'GovernanceReportDetailPublic'
+} as const;
+
+export const GovernanceReportSummaryPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        run_completed_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Run Completed At'
+        },
+        report_contract_version: {
+            type: 'string',
+            title: 'Report Contract Version'
+        },
+        generation_mode: {
+            type: 'string',
+            title: 'Generation Mode'
+        },
+        html_sha256: {
+            type: 'string',
+            title: 'Html Sha256'
+        },
+        csv_sha256: {
+            type: 'string',
+            title: 'Csv Sha256'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'governance_run_id', 'run_completed_at', 'report_contract_version', 'generation_mode', 'html_sha256', 'csv_sha256', 'created_at'],
+    title: 'GovernanceReportSummaryPublic'
+} as const;
+
+export const GovernanceReportsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/GovernanceReportSummaryPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        page_size: {
+            type: 'integer',
+            title: 'Page Size'
+        },
+        next_cursor: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Next Cursor'
+        },
+        compatible: {
+            type: 'boolean',
+            title: 'Compatible'
+        },
+        compatibility_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Compatibility Code'
+        },
+        latest_completed_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Completed Run Id'
+        },
+        latest_completed_run_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Completed Run At'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'page_size', 'next_cursor', 'compatible', 'compatibility_code', 'latest_completed_run_id', 'latest_completed_run_at'],
+    title: 'GovernanceReportsPublic'
 } as const;
 
 export const GovernanceRunActionPublicSchema = {

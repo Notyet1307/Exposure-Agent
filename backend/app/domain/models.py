@@ -1561,6 +1561,42 @@ class FindingTransitionSnapshot(SQLModel, table=True):
     )
 
 
+class GovernanceReportSummaryPublic(SQLModel):
+    id: uuid.UUID
+    governance_run_id: uuid.UUID
+    run_completed_at: datetime
+    report_contract_version: str
+    generation_mode: str
+    html_sha256: str
+    csv_sha256: str
+    created_at: datetime
+
+
+class EvidenceReferencePublic(SQLModel):
+    id: uuid.UUID
+    governance_run_id: uuid.UUID
+    fact_type: str
+    fact_id: uuid.UUID
+
+
+class GovernanceReportDetailPublic(GovernanceReportSummaryPublic):
+    canonical_content: dict[str, Any]
+    evidence: list[EvidenceReferencePublic] = Field(default_factory=list)
+    evidence_count: int
+    evidence_max_entries: int
+
+
+class GovernanceReportsPublic(SQLModel):
+    data: list[GovernanceReportSummaryPublic]
+    count: int
+    page_size: int
+    next_cursor: str | None
+    compatible: bool
+    compatibility_code: str | None
+    latest_completed_run_id: uuid.UUID | None
+    latest_completed_run_at: datetime | None
+
+
 class RunStepPublic(SQLModel):
     step_code: str
     status: str
