@@ -325,6 +325,10 @@ class ReportCandidateValidationError(Exception):
         self.code = code
 
 
+class ReportCandidateStorageError(ReportCandidateValidationError):
+    pass
+
+
 def _execution_error(code: str) -> NoReturn:
     raise GovernanceRunExecutionError(code)
 
@@ -2199,7 +2203,7 @@ def _validate_prepared_report_candidate(candidate: ReportCandidate) -> str:
         html_bytes = _candidate_storage_path(candidate.html_storage_key).read_bytes()
         csv_bytes = _candidate_storage_path(candidate.csv_storage_key).read_bytes()
     except OSError:
-        raise ReportCandidateValidationError("candidate_artifact_unavailable") from None
+        raise ReportCandidateStorageError("candidate_artifact_unavailable") from None
     if (
         html_bytes != rendered.html
         or csv_bytes != rendered.csv
@@ -2313,8 +2317,11 @@ def _build_report_candidate(
         error_code = "build_report_contract_failed"
         retryable = False
         session.rollback()
-    except (OSError, SQLAlchemyError):
+    except OSError:
         error_code = "build_report_storage_failed"
+        session.rollback()
+    except SQLAlchemyError:
+        error_code = "build_report_persistence_failed"
         session.rollback()
     except Exception as unexpected_error:
         logger.error(
@@ -2378,6 +2385,9 @@ def _validate_report_candidate(
             hashes=candidate.rendered,
         )
         return
+    except ReportCandidateStorageError:
+        error_code = "validate_report_storage_failed"
+        session.rollback()
     except (
         ReportCandidateValidationError,
         ReportCoreError,
