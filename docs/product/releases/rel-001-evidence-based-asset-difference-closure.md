@@ -23,7 +23,7 @@
 | ASSUMPTION | 业务系统日常运维人员参与真实资产差异的判断、行动交接或复测，是本 Release 的候选 actor 或协作链成员。 | 基于 2026-08-14 的参与者招募信息 | 必须由一个近期具体事件验证，不能由职位名称推定。 |
 | DECISION | 由于独立参与者已可用，未执行的 founder dogfood 不再是当前证据行动；先进行不展示产品的中文近期故事访谈，验证 actor、现有流程、替代方式和重要失败。 | 人类产品决策者确认参与者后，2026-08-14 | 该访谈不验证界面可用性、完整闭环或再次使用行为。 |
 | DECISION | 当前界面的英文标签会把语言障碍混入任务完成结果，因此本轮访谈不展示产品、不口译界面，也不把英文界面表现计入产品价值或流程证据。 | 产品塑形对话与代码复核，2026-08-14 | 后续是否需要中文原型或产品本地化，必须根据本轮证据另行决定。 |
-| DECISION | 人类产品决策者授权创建并预交付发布本 revision；只有其精确 blob 进入 `origin/main` 后，才授权按本文件的边界执行 E1 访谈。 | 产品塑形对话，2026-08-14 | 不授权 merge、敏感数据处理、录音、产品任务测试、AI shadow、真实动作或进入 COMMIT。 |
+| DECISION | 人类产品决策者授权创建并预交付发布本 revision；E1 由 `ask-yet` 在同一规划会话中实时主持。非正式场不必等待 merge；只有精确 blob 进入 `origin/main` 后，脱敏结果才可写回本 artifact。 | 产品塑形对话，2026-08-14；修订于 2026-08-14 | 不授权 merge、录音、敏感数据入库、产品任务测试、产品内 AI shadow、真实动作或进入 COMMIT。 |
 | UNKNOWN | 该参与者最近是否实际处理过目标差异、承担哪些步骤，以及判断、行动、复测和再次使用决策是否跨多人交接。 | 截至 2026-08-14 尚未访谈 | 会改变 actor、最小闭环与后续证据方法。 |
 | UNKNOWN | 客户当前如何完成内外部资产对账、使用什么替代方式、最重要的失败是什么。 | 截至 2026-08-14 未取得客户行为证据 | 阻止建立基线和判断新闭环是否更有价值。 |
 
@@ -116,7 +116,8 @@ AI shadow 输出必须与客户独立判断隔离，不计入本 Release 的主�
 ### E1 中文近期故事访谈 v1
 
 - protocol_id: `E1-cn-ops-recent-story-v1`
-- protocol_status: `AUTHORIZED_AFTER_ORIGIN_MAIN_PUBLICATION`
+- protocol_status: `AUTHORIZED_FOR_LIVE_ASK_YET_SESSION`
+- facilitator: `ask-yet` 在 `pi-ticket-plan` 会话中主持；被访者可直接在该会话回答，也可由产品负责人原话转述。
 - evidence_class: `EXTERNAL_CUSTOMER_RECENT_STORY_INTERVIEW`
 - decision_question: 业务系统日常运维人员是否在近期真实事件中参与资产差异的发现、判断、行动交接或复测；其当前替代流程是否存在足以支持、重做或放弃本 Release frame 的重要失败？
 - riskiest_assumption: “业务系统日常运维人员”这一职位类别确实处于目标工作流中，并面对可观察且重要的判断、交接或复测问题；职位名称不是 actor 证据。
@@ -136,9 +137,11 @@ AI shadow 输出必须与客户独立判断隔离，不计入本 Release 的主�
 - 事件从参与者最初发现或收到差异开始，直到其实际停止参与、完成交接、确认结束或进行复查为止。
 - 使用“系统里登记的资产”“外部看到的资产”“差异”“处理完成”等中文业务表达，不使用 `Run`、`Finding`、`Evidence`、`Operator` 等产品术语引导回答。
 - 不展示当前产品、原型、报告、架构图或解决方案，不翻译英文界面供其操作。
-- 本协议不读取真实系统、不处理客户数据、不执行外部动作、不运行 AI，也不要求参与者准备截图或原始材料。
+- 本协议不读取真实系统、不处理客户数据、不执行外部动作、不运行产品内 AI shadow、不把模型当作被访者，也不要求参与者准备截图或原始材料。
 
 #### Session protocol
+
+由 `ask-yet` 主持，每轮只问一个问题；被访者在同一会话回答。产品负责人只在场确认边界，不替被访者补步骤。
 
 1. **Consent and boundary**：说明本次只了解最近一次真实工作，不评价个人表现；取得参与同意；明确不要说出真实 IP、主机名、URL、系统名、客户身份、账号、凭据或其他敏感信息；默认不录音。
 2. **Unaided story**：先只问：“请从最近一次你发现或收到系统内登记资产与外部看到的资产不一致开始，按当时顺序讲讲发生了什么。”在参与者讲完前不展示方案、不提供步骤清单。
@@ -150,7 +153,7 @@ AI shadow 输出必须与客户独立判断隔离，不计入本 Release 的主�
 
 #### Evidence to capture
 
-只在仓库外的获批位置保存会谈笔记；Release artifact 只接收脱敏结论和不反推出客户或资产的引用。
+工作笔记是本场 `ask-yet` 会话中的脱敏要点。可选地在仓库外另存一份私人笔记。Release artifact 只接收下面的脱敏 return block，不得写入原始回答。
 
 - 参与者角色类别及其在事件中的实际职责；
 - 事件距访谈日的时间范围和真实触发；
@@ -166,8 +169,8 @@ AI shadow 输出必须与客户独立判断隔离，不计入本 Release 的主�
 #### Privacy and safety
 
 - 默认不录音、不截图、不收集原始文件；任何录音都需要新的明确同意和获批存储位置，本 revision 不包含该授权。
-- 不在 Git、Issue、聊天、模型上下文或普通日志中写入真实 IP、主机名、URL、系统名、客户身份、人员姓名、凭据、文件名、原始行或完整逐字稿；使用 `E1-P01`、`E1-S01` 等不可逆脱敏别名。
-- 参与者开始透露敏感值时立即打断并改用类别描述；已经听到的敏感内容不进入笔记或本 artifact。
+- 本会话可以接收被访者回答。每轮只把已知内容改写成类别语言后再继续。不得把真实 IP、主机名、URL、系统名、客户身份、人员姓名、凭据、文件名、原始行或完整逐字稿写入 Git、Issue、普通日志或本 artifact；使用 `E1-P01`、`E1-S01` 等不可逆脱敏别名。
+- 参与者开始透露敏感值时立即打断并改用类别描述；已经听到的敏感内容不进入本 artifact，也不在后续回复中复述。
 - 若事件涉及活动安全事故、未经授权的数据访问、正在进行的外部动作或参与者不同意边界，返回 `E1_STOP_SAFETY` 并停止普通产品访谈。
 - 当前英文界面不进入本轮；主持人不得通过实时口译帮助参与者完成产品任务后把结果记作可用性证据。
 
@@ -209,7 +212,7 @@ AI shadow 输出必须与客户独立判断隔离，不计入本 Release 的主�
 ```yaml
 protocol_id: E1-cn-ops-recent-story-v1
 session_date: <YYYY-MM-DD>
-source_ref: <approved external redacted note identity>
+source_ref: ask-yet-session-redacted-capture | <optional private note identity>
 verdict: E1_FRAME_SUPPORTED | E1_ACTOR_REWORK | E1_PROBLEM_REWORK | E1_INCONCLUSIVE | E1_STOP_SAFETY
 participant_role_category: <redacted category>
 story_recency_days: <number | UNKNOWN>
@@ -233,7 +236,7 @@ readiness_effect:
 next_evidence_decision: <one candidate decision or stop reason>
 ```
 
-执行授权仅在本 `r1` 的精确 blob 已进入 `origin/main`、参与者和协议边界未漂移且现场再次取得参与同意时生效。授权不包含 merge、录音、敏感数据处理、产品任务测试、AI shadow、真实动作、复测执行、结果写回或进入 COMMIT；任何范围变化必须停止并重新请求授权。
+实时主持在产品负责人确认被访者在场并取得同意后即可开始，不必等待 merge。写回本 artifact 仅在本 revision 的精确 blob 已进入 `origin/main`、参与者和协议边界未漂移时生效。授权不包含 merge、录音、敏感数据入库、产品任务测试、产品内 AI shadow、真实动作、复测执行或进入 COMMIT；任何范围变化必须停止并重新请求授权。
 
 ## Readiness
 
