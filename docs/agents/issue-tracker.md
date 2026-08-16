@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
 ## Conventions
 
@@ -43,3 +43,20 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+
+Wayfinder maps and their children never receive the executable ready-for-agent label.
+
+## Delivery-map operations
+
+Used by /to-spec, /to-tickets, and /admit-ticket. A delivery map is separate from every Wayfinder map.
+
+- **Draft parent**: create the delivery spec with needs-triage and no ready-for-agent.
+- **Candidate child**: create each implementation ticket with stable source Scenario IDs, coverage role, and needs-triage, then attach it as a native GitHub sub-issue of the delivery parent.
+- **Coverage**: keep one `## Ticket coverage` section containing exactly one `<!-- pi-ticket-planning:delivery-graph:v2 -->` marker and its JSON fence. This normalized object is the current Scenario handoffs, source revision/base/Spec content hash, real child IDs and body hashes, roles, starting states, verifications, lanes, walking skeleton, and blocker graph; do not duplicate it as a prose matrix or receipt.
+- **Graph check**: `gh issue view <parent> --json body --jq .body | node "$PI_TICKET_PLANNING_ROOT/scripts/check-delivery-graph.mjs" --input -`. PASS is mandatory before Admission and activation.
+- **Blocking**: use the same native issue-dependency endpoint documented above. Add edges only after every candidate has an issue id.
+- **Order**: arrange native children in a stable topological order of internal blockers. For every `blocker -> dependent` edge, the blocker must be earlier in the native list. HerdrHarness Lite treats the first open child as the strict frontier and never jumps over it. GitHub can reprioritize a child with `gh api --method PATCH repos/<owner>/<repo>/issues/<parent>/sub_issues/priority -F sub_issue_id=<child-db-id> -F after_id=<previous-child-db-id>`; re-fetch after every completed reorder rather than trusting local intent.
+- **Order check**: before admission and again before activation, run `node "$PI_TICKET_PLANNING_ROOT/scripts/check-frontier-order.mjs" --repo <owner>/<repo> --parent <number>`. PASS is mandatory; FAIL or an API/read error leaves the map in needs-triage.
+- **Admission**: /admit-ticket validates Scenario coverage, state/artifact handoffs, walking skeleton, exact parent, children, order, and blockers before label mutation.
+- **Activation**: add ready-for-agent to admitted AGENT children and ready-for-human to admitted HUMAN children, then add ready-for-agent to the delivery parent last. Remove needs-triage and needs-info from each activated issue.
+- **Drift**: when a reviewed body, source, child order, or dependency changes, remove or withhold both ready labels and run admission again.

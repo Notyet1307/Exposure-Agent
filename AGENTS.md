@@ -68,3 +68,7 @@ Use the canonical triage labels: `needs-triage`, `needs-info`, `ready-for-agent`
 ### Domain docs
 
 Use the single-context domain documentation layout. See `docs/agents/domain.md`.
+
+### Delivery gate
+
+候选实现 issue 必须先通过独立 Admission 才能进入执行队列。见 `docs/agents/delivery-gate.md`。
