@@ -49,7 +49,7 @@
   - evidence_refs: Evidence ledger 中的运行查询、源码与镜像检查、PI 官方本地文档和百智云目录探测。
 - target_outcome: 授权内部评审者能在同一份已完成 Run 上对照权威确定性报告与通过校验的 PI 草稿，判断 PI 是否在保持事实一致的前提下提高解释清晰度，并据此决定是否进入受控内部 Pilot。
 - solution_hypothesis: PI Generator 只读取有界 Evidence 并输出固定 StructuredReport Draft；Python Hard Validator 核验 Schema、事实、引用、权限和 reviewer 包络；隔离的 PI Semantic Reviewer 只判断草稿语义是否越出 Evidence；任一层失败最多触发一次受控修复或直接回退现有确定性模板。E3 只作为隔离的次级技术可行性 shadow，不替代 actor、workflow 或 value 证据，也不预先批准生产采用。
-- smallest_closed_loop: `完成 GovernanceRun → 授权内部评审者查看现有确定性报告 → 在同一冻结事实上查看带来源和 shadow 标识的对照草稿 → 记录理解是否改善、核验负担是否增加以及是否值得进入内部 Pilot`。E3 是进入该人工观察前的独立安全可行性门槛，不属于产品 walking skeleton。
+- smallest_closed_loop: `完成 GovernanceRun → 授权内部评审者查看现有确定性报告 → 在同一冻结事实上查看带来源和 shadow 标识的对照草稿 → 记录理解是否改善、核验负担是否增加以及是否值得进入内部 Pilot`。H1 是当前产品 Evidence 行动；E3 只有在 H1_PASS 持久化后才可作为后续独立安全可行性门槛，且不属于产品 walking skeleton。
 - included_scenarios:
   - 本地或 staging 的已完成 GovernanceRun，不接入生产动作路径。
   - 经授权、Run 级、有界的内部敏感业务 Evidence 可以保留实际业务值，以免脱敏破坏报告语义。
@@ -128,7 +128,7 @@
 - rollback_or_recovery: H1/E3 Evidence 停止与恢复负责人为人类产品决策者。H1 的未授权访问、样本 Hash 漂移或安全事件，以及后续 E3 的事实漂移、Golden case 误判、Reviewer 与人工不一致、超范围数据暴露、Validator 绕过或资源失控任一触发时，负责人立即停止当前 Evidence 行动，保留 E2=`REWORK_CONTRACT`，继续发布现有 `DETERMINISTIC_TEMPLATE`；恢复验证是重新确认同一 Run 的确定性报告可读、Hash 不变且未被 PI 修改。
 - approval_owners:
   - H1 Evidence 执行：人类产品决策者对权威 r5 中一次人工观察的单独授权。
-  - E3 Evidence 执行：仅在 H1 通过后，由人类产品决策者对权威 r5 中 Reviewer 调用另行授权。
+  - E3 Evidence 执行：仅在 H1_PASS 已持久化到后续权威 Release revision 后，由人类产品决策者对该 revision 中 Reviewer 调用另行授权。
   - Release Commitment：人类产品决策者。
   - Admission 激活：人类确认独立审阅后的精确计划。
   - 生产启用、停用或回滚：明确指定的人工生产负责人。
