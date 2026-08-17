@@ -2,8 +2,8 @@
 
 ## Metadata
 
-- status: CANDIDATE
-- revision: r6
+- status: HOLD
+- revision: r7
 - owner: 人类产品决策者（当前对话授权人）
 - product_stage: FRAME
 - delivery_stage: NOT_STARTED
@@ -37,6 +37,7 @@
 | FACT | H1 结果获准写回后，六份 E2 initial 草稿均在核对 r4 已记录 Hash 后删除；两份 repair 草稿已在 r5 前删除。获批临时目录中不再保留 E2 草稿原文。 | 本地受控清理检查，2026-08-17 | Hash 和脱敏 adjudication 仍保留；原文删除不可逆，E3 v1 不再具备冻结 draft 输入。 |
 | UNKNOWN | 是否存在一名在近期真实非测试业务审核中经历确定性模板解释不足的目标 actor，以及 PI 草稿能否提高其理解而不增加事实核验负担。 | H1=`FAIL_NO_PROBLEM`，2026-08-17 | 这是当前最高产品风险；E1/E2 技术证据和本次开发/测试经历均不能替代真实 actor、workflow 和 value 证据。 |
 | UNKNOWN | PI Semantic Reviewer 能否稳定区分安全否定语义与危险正向判断。 | E3 未执行，2026-08-17 | 仍是次级技术未知；H1 未通过且冻结草稿已删除，E3 v1 不得执行。 |
+| DECISION | 人类产品决策者选择 `HOLD`：r6 证据足以停止当前 Release 占用交付槽位，但不足以 COMMIT、DROP 或继续技术实验。 | 人类产品决策者，2026-08-17；权威 r6 blob `e083e9d8e506e766582477757a0429e66113ca6a` | 只有出现近期真实非测试业务审核的目标 actor/story，并在新 revision 中重新冻结产品证据协议时才能重开；不得复用 H1 或 E3 v1。 |
 
 ## Release frame
 
@@ -99,7 +100,7 @@
     - Runner 环境过滤、Run 级只读 Token 或日志控制失败可能泄漏凭据或超范围数据。
     - Prompt injection 或无 Evidence 推断可能产生误导性草稿。
     - Semantic Reviewer false pass 不能提升草稿为权威事实；没有 Python Hard Validator、人工门禁和模板回退时不得采用。
-- appetite: H1 已使用一次授权 session 并在 recent-story gate 结束；不补参与者、不展示已删除草稿、不执行 E3。后续只允许人类先决定 `REWORK | HOLD | DROP`，不得在本 revision 内扩大 Evidence。
+- appetite: 人类已选择 `HOLD`；当前没有 Evidence、Delivery 或模型调用 appetite，不补参与者、不重建草稿、不执行 E3。只有满足 reopen condition 后，才可由新 revision 重新冻结范围。
 - blocking_unknowns:
   - 是否存在近期真实非测试业务审核中的目标 actor、当前解释问题和可观察价值。
   - 次级可行性：PI Semantic Reviewer 的语义判断能力；在最高产品风险关闭前不再行动。
@@ -109,30 +110,31 @@
 
 ## Controlled release boundary
 
-- authority_and_scope: 人类产品决策者于 2026-08-17 批准 `REL-002/r6` 只记录 FORMAL H1=`FAIL_NO_PROBLEM` 脱敏结果并删除六份已核验 Hash 的 E2 initial 草稿；本 revision 不授权补做 H1、执行 E3、实现、merge、生产启用或外部动作。
+- authority_and_scope: 人类产品决策者于 2026-08-17 选择 `HOLD`，并授权 `REL-002/r7` 只记录该决定和 r6 Delivery trace；本 revision 不授权重开 Evidence、执行 E3、实现、merge、生产启用或外部动作。
 - protected_assets_and_data:
   - 可以进入模型：经授权、Run 级、有界且为报告必需的内部业务 Evidence，包括实际 IP、资产标识和 Finding 内容。
   - 不得进入模型：数据库凭据、密码、Token、OctoBus Credential/Capset、原始上传文件、完整 Artifact、完整数据库或无界查询结果。
   - 不得进入 Git 或普通日志：完整模型上下文、凭据、原始文件和未经批准的业务数据副本。
-- blast_radius: r6 只写入 H1 脱敏结果和清理状态；六份 initial 与两份 repair 原文均已删除，不调用模型、不接触应用或数据库，确定性报告始终是权威结果。
+- blast_radius: r7 只写入 HOLD metadata、decision receipt 和 r6 Delivery trace；不调用模型、不接触应用或数据库，确定性报告始终是权威结果。
 - pre_release_verification:
+  - HOLD decision 精确绑定权威 r6 blob `e083e9d8e506e766582477757a0429e66113ca6a`，且 reopen condition 不把开发或测试活动提升为真实 actor evidence。
   - H1 脱敏 return block 与人类确认的 closeout 一致，不包含原始回答、真实标识或未展示内容；start/end 取自 PI session message event timestamps，窗口为 855.809 秒。
   - E1/E2 已完成协议、聚合结果、adjudication 和全部既有 Hash 不发生漂移。
   - 删除前六份 initial 草稿逐份匹配 r4 Hash；删除后获批临时目录中 initial 与 repair 草稿计数均为 0，六份保留 `.stderr` 文件总字节为 0。
   - 仓库、临时 Evidence 目录和当前会话均没有 H1 样本评审或 E3 模型调用产物。
-- rollback_or_recovery: r6 Evidence 写入与清理负责人为人类产品决策者。若脱敏记录失真、敏感原文进入 Git、草稿被重建或发现未授权 E3 调用，立即停止 r6 发布并保持权威 r5 不变；安全动作是删除未授权副本、撤销受影响凭据（如有）并重新生成仅含脱敏事实的候选 revision。验证是 Git 不含敏感原文、临时目录草稿计数为 0、确定性报告 Hash 不变。已删除草稿不可恢复，也不得为继续 E3 而重建。
+- rollback_or_recovery: r7 HOLD 记录负责人为人类产品决策者。若 decision、basis blob 或 reopen condition 记录失真，立即停止 r7 发布并保持权威 r6 的 `Commitment: NONE`；安全动作是修正候选记录，不改变或重建已删除 Evidence。验证是 HOLD 精确绑定 r6 blob、Git 不含敏感原文、临时目录草稿计数为 0。
 - approval_owners:
-  - r6 Evidence 写入与草稿清理：人类产品决策者已单独授权。
-  - r6 merge：人类产品决策者在独立审阅后决定。
-  - 未来 H1/E3 或其他 Evidence：必须由新权威 revision 和新的人类决定重新授权。
+  - HOLD 决定与 r7 写入：人类产品决策者已授权。
+  - r7 merge：人类产品决策者在独立审阅后决定。
+  - 未来 Evidence 重开：必须满足 reopen condition，并由新权威 revision 和新的人类决定重新授权。
   - Release Commitment：人类产品决策者。
   - Admission 激活：人类确认独立审阅后的精确计划。
   - 生产启用、停用或回滚：明确指定的人工生产负责人。
-- staged_release: `目录与契约探测 → E1/E2 技术证据 → H1 未观察到真实目标 workflow → 停止 E3 并清理冻结草稿 → 人类决定 REWORK、HOLD 或 DROP`；本 revision 只允许记录 H1 与清理证据并发布候选文档，不允许补做 H1、执行 E3 或 merge。
+- staged_release: `目录与契约探测 → E1/E2 技术证据 → H1 未观察到真实目标 workflow → 停止 E3 并清理冻结草稿 → HOLD`；本 revision 只允许记录 HOLD 和 r6 Delivery trace，不允许重开 Evidence、执行 E3 或 merge。
 - smoke_and_stop_conditions:
-  - smoke: r6 只改变 Release 文档；H1 closeout 为脱敏 early-stop，六份 initial 和两份 repair 草稿计数均为 0，没有 H1 样本评审或 E3 产物。
-  - stop: 任一原始回答或业务草稿进入 Git、H1 事实被扩写、已删除草稿被重建、任何 E3 调用、凭据泄漏、权威事实漂移或活动安全事件立即停止。
-- audit_evidence: H1/E3 Evidence 保管责任人为人类产品决策者。Release artifact 只保留 H1 近期故事的脱敏流程类别、formal consent、early-stop/verdict、未展示内容、既有草稿 Hash 和清理计数；原始会话回答只留在本次受控对话，不写入 Git。六份 initial 与两份 repair 草稿均已验证既有 Hash 后删除，获批临时目录不再保留 E2 草稿原文；凭据、完整模型上下文和原始 Artifact 不进入 Git 或普通日志。
+  - smoke: r7 只改变 Release 的 HOLD metadata、decision、control receipt 和 Delivery trace；r6 H1/E1/E2 证据不漂移，草稿计数保持 0。
+  - stop: HOLD basis 不是精确 r6 blob、任一证据事实被改写、原始回答或业务草稿进入 Git、已删除草稿被重建、任何 E3 调用或活动安全事件立即停止。
+- audit_evidence: H1/E3 Evidence 与 HOLD receipt 保管责任人为人类产品决策者。Release artifact 保留 HOLD decision、r6 basis blob、reopen condition，以及 H1 近期故事的脱敏流程类别、formal consent、early-stop/verdict、未展示内容、既有草稿 Hash 和清理计数；原始会话回答只留在本次受控对话，不写入 Git。六份 initial 与两份 repair 草稿均已验证既有 Hash 后删除，获批临时目录不再保留 E2 草稿原文；凭据、完整模型上下文和原始 Artifact 不进入 Git 或普通日志。
 
 ## Completed evidence protocol
 
@@ -721,13 +723,17 @@ H1 已返回 `H1_FAIL_NO_PROBLEM`，且六份 E2 initial 草稿原文已删除�
 5. 最高产品风险未关闭：缺少近期真实 target actor/current workflow/value 证据；不得以新增技术实验替代。
 6. non-goals、false-positive completion、权限、不可恢复清理、恢复责任、审计保管和停止边界均已明确。
 
-当前 verdict 不是 `READY_TO_COMMIT`。
+六项 readiness tests 未通过；人类 verdict 为 `HOLD`，本 Release 不进入 `COMMITTED`、SPEC 或 Delivery。
 
 ## Commitment
 
-- decision: NONE
+- decision: HOLD
+- decision_basis_revision: r6
+- decision_basis_blob: `e083e9d8e506e766582477757a0429e66113ca6a`
+- recorded_revision: r7
 - committed_revision: NONE
-- note: `CANDIDATE r6` 记录 H1=`FAIL_NO_PROBLEM` 与草稿清理；下一步只能由人类决定 `REWORK | HOLD | DROP`。它不授权补做 H1、E3、新技术实验、merge、Delivery Spec、tickets、实现、Admission 或生产启用。
+- reopen_condition: 出现一名目标 actor 的近期真实非测试业务审核故事，包含 trigger、实际步骤、当前替代、具体失败和可观察后果；随后在新 revision 中重新冻结产品证据协议。
+- note: HOLD 不授权补做 H1、复用 E3 v1、新技术实验、Delivery Spec、tickets、实现、Admission 或生产启用。
 
 ## Delivery trace
 
@@ -741,10 +747,12 @@ H1 已返回 `H1_FAIL_NO_PROBLEM`，且六份 E2 initial 草稿原文已删除�
 - r4_blob: `d75c39bb4213b274a081d8c2567085b0e13f1080`
 - r5_accepted_base: `origin/main@bfcbef89c6946bc27397e276b7d4c1beb1bae4cd`（PR #134）
 - r5_blob: `b88fb8b385393ddab56df3abf8d83512f0efc327`
-- r6_candidate_base: `origin/main@bfcbef89c6946bc27397e276b7d4c1beb1bae4cd`
-- r6_candidate_branch: `product/rel-002-evidence-r6`
+- r6_accepted_base: `origin/main@4440aed28f5626f751a6816e835c5c75a905cc1b`（PR #135）
+- r6_blob: `e083e9d8e506e766582477757a0429e66113ca6a`
+- r7_candidate_base: `origin/main@4440aed28f5626f751a6816e835c5c75a905cc1b`
+- r7_candidate_branch: `product/rel-002-hold-r7`
 - artifact_path: `docs/product/releases/rel-002-bounded-pi-report-shadow.md`
-- r6_accepted_delivery_base: NONE；只有本 r6 的精确 blob 进入 `origin/main` 后才成为权威 revision。
+- r7_accepted_delivery_base: NONE；只有本 r7 的精确 blob 进入 `origin/main` 后才成为权威 HOLD receipt。
 - spec: NONE
 - tickets: NONE
 
