@@ -116,9 +116,9 @@
   - 不得进入 Git 或普通日志：完整模型上下文、凭据、原始文件和未经批准的业务数据副本。
 - blast_radius: r6 只写入 H1 脱敏结果和清理状态；六份 initial 与两份 repair 原文均已删除，不调用模型、不接触应用或数据库，确定性报告始终是权威结果。
 - pre_release_verification:
-  - H1 脱敏 return block 与人类确认的 closeout 一致，不包含原始回答、真实标识或未展示内容。
+  - H1 脱敏 return block 与人类确认的 closeout 一致，不包含原始回答、真实标识或未展示内容；start/end 取自 PI session message event timestamps，窗口为 855.809 秒。
   - E1/E2 已完成协议、聚合结果、adjudication 和全部既有 Hash 不发生漂移。
-  - 删除前六份 initial 草稿逐份匹配 r4 Hash；删除后获批临时目录中 initial 与 repair 草稿计数均为 0。
+  - 删除前六份 initial 草稿逐份匹配 r4 Hash；删除后获批临时目录中 initial 与 repair 草稿计数均为 0，六份保留 `.stderr` 文件总字节为 0。
   - 仓库、临时 Evidence 目录和当前会话均没有 H1 样本评审或 E3 模型调用产物。
 - rollback_or_recovery: r6 Evidence 写入与清理负责人为人类产品决策者。若脱敏记录失真、敏感原文进入 Git、草稿被重建或发现未授权 E3 调用，立即停止 r6 发布并保持权威 r5 不变；安全动作是删除未授权副本、撤销受影响凭据（如有）并重新生成仅含脱敏事实的候选 revision。验证是 Git 不含敏感原文、临时目录草稿计数为 0、确定性报告 Hash 不变。已删除草稿不可恢复，也不得为继续 E3 而重建。
 - approval_owners:
@@ -564,7 +564,11 @@ e2_initial_drafts_shown: 0
 e3_expected_verdicts_shown: false
 e3_outputs_shown: false
 model_calls: 0
-exact_elapsed_minutes: NOT_CAPTURED
+started_at: 2026-08-17T07:04:56.912Z
+ended_at: 2026-08-17T07:19:12.721Z
+elapsed_seconds: 855.809
+elapsed_minutes: 14.263
+timing_source: PI_SESSION_MESSAGE_TIMESTAMPS
 verdict: H1_FAIL_NO_PROBLEM
 readiness_effect: 近期经历均为开发或测试活动，未观察到目标范围内的真实 actor/workflow/value；E3 保持阻断。
 limitations:
@@ -574,6 +578,8 @@ cleanup:
   repair_drafts_deleted: 2
   initial_drafts_deleted_after_hash_verification: 6
   retained_e2_draft_payloads: 0
+  retained_rpc_stderr_files: 6
+  retained_rpc_stderr_total_bytes: 0
 ```
 
 ## Deferred secondary evidence protocol
