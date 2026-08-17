@@ -3,7 +3,7 @@
 ## Metadata
 
 - status: CANDIDATE
-- revision: r2
+- revision: r3
 - owner: 人类产品决策者（当前对话授权人）
 - product_stage: FRAME
 - delivery_stage: NOT_STARTED
@@ -23,8 +23,12 @@
 | FACT | 本机 PI 0.84.2 支持 SDK 和 JSONL RPC；RPC 可禁用 Session、全部工具、Extensions、Skills、Prompt Templates 和 Context Files，并显式选择 Provider/Model。 | 本机 PI 0.84.2 `README.md`、`docs/sdk.md`、`docs/rpc.md` 与只读 RPC 能力探测，2026-08-17 | 主机能力不证明当前 Runner 镜像已经包含或正确隔离 PI。 |
 | FACT | 当前 Runner 镜像具有 Node 和 Python，但没有 `pi` 可执行文件；现有运行路径没有 PI 调用。 | `backend/Dockerfile.runner`、运行镜像只读检查及源码检查，2026-08-17 | 需要后续 Delivery 才能正式接线；本 Release 的 Evidence 行动只能使用隔离的临时探针。 |
 | FACT | 当前本地运行环境已有 4 个完成的 GovernanceRun 和 4 份报告，全部为 `DETERMINISTIC_TEMPLATE` / `deterministic-report-v1`。 | 对本地 Compose PostgreSQL 的只读查询，2026-08-17 | 仅代表本地 fixture 环境，不代表客户环境、生产规模或客户价值。 |
-| ASSUMPTION | 授权内部评审者对照确定性报告查看 PI 草稿，能够判断草稿是否提高解释清晰度且没有增加事实核验负担。 | 当前 Release 假设，2026-08-17 | 尚未执行固定 rubric 的评审。 |
-| UNKNOWN | `baizhi-responses/deepseek-v4-flash` 是否能在固定 Evidence、Prompt 和 Schema 下稳定产生事实一致的草稿。 | 截至 2026-08-17 尚未执行内容调用 | 是当前 Evidence protocol 要回答的最高风险未知。 |
+| FACT | E1 在权威 r2 上尝试了 6 个逻辑初始请求：3/6 首次通过、4/6 最终被 fail-closed 接受、2 次结构化修复；本地强制失败路径选择确定性模板。 | `E1-baizhi-deepseek-v4-flash-shadow-v1` 临时执行证据与 Hash，2026-08-17 | 只证明 throwaway Evidence runner 的行为，不证明应用已接线或生产回退已实现。 |
+| FACT | E1 已接受草稿中的事实漂移、非法引用、凭据泄漏和输入边界外数据均为 0；Provider 报告总计 56,708 tokens、cost 字段为 0，执行耗时 8.792 分钟。 | E1 聚合结果与逐输出 Hash，2026-08-17 | Provider 的 cost 字段为 0 不等于真实资源成本为 0；未运行人工质量评审。 |
+| FACT | E1 暴露了三个测试契约污染：Validator 把否定句“不含建议”误判为新增建议；临时 `maxTokens=8192` 时一份输出使用 8,189 tokens 并在 JSON 字符串中间截断；未在 r2 冻结的 150 秒单次超时中止了一次零输出初始请求和一次已有完整合法 JSON 的修复请求。 | E1 Validator、usage、解析结果与 RPC 终止证据，2026-08-17 | 这些污染使 E1 不能公平区分模型质量、Provider 瞬时行为和测试器限制。 |
+| DECISION | E1 的 raw runner 曾返回 `E1_INCOMPLETE`，但 6 个初始请求均已在 45 分钟窗口内尝试；按冻结定义纠正为 `E1_REWORK_CONTRACT`。E2 只修测试器，不降低原通过阈值。 | 人类产品决策者接受的 E1 adjudication，2026-08-17 | 纠正分类不把 E1 改判为通过，也不授权 E2 内容调用。 |
+| ASSUMPTION | 授权内部评审者对照确定性报告查看 PI 草稿，能够判断草稿是否提高解释清晰度且没有增加事实核验负担。 | 当前 Release 假设，2026-08-17 | E1 自动门槛未通过，人工 rubric 尚未执行。 |
+| UNKNOWN | `baizhi-responses/deepseek-v4-flash` 在消除 Validator 误判、低输出上限和未冻结超时后，能否稳定达到 5/6 首次通过与 6/6 最终通过。 | 截至 2026-08-17 尚未执行 E2 | 是当前最高风险未知。 |
 
 ## Release frame
 
@@ -55,14 +59,14 @@
   - `pi-workflow`、多 Agent、通用聊天或开放式分析平台。
   - 用实现完成、模型输出流畅或一次演示替代内部评审证据。
 - success baseline: 当前 4 份本地报告全部为 `DETERMINISTIC_TEMPLATE`，PI 草稿与 PI 质量评审均为 0。
-- primary_signal: 在 E1 冻结的两类报告样本上，6 份 PI 草稿最终全部通过事实 Validator，至少 5 份首次通过，且授权内部评审者认为两类样本的解释清晰度均优于确定性模板、事实核验负担不增加。
+- primary_signal: 在 E2 复用的两类冻结报告样本上，6 份 PI 草稿最终全部通过事实 Validator，至少 5 份首次请求无需传输重试或结构化修复即通过，且授权内部评审者认为两类样本的解释清晰度均优于确定性模板、事实核验负担不增加。
 - guardrail:
   - 权威统计、Finding 状态、Evidence 引用和处置方向的事实漂移为 0。
   - 未授权数据、凭据、Token、密码、原始 Artifact 和无界上下文进入模型或日志为 0。
   - 经授权且为报告必需的 Run 级敏感业务 Evidence 不因脱敏而丢失语义。
   - PI 不可用、超时、输出非法或修复失败时，确定性模板仍可发布。
   - 未经独立生产批准，不向生产环境启用 PI 输出。
-- evidence_window: E1 从首次内容请求开始最多 45 分钟；仅用于固定样本的开发 shadow 评估，不设置美元成本上限。
+- evidence_window: E2 从首次内容请求开始最多 45 分钟；每个 RPC 请求最多等待 300 秒；仅用于固定样本的开发 shadow 评估，不设置美元成本上限。
 - minimum_evidence:
   - 两个冻结且经授权的 Run 级报告样本：一个零 Finding，一个包含当前差异、开放积压和生命周期变化的混合 Finding 样本。
   - PI Runtime、Provider、Model、Prompt、工具边界和 StructuredReport Schema 的可复现身份。
@@ -86,9 +90,9 @@
   - security_and_privacy:
     - Runner 环境过滤、Run 级只读 Token 或日志控制失败可能泄漏凭据或超范围数据。
     - Prompt injection 或无 Evidence 推断可能产生误导性草稿。
-- appetite: 只评估一个单 PI 报告 shadow、一个固定 StructuredReport Schema、两个样本各三次独立生成和一次有界内部评审；每份非法草稿最多修复一次；证据窗口 45 分钟；不设置美元成本上限，不建设多 Agent、生产启用或外部动作。
+- appetite: 只评估一个单 PI 报告 shadow、一个固定 StructuredReport Schema、两个样本各三个逻辑初始请求和一次有界内部评审；无草稿的传输失败最多重试一次，每份非法草稿最多修复一次；单请求 300 秒、总窗口 45 分钟；不设置美元成本上限，不建设多 Agent、生产启用或外部动作。
 - blocking_unknowns:
-  - 百智云目标模型的 Responses API、Schema、稳定性和事实一致性。
+  - 百智云目标模型在 E2 固定 Runtime 元数据、超时和重试契约下的 Responses API、Schema 稳定性和事实一致性。
   - 授权内部评审者是否认为草稿提高解释清晰度且不增加核验负担。
   - 未来生产内部模型对同一契约的兼容性。
   - 正式 Run 级 Evidence Token、Reports shadow 隔离和审计接线的 Delivery 设计。
@@ -96,7 +100,7 @@
 
 ## Controlled release boundary
 
-- authority_and_scope: 人类产品决策者于 2026-08-17 批准 `REL-002/r2` 协议边界及其预交付分支/PR；本 revision 不授权模型内容调用、实现、merge、生产启用或外部动作。
+- authority_and_scope: 人类产品决策者于 2026-08-17 批准将 E1 结果与 E2 修订协议写入 `REL-002/r3` 的预交付分支/PR；本 revision 不授权 E2 模型内容调用、实现、merge、生产启用或外部动作。
 - protected_assets_and_data:
   - 可以进入模型：经授权、Run 级、有界且为报告必需的内部业务 Evidence，包括实际 IP、资产标识和 Finding 内容。
   - 不得进入模型：数据库凭据、密码、Token、OctoBus Credential/Capset、原始上传文件、完整 Artifact、完整数据库或无界查询结果。
@@ -109,22 +113,22 @@
   - 证明任一 PI 失败均不会阻断确定性结果和模板报告。
 - rollback_or_recovery: 禁用或绕过 PI shadow 路径，继续发布现有 `DETERMINISTIC_TEMPLATE`；触发条件包括事实漂移、超范围数据暴露、Validator 绕过、不可接受失败率或资源失控。恢复后重新验证同一 Run 的确定性报告可读且未被修改。
 - approval_owners:
-  - Evidence 执行：人类产品决策者对权威 r2 的单独授权。
+  - Evidence 执行：人类产品决策者对权威 r3 中 E2 的单独授权。
   - Release Commitment：人类产品决策者。
   - Admission 激活：人类确认独立审阅后的精确计划。
   - 生产启用、停用或回滚：明确指定的人工生产负责人。
-- staged_release: `目录与契约探测 → 固定样本开发 shadow → 授权内部评审 → 单独的人类内部 Pilot 决定 → 使用生产内部模型重新验收 → 单独的人类生产决定`；本 revision 只允许推进到协议持久化。
+- staged_release: `目录与契约探测 → E1 发现测试契约污染 → E2 固定样本开发 shadow → 自动门槛通过后授权内部评审 → 单独的人类内部 Pilot 决定 → 使用生产内部模型重新验收 → 单独的人类生产决定`；本 revision 只允许推进到 E1 结果和 E2 协议持久化。
 - smoke_and_stop_conditions:
   - smoke: 同一冻结 Run 的确定性报告保持事实稳定，PI 草稿带明确 shadow 标识，Validator 与回退结果可追溯。
   - stop: 任一凭据泄漏、未授权数据暴露、权威事实漂移、PI 获得禁止权限、确定性回退失败或活动安全事件立即停止。
-- audit_evidence: E1 只保留 Runtime/Provider/Model、Prompt 与 Schema Hash、Evidence 输入边界摘要与 Hash、草稿 Hash、Validator/修复/回退结果、耗时和人工评审身份；不把完整模型上下文、凭据或原始 Artifact 写入 Git 或普通日志。
+- audit_evidence: E1/E2 只保留 Runtime/Provider/Model、Prompt 与 Schema Hash、Evidence 输入边界摘要与 Hash、草稿 Hash、Validator/修复/回退结果、耗时和人工评审身份；不把完整模型上下文、凭据或原始 Artifact 写入 Git 或普通日志。
 
-## Current evidence protocol
+## Completed evidence protocol
 
 ### E1 百智云 DeepSeek V4 Flash 报告 Shadow 兼容性与质量评估 v1
 
 - protocol_id: `E1-baizhi-deepseek-v4-flash-shadow-v1`
-- protocol_status: `DESIGNED_NOT_AUTHORIZED`
+- protocol_status: `EXECUTED_REWORK_CONTRACT`
 - evidence_class: `CONTROLLED_INTERNAL_MODEL_SHADOW`
 - decision_question: PI 0.84.2 通过百智云 `deepseek-v4-flash`，能否只基于固定的 Run 级 Evidence 生成事实一致、Schema 合法且比确定性模板更清晰的报告草稿，从而值得进入受控内部 Pilot？
 - riskiest_assumption: 目标模型在有界上下文和无内置工具条件下仍能稳定遵守结构化报告契约，不引入事实漂移或额外核验负担。
@@ -281,18 +285,159 @@ verdict: E1_PASS | E1_REWORK_CONTRACT | E1_FAIL_QUALITY | E1_FAIL_COMPATIBILITY 
 readiness_effect: <one bounded statement>
 ```
 
-E1 只有在本 r2 精确 blob 进入 `origin/main`、样本授权与边界未漂移且人类再次明确授权内容调用后才能执行。本 revision 的写入或 merge 不等于模型调用授权。
+E1 已在权威 r2 上按人类授权执行。其结果只能作为 E1 证据，不得用修改后的规则追溯改判为通过，也不得在同一 protocol ID 下重跑。
+
+### E1 recorded result
+
+```yaml
+protocol_id: E1-baizhi-deepseek-v4-flash-shadow-v1
+executed_at: 2026-08-17T02:25:51.247901Z
+pi_version: 0.84.2
+provider_id: baizhi-responses
+model_id: deepseek-v4-flash
+api: openai-responses
+base_url: https://ai-api-gateway.app.baizhi.cloud/api/openai
+input_hashes:
+  zero_finding: 99d1300c2d01c0d091fb36162da0a73ca337ff8d234e9583144b31cbb43354c4
+  mixed_finding: 07918cb7d09f4b75f283e8108440bdf73411f516361ab5f9e078ab79e114500e
+prompt_hash: 7142839ef7c3a30034cc1c97d3f5915244d6da3040f35cd342b8f8dd3ef5e93a
+schema_hash: 3bdefd266e0cd83119a2a8a594457de703a96f9f789f0429f2cbfe79717c38a2
+validator_hash: 4619a832c4737ffc712c8c6675bc81858d4bc14773b58fb803f7c05bc4cf4555
+initial_runs: 6
+initial_passes: 3
+repair_attempts: 2
+final_passes: 4
+fallback_verified: true
+fact_drift_count: 0
+illegal_reference_count: 0
+credential_exposure_count: 0
+out_of_boundary_data_count: 0
+elapsed_minutes: 8.792
+usage_reported:
+  total_tokens: 56708
+  provider_cost_total: 0.0
+review:
+  zero_finding_clearer: NOT_RUN
+  mixed_finding_clearer: NOT_RUN
+  verification_burden_increased: NOT_RUN
+  concrete_improvements: []
+  limitations:
+    - 自动门槛未通过，未进入人工质量评审。
+raw_runner_verdict: E1_INCOMPLETE
+verdict: E1_REWORK_CONTRACT
+readiness_effect: E1 被未冻结的测试器约束污染；在 E2 前不得进入内部 Pilot。
+```
+
+逐输出审计摘要：
+
+| Logical run | Initial output hash / result | Repair output hash / result | Accepted final |
+|---|---|---|---|
+| zero_finding/1 | `4e98ea0f183d6194ed34c93384152e4b4753ef205387db9f89c2c05fa12023ab` / Validator 将“不含建议”误判为 `UNSUPPORTED_CLAIM` | `31a6dc4643000a29dd007c57f2b8c5bf300615489ba0f5014890523ad1eade4e` / JSON 内容通过 Validator，但 150 秒时 RPC 未 settled，fail-closed 拒绝 | false |
+| zero_finding/2 | `cbc1011cf229ea7b88371b09ca548e81391401c934732dae08193c411fadeb7c` / pass | NONE | true |
+| zero_finding/3 | `9365797547e7722c33760ab897f07938188c94a06776897e8bc5f732e69e9052` / pass | NONE | true |
+| mixed_finding/1 | `44f2be7dd2960af4eb6b6c99e481114ec466f557edecaf3150e11ca43135ee12` / pass | NONE | true |
+| mixed_finding/2 | `08666cfda1884e92613e5d16784dc6ddfd7cafe684ef6119b10a35806c3a7ac2` / 8,189 output tokens，JSON 在字符串中间结束 | `cfdfa7cb54b91ac989cbe30ede2c715d8203b2f6b998e54c5edd1585686bcb20` / pass | true |
+| mixed_finding/3 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` / 150 秒、0 token、空输出 | NONE | false |
+
+Adjudication：
+
+- 6 个逻辑初始请求均在 45 分钟内尝试，因此 raw runner 的 `E1_INCOMPLETE` 不符合 E1 对“未完成固定样本”的定义。
+- E1 的正确 verdict 是 `E1_REWORK_CONTRACT`，不是 `E1_PASS`、`E1_FAIL_QUALITY` 或模型兼容性结论。
+- 一份零 Finding 初稿的失败是明确的 Validator 否定语境误判。
+- 一份混合初稿的 8,189 output tokens 紧贴临时 `maxTokens=8192`，且原始 JSON 未闭合；这证明客户端上限污染了该轮结果，不证明目标模型自然输出上限。
+- 150 秒单请求超时和 `maxTokens` 未在 r2 冻结，不能在事后把它们当作模型质量门槛。
+- `fallback_verified=true` 只证明 throwaway Evidence runner 的本地选择逻辑，不证明应用回退已实现。
+- 零 Finding 样本是确定性内部 fixture；混合 Finding 样本来自一个冻结的本地内部 Run。即使后续 E2 通过，也不得把 fixture 结果声称为真实客户零 Finding 质量证据。
+
+## Current evidence protocol
+
+### E2 百智云 DeepSeek V4 Flash 去污染 Shadow 评估 v1
+
+- protocol_id: `E2-baizhi-deepseek-v4-flash-shadow-v1`
+- protocol_status: `DESIGNED_NOT_AUTHORIZED`
+- evidence_class: `CONTROLLED_INTERNAL_MODEL_SHADOW`
+- decision_question: 在保持 E1 模型、输入、Prompt、Schema、事实 Validator、通过阈值和安全边界不变，只移除已确认的测试器污染后，目标模型能否达到自动门槛并进入固定人工质量评审？
+- inheritance: 除下列显式差异外，E2 继承 E1 的 participant/source、输入与凭据边界、PI process flags、StructuredReport Draft contract、人工 review rubric、证据字段、回退规则和停止条件。
+
+#### Frozen identity and samples
+
+- pi_version: `0.84.2`
+- transport: `JSONL RPC`
+- provider_id: `baizhi-responses`
+- model_id: `deepseek-v4-flash`
+- api: `openai-responses`
+- base_url: `https://ai-api-gateway.app.baizhi.cloud/api/openai`
+- reasoning: `false`
+- thinking_level: `off`
+- zero_finding_input_sha256: `99d1300c2d01c0d091fb36162da0a73ca337ff8d234e9583144b31cbb43354c4`
+- mixed_finding_input_sha256: `07918cb7d09f4b75f283e8108440bdf73411f516361ab5f9e078ab79e114500e`
+- prompt_hash: `7142839ef7c3a30034cc1c97d3f5915244d6da3040f35cd342b8f8dd3ef5e93a`
+- schema_hash: `3bdefd266e0cd83119a2a8a594457de703a96f9f789f0429f2cbfe79717c38a2`
+- sample_rule: 精确复用 E1 的两个输入字节；Hash 不一致时返回 `E2_STOP_INPUT_DRIFT`，不得构造替代样本获取通过结果。
+
+#### Client compatibility metadata
+
+- context_window: `272000`
+- max_tokens: `128000`
+- per_rpc_request_timeout_seconds: `300`
+- total_evidence_window_minutes: `45`
+- source_of_values: 百智云目标目录只返回 ID、object、owner 和 created，不声明 token 上限；上述 `context_window` 与 `max_tokens` 采用同一 `baizhi-responses` Provider 已登记模型的宽松客户端元数据，目的是取消 E1 的人为低上限，不是对目标模型能力的 Provider 声明，也不是要求模型消耗这些 token。
+- timeout_rule: 每个 RPC 请求等待 `agent_settled` 或明确错误最多 300 秒；到期发送 abort 并 fail-closed。总 45 分钟窗口优先，剩余不足 300 秒时不得超出总窗口。
+- cost_rule: 不设置美元成本上限；仍记录 Provider 返回的 token、耗时和 cost 字段。
+
+#### Negation-aware Validator rule
+
+- 完全移除以下精确否定短语后，再扫描未经 Evidence 支持的正向动作词：`不含建议`、`不构成建议`、`未提供建议`、`没有建议`。
+- 移除仅用于避免否定句误报；`建议`、`应当`、`应该`、`必须执行` 在其他叙述位置仍返回 `UNSUPPORTED_CLAIM`。
+- 所有结构、数字、Finding、Transition、Evidence、方向、限制、Prompt injection、凭据和边界校验与 E1 完全相同。
+- E2 执行前必须记录新 Validator source Hash；未记录或规则不等价时返回 `E2_STOP_VALIDATOR_DRIFT`。
+
+#### Transport retry and repair
+
+- 每个样本仍有 3 个逻辑初始 run，共 6 个分母；每个逻辑 run 从全新 ephemeral PI Session 开始。
+- 只有在没有可解析完整 JSON 草稿时发生的连接错误、明确 model transport error、0 输出或 RPC timeout，才允许最多 1 次 transport retry。
+- transport retry 使用全新 ephemeral Session、完全相同的 Prompt、Schema、输入字节和模型身份；不得附加错误解释、扩大 Evidence 或切换模型。
+- 使用 transport retry 的逻辑 run 无论重试结果如何，`initial_pass=false`；重试次数单独记录，不得用重试提高首次通过分子。
+- 第一次得到可解析完整 JSON 后立即停止 transport retry 并运行 Validator；非法草稿仍只允许 E1 定义的 1 次结构化修复。
+- 因此单个逻辑 run 最多是 `初始传输 + 1 次 transport retry + 1 次结构化修复`；结构化修复不得因新的传输失败再次重试。
+- 即使 timeout 前已留下可解析且通过 Validator 的 JSON，只要 RPC 未 settled，当前请求仍视为 transport failure，不追溯接受该输出。
+
+#### E2 thresholds and review gate
+
+仅当以下自动条件全部成立时，E2 才进入 E1 已固定的人工 review rubric：
+
+1. 6/6 逻辑 run 最终通过 Validator；
+2. 至少 5/6 逻辑 run 的第一次传输无需 transport retry 或结构化修复即通过；
+3. 权威事实漂移、非法引用、禁止的新判断、凭据泄漏和输入边界外数据均为 0；
+4. 强制失败路径选择确定性模板，权威报告未被修改；
+5. 全部行动在 45 分钟内完成，固定身份、输入、Prompt、Schema 和 Validator 没有漂移。
+
+自动条件失败时不运行人工质量评审，并按 E1 verdict 语义返回 E2 对应 verdict。自动条件通过后先返回 `E2_AWAITING_HUMAN_REVIEW`；仍须两类样本均被授权内部评审者判定“解释更清晰”且“核验负担不增加”，才可返回 `E2_PASS`。E2 的通过不自动授权内部 Pilot、应用实现或生产启用。
+
+#### E2 return additions
+
+E2 复用 E1 result block，并强制增加：
+
+- `context_window: 272000`
+- `max_tokens: 128000`
+- `per_rpc_request_timeout_seconds: 300`
+- `transport_retry_attempts` 与 `transport_retry_successes`
+- 每个逻辑 run 的第一次传输、transport retry、结构化修复、stop reason、耗时、usage、输出 Hash 和 Validator 结果
+- 新 `validator_hash`
+- verdict 只能是：`E2_AWAITING_HUMAN_REVIEW`、`E2_PASS`、`E2_REWORK_CONTRACT`、`E2_FAIL_QUALITY`、`E2_FAIL_COMPATIBILITY`、`E2_INCOMPLETE`、`E2_STOP_IDENTITY_DRIFT`、`E2_STOP_INPUT_DRIFT`、`E2_STOP_VALIDATOR_DRIFT` 或 `E2_STOP_SAFETY`
+
+E2 只有在本 r3 精确 blob 进入 `origin/main`、临时敏感样本边界未漂移且人类再次明确授权内容调用后才能执行。本 revision 的写入或 merge 不等于 E2 调用授权。
 
 ## Readiness
 
-尚未执行六项 Commitment readiness tests：
+尚未通过六项 Commitment readiness tests：
 
-1. 内部评审 actor 和 trigger 已在 Frame 中限定，但实际工作流尚未通过 E1 观察。
+1. 内部评审 actor 和 trigger 已在 Frame 中限定；E1 自动门槛失败，尚未进入人工观察。
 2. 当前替代方式是确定性模板；“解释不足”仍是未验证假设。
-3. 最小 shadow 闭环和状态交接已定义，尚未证明可运行。
-4. 主要信号、guardrail、样本、rubric、45 分钟窗口及最小证据已固定，等待执行。
-5. 最高风险由 E1 覆盖，但尚无结果。
-6. non-goals、false-positive completion、权限、恢复和停止边界已明确。
+3. throwaway E1 证明模型可返回结构化且事实一致的草稿，也证明本地回退选择逻辑；正式应用闭环仍未实现或验证。
+4. E1 已记录为 `REWORK_CONTRACT`；E2 保持原信号、guardrail、样本、rubric 和阈值，只冻结去污染的 Runtime、Validator、重试及超时契约，等待单独授权执行。
+5. 最高风险尚未关闭：E1 的 3/6 首次、4/6 最终结果受测试器污染，不能证明稳定性或质量。
+6. non-goals、false-positive completion、权限、恢复和停止边界保持明确。
 
 当前 verdict 不是 `READY_TO_COMMIT`。
 
@@ -300,16 +445,18 @@ E1 只有在本 r2 精确 blob 进入 `origin/main`、样本授权与边界未�
 
 - decision: NONE
 - committed_revision: NONE
-- note: `CANDIDATE r2` 只冻结 E1 协议；它不授权模型内容调用、Delivery Spec、tickets、实现、Admission 或生产启用。
+- note: `CANDIDATE r3` 记录 E1 `REWORK_CONTRACT` 证据并冻结 E2 协议；它不授权 E2 模型内容调用、Delivery Spec、tickets、实现、Admission 或生产启用。
 
 ## Delivery trace
 
 - r1_accepted_base: `origin/main@18536329024e36932d11312739adf097ca7cf744`
 - r1_blob: `e74543712f4e6a6ff61f48e7591d00b07cc231ee`
-- r2_candidate_base: `origin/main@18536329024e36932d11312739adf097ca7cf744`
-- r2_candidate_branch: `product/rel-002-evidence-r2`
+- r2_accepted_base: `origin/main@58d7dcd73eb26fe9aca6d2231347c00d8e091577`
+- r2_blob: `4c4c8c62bc5839977fe094b287c39ac1737f46d1`
+- r3_candidate_base: `origin/main@58d7dcd73eb26fe9aca6d2231347c00d8e091577`
+- r3_candidate_branch: `product/rel-002-evidence-r3`
 - artifact_path: `docs/product/releases/rel-002-bounded-pi-report-shadow.md`
-- r2_accepted_delivery_base: NONE；只有本 r2 的精确 blob 进入 `origin/main` 后才成为权威 revision。
+- r3_accepted_delivery_base: NONE；只有本 r3 的精确 blob 进入 `origin/main` 后才成为权威 revision。
 - spec: NONE
 - tickets: NONE
 
