@@ -3,7 +3,7 @@
 ## Metadata
 
 - status: CANDIDATE
-- revision: r5
+- revision: r6
 - owner: 人类产品决策者（当前对话授权人）
 - product_stage: FRAME
 - delivery_stage: NOT_STARTED
@@ -32,9 +32,11 @@
 | FACT | E2 的两次初始拒绝均来自 Python 子串误判：安全短语“对应当前”包含连续字符“应当”；安全限制“不构成已批准动作”包含“已批准”。一次由误判触发的修复在 300 秒超时，但原初始请求已经正常 settled。 | E2 原始草稿、Validator 诊断与 RPC 结果，2026-08-17 | 证明词法规则不适合承担任意中文语义判断；不能据此把 E2 追溯改判为通过。 |
 | DECISION | E2 raw runner 因一次不必要的修复超时返回 `E2_FAIL_COMPATIBILITY`；鉴于 6/6 初始请求均正常完成且失败来自词法误判，按协议语义纠正为 `E2_REWORK_CONTRACT`。 | 人类产品决策者接受的 E2 adjudication，2026-08-17 | 纠正分类不等于 E2 通过，也不授权后续模型调用。 |
 | DECISION | E3 以隔离的 PI Semantic Reviewer shadow PoC 验证 AI 语义审阅；Python 继续校验权威事实和 reviewer 输出包络，不再用子串推断中文意图。E3 不是默认生产多 Agent 路径；若后续采用，必须另开 ADR。 | 人类产品决策者确认，2026-08-17；架构 §9.4–§9.5 | 新增模型审阅带来非确定性、延迟和同模型共同错误风险，必须以 Golden cases 和人工对照验证。 |
-| ASSUMPTION | 授权内部评审者能够独立判断 PI Semantic Reviewer 对六份冻结草稿的语义 verdict 与 issue 是否正确，并继续判断草稿是否更清晰且不增加核验负担。 | 当前 Release 假设，2026-08-17 | 尚未执行 E3 或人工 rubric。 |
-| UNKNOWN | 授权内部评审者是否真实经历确定性模板解释不足，以及 PI 草稿能否提高理解而不增加事实核验负担。 | 截至 2026-08-17 尚未执行人工观察 | 这是当前最高产品风险；E1/E2 的技术证据不能替代 actor、workflow 和 value 证据。 |
-| UNKNOWN | 同一开发模型在隔离审阅 Session 中，能否稳定区分安全否定语义与无 Evidence 的正向判断，并与人工对六份冻结草稿完全一致。 | 截至 2026-08-17 尚未执行 E3 | 这是隔离的次级技术可行性未知，不改变最高产品风险。 |
+| FACT | H1 在权威 r5 上取得参与者同意并以 FORMAL session 执行；参与者描述了每周报告审核的预期流程，但最近两次可定位经历分别是英文测试数据报告和合成样例的数据处理逻辑测试，均未进入实际业务审批。 | `H1-internal-report-observation-v1` 脱敏会话记录，2026-08-17 | 只证明本次参与者近期没有可用于该 Release 的真实业务审核故事；不等于治理报告客观上没有问题。 |
+| FACT | H1 按 recent-story-first 停止条件在展示冻结确定性样本和 PI 草稿前返回 `H1_FAIL_NO_PROBLEM`；PI 草稿、E3 预期 verdict 和 E3 输出均未展示，未运行模型。 | H1 FORMAL closeout，经人类产品决策者确认，2026-08-17 | 未执行两类样本的清晰度、核验负担或逐草稿语义判断，因此不能将 H1 解释为质量通过或失败。 |
+| FACT | H1 结果获准写回后，六份 E2 initial 草稿均在核对 r4 已记录 Hash 后删除；两份 repair 草稿已在 r5 前删除。获批临时目录中不再保留 E2 草稿原文。 | 本地受控清理检查，2026-08-17 | Hash 和脱敏 adjudication 仍保留；原文删除不可逆，E3 v1 不再具备冻结 draft 输入。 |
+| UNKNOWN | 是否存在一名在近期真实非测试业务审核中经历确定性模板解释不足的目标 actor，以及 PI 草稿能否提高其理解而不增加事实核验负担。 | H1=`FAIL_NO_PROBLEM`，2026-08-17 | 这是当前最高产品风险；E1/E2 技术证据和本次开发/测试经历均不能替代真实 actor、workflow 和 value 证据。 |
+| UNKNOWN | PI Semantic Reviewer 能否稳定区分安全否定语义与危险正向判断。 | E3 未执行，2026-08-17 | 仍是次级技术未知；H1 未通过且冻结草稿已删除，E3 v1 不得执行。 |
 
 ## Release frame
 
@@ -49,7 +51,7 @@
   - evidence_refs: Evidence ledger 中的运行查询、源码与镜像检查、PI 官方本地文档和百智云目录探测。
 - target_outcome: 授权内部评审者能在同一份已完成 Run 上对照权威确定性报告与通过校验的 PI 草稿，判断 PI 是否在保持事实一致的前提下提高解释清晰度，并据此决定是否进入受控内部 Pilot。
 - solution_hypothesis: PI Generator 只读取有界 Evidence 并输出固定 StructuredReport Draft；Python Hard Validator 核验 Schema、事实、引用、权限和 reviewer 包络；隔离的 PI Semantic Reviewer 只判断草稿语义是否越出 Evidence；任一层失败最多触发一次受控修复或直接回退现有确定性模板。E3 只作为隔离的次级技术可行性 shadow，不替代 actor、workflow 或 value 证据，也不预先批准生产采用。
-- smallest_closed_loop: `完成 GovernanceRun → 授权内部评审者查看现有确定性报告 → 在同一冻结事实上查看带来源和 shadow 标识的对照草稿 → 记录理解是否改善、核验负担是否增加以及是否值得进入内部 Pilot`。H1 是当前产品 Evidence 行动；E3 只有在 H1_PASS 持久化后才可作为后续独立安全可行性门槛，且不属于产品 walking skeleton。
+- smallest_closed_loop: 目标 walking skeleton 仍是 `完成 GovernanceRun → 授权内部评审者查看现有确定性报告 → 在同一冻结事实上查看带来源和 shadow 标识的对照草稿 → 记录理解是否改善、核验负担是否增加以及是否值得进入内部 Pilot`。H1 未取得进入该 loop 的真实 recent story，并在样本展示前停止；当前没有获批的下一 Evidence 行动，E3 不属于 walking skeleton 且已永久阻断。
 - included_scenarios:
   - 本地或 staging 的已完成 GovernanceRun，不接入生产动作路径。
   - 经授权、Run 级、有界的内部敏感业务 Evidence 可以保留实际业务值，以免脱敏破坏报告语义。
@@ -67,23 +69,18 @@
   - 用实现完成、模型输出流畅或一次演示替代内部评审证据。
 - success baseline: 当前 4 份本地报告全部为 `DETERMINISTIC_TEMPLATE`，PI 草稿与 PI 质量评审均为 0。
 - primary_signal: 授权内部评审者对两类冻结样本均判定 PI 草稿比确定性模板更清晰且事实核验负担不增加，并各记录一个具体改善点和一个限制。
-- secondary_feasibility_gate: 只有上述人工产品观察先通过后，才可另行考虑 E3；E3 Semantic Reviewer 对 24 个成对 Golden cases 的 3 次独立批量审阅须达到 72/72 正确，并与已经冻结的人工六份草稿语义 verdict/issues 完全一致。该门槛只能约束后续安全可行性，不能追溯改变 primary signal。
+- secondary_feasibility_gate: H1 已返回 `H1_FAIL_NO_PROBLEM`，因此本 Release 当前不得进入 E3。只有未来先取得新的真实 actor/workflow/value 证据并经新 revision 重开，才可重新设计次级语义可行性行动；不得复用 E3 v1 获得通过结果。
 - guardrail:
   - 权威统计、Finding 状态、Evidence 引用和处置方向的事实漂移为 0。
   - 未授权数据、凭据、Token、密码、原始 Artifact 和无界上下文进入模型或日志为 0。
   - 经授权且为报告必需的 Run 级敏感业务 Evidence 不因脱敏而丢失语义。
   - PI 不可用、超时、输出非法或修复失败时，确定性模板仍可发布。
   - 未经独立生产批准，不向生产环境启用 PI 输出。
-- evidence_window: 当前 H1 人工观察从评审者打开首份确定性报告开始最多 45 分钟；不运行模型、不重新生成报告。后续 E3 若获批，使用其协议内独立的 45 分钟窗口。
+- evidence_window: H1 已在展示冻结样本前按 early-stop 条件结束；当前没有获批的 Evidence window。任何后续 actor/value 行动必须在新 revision 中重新冻结。
 - minimum_evidence:
-  - 一名授权内部评审者先查看两个冻结样本的确定性模板，记录当前解释问题是否真实存在，再比较全部六份 E2 initial 草稿并冻结清晰度、核验负担和逐草稿语义判断。
-  - 两个冻结且经授权的 Run 级报告样本：一个零 Finding，一个包含当前差异、开放积压和生命周期变化的混合 Finding 样本。
-  - PI Runtime、Provider、Model、Prompt、工具边界和 StructuredReport Schema 的可复现身份。
-  - 24 个成对 Golden semantic cases 的冻结身份、标签、3 次审阅结果与输出 Hash。
-  - 六份 E2 初始草稿与对应权威事实的冻结 Hash，以及每份独立 Semantic Reviewer 输出。
-  - Python Hard Validator 对事实、引用、quote 包络、凭据和边界的逐项结果。
-  - 授权内部评审者对六份草稿和 reviewer issue 的独立判断、与 AI 的一致性、清晰度、核验负担及继续或停止理由。
-  - Provider/API 失败模式、同模型共同错误限制及生产内部模型需要复验的兼容边界。
+  - `NOT_MET`：一名目标 actor 的近期真实非测试业务审核故事，包含 trigger、实际步骤、当前替代、具体失败及可观察后果。
+  - 只有上述产品证据先成立后，才可在新 revision 中冻结新的授权样本、草稿和人工清晰度/核验负担观察；已删除的 E2 草稿不得重建。
+  - 只有新的人工 primary signal 通过后，才可设计新 protocol ID 的语义 Reviewer 可行性证据；E3 v1 的 Golden、9-call 和 draft 对照不再是可执行 minimum evidence。
 - risks:
   - value:
     - PI 文案可能更流畅但没有提高理解或决策质量。
@@ -102,41 +99,40 @@
     - Runner 环境过滤、Run 级只读 Token 或日志控制失败可能泄漏凭据或超范围数据。
     - Prompt injection 或无 Evidence 推断可能产生误导性草稿。
     - Semantic Reviewer false pass 不能提升草稿为权威事实；没有 Python Hard Validator、人工门禁和模板回退时不得采用。
-- appetite: 当前只执行一次最多 45 分钟、覆盖两个冻结样本和全部六份 E2 initial 草稿的授权内部人工观察；不运行模型、不生成或修改草稿、不建设生产路径。只有 H1 通过后，才可按后续 E3 自身的 9-call/45-minute appetite 单独申请授权。
+- appetite: H1 已使用一次授权 session 并在 recent-story gate 结束；不补参与者、不展示已删除草稿、不执行 E3。后续只允许人类先决定 `REWORK | HOLD | DROP`，不得在本 revision 内扩大 Evidence。
 - blocking_unknowns:
-  - 授权内部评审者是否真实经历当前解释问题，并认为草稿提高解释清晰度且不增加核验负担。
-  - 次级可行性：PI Semantic Reviewer 对安全否定语义和危险正向判断的稳定区分能力，以及与人工对六份 E2 草稿的逐份一致性。
+  - 是否存在近期真实非测试业务审核中的目标 actor、当前解释问题和可观察价值。
+  - 次级可行性：PI Semantic Reviewer 的语义判断能力；在最高产品风险关闭前不再行动。
   - 未来生产内部模型对同一契约的兼容性。
   - 正式 Run 级 Evidence Token、Reports shadow 隔离和审计接线的 Delivery 设计。
 - false_positive_completion: PI 输出成功或页面出现一段文案，但没有固定 Evidence 边界、事实 Validator、确定性回退、可复现身份和预先固定的对照评审结果。
 
 ## Controlled release boundary
 
-- authority_and_scope: 人类产品决策者于 2026-08-17 批准 `REL-002/r5` 只修正 r4 独立审阅发现的三个阻断项并记录 r4 Delivery trace，以同一 draft PR 接受后续审阅修正；本 revision 不授权 H1 人工观察、E3 模型调用、实现、merge、生产启用或外部动作。
+- authority_and_scope: 人类产品决策者于 2026-08-17 批准 `REL-002/r6` 只记录 FORMAL H1=`FAIL_NO_PROBLEM` 脱敏结果并删除六份已核验 Hash 的 E2 initial 草稿；本 revision 不授权补做 H1、执行 E3、实现、merge、生产启用或外部动作。
 - protected_assets_and_data:
   - 可以进入模型：经授权、Run 级、有界且为报告必需的内部业务 Evidence，包括实际 IP、资产标识和 Finding 内容。
   - 不得进入模型：数据库凭据、密码、Token、OctoBus Credential/Capset、原始上传文件、完整 Artifact、完整数据库或无界查询结果。
   - 不得进入 Git 或普通日志：完整模型上下文、凭据、原始文件和未经批准的业务数据副本。
-- blast_radius: 当前 H1 仅限一名授权内部评审者、两份冻结确定性报告和六份 E2 initial 草稿；不调用模型。后续 E3 若获批，才扩展到 24 个合成 Golden cases 和同一批冻结输入；确定性报告始终是权威结果。
+- blast_radius: r6 只写入 H1 脱敏结果和清理状态；六份 initial 与两份 repair 原文均已删除，不调用模型、不接触应用或数据库，确定性报告始终是权威结果。
 - pre_release_verification:
-  - H1 开始前确认评审者获授权、两份确定性报告和六份 initial 草稿 Hash 未漂移，且评审者尚未看到任何 PI Semantic Reviewer 结果。
-  - 后续 E3 开始前证明 PI 进程环境不含数据库连接串、OctoBus Credential 或 Action Capset。
-  - 证明输入只含已选 Run 的有界 Evidence，且任何临时 Token 在 Session 后失效。
-  - 对 Python Hard Validator 执行事实篡改、非法引用、quote 不存在、Reviewer Evidence 越界、Prompt injection、凭据和模型不可用测试。
-  - 证明 Semantic Reviewer 只能返回严格 JSON verdict/issues，不能重写草稿、修改 Finding 或扩大 Evidence。
-  - 证明任一 Generator、Reviewer 或包络校验失败均不会阻断确定性结果和模板报告。
-- rollback_or_recovery: H1/E3 Evidence 停止与恢复负责人为人类产品决策者。H1 的未授权访问、样本 Hash 漂移或安全事件，以及后续 E3 的事实漂移、Golden case 误判、Reviewer 与人工不一致、超范围数据暴露、Validator 绕过或资源失控任一触发时，负责人立即停止当前 Evidence 行动，保留 E2=`REWORK_CONTRACT`，继续发布现有 `DETERMINISTIC_TEMPLATE`；恢复验证是重新确认同一 Run 的确定性报告可读、Hash 不变且未被 PI 修改。
+  - H1 脱敏 return block 与人类确认的 closeout 一致，不包含原始回答、真实标识或未展示内容；start/end 取自 PI session message event timestamps，窗口为 855.809 秒。
+  - E1/E2 已完成协议、聚合结果、adjudication 和全部既有 Hash 不发生漂移。
+  - 删除前六份 initial 草稿逐份匹配 r4 Hash；删除后获批临时目录中 initial 与 repair 草稿计数均为 0，六份保留 `.stderr` 文件总字节为 0。
+  - 仓库、临时 Evidence 目录和当前会话均没有 H1 样本评审或 E3 模型调用产物。
+- rollback_or_recovery: r6 Evidence 写入与清理负责人为人类产品决策者。若脱敏记录失真、敏感原文进入 Git、草稿被重建或发现未授权 E3 调用，立即停止 r6 发布并保持权威 r5 不变；安全动作是删除未授权副本、撤销受影响凭据（如有）并重新生成仅含脱敏事实的候选 revision。验证是 Git 不含敏感原文、临时目录草稿计数为 0、确定性报告 Hash 不变。已删除草稿不可恢复，也不得为继续 E3 而重建。
 - approval_owners:
-  - H1 Evidence 执行：人类产品决策者对权威 r5 中一次人工观察的单独授权。
-  - E3 Evidence 执行：仅在 H1_PASS 已持久化到后续权威 Release revision 后，由人类产品决策者对该 revision 中 Reviewer 调用另行授权。
+  - r6 Evidence 写入与草稿清理：人类产品决策者已单独授权。
+  - r6 merge：人类产品决策者在独立审阅后决定。
+  - 未来 H1/E3 或其他 Evidence：必须由新权威 revision 和新的人类决定重新授权。
   - Release Commitment：人类产品决策者。
   - Admission 激活：人类确认独立审阅后的精确计划。
   - 生产启用、停用或回滚：明确指定的人工生产负责人。
-- staged_release: `目录与契约探测 → E1/E2 发现确定性与词法 Validator 边界 → H1 先观察 actor/workflow/value 并冻结人工语义判断 → 仅在 H1 通过后考虑 E3 Golden Semantic Reviewer PoC → AI 与既有人工判断对照 → 单独的人类内部 Pilot 决定 → 新 ADR 决定是否采用生产双阶段路径 → 使用生产内部模型重新验收 → 单独的人类生产决定`；本 revision 只允许修正 r5 文档、运行独立 Standards/Spec 审阅并更新同一 draft PR，不允许执行 H1、E3 或 merge。
+- staged_release: `目录与契约探测 → E1/E2 技术证据 → H1 未观察到真实目标 workflow → 停止 E3 并清理冻结草稿 → 人类决定 REWORK、HOLD 或 DROP`；本 revision 只允许记录 H1 与清理证据并发布候选文档，不允许补做 H1、执行 E3 或 merge。
 - smoke_and_stop_conditions:
-  - smoke: H1 的评审者授权、样本 Hash、盲序和未见 AI Reviewer 结果状态固定；后续 E3 的 Golden 身份、quote 与 Evidence 边界固定；六份 E2 草稿与权威事实始终不变。
-  - stop: H1 的未授权访问、输入漂移或人工判断污染，以及后续任一危险 Golden case 漏判、安全 case 误判、Reviewer 与人工不一致、凭据泄漏、未授权数据暴露、权威事实漂移、PI 获得禁止权限、确定性回退失败或活动安全事件立即停止。
-- audit_evidence: H1/E3 Evidence 保管责任人为人类产品决策者。Release artifact 保留 H1 近期故事与观察的必要脱敏摘要、样本 Hash、人工 verdict/issues，以及后续 E3 的 Runtime/Provider/Model、Prompt/Schema/Golden-set Hash、Evidence 输入边界摘要与 Hash、Reviewer verdict/issues 必要脱敏摘要、Hard Validator 结果和耗时；六份 E2 initial 草稿保存在本机权限为 `0700` 的获批 E2 临时 Evidence 目录，直到 H1 失败/取消、E3 裁决持久化或人类取消 E3 后由保管责任人删除并记录清理。两份 E2 repair 原文在 r4 记录 Hash 且 E3 明确不用后，已在 r5 准备阶段验证 Hash 并删除。完整模型上下文、凭据和原始 Artifact 不进入 Git 或普通日志。
+  - smoke: r6 只改变 Release 文档；H1 closeout 为脱敏 early-stop，六份 initial 和两份 repair 草稿计数均为 0，没有 H1 样本评审或 E3 产物。
+  - stop: 任一原始回答或业务草稿进入 Git、H1 事实被扩写、已删除草稿被重建、任何 E3 调用、凭据泄漏、权威事实漂移或活动安全事件立即停止。
+- audit_evidence: H1/E3 Evidence 保管责任人为人类产品决策者。Release artifact 只保留 H1 近期故事的脱敏流程类别、formal consent、early-stop/verdict、未展示内容、既有草稿 Hash 和清理计数；原始会话回答只留在本次受控对话，不写入 Git。六份 initial 与两份 repair 草稿均已验证既有 Hash 后删除，获批临时目录不再保留 E2 草稿原文；凭据、完整模型上下文和原始 Artifact 不进入 Git 或普通日志。
 
 ## Completed evidence protocol
 
@@ -506,12 +502,12 @@ Adjudication：
 - E2 的正确 verdict 是 `E2_REWORK_CONTRACT`；冻结结果保持 4/6 首次、4/6 最终，不追溯重算。
 - E2 证明 Python 适合守住机器可判定事实，但任意中文意图需要单独的语义证据。
 
-## Current evidence protocol
+## Completed human evidence protocol
 
 ### H1 授权内部报告观察 v1
 
 - protocol_id: `H1-internal-report-observation-v1`
-- protocol_status: `DESIGNED_NOT_AUTHORIZED`
+- protocol_status: `EXECUTED_FAIL_NO_PROBLEM`
 - evidence_class: `CONTROLLED_INTERNAL_RECENT_STORY_AND_TASK_OBSERVATION`
 - decision_question: 授权内部评审者是否在最近一次真实报告阅读中经历确定性模板解释不足，并认为六份冻结 PI 草稿在不增加事实核验负担的前提下改善了两类样本的理解？
 - riskiest_assumption: actor/current workflow 中确有值得解决的解释问题，且 PI 草稿提供可观察价值而非只增加流畅文案。
@@ -546,14 +542,52 @@ Adjudication：
 - 未完成固定样本返回 `H1_INCOMPLETE`；身份、输入或盲序漂移返回对应 `H1_STOP_*_DRIFT`；未授权访问或安全事件返回 `H1_STOP_SAFETY`。
 - H1 只能返回：`H1_PASS`、`H1_FAIL_NO_PROBLEM`、`H1_FAIL_QUALITY`、`H1_INCOMPLETE`、`H1_STOP_IDENTITY_DRIFT`、`H1_STOP_INPUT_DRIFT`、`H1_STOP_PROTOCOL_DRIFT` 或 `H1_STOP_SAFETY`。
 
-H1 只有在本 r5 通过独立 Standards/Spec 审阅、精确 blob 进入 `origin/main` 且人类单独授权该次人工观察后才能执行。本 revision、draft PR、审阅或 merge 均不授权 H1。H1 未返回 `H1_PASS` 时不得执行 E3。
+H1 已在权威 r5 上经单独授权执行；按 recent-story early-stop 规则结束，未展示冻结报告或 PI 草稿。其结果不得改写为模型质量结论，也不得在同一 protocol ID 下补参与者或补样本。
+
+### H1 recorded result
+
+```yaml
+protocol_id: H1-internal-report-observation-v1
+recorded_at: 2026-08-17T07:21:21Z
+session_class: FORMAL
+participant_role: INTERNAL_REPORT_REVIEWER_AND_PRODUCT_DEVELOPMENT
+consent: true
+recent_workflow:
+  cadence: WEEKLY_OR_AD_HOC_REVIEW
+  intended_task: COMPARE_INTERNAL_AND_EXPOSURE_DATA_THEN_APPROVE_WRITE_OR_RETEST
+observed_recent_events:
+  - ENGLISH_TEST_DATA_REPORT_THEN_DEVELOPMENT
+  - SYNTHETIC_SAMPLE_PROCESSING_LOGIC_TEST_WITHOUT_BUSINESS_APPROVAL
+target_scope_business_review_observed: false
+frozen_deterministic_samples_shown: false
+e2_initial_drafts_shown: 0
+e3_expected_verdicts_shown: false
+e3_outputs_shown: false
+model_calls: 0
+started_at: 2026-08-17T07:04:56.912Z
+ended_at: 2026-08-17T07:19:12.721Z
+elapsed_seconds: 855.809
+elapsed_minutes: 14.263
+timing_source: PI_SESSION_MESSAGE_TIMESTAMPS
+verdict: H1_FAIL_NO_PROBLEM
+readiness_effect: 近期经历均为开发或测试活动，未观察到目标范围内的真实 actor/workflow/value；E3 保持阻断。
+limitations:
+  - 该 verdict 不表示治理报告客观上没有问题，只表示本次参与者没有提供近期真实非测试业务审核故事。
+  - 未执行冻结样本的清晰度、核验负担或逐草稿语义判断。
+cleanup:
+  repair_drafts_deleted: 2
+  initial_drafts_deleted_after_hash_verification: 6
+  retained_e2_draft_payloads: 0
+  retained_rpc_stderr_files: 6
+  retained_rpc_stderr_total_bytes: 0
+```
 
 ## Deferred secondary evidence protocol
 
 ### E3 PI Semantic Reviewer Shadow PoC v1
 
 - protocol_id: `E3-pi-semantic-reviewer-shadow-v1`
-- protocol_status: `DESIGNED_BLOCKED_BY_H1`
+- protocol_status: `BLOCKED_BY_H1_FAIL_AND_INPUT_CLEANUP`
 - evidence_class: `CONTROLLED_INTERNAL_AI_SEMANTIC_REVIEW_POC`
 - decision_question: 在 H1 已先证明产品问题和值得继续后，隔离的 PI Semantic Reviewer 能否稳定区分安全否定语义与无 Evidence 的正向判断，并对全部六份冻结 E2 初始草稿给出与已冻结人工判断完全一致的结构化语义审阅？
 - riskiest_assumption: 在本次隔离的次级可行性 PoC 内，同一开发模型在 Reviewer 角色中具备足够语义理解，同时不会因与 Generator 的共同模型偏差而漏掉不受 Evidence 支持的判断。
@@ -561,8 +595,8 @@ H1 只有在本 r5 通过独立 Standards/Spec 审阅、精确 blob 进入 `orig
 - participant_or_source:
   - Reviewer Runtime：PI 0.84.2，`baizhi-responses/deepseek-v4-flash`，`openai-responses`，Base URL 与 E2 相同。
   - Golden source：下列 12 组、24 条合成中文 case，不含业务数据。
-  - Draft source：E2 六份初始草稿的精确 Hash 与对应两份冻结权威输入；不使用 E2 repair 输出，不重新生成报告。
-  - Human source：H1 中先于 E3 冻结的一名授权内部评审者对六份草稿的独立 verdict/issues；E3 结束前不得向其展示 AI Reviewer 结果。
+  - Draft source（已不可用）：E2 六份初始草稿只保留精确 Hash；原文已按 H1 fail cleanup 删除，不得重建或替换样本。
+  - Human source（未形成）：H1 在展示草稿前停止，没有冻结六份草稿的人工 verdict/issues。
 
 #### Role and authority boundary
 
@@ -643,7 +677,7 @@ H1 只有在本 r5 通过独立 Standards/Spec 审阅、精确 blob 进入 `orig
 - 使用 E2 的 `context_window=272000`、`max_tokens=128000`、`thinking=off`、环境 allowlist 和全部 no-tools/no-session flags。
 - 每次请求最多 300 秒，总 evidence window 45 分钟；不设置美元成本上限。
 - 不允许 transport retry、Reviewer 输出修复、报告再生成、草稿改写、模型切换或样本替换；任一失败作为 E3 证据返回。
-- 完整 E2 草稿和 Reviewer 上下文只留在权限为 `0700` 的本地临时目录；Git 只记录 Hash、标签、结构化 verdict/issues 的必要脱敏摘要与人工结论。
+- 本协议原设计要求完整 E2 草稿只留在权限为 `0700` 的本地临时目录；H1 fail 后这些草稿已按保留规则删除，因此 E3 v1 不得启动、重建上下文或替换样本。
 
 #### Automated threshold
 
@@ -674,18 +708,18 @@ H1 只有在本 r5 通过独立 Standards/Spec 审阅、精确 blob 进入 `orig
 - 结果必须记录 9 个逻辑调用及每个 subject 的输入/输出 Hash、verdict、issues、usage、耗时、stop reason、自动门槛、人工 rubric 和限制。
 - E3 只能返回：`E3_AWAITING_HUMAN_REVIEW`、`E3_PASS`、`E3_FAIL_SEMANTIC_REVIEWER`、`E3_FAIL_HUMAN_DISAGREEMENT`、`E3_FAIL_QUALITY`、`E3_FAIL_COMPATIBILITY`、`E3_REWORK_CONTRACT`、`E3_INCOMPLETE`、`E3_STOP_IDENTITY_DRIFT`、`E3_STOP_INPUT_DRIFT`、`E3_STOP_REVIEWER_DRIFT` 或 `E3_STOP_SAFETY`。
 
-E3 只有在 H1 已返回 `H1_PASS`，该结果已写入后续权威 Release revision 且其精确 blob 进入 `origin/main`，六份 E2 initial 草稿 Hash/权限边界未漂移，并且人类再次明确授权 reviewer 调用后才能执行。本 r5 的写入、draft PR、审阅通过、merge 或 H1 授权均不等于 E3 调用授权。E3 通过也只证明隔离的次级可行性 shadow PoC；任何默认生产双阶段路径仍需单独 ADR。
+H1 已返回 `H1_FAIL_NO_PROBLEM`，且六份 E2 initial 草稿原文已删除，因此 `E3-pi-semantic-reviewer-shadow-v1` 永久保持阻断，不得调用、补样本或重建输入。未来只有在新的真实 actor/workflow/value 证据先通过后，才可由新 Release revision 和新 protocol ID 重新决策；任何默认生产双阶段路径仍需单独 ADR。
 
 ## Readiness
 
 尚未通过六项 Commitment readiness tests：
 
-1. 内部评审 actor 和 trigger 仍是 `ASSUMPTION`；E1/E2 自动门槛均未进入人工报告质量观察。
-2. 当前替代方式是确定性模板；评审者是否真实经历“解释不足”仍是未验证假设。
-3. E1/E2 证明开发模型能在固定边界内返回结构化、事实字段一致的草稿；正式 Generator/Hard Validator/Semantic Reviewer/回退闭环仍未实现或验证。
-4. 当前 H1 已冻结人工 actor/workflow/value 观察的 primary signal、45 分钟窗口和最小证据；E3 仅是 H1 通过后才可考虑的 24-case/9-call 次级可行性门槛。
-5. 最高产品风险尚未关闭：actor/current workflow/value 没有观察证据；即使 E3 通过也不能使本项通过。
-6. non-goals、false-positive completion、权限、恢复责任、审计保管、停止边界及“生产采用前必须新 ADR”均已明确。
+1. H1 参与者描述了每周审核的预期流程，但最近可定位经历均为开发或测试，未观察到真实非测试业务审核中的 actor/trigger/workflow。
+2. 当前替代方式仍是确定性模板；本次观察到的英文测试数据和合成样例问题不证明目标范围内的解释不足。
+3. E1/E2 只证明开发模型与技术边界；正式 Generator/Hard Validator/Semantic Reviewer/回退闭环仍未实现或验证。
+4. H1 在展示冻结样本前返回 `FAIL_NO_PROBLEM`，primary signal 未被观察；六份草稿已删除，E3 v1 永久阻断。
+5. 最高产品风险未关闭：缺少近期真实 target actor/current workflow/value 证据；不得以新增技术实验替代。
+6. non-goals、false-positive completion、权限、不可恢复清理、恢复责任、审计保管和停止边界均已明确。
 
 当前 verdict 不是 `READY_TO_COMMIT`。
 
@@ -693,7 +727,7 @@ E3 只有在 H1 已返回 `H1_PASS`，该结果已写入后续权威 Release rev
 
 - decision: NONE
 - committed_revision: NONE
-- note: `CANDIDATE r5` 只修正 r4 的三个独立审阅阻断项并记录 r4 Delivery trace；它不授权 H1 人工观察、E3 模型调用、merge、生产双阶段架构、Delivery Spec、tickets、实现、Admission 或生产启用。
+- note: `CANDIDATE r6` 记录 H1=`FAIL_NO_PROBLEM` 与草稿清理；下一步只能由人类决定 `REWORK | HOLD | DROP`。它不授权补做 H1、E3、新技术实验、merge、Delivery Spec、tickets、实现、Admission 或生产启用。
 
 ## Delivery trace
 
@@ -705,10 +739,12 @@ E3 只有在 H1 已返回 `H1_PASS`，该结果已写入后续权威 Release rev
 - r3_blob: `d1e02f6513dd4421a47a7400fc66d99d80f8c3fa`
 - r4_accepted_base: `origin/main@4cd87e903c2d7443955591d95885891f790c6c0c`（PR #133）
 - r4_blob: `d75c39bb4213b274a081d8c2567085b0e13f1080`
-- r5_candidate_base: `origin/main@cc1f3fbb86c9ef5edd781410e7298a0b0d13445c`
-- r5_candidate_branch: `product/rel-002-evidence-r5`
+- r5_accepted_base: `origin/main@bfcbef89c6946bc27397e276b7d4c1beb1bae4cd`（PR #134）
+- r5_blob: `b88fb8b385393ddab56df3abf8d83512f0efc327`
+- r6_candidate_base: `origin/main@bfcbef89c6946bc27397e276b7d4c1beb1bae4cd`
+- r6_candidate_branch: `product/rel-002-evidence-r6`
 - artifact_path: `docs/product/releases/rel-002-bounded-pi-report-shadow.md`
-- r5_accepted_delivery_base: NONE；只有本 r5 通过独立 Standards/Spec 审阅且精确 blob 进入 `origin/main` 后才成为权威 revision。
+- r6_accepted_delivery_base: NONE；只有本 r6 的精确 blob 进入 `origin/main` 后才成为权威 revision。
 - spec: NONE
 - tickets: NONE
 
