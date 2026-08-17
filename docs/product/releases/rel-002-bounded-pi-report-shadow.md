@@ -122,7 +122,7 @@
   - E1/E2 已完成协议、聚合结果、adjudication 和全部既有 Hash 不发生漂移。
   - 删除前六份 initial 草稿逐份匹配 r4 Hash；删除后获批临时目录中 initial 与 repair 草稿计数均为 0，六份保留 `.stderr` 文件总字节为 0。
   - 仓库、临时 Evidence 目录和当前会话均没有 H1 样本评审或 E3 模型调用产物。
-- rollback_or_recovery: r7 HOLD 记录负责人为人类产品决策者。若 decision、basis blob 或 reopen condition 记录失真，立即停止 r7 发布并保持权威 r6 的 `Commitment: NONE`；安全动作是修正候选记录，不改变或重建已删除 Evidence。验证是 HOLD 精确绑定 r6 blob、Git 不含敏感原文、临时目录草稿计数为 0。
+- rollback_or_recovery: r7 HOLD 记录与所有 stop event 的恢复负责人为人类产品决策者。若 decision、basis blob 或 reopen condition 失真，立即停止 r7 发布并保持权威 r6 的 `Commitment: NONE`，只修正候选记录。若敏感原文进入 Git，删除候选副本；若已发布或包含凭据则同时撤销受影响凭据并按 Incident 流程处理。若草稿被重建，删除全部重建副本且不得继续 E3。若发现未授权 E3/模型调用，立即 abort/终止 Session 和进程、撤销临时 Token、保留确定性模板并记录 Incident。恢复验证是 HOLD 精确绑定 r6 blob、Git 不含敏感原文、临时目录 initial/repair 与非空 stderr 计数均为 0、没有活动 PI Session、确定性报告 Hash 不变，且任何受影响凭据已撤销。
 - approval_owners:
   - HOLD 决定与 r7 写入：人类产品决策者已授权。
   - r7 merge：人类产品决策者在独立审阅后决定。
