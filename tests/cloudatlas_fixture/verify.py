@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -16,7 +17,7 @@ SERVICE_ID = "cloudatlas-read"
 INSTANCE_ID = "cloudatlas-fixture"
 CAPSET_ID = "cloudatlas-readonly"
 METHOD = "cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets"
-CAPSET_TOKEN = "fixture-capset-token"
+CAPSET_TOKEN = os.environ["FIXTURE_CAPSET_TOKEN"]
 PACKAGE_SHA256 = "1d487b2773d0dc2457d5c552d5a5d9cd34b4e7c732f9a810cf0115cdab3f069c"
 DESCRIPTOR_SHA256 = "3fada7cb00f3bca132c28d316ea61158522a1a07d3e80a83f9e68010d1a588e0"
 
@@ -124,7 +125,7 @@ def main() -> None:
     serialized_failures = json.dumps(failure_bodies)
     for forbidden in (
         CAPSET_TOKEN,
-        "fixture-upstream-token",
+        "invalid-fixture-upstream-token",
         "192.0.2.10",
         "TOKEN",
         "stderr",

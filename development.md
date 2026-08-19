@@ -1,5 +1,18 @@
 # Exposure-Agent development
 
+## Runtime environment
+
+Create the ignored local environment once from the repository root:
+
+```bash
+cp .env.example .env
+mkdir -p /tmp/exposure-agent-artifacts
+```
+
+`.env.example` contains only local placeholders. Keep runtime `.env` files untracked and replace every secret, token and customer-specific value for a deployed installation.
+
+Before the first Compose startup, set nonempty random `AGENT_COMPOSE_AUTH_TOKEN` and read-only `CLOUDATLAS_CAPSET_TOKEN` values in `.env`. The empty example values intentionally make Compose fail closed.
+
 ## Docker Compose
 
 Start the local stack from the repository root:
@@ -16,26 +29,26 @@ The development override binds these entry points to host loopback only:
 - backend API documentation: <http://localhost:8000/docs>
 - PostgreSQL: `localhost:5432`
 
-Nginx serves the frontend and proxies `/api` to FastAPI. Browser code uses relative API URLs in every environment. When Vite runs directly, its development proxy forwards `/api` to `API_PROXY_TARGET`, which defaults to `http://localhost:8000`.
+Nginx serves the frontend and proxies `/api` to FastAPI. Browser code uses relative API URLs. When Vite runs directly, its development proxy forwards `/api` to `API_PROXY_TARGET`, which defaults to `http://localhost:8000` and may be overridden in ignored `frontend/.env.local`.
 
-The first startup can take a minute while PostgreSQL becomes healthy, Alembic applies migrations, and the initial Admin account is created. Inspect service state and logs with:
+The first startup can take a minute while PostgreSQL becomes healthy, Alembic applies migrations, OctoBus imports the product package, agent-compose initializes its project, and the initial Admin account is created.
 
 ```bash
 docker compose ps
-docker compose logs -f backend frontend
+docker compose logs -f backend frontend agent-compose octobus
 ```
 
-Stop the stack without deleting PostgreSQL data:
+Stop without deleting persistent data:
 
 ```bash
 docker compose down --remove-orphans
 ```
 
-Use `docker compose down -v --remove-orphans` only when a clean database is intentional.
+Use `docker compose down -v --remove-orphans` only for an explicitly isolated project whose data may be discarded.
 
 ## Local processes
 
-To run the frontend with Vite while keeping PostgreSQL and FastAPI in Compose:
+To run Vite while keeping PostgreSQL and FastAPI in Compose:
 
 ```bash
 docker compose stop frontend
@@ -53,8 +66,6 @@ uv sync
 uv run fastapi dev app/main.py
 ```
 
-The checked-in `.env` contains local, non-production placeholders. Replace every secret for a deployed installation and do not commit customer credentials.
-
 ## Client generation
 
 Regenerate the TypeScript client whenever the FastAPI contract changes:
@@ -63,13 +74,13 @@ Regenerate the TypeScript client whenever the FastAPI contract changes:
 bash scripts/generate-client.sh
 ```
 
-The script exports the OpenAPI document, regenerates `frontend/src/client`, and runs frontend linting. Generated client output must not be edited by hand.
+The script exports OpenAPI, regenerates `frontend/src/client`, and runs frontend linting. Generated output must not be edited by hand.
 
 ## Validation
 
-Run focused checks while implementing and the relevant full checks before committing:
-
 ```bash
+python3 scripts/check-context-hygiene.py
+
 cd backend
 uv run bash scripts/lint.sh
 uv run bash scripts/tests-start.sh
@@ -81,19 +92,14 @@ bun run test
 
 cd ..
 docker compose -f compose.yml config --quiet
-docker compose -f compose.yml build
-docker compose -f compose.yml up -d --wait
-curl --fail http://127.0.0.1:8080/health/live
-curl --fail http://127.0.0.1:8080/health/ready
-curl --fail http://127.0.0.1:8080/login
-docker compose -f compose.yml down -v --remove-orphans
+./scripts/test-compose-environment-parity.sh
 ```
 
 Backend and browser tests require PostgreSQL. The browser suite uses the same relative `/api` contract as the Nginx application shell.
 
 ## Pre-commit checks
 
-The repository uses [prek](https://prek.j178.dev/) for formatting and static checks. Install the Git hook and run all hooks manually with:
+The repository uses [prek](https://prek.j178.dev/) for formatting and static checks:
 
 ```bash
 uv run prek install -f

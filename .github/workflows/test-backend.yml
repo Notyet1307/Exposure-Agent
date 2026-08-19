@@ -25,6 +25,18 @@ jobs:
             non_markdown:
               - '**'
               - '!**/*.md'
+      - name: Create runtime environment
+        if: steps.changes.outputs.non_markdown == 'true'
+        run: |
+          cp .env.example .env
+          {
+            echo "SECRET_KEY=$(openssl rand -hex 32)"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 32)"
+            echo "FIRST_SUPERUSER=admin@backend-test.example"
+            echo "FIRST_SUPERUSER_PASSWORD=$(openssl rand -hex 32)"
+            echo "AGENT_COMPOSE_AUTH_TOKEN=$(openssl rand -hex 32)"
+            echo "CLOUDATLAS_CAPSET_TOKEN=$(openssl rand -hex 32)"
+          } >> "$GITHUB_ENV"
       - name: Set up Python
         if: steps.changes.outputs.non_markdown == 'true'
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0

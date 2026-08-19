@@ -60,6 +60,8 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - >-
+        sh /usr/local/bin/render-exposure-agent-config
+        /config/agent-compose.template.yml /config/agent-compose.yml &&
         agent-compose --host http://agent-compose:7410 auth login
         --token "$${AGENT_COMPOSE_AUTH_TOKEN}" >/dev/null &&
         exec agent-compose --host http://agent-compose:7410
@@ -68,6 +70,12 @@ services:
       - .env
     environment:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
+      ARTIFACT_HOST_PATH: ${ARTIFACT_HOST_PATH:?Variable not set or empty}
+      CLOUDATLAS_CAPSET_TOKEN: ${CLOUDATLAS_CAPSET_TOKEN:?Variable not set or empty}
+      DOCKER_IMAGE_RUNNER: ${DOCKER_IMAGE_RUNNER?Variable not set}
+      ENVIRONMENT: ${ENVIRONMENT?Variable not set}
+      PROJECT_NAME: ${PROJECT_NAME?Variable not set}
+      RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION?Variable not set}
       SECRET_KEY: ${SECRET_KEY:?Variable not set or empty}
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
@@ -75,8 +83,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER?Variable not set}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD?Variable not set}
     volumes:
-      - ./agent-compose.yml:/config/agent-compose.yml:ro
-      - ./.env:/config/.env:ro
+      - ./agent-compose.yml:/config/agent-compose.template.yml:ro
+      - ./scripts/render-agent-compose-config.sh:/usr/local/bin/render-exposure-agent-config:ro
 
   octobus:
     image: '${DOCKER_IMAGE_OCTOBUS?Variable not set}:${TAG-latest}'

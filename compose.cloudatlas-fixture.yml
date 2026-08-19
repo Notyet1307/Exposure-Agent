@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: tests/cloudatlas_fixture/Dockerfile.upstream
     environment:
-      FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
+      FIXTURE_CLOUDATLAS_TOKEN: ${FIXTURE_CLOUDATLAS_TOKEN:?Variable not set or empty}
     networks:
       - cloudatlas-fixture
 
@@ -42,8 +42,8 @@ services:
       cloudatlas-fixture:
         condition: service_started
     environment:
-      FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
-      FIXTURE_CAPSET_TOKEN: fixture-capset-token
+      FIXTURE_CLOUDATLAS_TOKEN: ${FIXTURE_CLOUDATLAS_TOKEN:?Variable not set or empty}
+      FIXTURE_CAPSET_TOKEN: ${FIXTURE_CAPSET_TOKEN:?Variable not set or empty}
     volumes:
       - ./tests/cloudatlas_fixture/init.sh:/fixture-init.sh:ro
     networks:

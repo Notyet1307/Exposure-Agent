@@ -11,7 +11,12 @@ import {
   ProjectsService,
   UsersService,
 } from "../src/client"
-import { firstSuperuser, firstSuperuserPassword, testApiUrl } from "./config"
+import {
+  cloudatlasCapsetToken,
+  firstSuperuser,
+  firstSuperuserPassword,
+  testApiUrl,
+} from "./config"
 import { randomEmail, randomPassword } from "./utils/random"
 
 const validWorkbook = fileURLToPath(
@@ -65,7 +70,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   await CloudatlasSourceInstancesService.validateCloudatlasSource({
     projectId: project.id,
     sourceId: source.id,
-    requestBody: { capset_token: "fixture-capset-token" },
+    requestBody: { capset_token: cloudatlasCapsetToken },
   })
   await CloudatlasSourceInstancesService.enableCloudatlasSource({
     projectId: project.id,
@@ -352,7 +357,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await CloudatlasSourceInstancesService.validateCloudatlasSource({
     projectId: project.id,
     sourceId: source.id,
-    requestBody: { capset_token: "fixture-capset-token" },
+    requestBody: { capset_token: cloudatlasCapsetToken },
   })
   await CloudatlasSourceInstancesService.enableCloudatlasSource({
     projectId: project.id,
