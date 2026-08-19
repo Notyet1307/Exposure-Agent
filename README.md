@@ -1,41 +1,25 @@
 # Exposure-Agent
 
-面向多源资产数据的资产一致性治理与风险发现处置平台。
+Exposure-Agent 是面向多源资产数据的资产一致性治理与风险发现平台，当前以单客户、单实例 Docker Compose 方式私有化部署。
 
-当前仓库已确认商业版架构，并已导入固定版本的管理控制面模板基线。功能架构、数据流转、技术栈、运行边界和实施顺序见：
+## 当前能力
 
-[功能架构与数据流转架构 v0.1](docs/architecture/commercial-function-and-data-architecture-v0.1.md)
+- 登录、全局 Admin、用户、Project 和 ProjectMembership 管理；
+- 受控 XLSX CustomerUpload、Project 专属默认 Profile 和不可变 Artifact；
+- CloudAtlas SourceInstance 经 OctoBus 单方法只读接入、指纹校验和启停；
+- GovernanceRun 的触发、Retry、Rerun、步骤状态与 agent-compose Session 边界；
+- IP Observation、稳定 Resource，以及“未报备资产”“未观测资产” Finding 生命周期；
+- canonical JSON、HTML 和 CSV 的确定性治理报告；
+- 追加式业务 AuditEvent。
 
-实现阶段以 FastAPI 官方
-[`full-stack-fastapi-template`](https://github.com/fastapi/full-stack-fastapi-template/tree/4d3d5e92c1ea6b3fa0fab02c41124844ec45bca8)
-的固定版本作为管理控制面起点，采用边界见：
+PostgreSQL 保存权威业务事实；OctoBus 提供外部能力边界；agent-compose 负责 Session 调度与隔离；Nginx 提供前端并同源代理 FastAPI `/api`。
 
-[ADR-0001：使用 Full Stack FastAPI Template 作为管理控制面基座](docs/adr/0001-use-full-stack-fastapi-template.md)
+## 文档入口
 
-## v0.1 定位
+- [文档事实源索引](docs/README.md)
+- [当前实现与运行边界](docs/architecture/current-state.md)
+- [稳定架构约束](docs/architecture/constraints.md)
+- [开发说明](development.md)
+- [部署与恢复](deployment.md)
 
-```text
-初期测试：CustomerUpload + CloudAtlas SourceInstance（云图经 OctoBus）
-最终交付：客户系统与云图 → OctoBus
-→ 确定性资产和风险治理
-→ Finding / Evidence
-→ 受限 PI 报告 Agent
-→ 审核、处置和复测
-```
-
-核心原则：
-
-- PostgreSQL 是业务事实库；
-- agent-compose 负责定时、触发和隔离执行；
-- OctoBus 负责外部系统能力接入；
-- 客户系统不可达期间使用受控文件上传完成初期测试，不把文件伪装成外部系统连接；
-- Python、SQL 和 Polars 负责确定性数据处理；
-- Agent 只基于有界 Evidence 生成结构化报告草稿；
-- 真实动作必须经过审批、计划 Hash 和幂等控制。
-- 管理控制面复用成熟模板，治理领域、调度和外部能力边界独立实现。
-
-## 当前内容
-
-本仓库包含商业版设计，以及从固定模板收敛出的私有化管理控制面应用壳。当前 Compose 路径由 Nginx 提供前端并同源代理 FastAPI，保留登录、Admin 用户管理、PostgreSQL 迁移、OpenAPI 客户端生成与构建测试基础；不包含临时 Demo 代码、客户数据、运行产物或尚未排期的治理领域功能。
-
-开发与交付边界见 [development.md](development.md) 和 [deployment.md](deployment.md)。
+[目标状态](docs/product/target-state.md) 是非规范性产品方向，不表示已经实现，也不能替代当前 Issue / PRD。第三方基座的固定来源与许可证义务见 [ADR-0001](docs/adr/0001-use-full-stack-fastapi-template.md) 和 `THIRD_PARTY_NOTICES`。

@@ -2,10 +2,10 @@
 
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
-## Before exploring, read these
+## Read on demand
 
-- **`CONTEXT.md`** at the repo root.
-- **`docs/adr/`** — read ADRs that touch the area you're about to work in.
+- Read **`CONTEXT.md`** when the task needs domain terminology.
+- Read only the **`docs/adr/`** entries that touch the current change.
 
 If either location doesn't exist, **proceed silently**. Don't flag its absence or suggest creating it upfront. The `/domain-modeling` skill creates domain documentation lazily when terms or decisions actually get resolved.
 
@@ -17,7 +17,7 @@ This repository uses a single-context layout:
 /
 ├── CONTEXT.md
 ├── docs/adr/
-└── src/
+└── backend/app/domain/
 ```
 
 ## Use the glossary's vocabulary
@@ -30,4 +30,4 @@ If the required concept isn't in the glossary yet, either reconsider whether you
 
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
-> _Contradicts ADR-0001 (Full Stack FastAPI Template as the management control-plane base)—but worth reopening because…_
+> _Contradicts ADR-0001's accepted control-plane boundary—but worth reopening because…_
