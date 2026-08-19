@@ -12,8 +12,7 @@ repos:
       - id: end-of-file-fixer
         exclude: |
             (?x)^(
-                frontend/src/client/.*|
-                backend/app/email-templates/build/.*
+                frontend/src/client/.*
             )$
       - id: trailing-whitespace
         exclude: ^frontend/src/client/.*
@@ -24,6 +23,13 @@ repos:
         args: [--force-exclude]
   - repo: local
     hooks:
+      - id: context-hygiene
+        name: context hygiene
+        entry: python3 scripts/check-context-hygiene.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: local-biome-check
         name: biome check
         entry: npm run lint

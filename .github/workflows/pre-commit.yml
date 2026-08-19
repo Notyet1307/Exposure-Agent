@@ -15,6 +15,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Check repository context hygiene
+        run: python3 scripts/check-context-hygiene.py
       - name: Detect non-Markdown changes
         id: changes
         uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
@@ -24,6 +26,18 @@ jobs:
             non_markdown:
               - '**'
               - '!**/*.md'
+      - name: Create runtime environment
+        if: steps.changes.outputs.non_markdown == 'true'
+        run: |
+          cp .env.example .env
+          {
+            echo "SECRET_KEY=$(openssl rand -hex 32)"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 32)"
+            echo "FIRST_SUPERUSER=admin@client-generation.example"
+            echo "FIRST_SUPERUSER_PASSWORD=$(openssl rand -hex 32)"
+            echo "AGENT_COMPOSE_AUTH_TOKEN=$(openssl rand -hex 32)"
+            echo "CLOUDATLAS_CAPSET_TOKEN=$(openssl rand -hex 32)"
+          } >> "$GITHUB_ENV"
       - name: Check patch whitespace
         run: git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
       - name: Set up Python
