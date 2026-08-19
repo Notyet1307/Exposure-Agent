@@ -40,7 +40,7 @@ export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
       {
-        title: "Log In - FastAPI Template",
+        title: "Log In - Exposure-Agent",
       },
     ],
   }),

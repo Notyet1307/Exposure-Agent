@@ -38,11 +38,17 @@ jobs:
       - name: Generate deployment-test credentials
         if: steps.changes.outputs.non_markdown == 'true'
         run: |
+          cp .env.example .env
+          artifact_path="${RUNNER_TEMP}/exposure-agent-artifacts"
+          mkdir -p "$artifact_path"
           {
             echo "SECRET_KEY=$(openssl rand -hex 32)"
             echo "POSTGRES_PASSWORD=$(openssl rand -hex 32)"
             echo "FIRST_SUPERUSER=admin@compose-test.example"
             echo "FIRST_SUPERUSER_PASSWORD=$(openssl rand -hex 32)"
+            echo "AGENT_COMPOSE_AUTH_TOKEN=$(openssl rand -hex 32)"
+            echo "CLOUDATLAS_CAPSET_TOKEN=$(openssl rand -hex 32)"
+            echo "ARTIFACT_HOST_PATH=$artifact_path"
           } >> "$GITHUB_ENV"
       - name: Assert CI credentials reach every Compose consumer
         if: steps.changes.outputs.non_markdown == 'true'

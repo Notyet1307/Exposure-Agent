@@ -1,11 +1,9 @@
 name: exposure-agent-governance
-env_file:
-  - .env
 
 agents:
   governance-runner:
     provider: codex
-    image: governance-runner:governance-happy-path-v1
+    image: ${DOCKER_IMAGE_RUNNER}:${RUNNER_BUILD_VERSION}
     driver:
       docker: {}
     env:
@@ -33,5 +31,5 @@ agents:
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION}
     volumes:
       - type: bind
-        source: /tmp/exposure-agent-artifacts
+        source: ${ARTIFACT_HOST_PATH}
         target: /app/artifacts

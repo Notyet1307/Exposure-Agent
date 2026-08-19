@@ -2,3 +2,5 @@
 *.sh text eol=lf
 # The fixed upstream OpenAPI client intentionally contains whitespace-only lines.
 frontend/src/client/sdk.gen.ts whitespace=-trailing-space
+frontend/src/client/** linguist-generated=true
+frontend/src/routeTree.gen.ts linguist-generated=true

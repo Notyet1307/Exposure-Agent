@@ -14,7 +14,7 @@ services:
     volumes:
       - type: bind
         source: ${AGENT_COMPOSE_CONFIG_PATH:?Variable not set or empty}
-        target: /config/agent-compose.yml
+        target: /config/agent-compose.template.yml
         read_only: true
       - type: bind
         source: ${ARTIFACT_HOST_PATH:?Variable not set or empty}
@@ -28,7 +28,7 @@ services:
       context: .
       dockerfile: tests/cloudatlas_fixture/Dockerfile.upstream
     environment:
-      FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
+      FIXTURE_CLOUDATLAS_TOKEN: ${FIXTURE_CLOUDATLAS_TOKEN:?Variable not set or empty}
       FIXTURE_AGENT_COMPOSE_URL: http://agent-compose:7410
 
   cloudatlas-fixture-init:
@@ -43,7 +43,7 @@ services:
       octobus-package-init:
         condition: service_completed_successfully
     environment:
-      FIXTURE_CLOUDATLAS_TOKEN: fixture-upstream-token
-      FIXTURE_CAPSET_TOKEN: fixture-capset-token
+      FIXTURE_CLOUDATLAS_TOKEN: ${FIXTURE_CLOUDATLAS_TOKEN:?Variable not set or empty}
+      FIXTURE_CAPSET_TOKEN: ${CLOUDATLAS_CAPSET_TOKEN:?Variable not set or empty}
     volumes:
       - ./tests/governance_run/init_octobus.sh:/fixture-init.sh:ro

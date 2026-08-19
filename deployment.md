@@ -1,65 +1,63 @@
 # Exposure-Agent private deployment boundary
 
-Exposure-Agent v0.1 is delivered as a single-customer, single-instance Docker Compose application. This repository builds the application services and their internal network; customer infrastructure owns DNS, TLS termination, ingress policy, host hardening, image distribution, backups, and release rollout.
+Exposure-Agent is delivered as a single-customer, single-instance Docker Compose application. Customer infrastructure owns DNS, TLS termination, ingress policy, host hardening, image distribution, backups and rollout.
 
-The repository intentionally contains no customer-environment deployment workflow or automatic certificate configuration.
+The repository contains no customer-environment deployment workflow or automatic certificate configuration.
 
 ## Runtime path
-
-The persistent application stack is:
 
 ```text
 customer network
   -> customer-managed HTTPS ingress (port 443)
        -> host loopback 127.0.0.1:8080
-            -> governance-web (Nginx, container port 80)
+            -> frontend (Nginx)
                  -> static React application
-                 -> /api -> governance-api (FastAPI, internal port 8000)
-                      -> PostgreSQL (internal only)
-                      -> OctoBus (internal only) -> CloudAtlas
+                 -> /api -> backend (FastAPI)
+                      -> db (PostgreSQL)
+                      -> octobus -> CloudAtlas
+                      -> agent-compose -> temporary Governance Runner
 ```
 
-Only the customer-managed HTTPS ingress exposes port 443 to the customer network. The supplied Compose file binds Nginx's unencrypted listener to host loopback only (`127.0.0.1:${WEB_HTTP_PORT:-8080}`); it must never be forwarded or rebound directly to a customer-network interface. PostgreSQL, FastAPI, and OctoBus remain on the Compose network. Set `WEB_HTTP_PORT` only when the ingress needs a different loopback port.
+Only customer-managed HTTPS ingress is customer-facing. The supplied Compose file binds Nginx to `127.0.0.1:${WEB_HTTP_PORT:-8080}`; PostgreSQL, FastAPI, OctoBus and agent-compose remain internal. The ingress must replace `X-Real-IP` with the validated client address and set trusted forwarding headers.
 
-Nginx forwards the original host, client address, and protocol headers. The customer ingress terminates TLS, proxies to the loopback listener, replaces `X-Real-IP` with the validated client address, sets the other trusted forwarding headers, and restricts access to the host.
+## Configuration
 
-## Required configuration
-
-Before starting a deployed installation, provide installation-specific values for:
-
-- `SECRET_KEY`
-- `FIRST_SUPERUSER`
-- `FIRST_SUPERUSER_PASSWORD`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_DB`
-- `DOCKER_IMAGE_BACKEND`
-- `DOCKER_IMAGE_FRONTEND`
-- `DOCKER_IMAGE_OCTOBUS`
-- `TAG`
-
-Generate independent random values for secrets, for example:
+Create runtime configuration outside Git:
 
 ```bash
-python -c 'import secrets; print(secrets.token_urlsafe(48))'
+cp .env.example .env
 ```
 
-Do not use the checked-in local placeholders. The first-superuser values bootstrap the initial global Admin idempotently; subsequent accounts are managed by that Admin.
+Replace every placeholder before deployment. Required installation-specific values include:
 
-`FRONTEND_HOST` and `BACKEND_CORS_ORIGINS` are only needed when a trusted development client calls FastAPI from a different origin. The deployed browser uses the same-origin `/api` path and does not require a public backend origin.
+- `SECRET_KEY`, `FIRST_SUPERUSER`, `FIRST_SUPERUSER_PASSWORD`;
+- `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`;
+- `DOCKER_IMAGE_BACKEND`, `DOCKER_IMAGE_FRONTEND`, `DOCKER_IMAGE_OCTOBUS`, `DOCKER_IMAGE_RUNNER`, `TAG`;
+- `RUNNER_BUILD_VERSION`, `ARTIFACT_HOST_PATH`;
+- `AGENT_COMPOSE_AUTH_TOKEN`, `CLOUDATLAS_CAPSET_TOKEN`.
+
+Generate independent random secrets, for example:
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
+```
+
+The first-superuser values idempotently bootstrap the initial global Admin. OctoBus and agent-compose credentials must not enter PostgreSQL, application audit records, Git, image layers or ordinary logs. Restrict runtime `.env` permissions and store deployment secrets in the customer-approved secret mechanism.
+
+`FRONTEND_HOST` and `BACKEND_CORS_ORIGINS` are only needed for trusted cross-origin development. The deployed browser uses same-origin `/api`.
 
 ## Start and verify
 
-Use the base Compose file for a deployment-shaped startup so local development overrides are not applied:
+Use the base Compose file so development overrides are excluded:
 
 ```bash
 docker compose -f compose.yml pull
 docker compose -f compose.yml up -d --wait
 ```
 
-The `prestart` service waits for PostgreSQL, applies Alembic migrations, and creates the initial Admin before FastAPI starts. In parallel, `octobus-package-init` waits for OctoBus and idempotently imports the product-owned `cloudatlas-read` package baked into the OctoBus image; the backend starts only after both initialization paths succeed. This same path supports fresh and existing PostgreSQL and OctoBus volumes.
+`prestart` applies Alembic migrations and creates the initial Admin. `octobus-package-init` imports the product-owned package, and `agent-compose-project-init` installs the Governance Runner project before the backend starts.
 
-Verify the private ingress upstream from the deployment host (the customer-facing check must use its HTTPS URL):
+Verify from the deployment host and then through customer HTTPS ingress:
 
 ```bash
 curl --fail http://127.0.0.1:8080/login
@@ -70,40 +68,55 @@ curl --fail https://exposure.example.com/health/live
 curl --fail https://exposure.example.com/health/ready
 ```
 
-Inspect startup state without exposing internal services:
-
 ```bash
 docker compose -f compose.yml ps
-docker compose -f compose.yml logs backend frontend prestart octobus octobus-package-init
+docker compose -f compose.yml logs backend frontend prestart octobus \
+  octobus-package-init agent-compose agent-compose-project-init
 ```
 
-## Build and release handoff
+## Persistent state
 
-Build-and-test GitHub Actions validate the source, images, migrations, Compose stack, and retained browser flows. They do not connect to an installation or release into a customer environment.
+Four state stores form one coordinated recovery boundary:
 
-A customer-specific release process should consume reviewed images and record at least:
+| Store | Contents |
+|---|---|
+| `app-db-data` | PostgreSQL business facts, authorization, audit and Artifact metadata |
+| `${ARTIFACT_HOST_PATH}` host bind | immutable CustomerUpload and generated report files |
+| `octobus-data` | OctoBus package, Instance, Capset and credential state |
+| `agent-compose-data` | agent-compose project, Session and runtime recovery state |
 
-- source revision and image digests;
-- environment configuration version, excluding secret values;
-- database migration revision;
-- rollout and rollback procedure;
-- backup completion and restore verification.
+Compose prefixes named volume names with the deployment project name. `${ARTIFACT_HOST_PATH}` is not a named volume; backup tooling must capture that exact host path. `octobus-data` and `agent-compose-data` are secret-bearing and require encryption, restricted access and the same retention controls as deployment credentials.
 
-Release orchestration belongs to the customer's delivery environment and must not be added to this repository without a new accepted decision.
+## Coordinated backup
 
-## Persistence and backup
+Before a volume-level backup:
 
-The current application persists authoritative business records in `app-db-data`, immutable CustomerUpload files in `app-artifact-data`, and OctoBus Instance configuration, credentials, Capsets, and imported package state in `octobus-data`. Treat all three volumes as one coordinated recovery set: a database backup without its matching Artifact backup can point to missing customer files, while a mismatched OctoBus backup can invalidate stored SourceInstance fingerprints or lose the credentials needed to revalidate them. Because `octobus-data` contains credentials, its backup must receive the same encryption and access controls as other secret-bearing deployment material. Compose prefixes the actual volume names with the deployment project name, so confirm the resolved names with `docker compose -f compose.yml config` or the customer backup tooling.
-
-Before an upgrade or backup, stop API writes and OctoBus control-plane changes, then capture all three volumes at the same recovery point. One deployment-shaped sequence is:
+1. block new ingress writes;
+2. confirm no Governance Runner Session is active;
+3. stop writers with `docker compose -f compose.yml stop backend agent-compose octobus`;
+4. stop `db` as well when taking a filesystem-level PostgreSQL volume snapshot, or use a transaction-consistent PostgreSQL backup method;
+5. capture all four stores under one recovery-set identifier before restarting services.
 
 ```bash
-docker compose -f compose.yml stop backend octobus
-# Use customer-managed backup tooling to capture app-db-data,
-# app-artifact-data, and octobus-data as one named, versioned recovery set.
-docker compose -f compose.yml start octobus backend
+docker compose -f compose.yml stop backend agent-compose octobus db
+# Customer-managed tooling captures app-db-data, octobus-data,
+# agent-compose-data and the ARTIFACT_HOST_PATH directory together.
+docker compose -f compose.yml start db octobus agent-compose backend
 ```
 
-Restore all three volumes from the same recovery set before starting the application. Use the normal Compose startup so `octobus-package-init` confirms the product package import, then verify the database migration revision, CustomerUpload list access, a sample of stored Artifact SHA-256 values, and the expected OctoBus Service/Instance/Capset inventory. Any SourceInstance whose restored material differs from its stored fingerprint remains invalid until the material is corrected and the single read-only validation succeeds. Do not remove any persistent volume during a normal upgrade, and record backup completion and restore verification in the release handoff.
+Do not remove persistent volumes during a normal upgrade. Record source revision, image digests, migration revision, environment configuration version without secret values, backup identifier, rollout and rollback procedure.
 
-agent-compose persistence must join this coordinated backup procedure when that service enters the delivered Compose stack.
+## Restore and verification
+
+Restore all four stores from the same recovery set while the application is stopped, including the original ownership and permissions of `${ARTIFACT_HOST_PATH}`. Then use the normal startup path so all init services revalidate their contracts.
+
+After restore, verify:
+
+- Compose services and `/health/live`, `/health/ready`, `/login`;
+- current Alembic revision and expected Project / CustomerUpload inventory;
+- a sample of stored Artifact SHA-256 values against files under `${ARTIFACT_HOST_PATH}`;
+- OctoBus package, Instance, Capset, method and credential inventory;
+- agent-compose project and expected Session inventory;
+- CloudAtlas SourceInstance fingerprints and one authorized read-only validation where required.
+
+Any SourceInstance whose restored material differs from its stored fingerprint remains invalid until corrected and revalidated. Backup and restore are not accepted until all four stores and these checks agree.
