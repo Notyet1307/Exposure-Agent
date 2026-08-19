@@ -1,5 +1,4 @@
 import re
-import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -11,17 +10,19 @@ from openpyxl.worksheet._read_only import (  # type: ignore[import-untyped]
     ReadOnlyWorksheet,
 )
 
+from app.domain._xlsx_preflight import (
+    MAX_CENTRAL_DIRECTORY_BYTES,
+    MAX_ENTRY_UNCOMPRESSED_BYTES,
+    MAX_TOTAL_UNCOMPRESSED_BYTES,
+    MAX_ZIP_ENTRIES,
+)
 from app.domain.customer_upload_validator import (
     MAX_WORKBOOK_BYTES,
     CustomerUploadValidationError,
     CustomerUploadWarning,
     validate_customer_upload_workbook,
 )
-
-_REPOSITORY_ROOT = Path(__file__).parents[3]
-sys.path.insert(0, str(_REPOSITORY_ROOT))
-from investigations.issue_33.probe import build_fixture  # type: ignore[import-not-found]  # noqa: E402, I001
-
+from tests.xlsx_fixtures import build_xlsx_fixture
 
 DEFAULT_HEADERS = [
     "资产IP",
@@ -416,10 +417,10 @@ def test_workbook_requires_a_non_empty_data_row(tmp_path: Path) -> None:
         ("row_shared_style_boundary", 50_000),
     ],
 )
-def test_issue_33_normal_boundaries_are_accepted(
+def test_xlsx_normal_boundaries_are_accepted(
     tmp_path: Path, fixture_name: str, expected_records: int
 ) -> None:
-    path = build_fixture(fixture_name, tmp_path / "boundary.xlsx")
+    path = build_xlsx_fixture(fixture_name, tmp_path / "boundary.xlsx")
 
     result = validate_customer_upload_workbook(path)
 
@@ -427,8 +428,16 @@ def test_issue_33_normal_boundaries_are_accepted(
     assert result.warnings == ()
 
 
-def test_issue_33_near_limit_static_image_is_accepted(tmp_path: Path) -> None:
-    path = build_fixture("near_request_limit", tmp_path / "static-image.xlsx")
+def test_xlsx_resource_limits_are_fixed() -> None:
+    assert MAX_WORKBOOK_BYTES == 20 * 1024 * 1024
+    assert MAX_ZIP_ENTRIES == 2_048
+    assert MAX_ENTRY_UNCOMPRESSED_BYTES == 64 * 1024 * 1024
+    assert MAX_TOTAL_UNCOMPRESSED_BYTES == 256 * 1024 * 1024
+    assert MAX_CENTRAL_DIRECTORY_BYTES == 4 * 1024 * 1024
+
+
+def test_xlsx_near_limit_static_image_is_accepted(tmp_path: Path) -> None:
+    path = build_xlsx_fixture("near_request_limit", tmp_path / "static-image.xlsx")
 
     result = validate_customer_upload_workbook(path)
 
@@ -440,10 +449,10 @@ def test_issue_33_near_limit_static_image_is_accepted(tmp_path: Path) -> None:
     "fixture_name",
     ["entry_count_bomb", "compression_bomb", "total_size_bomb"],
 )
-def test_issue_33_zip_bombs_have_one_stable_rejection(
+def test_xlsx_zip_bombs_have_one_stable_rejection(
     tmp_path: Path, fixture_name: str
 ) -> None:
-    path = build_fixture(fixture_name, tmp_path / "bomb.xlsx")
+    path = build_xlsx_fixture(fixture_name, tmp_path / "bomb.xlsx")
 
     _assert_rejected(path, "workbook_resource_limit")
 
@@ -451,7 +460,7 @@ def test_issue_33_zip_bombs_have_one_stable_rejection(
 def test_zip_resource_limit_stops_before_later_malformed_entry(
     tmp_path: Path,
 ) -> None:
-    path = build_fixture("compression_bomb", tmp_path / "bomb.xlsx")
+    path = build_xlsx_fixture("compression_bomb", tmp_path / "bomb.xlsx")
     with ZipFile(path, "a", compression=ZIP_DEFLATED) as archive:
         archive.writestr("../after-limit", b"fixture")
 
@@ -476,10 +485,10 @@ def test_zip_resource_limit_stops_before_later_malformed_entry(
         "vml_button",
     ],
 )
-def test_issue_33_active_content_has_one_stable_rejection(
+def test_xlsx_active_content_has_one_stable_rejection(
     tmp_path: Path, fixture_name: str
 ) -> None:
-    path = build_fixture(fixture_name, tmp_path / "active.xlsx")
+    path = build_xlsx_fixture(fixture_name, tmp_path / "active.xlsx")
 
     formula_row = (
         2
@@ -499,7 +508,7 @@ def test_issue_33_active_content_has_one_stable_rejection(
 def test_preflight_rejection_preserves_field_without_calling_openpyxl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = build_fixture(
+    path = build_xlsx_fixture(
         "relocated_formula_without_content_type", tmp_path / "formula.xlsx"
     )
     _rewrite_zip_member(
@@ -558,7 +567,7 @@ def test_macro_enabled_main_content_type_is_rejected_before_openpyxl(
 
 
 def test_utf16_undeclared_worksheet_formula_is_rejected(tmp_path: Path) -> None:
-    path = build_fixture(
+    path = build_xlsx_fixture(
         "relocated_formula_without_content_type", tmp_path / "utf16-formula.xlsx"
     )
     _rewrite_zip_member(

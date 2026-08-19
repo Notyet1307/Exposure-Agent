@@ -1,526 +1,30 @@
-#!/usr/bin/env python3
-"""Reproducible XLSX parser and ZIP-resource boundary probe for issue #33."""
+"""Deterministic sanitized XLSX fixtures for validator tests."""
 
 from __future__ import annotations
 
-import argparse
-import json
 import re
 import struct
-import sys
-import tempfile
-import time
-import tracemalloc
 import zlib
-from collections.abc import Iterable, Sequence
-from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Final
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
 
-import defusedxml  # type: ignore[import-untyped]
 import openpyxl  # type: ignore[import-untyped]
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]
 from openpyxl import Workbook, load_workbook
-from openpyxl.xml.functions import (  # type: ignore[import-untyped]
-    DEFUSEDXML as OPENPYXL_DEFUSEDXML,
+
+from app.domain._xlsx_preflight import (
+    MAX_ENTRY_UNCOMPRESSED_BYTES,
+    MAX_TOTAL_UNCOMPRESSED_BYTES,
+    MAX_ZIP_ENTRIES,
 )
 
-REQUEST_LIMIT_BYTES: Final = 20 * 1024 * 1024
-MAX_ZIP_ENTRIES: Final = 2_048
-MAX_ENTRY_UNCOMPRESSED_BYTES: Final = 64 * 1024 * 1024
-MAX_TOTAL_UNCOMPRESSED_BYTES: Final = 256 * 1024 * 1024
-MAX_CENTRAL_DIRECTORY_BYTES: Final = 4 * 1024 * 1024
-MAX_EOCD_TAIL_BYTES: Final = 65_557
-ZIP64_SENTINEL_16: Final = 0xFFFF
-ZIP64_SENTINEL_32: Final = 0xFFFFFFFF
 FIXED_TIME: Final = datetime(2026, 1, 1, tzinfo=UTC)
-
-EOCD = struct.Struct("<4s4H2LH")
-CENTRAL_HEADER = struct.Struct("<4s6H3L5H2L")
-EOCD_SIGNATURE: Final = b"PK\x05\x06"
-CENTRAL_SIGNATURE: Final = b"PK\x01\x02"
 REL_NS: Final = "http://schemas.openxmlformats.org/package/2006/relationships"
 MAIN_NS: Final = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 OFFICE_REL_NS: Final = (
     "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 )
-
-NORMAL_FIXTURES: Final = (
-    "default_v1",
-    "near_request_limit",
-    "row_shared_style_boundary",
-)
-RESOURCE_FIXTURES: Final = (
-    "entry_count_bomb",
-    "compression_bomb",
-    "total_size_bomb",
-)
-FORBIDDEN_FIXTURES: Final = (
-    "formula",
-    "external_link",
-    "data_connection",
-    "hidden_sheet",
-    "embedded_object",
-    "vml_button",
-)
-ALL_FIXTURES: Final = NORMAL_FIXTURES + RESOURCE_FIXTURES + FORBIDDEN_FIXTURES
-
-
-@dataclass(frozen=True)
-class ZipStats:
-    entries: int
-    central_directory_bytes: int
-    compressed_bytes: int
-    total_uncompressed_bytes: int
-    largest_entry_uncompressed_bytes: int
-    largest_entry_name: str
-
-
-@dataclass(frozen=True)
-class InspectionResult:
-    status: str
-    rows: int
-    elapsed_seconds: float
-    peak_memory_bytes: int
-    zip_stats: ZipStats
-
-
-class WorkbookRejected(Exception):
-    """A stable, redacted workbook rejection from the investigation seam."""
-
-    def __init__(
-        self,
-        category: str,
-        reason: str,
-        phase: str,
-        *,
-        zip_stats: ZipStats | None = None,
-    ) -> None:
-        super().__init__(category)
-        self.category = category
-        self.reason = reason
-        self.phase = phase
-        self.zip_stats = zip_stats
-
-
-def _resource_rejection(reason: str, stats: ZipStats | None = None) -> WorkbookRejected:
-    return WorkbookRejected(
-        "workbook_resource_limit", reason, "central_directory", zip_stats=stats
-    )
-
-
-def _safe_member_name(raw_name: bytes, flags: int) -> str:
-    encoding = "utf-8" if flags & 0x800 else "cp437"
-    try:
-        name = raw_name.decode(encoding)
-    except UnicodeDecodeError as exc:
-        raise WorkbookRejected(
-            "malformed_workbook", "invalid_zip_member_name", "central_directory"
-        ) from exc
-    pure_name = PurePosixPath(name)
-    if not name or "\\" in name or pure_name.is_absolute() or ".." in pure_name.parts:
-        raise WorkbookRejected(
-            "malformed_workbook", "unsafe_zip_member_name", "central_directory"
-        )
-    return name
-
-
-def read_bounded_central_directory(path: Path) -> ZipStats:
-    """Read the EOCD tail and bounded central directory without opening ZIP entries."""
-    file_size = path.stat().st_size
-    if file_size < EOCD.size:
-        raise WorkbookRejected("malformed_workbook", "missing_eocd", "eocd")
-
-    tail_size = min(file_size, MAX_EOCD_TAIL_BYTES)
-    with path.open("rb") as workbook_file:
-        workbook_file.seek(file_size - tail_size)
-        tail = workbook_file.read(tail_size)
-        signature_offset = tail.rfind(EOCD_SIGNATURE)
-        if signature_offset < 0 or signature_offset + EOCD.size > len(tail):
-            raise WorkbookRejected("malformed_workbook", "missing_eocd", "eocd")
-        (
-            signature,
-            disk_number,
-            central_disk,
-            disk_entries,
-            total_entries,
-            central_size,
-            central_offset,
-            comment_length,
-        ) = EOCD.unpack_from(tail, signature_offset)
-        eocd_offset = file_size - tail_size + signature_offset
-        if (
-            signature != EOCD_SIGNATURE
-            or eocd_offset + EOCD.size + comment_length != file_size
-        ):
-            raise WorkbookRejected("malformed_workbook", "invalid_eocd", "eocd")
-        if disk_number != 0 or central_disk != 0 or disk_entries != total_entries:
-            raise WorkbookRejected("malformed_workbook", "multi_disk_zip", "eocd")
-        if total_entries == ZIP64_SENTINEL_16 or central_size == ZIP64_SENTINEL_32:
-            raise WorkbookRejected("malformed_workbook", "zip64_not_supported", "eocd")
-        if total_entries > MAX_ZIP_ENTRIES:
-            raise _resource_rejection("zip_entry_count")
-        if central_size > MAX_CENTRAL_DIRECTORY_BYTES:
-            raise _resource_rejection("central_directory_size")
-        if central_offset + central_size > eocd_offset:
-            raise WorkbookRejected(
-                "malformed_workbook", "invalid_central_directory_bounds", "eocd"
-            )
-
-        workbook_file.seek(central_offset)
-        central = workbook_file.read(central_size)
-
-    cursor = 0
-    compressed_total = 0
-    uncompressed_total = 0
-    largest_size = 0
-    largest_name = ""
-    names: set[str] = set()
-    parsed_entries = 0
-    while cursor < len(central):
-        if cursor + CENTRAL_HEADER.size > len(central):
-            raise WorkbookRejected(
-                "malformed_workbook", "truncated_central_directory", "central_directory"
-            )
-        values = CENTRAL_HEADER.unpack_from(central, cursor)
-        (
-            signature,
-            _made_by,
-            _needed,
-            flags,
-            compression,
-            _modified_time,
-            _modified_date,
-            _crc32,
-            compressed_size,
-            uncompressed_size,
-            name_length,
-            extra_length,
-            member_comment_length,
-            disk_start,
-            _internal_attributes,
-            _external_attributes,
-            local_offset,
-        ) = values
-        if signature != CENTRAL_SIGNATURE:
-            raise WorkbookRejected(
-                "malformed_workbook", "invalid_central_directory", "central_directory"
-            )
-        variable_size = name_length + extra_length + member_comment_length
-        next_cursor = cursor + CENTRAL_HEADER.size + variable_size
-        if next_cursor > len(central):
-            raise WorkbookRejected(
-                "malformed_workbook", "truncated_central_directory", "central_directory"
-            )
-        if (
-            compressed_size == ZIP64_SENTINEL_32
-            or uncompressed_size == ZIP64_SENTINEL_32
-            or local_offset == ZIP64_SENTINEL_32
-            or disk_start == ZIP64_SENTINEL_16
-        ):
-            raise WorkbookRejected(
-                "malformed_workbook", "zip64_not_supported", "central_directory"
-            )
-        if flags & 0x1:
-            raise WorkbookRejected(
-                "malformed_workbook", "encrypted_zip_member", "central_directory"
-            )
-        if compression not in (ZIP_STORED, ZIP_DEFLATED):
-            raise WorkbookRejected(
-                "malformed_workbook", "unsupported_zip_compression", "central_directory"
-            )
-        name_start = cursor + CENTRAL_HEADER.size
-        name = _safe_member_name(central[name_start : name_start + name_length], flags)
-        if name in names:
-            raise WorkbookRejected(
-                "malformed_workbook", "duplicate_zip_member", "central_directory"
-            )
-        names.add(name)
-        compressed_total += compressed_size
-        uncompressed_total += uncompressed_size
-        if uncompressed_size > largest_size:
-            largest_size = uncompressed_size
-            largest_name = name
-        cursor = next_cursor
-        parsed_entries += 1
-
-    if parsed_entries != total_entries or cursor != central_size:
-        raise WorkbookRejected(
-            "malformed_workbook",
-            "central_directory_count_mismatch",
-            "central_directory",
-        )
-
-    stats = ZipStats(
-        entries=parsed_entries,
-        central_directory_bytes=central_size,
-        compressed_bytes=compressed_total,
-        total_uncompressed_bytes=uncompressed_total,
-        largest_entry_uncompressed_bytes=largest_size,
-        largest_entry_name=largest_name,
-    )
-    if largest_size > MAX_ENTRY_UNCOMPRESSED_BYTES:
-        raise _resource_rejection("single_entry_uncompressed_size", stats)
-    if uncompressed_total > MAX_TOTAL_UNCOMPRESSED_BYTES:
-        raise _resource_rejection("total_uncompressed_size", stats)
-    return stats
-
-
-def _relationship_rejection(relationship_type: str) -> str | None:
-    suffix = relationship_type.rsplit("/", maxsplit=1)[-1]
-    if suffix in {"externalLink", "externalLinkPath"}:
-        return "external_link"
-    if suffix == "connections":
-        return "data_connection"
-    if suffix in {
-        "activeXControl",
-        "activeXControlBinary",
-        "attachedToolbars",
-        "control",
-        "ctrlProp",
-        "oleObject",
-        "package",
-        "vbaProject",
-        "vmlDrawing",
-    }:
-        return "embedded_active_object"
-    return None
-
-
-def _content_type_rejection(content_type: str) -> str | None:
-    lowered = content_type.lower()
-    if "externallink" in lowered:
-        return "external_link"
-    if "connections+xml" in lowered:
-        return "data_connection"
-    if any(
-        marker in lowered
-        for marker in (
-            "activex",
-            "attachedtoolbars",
-            "ctrlprop",
-            "oleobject",
-            "vbaproject",
-            "vmldrawing",
-        )
-    ):
-        return "embedded_active_object"
-    return None
-
-
-def _is_xml_content_type(content_type: str) -> bool:
-    lowered = content_type.casefold()
-    return (
-        lowered == "application/xml"
-        or lowered.endswith("+xml")
-        or lowered == "application/vnd.openxmlformats-officedocument.vmldrawing"
-    )
-
-
-def _is_formula_element(local_name: str) -> bool:
-    normalized = local_name.casefold()
-    return (
-        normalized == "f"
-        or normalized.startswith("formula")
-        or normalized.endswith("formula")
-    )
-
-
-def _looks_like_xml_part(archive: ZipFile, name: str) -> bool:
-    """Identify XML after any legal leading whitespace under ZIP resource bounds."""
-    with archive.open(name) as part:
-        first_chunk = True
-        while chunk := part.read(64 * 1024):
-            whitespace = b"\xef\xbb\xbf \t\r\n" if first_chunk else b" \t\r\n"
-            leading = chunk.lstrip(whitespace)
-            if leading:
-                return leading.startswith(b"<")
-            first_chunk = False
-    return False
-
-
-def _inspect_forbidden_ooxml(archive: ZipFile) -> None:
-    names = set(archive.namelist())
-    declared_xml_parts: set[str] = set()
-    xml_extensions: set[str] = set()
-    if "[Content_Types].xml" not in names:
-        raise WorkbookRejected(
-            "malformed_workbook", "missing_content_types", "ooxml_structure"
-        )
-    try:
-        with archive.open("[Content_Types].xml") as content_types_file:
-            for _event, element in ElementTree.iterparse(
-                content_types_file, events=("end",)
-            ):
-                content_type = element.attrib.get("ContentType", "")
-                reason = _content_type_rejection(content_type)
-                if reason is not None:
-                    raise WorkbookRejected(
-                        "unsupported_workbook_feature",
-                        reason,
-                        "ooxml_content_types",
-                    )
-                local_name = element.tag.rsplit("}", maxsplit=1)[-1]
-                if _is_xml_content_type(content_type):
-                    if local_name == "Override":
-                        part_name = element.attrib.get("PartName", "").lstrip("/")
-                        if part_name:
-                            declared_xml_parts.add(part_name)
-                    elif local_name == "Default":
-                        extension = element.attrib.get("Extension", "").casefold()
-                        if extension:
-                            xml_extensions.add(f".{extension}")
-                element.clear()
-    except (ElementTree.ParseError, DefusedXmlException) as exc:
-        raise WorkbookRejected(
-            "malformed_workbook", "invalid_ooxml_xml", "ooxml_structure"
-        ) from exc
-
-    for name in names:
-        if name.startswith("xl/externalLinks/"):
-            raise WorkbookRejected(
-                "unsupported_workbook_feature", "external_link", "ooxml_structure"
-            )
-        if name == "xl/connections.xml":
-            raise WorkbookRejected(
-                "unsupported_workbook_feature", "data_connection", "ooxml_structure"
-            )
-        if name.startswith(
-            ("xl/activeX/", "xl/ctrlProps/", "xl/embeddings/")
-        ) or name in {
-            "xl/vbaProject.bin",
-            "xl/attachedToolbars.bin",
-        }:
-            raise WorkbookRejected(
-                "unsupported_workbook_feature",
-                "embedded_active_object",
-                "ooxml_structure",
-            )
-
-    try:
-        relationship_names = sorted(name for name in names if name.endswith(".rels"))
-        for relationship_name in relationship_names:
-            with archive.open(relationship_name) as relationship_file:
-                for _event, element in ElementTree.iterparse(
-                    relationship_file, events=("end",)
-                ):
-                    if element.tag == f"{{{REL_NS}}}Relationship":
-                        reason = _relationship_rejection(element.attrib.get("Type", ""))
-                        if reason is not None:
-                            raise WorkbookRejected(
-                                "unsupported_workbook_feature",
-                                reason,
-                                "ooxml_relationships",
-                            )
-                    element.clear()
-
-        xml_names = sorted(
-            name
-            for name in names
-            if name in declared_xml_parts
-            or any(name.casefold().endswith(extension) for extension in xml_extensions)
-            or _looks_like_xml_part(archive, name)
-        )
-        for xml_name in xml_names:
-            workbook_sheet_count = 0
-            with archive.open(xml_name) as xml_file:
-                for _event, element in ElementTree.iterparse(xml_file, events=("end",)):
-                    local_name = element.tag.rsplit("}", maxsplit=1)[-1]
-                    if (
-                        xml_name == "xl/workbook.xml"
-                        and local_name == "sheet"
-                    ):
-                        workbook_sheet_count += 1
-                        if element.attrib.get("state", "visible").casefold() != "visible":
-                            raise WorkbookRejected(
-                                "unsupported_workbook_feature", "hidden_sheet", "ooxml_xml"
-                            )
-                    if _is_formula_element(local_name):
-                        raise WorkbookRejected(
-                            "unsupported_workbook_feature", "formula", "ooxml_xml"
-                        )
-                    if (
-                        local_name == "ClientData"
-                        and element.attrib.get("ObjectType", "").casefold() != "note"
-                    ):
-                        raise WorkbookRejected(
-                            "unsupported_workbook_feature",
-                            "embedded_active_object",
-                            "ooxml_xml",
-                        )
-                    element.clear()
-            if xml_name == "xl/workbook.xml" and workbook_sheet_count != 1:
-                raise WorkbookRejected(
-                    "unsupported_workbook_feature", "multiple_worksheets", "ooxml_xml"
-                )
-    except (ElementTree.ParseError, DefusedXmlException) as exc:
-        raise WorkbookRejected(
-            "malformed_workbook", "invalid_ooxml_xml", "ooxml_structure"
-        ) from exc
-
-
-def inspect_workbook(path: Path) -> InspectionResult:
-    """Apply bounded preflight, forbidden-feature checks, then the final parser."""
-    tracemalloc.start()
-    started = time.perf_counter()
-    workbook: Any | None = None
-    try:
-        stats = read_bounded_central_directory(path)
-        try:
-            with ZipFile(path) as archive:
-                _inspect_forbidden_ooxml(archive)
-        except WorkbookRejected:
-            raise
-        except Exception as exc:
-            raise WorkbookRejected(
-                "malformed_workbook", "invalid_zip_container", "ooxml_structure"
-            ) from exc
-
-        try:
-            workbook = load_workbook(
-                path, read_only=True, data_only=False, keep_links=True
-            )
-            if len(workbook.worksheets) != 1:
-                hidden = any(
-                    worksheet.sheet_state != "visible"
-                    for worksheet in workbook.worksheets
-                )
-                reason = "hidden_sheet" if hidden else "multiple_worksheets"
-                raise WorkbookRejected(
-                    "unsupported_workbook_feature", reason, "openpyxl"
-                )
-            worksheet = workbook.worksheets[0]
-            if worksheet.sheet_state != "visible":
-                raise WorkbookRejected(
-                    "unsupported_workbook_feature", "hidden_sheet", "openpyxl"
-                )
-            non_empty_rows = 0
-            for row in worksheet.iter_rows(values_only=False):
-                if any(cell.value is not None for cell in row):
-                    non_empty_rows += 1
-            rows = max(0, non_empty_rows - 1)
-        except WorkbookRejected:
-            raise
-        except Exception as exc:
-            raise WorkbookRejected(
-                "malformed_workbook", "parser_rejected_workbook", "openpyxl"
-            ) from exc
-        elapsed = time.perf_counter() - started
-        _, peak_memory = tracemalloc.get_traced_memory()
-        return InspectionResult(
-            status="accepted",
-            rows=rows,
-            elapsed_seconds=elapsed,
-            peak_memory_bytes=peak_memory,
-            zip_stats=stats,
-        )
-    finally:
-        if workbook is not None:
-            workbook.close()
-        tracemalloc.stop()
 
 
 def _set_reproducible_properties(workbook: Workbook) -> None:
@@ -756,7 +260,9 @@ def _add_chartsheet(path: Path, *, hidden: bool) -> None:
         for source_info in source.infolist():
             source_data = source.read(source_info)
             if source_info.filename == "xl/workbook.xml":
-                source_data = source_data.replace(b"</sheets>", chart_sheet + b"</sheets>")
+                source_data = source_data.replace(
+                    b"</sheets>", chart_sheet + b"</sheets>"
+                )
             target.writestr(_fixed_zip_info(source_info.filename), source_data)
     replacement.replace(path)
 
@@ -775,7 +281,9 @@ def _remove_content_type_override(path: Path, part_name: str) -> None:
             if source_info.filename == "[Content_Types].xml":
                 source_data, replacements = part_pattern.subn(b"", source_data)
                 if replacements != 1:
-                    raise ValueError(f"expected one Content Type override for {part_name}")
+                    raise ValueError(
+                        f"expected one Content Type override for {part_name}"
+                    )
             target.writestr(_fixed_zip_info(source_info.filename), source_data)
     replacement.replace(path)
 
@@ -1007,7 +515,7 @@ def _write_repeated_member(member: Any, size: int, byte: bytes) -> None:
         remaining -= chunk_size
 
 
-def build_fixture(name: str, path: Path) -> Path:
+def build_xlsx_fixture(name: str, path: Path) -> Path:
     """Build one deterministic, sanitized fixture at a caller-owned path."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if name == "row_shared_style_boundary":
@@ -1021,7 +529,8 @@ def build_fixture(name: str, path: Path) -> Path:
 
     _save_default_workbook(
         path,
-        formula=name in {
+        formula=name
+        in {
             "formula",
             "relocated_formula",
             "relocated_formula_without_content_type",
@@ -1078,8 +587,7 @@ def build_fixture(name: str, path: Path) -> Path:
                 b"</tableColumn></tableColumns></table>"
             ),
             content_type=(
-                "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.table+xml"
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"
             ),
             relationships_name="xl/worksheets/_rels/sheet1.xml.rels",
             relationship_type=f"{OFFICE_REL_NS}/table",
@@ -1144,107 +652,3 @@ def build_fixture(name: str, path: Path) -> Path:
     else:
         raise ValueError(f"unknown fixture kind: {name}")
     return path
-
-
-def _report_rejection(
-    name: str, path: Path, rejection: WorkbookRejected
-) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "fixture": name,
-        "request_bytes": path.stat().st_size,
-        "status": "rejected",
-        "category": rejection.category,
-        "reason": rejection.reason,
-        "phase": rejection.phase,
-    }
-    if rejection.zip_stats is not None:
-        result["zip"] = asdict(rejection.zip_stats)
-    return result
-
-
-def run_probe(
-    *,
-    temp_parent: Path | None = None,
-    fixture_names: Sequence[str] = ALL_FIXTURES,
-) -> dict[str, Any]:
-    """Generate fixtures, inspect them, return a path-free JSON-compatible report."""
-    fixture_reports: list[dict[str, Any]] = []
-    with tempfile.TemporaryDirectory(
-        prefix="xlsx-boundary-", dir=temp_parent
-    ) as temporary:
-        fixture_directory = Path(temporary)
-        for fixture_name in fixture_names:
-            fixture_path = build_fixture(
-                fixture_name, fixture_directory / f"{fixture_name}.xlsx"
-            )
-            try:
-                inspection = inspect_workbook(fixture_path)
-                fixture_reports.append(
-                    {
-                        "fixture": fixture_name,
-                        "request_bytes": fixture_path.stat().st_size,
-                        "status": inspection.status,
-                        "rows": inspection.rows,
-                        "elapsed_seconds": round(inspection.elapsed_seconds, 6),
-                        "peak_memory_bytes": inspection.peak_memory_bytes,
-                        "zip": asdict(inspection.zip_stats),
-                    }
-                )
-            except WorkbookRejected as rejection:
-                fixture_reports.append(
-                    _report_rejection(fixture_name, fixture_path, rejection)
-                )
-    return {
-        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-        "parser": {
-            "name": "openpyxl",
-            "version": openpyxl.__version__,
-            "xml_guard": {
-                "name": "defusedxml",
-                "version": defusedxml.__version__,
-                "openpyxl_enabled": OPENPYXL_DEFUSEDXML,
-            },
-        },
-        "limits": {
-            "request_bytes": REQUEST_LIMIT_BYTES,
-            "zip_entries": MAX_ZIP_ENTRIES,
-            "single_entry_uncompressed_bytes": MAX_ENTRY_UNCOMPRESSED_BYTES,
-            "total_uncompressed_bytes": MAX_TOTAL_UNCOMPRESSED_BYTES,
-            "central_directory_bytes": MAX_CENTRAL_DIRECTORY_BYTES,
-        },
-        "fixtures": fixture_reports,
-    }
-
-
-def _parse_fixture_names(values: Iterable[str] | None) -> tuple[str, ...]:
-    names = tuple(values or ALL_FIXTURES)
-    unknown = sorted(set(names) - set(ALL_FIXTURES))
-    if unknown:
-        raise ValueError(f"unknown fixture kind: {', '.join(unknown)}")
-    return names
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--fixture",
-        action="append",
-        choices=ALL_FIXTURES,
-        help="run only this fixture; repeat for more than one",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        help="write the redacted JSON report to this path as well as stdout",
-    )
-    arguments = parser.parse_args(argv)
-    report = run_probe(fixture_names=_parse_fixture_names(arguments.fixture))
-    serialized = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    if arguments.output is not None:
-        arguments.output.write_text(serialized, encoding="utf-8")
-    sys.stdout.write(serialized)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
