@@ -5,8 +5,9 @@
 - revision: r1
 - owner: product owner
 - product_stage: COMMIT
-- delivery_stage: SPEC_AUTHORIZED_AWAITING_ACCEPTED_BASE
+- delivery_stage: SPEC_AUTHORIZED
 - delivery_evidence_alignment: SHADOW_PASS
+- delivery_contract_revision: P1-P8
 
 ## Evidence ledger
 
@@ -19,6 +20,7 @@
 | FACT | Operator 用约 20 分钟完成审核，并判断 AI 将报告摘要、8 个 Finding、Evidence 引用和待确认项组织成可直接审核草稿，减少了逐项整理工作。 | `current-session-authorizer` 对固定输出 SHA-256 `e227fdd52e9a2a2d84945353700b26d5e34223be08e60827a718193098b577e3` 的审核记录 | 单次自报观察，没有 report-only 对照计时，不能证明普遍效率提升。 |
 | DECISION | Codex/OpenAI 仅用于本地非客户合成验证；生产环境由 Pi 调用客户环境内、客户控制的 OpenAI-compatible 模型 API，客户数据不得 fallback 到 Codex/OpenAI 或其他外部模型。 | Product owner，本轮 Commitment 决定 | 每个客户模型仍须通过准入验证。 |
 | DECISION | 生产模型地址和凭据由客户运维通过部署 Secret 注入，不进入数据库、Prompt 或日志；客户承担内部推理容量，不引入外部按量模型预算。 | Product owner，本轮 Commitment 决定 | 客户侧算力、容量和运维成本仍由客户管理。 |
+| DECISION | Delivery contract P1–P8 固定 Operator 选择、独立 Session、幂等与失败语义、PostgreSQL 持久化、审核状态、授权与审计、模型准入及确定性降级。 | Product owner，2026-08-20 Delivery Spec shaping confirmation | 仅授权 Delivery Spec；不授权创建 Issue 或实现。 |
 
 ## Release frame
 
@@ -90,6 +92,58 @@
 - 每个客户模型启用前必须在非客户固定样本上满足：至少 75% 建议可直接采用或仅文字编辑、100% 引用可追溯、零虚构、零 Finding 修改、零未授权外部副作用。
 - AI 输出只是不具权威性的审核草稿；Operator 的接受、编辑或拒绝不修改 Finding 生命周期事实。
 
+## Accepted delivery contract P1–P8
+
+### P1：Operator 明确选择输入
+
+- Project Operator 从一份已发布确定性报告中明确选择 `1–8` 个 `UNOBSERVED_ASSET`。
+- 每个 Finding 必须出现在该报告的 canonical Evidence plan 中，并具有匹配的持久化 Evidence 引用。
+- 模型不得自行选择 Finding；服务端不得使用前端或 API Evidence 列表顺序代替 canonical 身份校验。
+
+### P2：独立 Session、幂等与并发
+
+- 每次生成尝试由 agent-compose 创建独立 Pi Session，不复用或替换 GovernanceRun Session。
+- 生成请求必须携带 `Idempotency-Key`；同一键返回原生成记录，不产生第二次模型调用。
+- 同一报告同时最多存在一个活动生成任务。
+
+### P3：单次尝试与显式新请求
+
+- 每个生成任务只允许一次模型调用，不自动 retry、不更换模型或 Provider、不 fallback。
+- 失败是该生成任务和 Session 的终态。
+- Operator 可使用新的 `Idempotency-Key` 明确创建新的草稿记录和新 Session；这不是原任务 Retry，不覆盖或删除失败历史。
+
+### P4：PostgreSQL 权威持久化
+
+- PostgreSQL 保存报告 Hash、所选 Finding/Evidence 绑定、行为人、脱敏模型配置指纹、生成状态、不可变模型输出和审核结果。
+- Secret、数据库凭据、原始 Provider 事件和未脱敏 Prompt 不进入业务记录。
+- 模型输出是非权威草稿，不进入 Run Publish 事务，不修改 `latest_completed_run_id` 或 Finding 生命周期事实。
+
+### P5：单一 Operator 审核状态
+
+- 一份可审核草稿只由一个具有 Operator 权限的用户完成 `ACCEPTED | EDITED | REJECTED` 终态审核。
+- 模型原始输出、事实 claim、Finding ID 和 Evidence 引用保持不可变。
+- `EDITED` 只保存 Operator 对建议文本、待确认项和局限的独立文字版本；需要事实纠正时必须 `REJECTED`，不能伪装成文字编辑。
+- 审核终态不得重复执行，也不构成外部动作批准。
+
+### P6：授权与脱敏审计
+
+- 只有 Project Operator 可以生成和审核；依据 ADR-0002，全局 Admin 具有 Operator 权限。
+- Viewer 和仅 Approver 不获得生成或审核权限。
+- 生成请求、生成终态和审核终态必须原子追加脱敏 AuditEvent；AuditEvent 不包含 Secret、原始 Prompt、完整模型输出或 Provider 原始事件。
+
+### P7：客户内部模型部署准入
+
+- 客户运维使用固定非客户样本验证客户环境内的 OpenAI-compatible 模型。
+- 准入门槛为：至少 75% 建议可直接采用或仅文字编辑、100% 引用可追溯、零虚构、零 Finding 修改、零未授权副作用。
+- 有效资格结果绑定模型端点、模型身份和配置指纹；任一变化使资格失效。
+- 资格缺失或无效时后端拒绝生成；v1 不包含产品内模型目录、选择或资格审批 UI。
+
+### P8：确定性降级与零外部动作
+
+- 超时、连接错误、无文本、结构无效、Finding/Evidence 越界或资格漂移均 fail closed。
+- 所有失败都保留确定性报告可用，不修改 Finding，不触发扫描、GovernanceRun、Run Retry、Run Rerun、客户系统写回或 CloudAtlas 写回。
+- 生产环境不得调用 Codex/OpenAI 或任何客户环境外模型，不得使用外部 fallback。
+
 ## Readiness
 
 1. actor、trigger 与真实工作流：PASS
@@ -105,11 +159,11 @@
 - committed_at: 2026-08-20T04:33:19Z
 - committed_revision: REL-003/r1
 - candidate_source_commit: `3c0ec0b203097b8ac61e813ed024be4ae074ca42`
-- accepted_delivery_base: pending human acceptance of Draft PR #138 into a formal remote base
+- release_commitment_base: `origin/main@94ca846b6981b1e922bfa62f424b7f1856557d4e`
 - accepted_evidence: v5 PASS，Operator 约 20 分钟审核并确认增量整理价值，生产客户内部模型边界已决定。
-- delivery_authority: 仅授权从包含本 COMMITTED revision 的已接受远端 Git base 编译 Delivery Spec。
+- delivery_authority: 仅授权从包含本 COMMITTED revision 和 P1–P8 的已接受远端 Git base 编译 Delivery Spec。
 - implementation_authority: none
 - issue_creation_authority: none
 - production_model_call_authority: none
 - merge_or_pr_ready_authority: none
-- acceptance_note: 本文件位于 Draft PR 时仍不是 Delivery Spec 可用的 accepted base；必须先由人工接受到正式远端 base，且不得由本次授权自动 merge 或标记 Ready。
+- acceptance_note: `to-spec` 必须 pin 包含本文件精确内容的正式远端 base；Draft branch 不是 accepted base，且不得由本次授权自动 merge、标记 Ready、创建 Issue 或实现。
