@@ -44,7 +44,7 @@
 
 ## 明确未实现
 
-- PI / 模型报告 Agent；REL-002 当前为 [HOLD](../product/decisions/rel-002-hold.md)；
+- PI / 模型报告 Agent；
 - PDF 报告；
 - URL、域名、Endpoint、Application 或责任主体治理；
 - 客户系统正式 SourceInstance；
