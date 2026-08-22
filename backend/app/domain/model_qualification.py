@@ -164,12 +164,21 @@ class QualificationRunResult(BaseModel):
         return QualificationEvaluation(**values)
 
 
+def _validated_run_result(
+    *, config_fingerprint: str, evaluation: QualificationEvaluation
+) -> QualificationRunResult:
+    return QualificationRunResult(
+        config_fingerprint=config_fingerprint,
+        **asdict(evaluation),
+    )
+
+
 def qualification_run_result_json(
     *, binding: ModelBinding, evaluation: QualificationEvaluation
 ) -> str:
-    return QualificationRunResult(
+    return _validated_run_result(
         config_fingerprint=binding.config_fingerprint,
-        **asdict(evaluation),
+        evaluation=evaluation,
     ).model_dump_json()
 
 
@@ -341,23 +350,10 @@ def execute_model_qualification(
     *,
     session: Session,
     client: QualificationClient,
-    endpoint: str,
-    model_identity: str,
-    protocol: str,
-    config_revision: str,
-    runner_build_version: str,
-    agent_compose_runtime_version: str,
+    binding: ModelBinding,
     request_id: str,
     timeout_seconds: float = 120.0,
 ) -> ModelQualificationResult:
-    binding = model_binding(
-        endpoint=endpoint,
-        model_identity=model_identity,
-        protocol=protocol,
-        config_revision=config_revision,
-        runner_build_version=runner_build_version,
-        agent_compose_runtime_version=agent_compose_runtime_version,
-    )
     endpoint = binding.endpoint
     model_identity = binding.model_identity
     fingerprint = binding.config_fingerprint
@@ -377,12 +373,12 @@ def execute_model_qualification(
     try:
         while not run.is_terminal:
             if time.monotonic() >= deadline:
-                evaluation = _failed_evaluation("model_qualification_timeout")
+                evaluation = _failed_evaluation("timeout")
                 break
             time.sleep(0.5)
             observed = client.get_run(run.run_id)
             if observed is None:
-                evaluation = _failed_evaluation("agent_compose_result_missing")
+                evaluation = _failed_evaluation("result_missing")
                 break
             run = observed
         else:
@@ -422,7 +418,8 @@ def execute_model_qualification(
     )
 
 
-def _endpoint_fingerprint(endpoint: str) -> str:
+def _endpoint_pin_digest(endpoint: str) -> str:
+    """Return the endpoint-only lookup pin, distinct from the full config binding."""
     return hashlib.sha256(endpoint.rstrip("/").encode()).hexdigest()
 
 
@@ -435,12 +432,12 @@ def persist_qualification_result(
     agent_compose_run_id: str | None,
     evaluation: QualificationEvaluation,
 ) -> ModelQualificationResult:
-    evaluation = QualificationRunResult(
+    evaluation = _validated_run_result(
         config_fingerprint=config_fingerprint,
-        **asdict(evaluation),
+        evaluation=evaluation,
     ).evaluation()
     result = ModelQualificationResult(
-        model_endpoint_sha256=_endpoint_fingerprint(endpoint),
+        model_endpoint_sha256=_endpoint_pin_digest(endpoint),
         model_identity=model_identity,
         config_fingerprint=config_fingerprint,
         fixture_version=evaluation.fixture_version,
@@ -472,7 +469,7 @@ def current_model_is_qualified(
         select(ModelQualificationResult)
         .where(
             ModelQualificationResult.model_endpoint_sha256
-            == _endpoint_fingerprint(endpoint),
+            == _endpoint_pin_digest(endpoint),
             ModelQualificationResult.model_identity == model_identity,
             ModelQualificationResult.config_fingerprint == config_fingerprint,
             ModelQualificationResult.fixture_version == FIXTURE_VERSION,

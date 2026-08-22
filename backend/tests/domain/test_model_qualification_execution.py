@@ -117,12 +117,7 @@ def test_execution_runs_a_fixed_command_and_persists_redacted_attested_pass() ->
     result = execute_model_qualification(
         session=session,
         client=client,
-        endpoint="http://127.0.0.1:8081/v1",
-        model_identity="fake-model",
-        protocol="chat_completions",
-        config_revision="test-v1",
-        runner_build_version="runner-v1",
-        agent_compose_runtime_version="compose-v1",
+        binding=_binding(),
         request_id="qualification-test",
     )
 
@@ -147,18 +142,46 @@ def test_agent_compose_start_failure_has_no_fabricated_run_id() -> None:
     result = execute_model_qualification(
         session=_session(),
         client=UnavailableClient(None),
-        endpoint="http://127.0.0.1:8081/v1",
-        model_identity="fake-model",
-        protocol="chat_completions",
-        config_revision="test-v1",
-        runner_build_version="runner-v1",
-        agent_compose_runtime_version="compose-v1",
+        binding=_binding(),
         request_id="qualification-test",
     )
 
     assert result.status == "FAIL"
     assert result.failure_code == "agent_compose_failed"
     assert result.agent_compose_run_id is None
+    assert ModelQualificationResult.__table__.c.agent_compose_run_id.nullable  # type: ignore[attr-defined]
+
+
+def test_timeout_uses_the_fail_closed_contract_code() -> None:
+    result = execute_model_qualification(
+        session=_session(),
+        client=_Client(None, status="RUN_STATUS_RUNNING"),
+        binding=_binding(),
+        request_id="qualification-test",
+        timeout_seconds=0,
+    )
+
+    assert result.status == "FAIL"
+    assert result.failure_code == "timeout"
+
+
+def test_missing_observed_run_uses_the_fail_closed_contract_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MissingRunClient(_Client):
+        def get_run(self, run_id: str) -> AgentComposeRunStart | None:
+            return None
+
+    monkeypatch.setattr("app.domain.model_qualification.time.sleep", lambda _: None)
+    result = execute_model_qualification(
+        session=_session(),
+        client=MissingRunClient(None, status="RUN_STATUS_RUNNING"),
+        binding=_binding(),
+        request_id="qualification-test",
+    )
+
+    assert result.status == "FAIL"
+    assert result.failure_code == "result_missing"
 
 
 def test_agent_compose_observation_failure_persists_fail_closed() -> None:
@@ -178,12 +201,7 @@ def test_agent_compose_observation_failure_persists_fail_closed() -> None:
     result = execute_model_qualification(
         session=_session(),
         client=UnavailableClient(None),
-        endpoint="http://127.0.0.1:8081/v1",
-        model_identity="fake-model",
-        protocol="chat_completions",
-        config_revision="test-v1",
-        runner_build_version="runner-v1",
-        agent_compose_runtime_version="compose-v1",
+        binding=_binding(),
         request_id="qualification-test",
     )
 
@@ -197,12 +215,7 @@ def test_invalid_or_missing_provider_output_persists_fail_closed() -> None:
         result = execute_model_qualification(
             session=session,
             client=_Client(output),
-            endpoint="http://127.0.0.1:8081/v1",
-            model_identity="fake-model",
-            protocol="chat_completions",
-            config_revision="test-v1",
-            runner_build_version="runner-v1",
-            agent_compose_runtime_version="compose-v1",
+            binding=_binding(),
             request_id="qualification-test",
         )
 
@@ -229,12 +242,7 @@ def test_runtime_attestation_mismatch_fails_closed() -> None:
     result = execute_model_qualification(
         session=_session(),
         client=_Client(_passing_run_output(runner_build_version="stale-runner")),
-        endpoint="http://127.0.0.1:8081/v1",
-        model_identity="fake-model",
-        protocol="chat_completions",
-        config_revision="test-v1",
-        runner_build_version="runner-v1",
-        agent_compose_runtime_version="compose-v1",
+        binding=_binding(),
         request_id="qualification-test",
     )
 

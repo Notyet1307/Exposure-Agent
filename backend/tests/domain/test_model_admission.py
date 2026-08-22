@@ -1,3 +1,5 @@
+import hashlib
+
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, select
 
@@ -48,6 +50,11 @@ def test_backend_admits_only_a_pass_for_the_current_binding() -> None:
         model_identity="customer-model",
         config_fingerprint="a" * 64,
     )
+    stored = session.exec(select(ModelQualificationResult)).one()
+    assert stored.model_endpoint_sha256 == hashlib.sha256(
+        b"http://model.internal/v1"
+    ).hexdigest()
+    assert stored.model_endpoint_sha256 != stored.config_fingerprint
     for changed in (
         {"endpoint": "http://replacement.internal/v1"},
         {"model_identity": "replacement-model"},

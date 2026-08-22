@@ -34,12 +34,7 @@ def main() -> int:
         result = execute_model_qualification(
             session=session,
             client=AgentComposeClient(),
-            endpoint=binding.endpoint,
-            model_identity=binding.model_identity,
-            protocol=binding.protocol,
-            config_revision=binding.config_revision,
-            runner_build_version=binding.runner_build_version,
-            agent_compose_runtime_version=binding.agent_compose_runtime_version,
+            binding=binding,
             request_id=f"model-qualification:{uuid.uuid4().hex}",
             timeout_seconds=settings.MODEL_QUALIFICATION_TIMEOUT_SECONDS,
         )
