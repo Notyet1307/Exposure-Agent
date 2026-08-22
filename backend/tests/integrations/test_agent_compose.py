@@ -60,13 +60,9 @@ def _configure_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "AGENT_COMPOSE_URL", "http://agent-compose/")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_NAME", "project")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_AGENT_NAME", "runner")
-    monkeypatch.setattr(
-        settings, "MODEL_QUALIFICATION_AGENT_NAME", "model-qualifier"
-    )
+    monkeypatch.setattr(settings, "MODEL_QUALIFICATION_AGENT_NAME", "model-qualifier")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_TIMEOUT_SECONDS", 2.0)
-    monkeypatch.setattr(
-        settings, "AGENT_COMPOSE_AUTH_TOKEN", SecretStr("test-token")
-    )
+    monkeypatch.setattr(settings, "AGENT_COMPOSE_AUTH_TOKEN", SecretStr("test-token"))
 
 
 def _install_response(
@@ -288,7 +284,11 @@ def test_agent_compose_run_observation_fails_closed_for_unknown_status() -> None
         (httpx.ConnectError("offline"), False, "agent_compose_unavailable"),
         (_Response(500), False, "agent_compose_start_failed"),
         (_Response(404), False, "agent_compose_start_failed"),
-        (_Response(200, invalid_json=True), False, "agent_compose_response_contract_failed"),
+        (
+            _Response(200, invalid_json=True),
+            False,
+            "agent_compose_response_contract_failed",
+        ),
         (_Response(200, []), False, "agent_compose_response_contract_failed"),
     ],
 )
@@ -316,11 +316,21 @@ def test_session_query_and_resume_preserve_the_authoritative_session_id(
         [
             _Response(
                 200,
-                {"sandbox": {"sandboxId": session_id, "status": "SANDBOX_STATUS_STOPPED"}},
+                {
+                    "sandbox": {
+                        "sandboxId": session_id,
+                        "status": "SANDBOX_STATUS_STOPPED",
+                    }
+                },
             ),
             _Response(
                 200,
-                {"sandbox": {"sandboxId": session_id, "status": "SANDBOX_STATUS_RUNNING"}},
+                {
+                    "sandbox": {
+                        "sandboxId": session_id,
+                        "status": "SANDBOX_STATUS_RUNNING",
+                    }
+                },
             ),
         ]
     )
@@ -515,6 +525,4 @@ def test_start_governance_run_rejects_invalid_started_flag(
     monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
 
     with pytest.raises(AgentComposeBoundaryError, match="contract_failed"):
-        client.start_governance_run(
-            client_request_id="project:trigger", environment={}
-        )
+        client.start_governance_run(client_request_id="project:trigger", environment={})

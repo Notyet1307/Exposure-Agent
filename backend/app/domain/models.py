@@ -642,8 +642,7 @@ class GovernanceReport(SQLModel, table=True):
             name="ck_governance_reports_canonical_content",
         ),
         CheckConstraint(
-            "html_sha256 ~ '^[0-9a-f]{64}$' "
-            "AND csv_sha256 ~ '^[0-9a-f]{64}$'",
+            "html_sha256 ~ '^[0-9a-f]{64}$' AND csv_sha256 ~ '^[0-9a-f]{64}$'",
             name="ck_governance_reports_artifact_hashes",
         ),
         CheckConstraint(

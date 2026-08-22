@@ -103,9 +103,7 @@ class FakeProvider(BaseHTTPRequestHandler):
             "object": "chat.completion.chunk",
             "created": 1,
             "model": "fake-model",
-            "choices": [
-                {"index": 0, "delta": {}, "finish_reason": "stop"}
-            ],
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
         }
         body = (
             f"data: {json.dumps(chunk)}\n\n"

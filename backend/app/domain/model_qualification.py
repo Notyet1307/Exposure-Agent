@@ -288,7 +288,7 @@ def execute_model_qualification(
                     if run.output is None:
                         raise ValueError("missing output")
                     parsed = ModelQualificationOutput.model_validate_json(run.output)
-                except (ValidationError, ValueError):
+                except ValidationError, ValueError:
                     evaluation = _failed_evaluation("model_output_invalid")
                 else:
                     evaluation = evaluate_qualification(parsed)

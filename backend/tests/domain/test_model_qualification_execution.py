@@ -13,7 +13,9 @@ from app.integrations.agent_compose import (
 
 
 class _Client:
-    def __init__(self, output: str | None, status: str = "RUN_STATUS_SUCCEEDED") -> None:
+    def __init__(
+        self, output: str | None, status: str = "RUN_STATUS_SUCCEEDED"
+    ) -> None:
         self.output = output
         self.status = status
         self.calls: list[dict[str, Any]] = []
@@ -21,9 +23,7 @@ class _Client:
     def start_model_qualification(
         self, *, client_request_id: str, prompt: str
     ) -> AgentComposeRunStart:
-        self.calls.append(
-            {"client_request_id": client_request_id, "prompt": prompt}
-        )
+        self.calls.append({"client_request_id": client_request_id, "prompt": prompt})
         return AgentComposeRunStart(
             run_id="a" * 64,
             started=True,

@@ -1031,8 +1031,7 @@ def test_report_contract_version_and_steps_are_persistable(
     with pytest.raises(psycopg.errors.RaiseException, match="pinned facts"):
         with connect(template_baseline_database) as connection:
             connection.execute(
-                "UPDATE governance_runs SET report_contract_version = %s "
-                "WHERE id = %s",
+                "UPDATE governance_runs SET report_contract_version = %s WHERE id = %s",
                 ("deterministic-report-v2", ids["run_id"]),
             )
 
@@ -1160,11 +1159,14 @@ def test_stage4_run_history_upgrades_without_report_backfill_or_new_steps(
             "FROM governance_runs WHERE id = %s",
             (ids["run_id"],),
         ).fetchone() == (expected_status, "ip-v1", None)
-        assert connection.execute(
-            "SELECT id, step_code, status, attempt FROM run_steps "
-            "WHERE governance_run_id = %s ORDER BY step_code",
-            (ids["run_id"],),
-        ).fetchall() == steps_before_upgrade
+        assert (
+            connection.execute(
+                "SELECT id, step_code, status, attempt FROM run_steps "
+                "WHERE governance_run_id = %s ORDER BY step_code",
+                (ids["run_id"],),
+            ).fetchall()
+            == steps_before_upgrade
+        )
         assert connection.execute(
             "SELECT count(*) FROM governance_reports"
         ).fetchone() == (0,)

@@ -71,9 +71,7 @@ class Settings(BaseSettings):
     MODEL_QUALIFICATION_AGENT_NAME: str = "model-qualifier"
     MODEL_QUALIFICATION_TIMEOUT_SECONDS: float = 120.0
     MODEL_API_ENDPOINT: str = ""
-    MODEL_API_PROTOCOL: Literal["responses", "chat_completions"] = (
-        "chat_completions"
-    )
+    MODEL_API_PROTOCOL: Literal["responses", "chat_completions"] = "chat_completions"
     MODEL_API_KEY: SecretStr = SecretStr("")
     MODEL_IDENTITY: str = ""
     MODEL_CONFIG_REVISION: str = "v1"

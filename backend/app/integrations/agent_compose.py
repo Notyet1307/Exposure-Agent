@@ -129,14 +129,10 @@ class AgentComposeClient:
         try:
             body = response.json()
         except ValueError:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         return _required_object(body)
 
-    def _expected_run_id(
-        self, *, agent_name: str, client_request_id: str
-    ) -> str:
+    def _expected_run_id(self, *, agent_name: str, client_request_id: str) -> str:
         return _stable_id(
             _RUN_KIND,
             self.project_id,
@@ -169,22 +165,16 @@ class AgentComposeClient:
         summary = _required_object(detail.get("summary"))
         returned_id = _required_string(summary.get("runId"))
         if returned_id != run_id:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         status = _required_string(summary.get("status"))
         session_id = summary.get("sandboxId")
         if session_id is not None and (
             not isinstance(session_id, str) or not session_id
         ):
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         output = detail.get("output")
         if output is not None and not isinstance(output, str):
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         return AgentComposeRunStart(
             run_id=run_id,
             started=False,
@@ -204,9 +194,7 @@ class AgentComposeClient:
         sandbox = _required_object(body.get("sandbox"))
         returned_id = _required_string(sandbox.get("sandboxId"))
         if returned_id != session_id:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         status = _required_string(sandbox.get("status"))
         return AgentComposeSession(
             session_id=session_id,
@@ -221,15 +209,11 @@ class AgentComposeClient:
             non_ok_code="agent_compose_session_not_recoverable",
         )
         if body is None:
-            raise AgentComposeBoundaryError(
-                "agent_compose_session_not_recoverable"
-            )
+            raise AgentComposeBoundaryError("agent_compose_session_not_recoverable")
         sandbox = _required_object(body.get("sandbox"))
         returned_id = _required_string(sandbox.get("sandboxId"))
         if returned_id != session_id:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         status = _required_string(sandbox.get("status"))
         return AgentComposeSession(
             session_id=session_id,
@@ -289,9 +273,7 @@ class AgentComposeClient:
             "agentName": agent_name,
             "source": "RUN_SOURCE_API",
             "clientRequestId": client_request_id,
-            "cleanupPolicy": (
-                "RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION"
-            ),
+            "cleanupPolicy": ("RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION"),
             "env": [
                 {"name": name, "value": value, "secret": False}
                 for name, value in sorted(environment.items())
@@ -311,25 +293,18 @@ class AgentComposeClient:
         summary = _required_object(body.get("run"))
         returned_id = _required_string(summary.get("runId"))
         if returned_id != run_id:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         status = _required_string(summary.get("status"))
         started = body.get("started")
         if not isinstance(started, bool):
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         returned_session_id = (
             _required_string(summary.get("sandboxId"))
             if summary.get("sandboxId") is not None
             else None
         )
         if session_id is not None:
-            if (
-                returned_session_id is not None
-                and returned_session_id != session_id
-            ):
+            if returned_session_id is not None and returned_session_id != session_id:
                 raise AgentComposeBoundaryError(
                     "agent_compose_response_contract_failed"
                 )
