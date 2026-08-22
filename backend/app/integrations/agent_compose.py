@@ -254,13 +254,10 @@ class AgentComposeClient:
         agent_name: str,
         client_request_id: str,
         environment: dict[str, str],
+        command: str,
         secret_environment: dict[str, str] | None = None,
-        command: str | None = None,
-        prompt: str | None = None,
         session_id: str | None = None,
     ) -> AgentComposeRunStart:
-        if (command is None) == (prompt is None):
-            raise ValueError("exactly one of command or prompt is required")
         run_id = self._expected_run_id(
             agent_name=agent_name,
             client_request_id=client_request_id,
@@ -287,15 +284,12 @@ class AgentComposeClient:
             "source": "RUN_SOURCE_API",
             "clientRequestId": client_request_id,
             "cleanupPolicy": ("RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION"),
+            "command": command,
             "env": [
                 {"name": name, "value": value, "secret": secret}
                 for name, (value, secret) in sorted(run_environment.items())
             ],
         }
-        if command is not None:
-            run_request["command"] = command
-        if prompt is not None:
-            run_request["prompt"] = prompt
         if session_id is not None:
             run_request["sandboxId"] = session_id
         body = self._request(

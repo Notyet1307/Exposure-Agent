@@ -3,8 +3,11 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.pool import StaticPool
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, create_engine, select, text
 
 from app.domain.model_qualification import (
     ModelBinding,
@@ -15,11 +18,16 @@ from app.domain.model_qualification import (
     model_binding,
     qualification_run_result_json,
 )
-from app.domain.models import ModelQualificationResult
+from app.domain.models import AuditEvent, ModelQualificationResult
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
     AgentComposeRunStart,
 )
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_for_sqlite(*_args: object, **_kwargs: object) -> str:
+    return "JSON"
 
 
 class _Client:
@@ -57,6 +65,7 @@ def _session() -> Session:
         poolclass=StaticPool,
     )
     ModelQualificationResult.__table__.create(engine)  # type: ignore[attr-defined]
+    AuditEvent.__table__.create(engine)  # type: ignore[attr-defined]
     return Session(engine)
 
 
@@ -124,12 +133,88 @@ def test_execution_runs_a_fixed_command_and_persists_redacted_attested_pass() ->
     assert result.status == "PASS"
     assert client.calls == [{"client_request_id": "qualification-test"}]
     stored = session.exec(select(ModelQualificationResult)).one()
-    serialized = repr(stored.model_dump())
+    audits = session.exec(
+        select(AuditEvent).where(AuditEvent.target_id == stored.id)
+    ).all()
+    assert [event.action for event in audits] == [
+        "model_qualification.triggered",
+        "model_qualification.completed",
+    ]
+    assert {(event.actor_type, event.actor_subject) for event in audits} == {
+        ("system", "model-qualification-command")
+    }
+    assert audits[0].after_data == {
+        "config_fingerprint": stored.config_fingerprint,
+        "fixture_version": "model-qualification-v1",
+    }
+    assert audits[1].after_data == {
+        "config_fingerprint": stored.config_fingerprint,
+        "failure_code": None,
+        "fixture_version": "model-qualification-v1",
+        "status": "PASS",
+    }
+    serialized = repr(
+        {
+            "result": stored.model_dump(),
+            "audits": [event.model_dump() for event in audits],
+        }
+    )
     assert "fixture-finding" not in serialized
     assert "127.0.0.1" not in serialized
     assert "prompt" not in serialized
     assert "provider" not in serialized
     assert "secret" not in serialized
+
+
+def test_execution_stops_when_trigger_audit_cannot_be_written() -> None:
+    session = _session()
+    session.execute(
+        text(
+            "CREATE TRIGGER reject_qualification_trigger "
+            "BEFORE INSERT ON audit_events "
+            "WHEN NEW.action = 'model_qualification.triggered' "
+            "BEGIN SELECT RAISE(ABORT, 'audit rejected'); END"
+        )
+    )
+    session.commit()
+    client = _Client(_passing_run_output())
+
+    with pytest.raises(SQLAlchemyError, match="audit rejected"):
+        execute_model_qualification(
+            session=session,
+            client=client,
+            binding=_binding(),
+            request_id="qualification-test",
+        )
+
+    assert client.calls == []
+    assert session.exec(select(AuditEvent)).all() == []
+
+
+def test_result_rolls_back_when_completion_audit_cannot_be_written() -> None:
+    session = _session()
+    session.execute(
+        text(
+            "CREATE TRIGGER reject_qualification_completion "
+            "BEFORE INSERT ON audit_events "
+            "WHEN NEW.action = 'model_qualification.completed' "
+            "BEGIN SELECT RAISE(ABORT, 'audit rejected'); END"
+        )
+    )
+    session.commit()
+
+    with pytest.raises(SQLAlchemyError, match="audit rejected"):
+        execute_model_qualification(
+            session=session,
+            client=_Client(_passing_run_output()),
+            binding=_binding(),
+            request_id="qualification-test",
+        )
+
+    assert session.exec(select(ModelQualificationResult)).all() == []
+    assert [event.action for event in session.exec(select(AuditEvent)).all()] == [
+        "model_qualification.triggered"
+    ]
 
 
 def test_agent_compose_start_failure_has_no_fabricated_run_id() -> None:

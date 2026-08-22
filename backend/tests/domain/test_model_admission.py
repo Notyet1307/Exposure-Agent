@@ -106,7 +106,9 @@ def test_missing_or_failed_result_is_not_admitted() -> None:
 
     persist_qualification_result(
         session=session,
-        **binding,
+        endpoint=binding["endpoint"],
+        model_identity=binding["model_identity"],
+        config_fingerprint=binding["config_fingerprint"],
         agent_compose_run_id="b" * 64,
         evaluation=QualificationEvaluation(
             fixture_version="model-qualification-v1",

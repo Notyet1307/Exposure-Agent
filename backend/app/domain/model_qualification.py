@@ -5,14 +5,17 @@ import ipaddress
 import json
 import socket
 import time
+import uuid
 from dataclasses import asdict, dataclass
 from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, col, select
 
-from app.domain.models import ModelQualificationResult
+from app.domain.audit import commit_with_audit
+from app.domain.models import AuditEvent, ModelQualificationResult
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
     AgentComposeRunStart,
@@ -346,6 +349,44 @@ def _failed_evaluation(code: str) -> QualificationEvaluation:
     )
 
 
+def _qualification_audit_event(
+    *,
+    target_id: uuid.UUID,
+    action: str,
+    after_data: dict[str, object],
+) -> AuditEvent:
+    return AuditEvent(
+        actor_subject="model-qualification-command",
+        actor_type="system",
+        action=action,
+        target_type="model_qualification_result",
+        target_id=target_id,
+        before_data=None,
+        after_data=after_data,
+        ip_address=None,
+    )
+
+
+def _record_qualification_trigger(
+    *, session: Session, target_id: uuid.UUID, config_fingerprint: str
+) -> None:
+    session.add(
+        _qualification_audit_event(
+            target_id=target_id,
+            action="model_qualification.triggered",
+            after_data={
+                "config_fingerprint": config_fingerprint,
+                "fixture_version": FIXTURE_VERSION,
+            },
+        )
+    )
+    try:
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+
+
 def execute_model_qualification(
     *,
     session: Session,
@@ -357,6 +398,12 @@ def execute_model_qualification(
     endpoint = binding.endpoint
     model_identity = binding.model_identity
     fingerprint = binding.config_fingerprint
+    result_id = uuid.uuid4()
+    _record_qualification_trigger(
+        session=session,
+        target_id=result_id,
+        config_fingerprint=fingerprint,
+    )
     try:
         run = client.start_model_qualification(client_request_id=request_id)
     except AgentComposeBoundaryError:
@@ -367,6 +414,7 @@ def execute_model_qualification(
             config_fingerprint=fingerprint,
             agent_compose_run_id=None,
             evaluation=_failed_evaluation("agent_compose_failed"),
+            triggered_result_id=result_id,
         )
 
     deadline = time.monotonic() + timeout_seconds
@@ -415,6 +463,7 @@ def execute_model_qualification(
         config_fingerprint=fingerprint,
         agent_compose_run_id=run.run_id,
         evaluation=evaluation,
+        triggered_result_id=result_id,
     )
 
 
@@ -431,12 +480,14 @@ def persist_qualification_result(
     config_fingerprint: str,
     agent_compose_run_id: str | None,
     evaluation: QualificationEvaluation,
+    triggered_result_id: uuid.UUID | None = None,
 ) -> ModelQualificationResult:
     evaluation = _validated_run_result(
         config_fingerprint=config_fingerprint,
         evaluation=evaluation,
     ).evaluation()
     result = ModelQualificationResult(
+        id=triggered_result_id or uuid.uuid4(),
         model_endpoint_sha256=_endpoint_pin_digest(endpoint),
         model_identity=model_identity,
         config_fingerprint=config_fingerprint,
@@ -452,10 +503,26 @@ def persist_qualification_result(
         failure_code=evaluation.failure_code,
         agent_compose_run_id=agent_compose_run_id,
     )
-    session.add(result)
-    session.commit()
-    session.refresh(result)
-    return result
+    if triggered_result_id is None:
+        session.add(result)
+        session.commit()
+        session.refresh(result)
+        return result
+    completed = _qualification_audit_event(
+        target_id=result.id,
+        action="model_qualification.completed",
+        after_data={
+            "config_fingerprint": config_fingerprint,
+            "failure_code": evaluation.failure_code,
+            "fixture_version": evaluation.fixture_version,
+            "status": evaluation.status,
+        },
+    )
+    return commit_with_audit(
+        session=session,
+        record=result,
+        audit_event=completed,
+    )
 
 
 def current_model_is_qualified(
