@@ -8,7 +8,7 @@ import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -41,9 +41,22 @@ def _runner_build_version() -> str:
 
 
 def _start_provider_proxy(
-    binding_endpoint: str, protocol: str
+    binding: ModelBinding,
 ) -> tuple[ThreadingHTTPServer, threading.Thread]:
-    target_path = "/responses" if protocol == "responses" else "/chat/completions"
+    target_path = (
+        "/responses" if binding.protocol == "responses" else "/chat/completions"
+    )
+    endpoint = urlsplit(binding.endpoint)
+    address = (
+        f"[{binding.resolved_address}]"
+        if ":" in binding.resolved_address
+        else binding.resolved_address
+    )
+    authority = address + (f":{endpoint.port}" if endpoint.port else "")
+    pinned_endpoint = urlunsplit(
+        (endpoint.scheme, authority, endpoint.path.rstrip("/"), "", "")
+    )
+    provider_host = endpoint.netloc
 
     class ProviderProxy(BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802
@@ -62,27 +75,38 @@ def _start_provider_proxy(
                 if name.lower()
                 not in {"connection", "content-length", "host", "transfer-encoding"}
             }
+            headers["Host"] = provider_host
             try:
                 with httpx.Client(
                     follow_redirects=False, timeout=120, trust_env=False
                 ) as client:
-                    response = client.post(
-                        binding_endpoint.rstrip("/") + target_path,
+                    with client.stream(
+                        "POST",
+                        pinned_endpoint + target_path,
                         headers=headers,
                         content=request_body,
-                    )
+                        extensions={"sni_hostname": endpoint.hostname},
+                    ) as response:
+                        if response.is_redirect:
+                            self.send_error(502)
+                            return
+                        response_body = bytearray()
+                        for chunk in response.iter_bytes():
+                            response_body.extend(chunk)
+                            if len(response_body) > 1_000_000:
+                                self.send_error(502)
+                                return
+                        status_code = response.status_code
+                        content_type = response.headers.get("Content-Type")
             except httpx.HTTPError:
                 self.send_error(502)
                 return
-            if response.is_redirect or len(response.content) > 1_000_000:
-                self.send_error(502)
-                return
-            self.send_response(response.status_code)
-            if content_type := response.headers.get("Content-Type"):
+            self.send_response(status_code)
+            if content_type:
                 self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(response.content)))
+            self.send_header("Content-Length", str(len(response_body)))
             self.end_headers()
-            self.wfile.write(response.content)
+            self.wfile.write(response_body)
 
         def log_message(self, format: str, *args: object) -> None:
             return
@@ -109,7 +133,7 @@ def main() -> int:
     except OSError, ValueError:
         return 1
 
-    proxy, proxy_thread = _start_provider_proxy(binding.endpoint, binding.protocol)
+    proxy, proxy_thread = _start_provider_proxy(binding)
     try:
         return _run_qualification(binding, api_key, proxy.server_port)
     finally:

@@ -1,12 +1,15 @@
 import json
 from typing import Any
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, select
 
 from app.domain.model_qualification import (
     ModelBinding,
     ModelQualificationOutput,
+    QualificationRunResult,
     evaluate_qualification,
     execute_model_qualification,
     model_binding,
@@ -181,6 +184,21 @@ def test_invalid_or_missing_provider_output_persists_fail_closed() -> None:
 
         assert result.status == "FAIL"
         assert result.failure_code == "model_output_invalid"
+
+
+def test_pass_aggregate_must_cover_the_complete_fixed_fixture() -> None:
+    aggregate = json.loads(_passing_run_output())
+    aggregate.update(
+        {
+            "availability_numerator": 1,
+            "availability_denominator": 1,
+            "traceable_citations": 1,
+            "total_citations": 1,
+        }
+    )
+
+    with pytest.raises(ValidationError, match="fixed fixture coverage"):
+        QualificationRunResult.model_validate(aggregate)
 
 
 def test_runtime_attestation_mismatch_fails_closed() -> None:

@@ -19,7 +19,7 @@ from app.integrations.agent_compose import (
 )
 
 FIXTURE_VERSION = "model-qualification-v1"
-QUALIFICATION_CONTRACT_VERSION = "model-qualification-runner-v2"
+QUALIFICATION_CONTRACT_VERSION = "model-qualification-runner-v3"
 _INTERNAL_MODEL_NETWORKS = tuple(
     ipaddress.ip_network(network)
     for network in (
@@ -139,9 +139,11 @@ class QualificationRunResult(BaseModel):
 
     @model_validator(mode="after")
     def validate_verdict(self) -> QualificationRunResult:
+        if self.availability_denominator != len(FIXTURE_FINDINGS):
+            raise ValueError("invalid fixed fixture coverage")
         passing = (
             self.availability_numerator * 4 >= self.availability_denominator * 3
-            and self.total_citations > 0
+            and self.total_citations >= self.availability_numerator
             and self.traceable_citations == self.total_citations
             and self.hallucination_count == 0
             and self.finding_modification_count == 0
@@ -221,6 +223,7 @@ def qualification_prompt() -> str:
 @dataclass(frozen=True)
 class ModelBinding:
     endpoint: str
+    resolved_address: str
     model_identity: str
     protocol: str
     config_revision: str
@@ -229,7 +232,7 @@ class ModelBinding:
     config_fingerprint: str
 
 
-def _model_endpoint_is_internal(hostname: str, port: int | None) -> bool:
+def _resolve_internal_model_address(hostname: str, port: int | None) -> str:
     try:
         addresses = {ipaddress.ip_address(hostname)}
     except ValueError:
@@ -244,10 +247,12 @@ def _model_endpoint_is_internal(hostname: str, port: int | None) -> bool:
             }
         except OSError, ValueError:
             raise ValueError("model_endpoint_unresolvable") from None
-    return bool(addresses) and all(
+    if not addresses or not all(
         any(address in network for network in _INTERNAL_MODEL_NETWORKS)
         for address in addresses
-    )
+    ):
+        raise ValueError("external_model_provider_forbidden")
+    return min(addresses, key=lambda address: (address.version, int(address))).compressed
 
 
 def model_binding(
@@ -289,10 +294,10 @@ def model_binding(
     ):
         raise ValueError("model_configuration_invalid")
     hostname = parsed.hostname.lower()
-    if not _model_endpoint_is_internal(hostname, port):
-        raise ValueError("external_model_provider_forbidden")
+    resolved_address = _resolve_internal_model_address(hostname, port)
     return ModelBinding(
         endpoint=endpoint,
+        resolved_address=resolved_address,
         model_identity=model_identity,
         protocol=protocol,
         config_revision=config_revision,
@@ -431,6 +436,10 @@ def persist_qualification_result(
     agent_compose_run_id: str,
     evaluation: QualificationEvaluation,
 ) -> ModelQualificationResult:
+    evaluation = QualificationRunResult(
+        config_fingerprint=config_fingerprint,
+        **asdict(evaluation),
+    ).evaluation()
     result = ModelQualificationResult(
         model_endpoint_sha256=_endpoint_fingerprint(endpoint),
         model_identity=model_identity,
@@ -461,7 +470,7 @@ def current_model_is_qualified(
     config_fingerprint: str,
 ) -> bool:
     statement = (
-        select(ModelQualificationResult.status)
+        select(ModelQualificationResult)
         .where(
             ModelQualificationResult.model_endpoint_sha256
             == _endpoint_fingerprint(endpoint),
@@ -471,7 +480,16 @@ def current_model_is_qualified(
         )
         .order_by(col(ModelQualificationResult.created_at).desc())
     )
-    return session.exec(statement).first() == "PASS"
+    result = session.exec(statement).first()
+    if result is None:
+        return False
+    try:
+        validated = QualificationRunResult.model_validate(
+            result.model_dump(include=set(QualificationRunResult.model_fields))
+        )
+    except ValidationError:
+        return False
+    return validated.status == "PASS"
 
 
 def evaluate_qualification(
