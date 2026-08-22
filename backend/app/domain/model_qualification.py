@@ -245,7 +245,7 @@ def _resolve_internal_model_address(hostname: str, port: int | None) -> str:
                     type=socket.SOCK_STREAM,
                 )
             }
-        except OSError, ValueError:
+        except (OSError, ValueError):
             raise ValueError("model_endpoint_unresolvable") from None
     if not addresses or not all(
         any(address in network for network in _INTERNAL_MODEL_NETWORKS)
@@ -398,7 +398,7 @@ def execute_model_qualification(
                     if run.output is None:
                         raise ValueError("missing output")
                     parsed = QualificationRunResult.model_validate_json(run.output)
-                except ValidationError, ValueError:
+                except (ValidationError, ValueError):
                     evaluation = _failed_evaluation("model_output_invalid")
                 else:
                     if (

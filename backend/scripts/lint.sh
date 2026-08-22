@@ -4,6 +4,6 @@ set -e
 set -x
 
 ruff check .
-python -m py_compile app/model_qualification_runner.py
+python -m py_compile app/domain/model_qualification.py app/model_qualification_runner.py
 mypy .
 ty check app

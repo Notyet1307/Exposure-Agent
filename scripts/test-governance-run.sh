@@ -69,6 +69,7 @@ trap finish EXIT
 stack_cleanup
 docker compose "${compose_files[@]}" build playwright
 docker compose "${compose_files[@]}" up --build -d --wait frontend
+./scripts/test-model-qualification-fixture.sh
 docker compose "${compose_files[@]}" run --rm --no-deps \
   -e RUN_GOVERNANCE_E2E=1 playwright \
   bunx playwright test tests/governance-run.spec.ts \
