@@ -130,7 +130,7 @@ def main() -> int:
                 "AGENT_COMPOSE_RUNTIME_VERSION"
             ),
         )
-    except OSError, ValueError:
+    except (OSError, ValueError):
         return 1
 
     proxy, proxy_thread = _start_provider_proxy(binding)
@@ -207,7 +207,7 @@ def _run_qualification(binding: ModelBinding, api_key: str, proxy_port: int) -> 
                     os.environ.get("MODEL_QUALIFICATION_TIMEOUT_SECONDS", "120")
                 ),
             )
-        except OSError, subprocess.TimeoutExpired, ValueError:
+        except (OSError, subprocess.TimeoutExpired, ValueError):
             evaluation = _failed_evaluation("model_run_failed")
         else:
             if completed.returncode:
