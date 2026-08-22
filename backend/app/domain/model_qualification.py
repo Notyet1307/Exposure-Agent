@@ -28,12 +28,10 @@ _INTERNAL_MODEL_NETWORKS = tuple(
     for network in (
         "10.0.0.0/8",
         "127.0.0.0/8",
-        "169.254.0.0/16",
         "172.16.0.0/12",
         "192.168.0.0/16",
         "::1/128",
         "fc00::/7",
-        "fe80::/10",
     )
 )
 
@@ -259,9 +257,13 @@ def _resolve_internal_model_address(hostname: str, port: int | None) -> str:
             }
         except (OSError, ValueError):
             raise ValueError("model_endpoint_unresolvable") from None
-    if not addresses or not all(
-        any(address in network for network in _INTERNAL_MODEL_NETWORKS)
-        for address in addresses
+    if (
+        not addresses
+        or any(address.is_link_local for address in addresses)
+        or not all(
+            any(address in network for network in _INTERNAL_MODEL_NETWORKS)
+            for address in addresses
+        )
     ):
         raise ValueError("external_model_provider_forbidden")
     return min(addresses, key=lambda address: (address.version, int(address))).compressed

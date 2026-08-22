@@ -1,4 +1,5 @@
 import json
+import socket
 from typing import Any
 
 import pytest
@@ -179,9 +180,15 @@ def test_config_fingerprint_is_deterministic_secret_free_and_drift_sensitive() -
 
 @pytest.mark.parametrize(
     "endpoint",
-    ("https://api.openai.com/v1", "https://8.8.8.8/v1"),
+    (
+        "https://api.openai.com/v1",
+        "https://8.8.8.8/v1",
+        "http://169.254.169.254/v1",
+        "http://169.254.1.1/v1",
+        "http://[fe80::1]/v1",
+    ),
 )
-def test_external_provider_endpoints_are_rejected_without_fallback(
+def test_external_and_link_local_provider_endpoints_are_rejected_without_fallback(
     endpoint: str,
 ) -> None:
     with pytest.raises(ValueError, match="external_model_provider_forbidden"):
@@ -193,3 +200,43 @@ def test_external_provider_endpoints_are_rejected_without_fallback(
             runner_build_version="runner-v1",
             agent_compose_runtime_version="compose-v1",
         )
+
+
+def test_dns_resolution_to_cloud_metadata_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))
+        ],
+    )
+
+    with pytest.raises(ValueError, match="external_model_provider_forbidden"):
+        model_binding(
+            endpoint="http://model.internal/v1",
+            model_identity="gpt",
+            protocol="responses",
+            config_revision="v1",
+            runner_build_version="runner-v1",
+            agent_compose_runtime_version="compose-v1",
+        )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ("http://127.0.0.1/v1", "http://10.0.0.1/v1", "http://[fd00::1]/v1"),
+)
+def test_loopback_private_and_ipv6_ula_endpoints_remain_allowed(endpoint: str) -> None:
+    assert (
+        model_binding(
+            endpoint=endpoint,
+            model_identity="gpt",
+            protocol="responses",
+            config_revision="v1",
+            runner_build_version="runner-v1",
+            agent_compose_runtime_version="compose-v1",
+        ).endpoint
+        == endpoint
+    )

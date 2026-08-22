@@ -53,8 +53,9 @@ Leaving the model endpoint, identity, or Secret unset keeps admission
 fail-closed without preventing the rest of the deployment from starting.
 `MODEL_API_KEY` is injected into agent-compose as a Secret and must never be
 placed in `MODEL_CONFIG_REVISION`. Production model configuration must resolve
-only to loopback, link-local, or private-network addresses. The qualification
-runner rejects public addresses and Provider redirects; OpenAI, Codex and other
+only to loopback, RFC1918 private-network, or IPv6 ULA addresses. The
+qualification runner rejects link-local and cloud metadata addresses, public
+addresses, DNS rebinding, and Provider redirects; OpenAI, Codex and other
 external model providers are not fallback paths.
 
 `FRONTEND_HOST` and `BACKEND_CORS_ORIGINS` are only needed for trusted cross-origin development. The deployed browser uses same-origin `/api`.

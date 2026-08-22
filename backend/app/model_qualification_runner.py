@@ -72,8 +72,7 @@ def _start_provider_proxy(
             headers = {
                 name: value
                 for name, value in self.headers.items()
-                if name.lower()
-                not in {"connection", "content-length", "host", "transfer-encoding"}
+                if name.lower() in {"authorization", "content-type"}
             }
             headers["Host"] = provider_host
             try:
@@ -203,11 +202,10 @@ def _run_qualification(binding: ModelBinding, api_key: str, proxy_port: int) -> 
                     "customer",
                     "--model",
                     binding.model_identity,
-                    qualification_prompt(),
                 ],
                 cwd=temporary,
                 env=environment,
-                stdin=subprocess.DEVNULL,
+                input=qualification_prompt(),
                 capture_output=True,
                 text=True,
                 timeout=float(
