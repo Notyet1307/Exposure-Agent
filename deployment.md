@@ -34,7 +34,10 @@ Replace every placeholder before deployment. Required installation-specific valu
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`;
 - `DOCKER_IMAGE_BACKEND`, `DOCKER_IMAGE_FRONTEND`, `DOCKER_IMAGE_OCTOBUS`, `DOCKER_IMAGE_RUNNER`, `TAG`;
 - `RUNNER_BUILD_VERSION`, `ARTIFACT_HOST_PATH`;
-- `AGENT_COMPOSE_AUTH_TOKEN`, `CLOUDATLAS_CAPSET_TOKEN`.
+- `AGENT_COMPOSE_AUTH_TOKEN`, `CLOUDATLAS_CAPSET_TOKEN`;
+- the customer-internal OpenAI-compatible `MODEL_API_ENDPOINT`,
+  `MODEL_API_PROTOCOL`, `MODEL_API_KEY`, `MODEL_IDENTITY`, and the non-secret
+  `MODEL_CONFIG_REVISION`.
 
 Generate independent random secrets, for example:
 
@@ -43,6 +46,11 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 ```
 
 The first-superuser values idempotently bootstrap the initial global Admin. OctoBus and agent-compose credentials must not enter PostgreSQL, application audit records, Git, image layers or ordinary logs. Restrict runtime `.env` permissions and store deployment secrets in the customer-approved secret mechanism.
+
+`MODEL_API_KEY` is injected into agent-compose as a Secret and must never be
+placed in `MODEL_CONFIG_REVISION`. Production model configuration must point to
+a customer-controlled endpoint; OpenAI, Codex and other external model
+providers are not fallback paths.
 
 `FRONTEND_HOST` and `BACKEND_CORS_ORIGINS` are only needed for trusted cross-origin development. The deployed browser uses same-origin `/api`.
 
@@ -55,7 +63,18 @@ docker compose -f compose.yml pull
 docker compose -f compose.yml up -d --wait
 ```
 
-`prestart` applies Alembic migrations and creates the initial Admin. `octobus-package-init` imports the product-owned package, and `agent-compose-project-init` installs the Governance Runner project before the backend starts.
+`prestart` applies Alembic migrations and creates the initial Admin. `octobus-package-init` imports the product-owned package, and `agent-compose-project-init` installs the Governance Runner and Pi model-qualification agents before the backend starts.
+
+Run the fixed non-customer qualification fixture after startup and whenever the
+endpoint, model identity, protocol, or non-secret model configuration changes:
+
+```bash
+./scripts/qualify-model.sh
+```
+
+Only a `PASS` for the current binding is admitted. The command prints a
+redacted verdict; inspect neither the model Secret nor raw Provider events in
+ordinary logs.
 
 Verify from the deployment host and then through customer HTTPS ingress:
 

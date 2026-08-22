@@ -11,6 +11,11 @@ export CLOUDATLAS_CAPSET_TOKEN="$(openssl rand -hex 32)"
 export FIXTURE_CLOUDATLAS_TOKEN="$(openssl rand -hex 32)"
 export RUNNER_BUILD_VERSION="governance-fixture-$$"
 export TAG="governance-fixture-$$"
+export MODEL_API_ENDPOINT="http://model-qualification-unused:8080/v1"
+export MODEL_API_PROTOCOL="chat_completions"
+export MODEL_API_KEY="$(openssl rand -hex 32)"
+export MODEL_IDENTITY="fixture-unused"
+export MODEL_CONFIG_REVISION="fixture-v1"
 
 compose_files=(-f compose.yml -f compose.override.yml -f compose.governance-run-fixture.yml)
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/exposure-agent-governance.XXXXXX")"

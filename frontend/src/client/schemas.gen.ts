@@ -1668,6 +1668,18 @@ export const MessageSchema = {
     title: 'Message'
 } as const;
 
+export const ModelQualificationStatusSchema = {
+    properties: {
+        qualified: {
+            type: 'boolean',
+            title: 'Qualified'
+        }
+    },
+    type: 'object',
+    required: ['qualified'],
+    title: 'ModelQualificationStatus'
+} as const;
+
 export const ProjectCreateSchema = {
     properties: {
         name: {

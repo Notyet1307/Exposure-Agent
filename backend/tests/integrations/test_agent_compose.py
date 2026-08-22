@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -58,8 +59,10 @@ class _Client:
 def _configure_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "AGENT_COMPOSE_URL", "http://agent-compose/")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_NAME", "project")
-    monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_SOURCE_PATH", "/source")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_AGENT_NAME", "runner")
+    monkeypatch.setattr(
+        settings, "MODEL_QUALIFICATION_AGENT_NAME", "model-qualifier"
+    )
     monkeypatch.setattr(settings, "AGENT_COMPOSE_TIMEOUT_SECONDS", 2.0)
     monkeypatch.setattr(
         settings, "AGENT_COMPOSE_AUTH_TOKEN", SecretStr("test-token")
@@ -127,12 +130,80 @@ def test_start_governance_run_builds_sorted_environment_and_returns_result(
     assert result.started is True
     assert result.status == "RUNNING"
     assert calls[0]["path"].endswith("GetRun")
-    assert calls[1]["path"].endswith("StartRun")
+    assert calls[1]["path"].endswith("StartAgentRun")
     assert calls[1]["headers"]["Authorization"] == "Bearer test-token"
     assert calls[1]["json"]["run"]["env"] == [
         {"name": "A_FIRST", "value": "first", "secret": False},
         {"name": "Z_LAST", "value": "last", "secret": False},
     ]
+
+
+def test_model_qualification_uses_a_pi_prompt_without_secret_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+    client = AgentComposeClient()
+    expected_id = client.expected_model_qualification_run_id("qualification-1")
+    calls: list[dict[str, Any]] = []
+    responses = iter(
+        [
+            _Response(404),
+            _Response(
+                200,
+                {
+                    "run": {"runId": expected_id, "status": "RUNNING"},
+                    "started": True,
+                },
+            ),
+        ]
+    )
+
+    def factory(**_kwargs: Any) -> _Client:
+        return _Client(next(responses), calls)
+
+    monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
+
+    client.start_model_qualification(
+        client_request_id="qualification-1",
+        prompt="fixed synthetic fixture",
+    )
+
+    run_request = calls[1]["json"]["run"]
+    assert calls[1]["path"].endswith("StartAgentRun")
+    assert run_request["agentName"] == "model-qualifier"
+    assert run_request["prompt"] == "fixed synthetic fixture"
+    assert "command" not in run_request
+    assert run_request["env"] == []
+    assert "secret" not in json.dumps(calls)
+
+
+def test_get_run_returns_terminal_model_output_without_logging_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+    client = AgentComposeClient()
+    run_id = client.expected_model_qualification_run_id("qualification-1")
+    _install_response(
+        monkeypatch,
+        _Response(
+            200,
+            {
+                "run": {
+                    "summary": {
+                        "runId": run_id,
+                        "status": "RUN_STATUS_SUCCEEDED",
+                    },
+                    "output": '{"recommendations": []}',
+                }
+            },
+        ),
+    )
+
+    result = client.get_run(run_id)
+
+    assert result is not None
+    assert result.output == '{"recommendations": []}'
+    assert result.is_terminal
 
 
 def test_start_governance_run_reuses_existing_run(
@@ -245,11 +316,11 @@ def test_session_query_and_resume_preserve_the_authoritative_session_id(
         [
             _Response(
                 200,
-                {"sandbox": {"sandboxId": session_id, "status": "STOPPED"}},
+                {"sandbox": {"sandboxId": session_id, "status": "SANDBOX_STATUS_STOPPED"}},
             ),
             _Response(
                 200,
-                {"sandbox": {"sandboxId": session_id, "status": "RUNNING"}},
+                {"sandbox": {"sandboxId": session_id, "status": "SANDBOX_STATUS_RUNNING"}},
             ),
         ]
     )

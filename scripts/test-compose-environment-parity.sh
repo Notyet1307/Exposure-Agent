@@ -59,7 +59,14 @@ for name in ("AGENT_COMPOSE_AUTH_TOKEN",):
     expected = service_environment("agent-compose").get(name)
     require_equal("agent-compose-project-init", name, expected)
 
-for name in ("CLOUDATLAS_CAPSET_TOKEN", "RUNNER_BUILD_VERSION"):
+for name in (
+    "CLOUDATLAS_CAPSET_TOKEN",
+    "RUNNER_BUILD_VERSION",
+    "MODEL_API_ENDPOINT",
+    "MODEL_API_PROTOCOL",
+    "MODEL_API_KEY",
+    "MODEL_IDENTITY",
+):
     expected = service_environment("backend").get(name)
     require_equal("agent-compose-project-init", name, expected)
 

@@ -324,6 +324,10 @@ export type Message = {
     message: string;
 };
 
+export type ModelQualificationStatus = {
+    qualified: boolean;
+};
+
 export type ProjectCreate = {
     name: string;
 };
@@ -593,6 +597,8 @@ export type LoginLoginAccessTokenData = {
 export type LoginLoginAccessTokenResponse = (Token);
 
 export type LoginTestTokenResponse = (UserPublic);
+
+export type ModelQualificationReadModelQualificationStatusResponse = (ModelQualificationStatus);
 
 export type ProjectMembershipsReadProjectMembershipsData = {
     limit?: number;

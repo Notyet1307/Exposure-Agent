@@ -28,8 +28,8 @@ services:
     command: ["true"]
 
   agent-compose:
-    # Pin the multi-architecture manifest; the previous digest was arm64-only.
-    image: 'ghcr.io/chaitin/agent-compose@sha256:3117226250256b03d25815bd1bb584ade5ac225b83f55d527be122b8b75a61e8'
+    # Pin the multi-architecture manifest with Pi provider support.
+    image: 'chaitin/agent-compose@sha256:092f8c4fbf7254ddd200a36d99ae6583cd08f5ddeda9cafd559b3636890c9670'
     restart: always
     environment:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
@@ -51,7 +51,7 @@ services:
       start_period: 15s
 
   agent-compose-project-init:
-    image: 'ghcr.io/chaitin/agent-compose@sha256:3117226250256b03d25815bd1bb584ade5ac225b83f55d527be122b8b75a61e8'
+    image: 'chaitin/agent-compose@sha256:092f8c4fbf7254ddd200a36d99ae6583cd08f5ddeda9cafd559b3636890c9670'
     depends_on:
       agent-compose:
         condition: service_healthy
@@ -76,6 +76,10 @@ services:
       ENVIRONMENT: ${ENVIRONMENT?Variable not set}
       PROJECT_NAME: ${PROJECT_NAME?Variable not set}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION?Variable not set}
+      MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:?Variable not set or empty}
+      MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}
+      MODEL_API_KEY: ${MODEL_API_KEY:?Variable not set or empty}
+      MODEL_IDENTITY: ${MODEL_IDENTITY:?Variable not set or empty}
       SECRET_KEY: ${SECRET_KEY:?Variable not set or empty}
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
@@ -178,6 +182,11 @@ services:
       AGENT_COMPOSE_URL: http://agent-compose:7410
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION:?Variable not set or empty}
+      MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:?Variable not set or empty}
+      MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}
+      MODEL_API_KEY: ${MODEL_API_KEY:?Variable not set or empty}
+      MODEL_IDENTITY: ${MODEL_IDENTITY:?Variable not set or empty}
+      MODEL_CONFIG_REVISION: ${MODEL_CONFIG_REVISION:-v1}
     volumes:
       - type: bind
         source: ${ARTIFACT_HOST_PATH:?Variable not set or empty}

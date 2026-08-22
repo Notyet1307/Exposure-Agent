@@ -66,9 +66,17 @@ class Settings(BaseSettings):
     AGENT_COMPOSE_URL: str = "http://agent-compose:7410"
     AGENT_COMPOSE_AUTH_TOKEN: SecretStr = SecretStr("")
     AGENT_COMPOSE_PROJECT_NAME: str = "exposure-agent-governance"
-    AGENT_COMPOSE_PROJECT_SOURCE_PATH: str = "/config/agent-compose.yml"
     AGENT_COMPOSE_AGENT_NAME: str = "governance-runner"
     AGENT_COMPOSE_TIMEOUT_SECONDS: float = 15.0
+    MODEL_QUALIFICATION_AGENT_NAME: str = "model-qualifier"
+    MODEL_QUALIFICATION_TIMEOUT_SECONDS: float = 120.0
+    MODEL_API_ENDPOINT: str = ""
+    MODEL_API_PROTOCOL: Literal["responses", "chat_completions"] = (
+        "chat_completions"
+    )
+    MODEL_API_KEY: SecretStr = SecretStr("")
+    MODEL_IDENTITY: str = ""
+    MODEL_CONFIG_REVISION: str = "v1"
     RUNNER_BUILD_VERSION: str = "development"
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432

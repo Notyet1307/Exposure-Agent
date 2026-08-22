@@ -33,3 +33,19 @@ agents:
       - type: bind
         source: ${ARTIFACT_HOST_PATH}
         target: /app/artifacts
+
+  model-qualifier:
+    provider: pi
+    model: customer/${MODEL_IDENTITY}
+    system_prompt: |
+      Process only the supplied fixed synthetic fixture. Do not use tools or
+      perform side effects. Return only the requested JSON object.
+    image: ${DOCKER_IMAGE_RUNNER}:${RUNNER_BUILD_VERSION}
+    driver:
+      docker: {}
+    env:
+      LLM_API_ENDPOINT: ${MODEL_API_ENDPOINT}
+      LLM_API_PROTOCOL: ${MODEL_API_PROTOCOL}
+      LLM_API_KEY:
+        value: ${MODEL_API_KEY}
+        secret: true

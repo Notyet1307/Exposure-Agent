@@ -12,7 +12,7 @@ from app.core.config import settings
 _PROJECT_KIND: Final = "project"
 _RUN_KIND: Final = "run"
 _RUN_SOURCE: Final = "api"
-_START_RUN_PATH: Final = "/agentcompose.v2.RunService/StartRun"
+_START_RUN_PATH: Final = "/agentcompose.v2.RunService/StartAgentRun"
 _GET_RUN_PATH: Final = "/agentcompose.v2.RunService/GetRun"
 _GET_SESSION_PATH: Final = "/agentcompose.v2.SandboxService/GetSandbox"
 _RESUME_SESSION_PATH: Final = "/agentcompose.v2.SandboxService/ResumeSandbox"
@@ -30,6 +30,14 @@ class AgentComposeRunStart:
     started: bool
     status: str
     session_id: str | None = None
+    output: str | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status.upper() in {
+            "SUCCEEDED",
+            "RUN_STATUS_SUCCEEDED",
+        }
 
     @property
     def is_terminal(self) -> bool:
@@ -55,9 +63,9 @@ class AgentComposeSession:
 
 def _session_observation(status: str) -> AgentComposeSessionObservation:
     normalized = status.lower()
-    if normalized == "stopped":
+    if normalized in {"stopped", "sandbox_status_stopped"}:
         return AgentComposeSessionObservation.TERMINAL
-    if normalized == "running":
+    if normalized in {"running", "sandbox_status_running"}:
         return AgentComposeSessionObservation.RUNNING
     return AgentComposeSessionObservation.UNKNOWN
 
@@ -89,7 +97,6 @@ class AgentComposeClient:
         self.project_id = _stable_id(
             _PROJECT_KIND,
             settings.AGENT_COMPOSE_PROJECT_NAME,
-            settings.AGENT_COMPOSE_PROJECT_SOURCE_PATH,
         )
 
     def _request(
@@ -127,13 +134,27 @@ class AgentComposeClient:
             )
         return _required_object(body)
 
-    def expected_run_id(self, client_request_id: str) -> str:
+    def _expected_run_id(
+        self, *, agent_name: str, client_request_id: str
+    ) -> str:
         return _stable_id(
             _RUN_KIND,
             self.project_id,
-            settings.AGENT_COMPOSE_AGENT_NAME,
+            agent_name,
             _RUN_SOURCE,
             client_request_id,
+        )
+
+    def expected_run_id(self, client_request_id: str) -> str:
+        return self._expected_run_id(
+            agent_name=settings.AGENT_COMPOSE_AGENT_NAME,
+            client_request_id=client_request_id,
+        )
+
+    def expected_model_qualification_run_id(self, client_request_id: str) -> str:
+        return self._expected_run_id(
+            agent_name=settings.MODEL_QUALIFICATION_AGENT_NAME,
+            client_request_id=client_request_id,
         )
 
     def get_run(self, run_id: str) -> AgentComposeRunStart | None:
@@ -159,11 +180,17 @@ class AgentComposeClient:
             raise AgentComposeBoundaryError(
                 "agent_compose_response_contract_failed"
             )
+        output = detail.get("output")
+        if output is not None and not isinstance(output, str):
+            raise AgentComposeBoundaryError(
+                "agent_compose_response_contract_failed"
+            )
         return AgentComposeRunStart(
             run_id=run_id,
             started=False,
             status=status,
             session_id=session_id,
+            output=output,
         )
 
     def get_session(self, session_id: str) -> AgentComposeSession | None:
@@ -216,7 +243,40 @@ class AgentComposeClient:
         environment: dict[str, str],
         session_id: str | None = None,
     ) -> AgentComposeRunStart:
-        run_id = self.expected_run_id(client_request_id)
+        return self._start_run(
+            agent_name=settings.AGENT_COMPOSE_AGENT_NAME,
+            client_request_id=client_request_id,
+            environment=environment,
+            command="/app/.venv/bin/python -m app.governance_runner",
+            session_id=session_id,
+        )
+
+    def start_model_qualification(
+        self, *, client_request_id: str, prompt: str
+    ) -> AgentComposeRunStart:
+        return self._start_run(
+            agent_name=settings.MODEL_QUALIFICATION_AGENT_NAME,
+            client_request_id=client_request_id,
+            environment={},
+            prompt=prompt,
+        )
+
+    def _start_run(
+        self,
+        *,
+        agent_name: str,
+        client_request_id: str,
+        environment: dict[str, str],
+        command: str | None = None,
+        prompt: str | None = None,
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        if (command is None) == (prompt is None):
+            raise ValueError("exactly one of command or prompt is required")
+        run_id = self._expected_run_id(
+            agent_name=agent_name,
+            client_request_id=client_request_id,
+        )
         existing = self.get_run(run_id)
         if existing is not None:
             if session_id is not None and existing.session_id != session_id:
@@ -226,10 +286,7 @@ class AgentComposeClient:
             return existing
         run_request: dict[str, Any] = {
             "projectId": self.project_id,
-            "agentName": settings.AGENT_COMPOSE_AGENT_NAME,
-            "command": (
-                "/app/.venv/bin/python -m app.governance_runner"
-            ),
+            "agentName": agent_name,
             "source": "RUN_SOURCE_API",
             "clientRequestId": client_request_id,
             "cleanupPolicy": (
@@ -240,6 +297,10 @@ class AgentComposeClient:
                 for name, value in sorted(environment.items())
             ],
         }
+        if command is not None:
+            run_request["command"] = command
+        if prompt is not None:
+            run_request["prompt"] = prompt
         if session_id is not None:
             run_request["sandboxId"] = session_id
         body = self._request(

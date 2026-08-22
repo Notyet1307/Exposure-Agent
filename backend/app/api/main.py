@@ -7,6 +7,7 @@ from app.api.routes import (
     governance_runs,
     ip_results,
     login,
+    model_qualification,
     project_memberships,
     projects,
     users,
@@ -20,5 +21,6 @@ api_router.include_router(cloudatlas_source_instances.router)
 api_router.include_router(governance_reports.router)
 api_router.include_router(governance_runs.router)
 api_router.include_router(ip_results.router)
+api_router.include_router(model_qualification.router)
 api_router.include_router(project_memberships.router)
 api_router.include_router(audit_events.router)
