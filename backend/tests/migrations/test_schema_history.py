@@ -10,8 +10,10 @@ from typing import Any
 import psycopg
 import pytest
 from psycopg import sql
+from sqlalchemy import CheckConstraint
 
 from app.core.config import settings
+from app.domain.models import ModelQualificationResult
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PRE_CLEANUP_REVISION = "fe56fa70289e"
@@ -20,7 +22,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_GOVERNANCE_RUN_REVISION = "d2e3f4a5b6c7"
+CURRENT_GOVERNANCE_RUN_REVISION = "e3f4a5b6c7d8"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -163,6 +165,85 @@ def test_template_database_upgrades_without_losing_users(
             "AND table_name = 'model_qualification_results' "
             "AND column_name = 'agent_compose_run_id'"
         ).fetchone() == ("YES",)
+
+
+def test_model_qualification_final_schema_matches_model_and_accepts_start_failure(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+    model_checks = {
+        constraint.name
+        for constraint in ModelQualificationResult.__table__.constraints  # type: ignore[attr-defined]
+        if isinstance(constraint, CheckConstraint)
+    }
+
+    with connect(template_baseline_database) as connection:
+        database_checks = {
+            row[0]
+            for row in connection.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'model_qualification_results'::regclass "
+                "AND contype = 'c'"
+            ).fetchall()
+        }
+        assert database_checks == model_checks
+        assert connection.execute(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            "AND table_name = 'model_qualification_results' "
+            "AND column_name = 'agent_compose_run_id'"
+        ).fetchone() == ("YES",)
+
+        statement = (
+            "INSERT INTO model_qualification_results "
+            "(id, model_endpoint_sha256, model_identity, config_fingerprint, "
+            "fixture_version, status, availability_numerator, "
+            "availability_denominator, traceable_citations, total_citations, "
+            "hallucination_count, finding_modification_count, "
+            "unauthorized_side_effect_count, failure_code, agent_compose_run_id) "
+            "VALUES (%(id)s, %(endpoint)s, 'fake-model', %(fingerprint)s, "
+            "'model-qualification-v1', %(status)s, %(availability)s, 4, "
+            "%(traceable)s, %(total)s, 0, 0, 0, %(failure_code)s, %(run_id)s)"
+        )
+
+        def insert(**overrides: object) -> None:
+            values: dict[str, object] = {
+                "id": uuid.uuid4(),
+                "endpoint": "a" * 64,
+                "fingerprint": "b" * 64,
+                "status": "FAIL",
+                "availability": 0,
+                "traceable": 0,
+                "total": 0,
+                "failure_code": "agent_compose_failed",
+                "run_id": None,
+            }
+            values.update(overrides)
+            connection.execute(statement, values)
+
+        insert()
+        insert(
+            status="PASS",
+            availability=3,
+            traceable=1,
+            total=1,
+            failure_code=None,
+            run_id="c" * 64,
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with connection.transaction():
+                insert(
+                    status="PASS",
+                    availability=3,
+                    traceable=0,
+                    total=0,
+                    failure_code=None,
+                    run_id="d" * 64,
+                )
+        for field in ("endpoint", "fingerprint", "run_id"):
+            with pytest.raises(psycopg.errors.CheckViolation):
+                with connection.transaction():
+                    insert(**{field: "not-a-sha256"})
 
 
 def test_existing_projects_and_audit_events_survive_lifecycle_upgrade(

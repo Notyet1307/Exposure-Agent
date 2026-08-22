@@ -1858,6 +1858,18 @@ class ModelQualificationResult(SQLModel, table=True):
             name="ck_model_qualification_results_status",
         ),
         CheckConstraint(
+            "model_endpoint_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_model_qualification_results_endpoint_fingerprint",
+        ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "config_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_model_qualification_results_config_fingerprint",
+        ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "agent_compose_run_id ~ '^[0-9a-f]{64}$'",
+            name="ck_model_qualification_results_run_id",
+        ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
             "availability_numerator >= 0 AND availability_denominator = 4 "
             "AND availability_numerator <= availability_denominator",
             name="ck_model_qualification_results_availability",
@@ -1874,8 +1886,7 @@ class ModelQualificationResult(SQLModel, table=True):
         ),
         CheckConstraint(
             "(status = 'PASS' AND availability_numerator * 4 >= "
-            "availability_denominator * 3 AND total_citations >= "
-            "availability_numerator AND "
+            "availability_denominator * 3 AND total_citations > 0 AND "
             "traceable_citations = total_citations AND hallucination_count = 0 "
             "AND finding_modification_count = 0 AND "
             "unauthorized_side_effect_count = 0 AND failure_code IS NULL) OR "

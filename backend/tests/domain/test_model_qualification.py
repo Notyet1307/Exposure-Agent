@@ -67,6 +67,20 @@ def test_exactly_seventy_five_percent_availability_passes() -> None:
     assert result.availability_denominator == 4
 
 
+def test_repeated_evidence_id_cannot_inflate_traceability() -> None:
+    output = _passing_output()
+    output["recommendations"][0]["claims"][0]["evidence_ids"].append(
+        "fixture-evidence-1"
+    )
+
+    result = evaluate_qualification(ModelQualificationOutput.model_validate(output))
+
+    assert result.status == "FAIL"
+    assert result.failure_code == "citation_traceability_failed"
+    assert result.traceable_citations == 4
+    assert result.total_citations == 5
+
+
 def test_invented_action_is_a_hallucination_even_at_seventy_five_percent() -> None:
     output = _passing_output()
     output["recommendations"][0]["action_code"] = "INVENTED_ACTION"

@@ -308,6 +308,21 @@ def test_invalid_or_missing_provider_output_persists_fail_closed() -> None:
         assert result.failure_code == "model_output_invalid"
 
 
+def test_pass_aggregate_requires_non_vacuous_traceability_only() -> None:
+    aggregate = json.loads(_passing_run_output())
+    aggregate.update(
+        {
+            "availability_numerator": 3,
+            "traceable_citations": 1,
+            "total_citations": 1,
+        }
+    )
+
+    result = QualificationRunResult.model_validate(aggregate)
+
+    assert result.status == "PASS"
+
+
 def test_pass_aggregate_must_cover_the_complete_fixed_fixture() -> None:
     aggregate = json.loads(_passing_run_output())
     aggregate.update(
