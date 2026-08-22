@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     AGENT_COMPOSE_PROJECT_NAME: str = "exposure-agent-governance"
     AGENT_COMPOSE_AGENT_NAME: str = "governance-runner"
     AGENT_COMPOSE_TIMEOUT_SECONDS: float = 15.0
+    AGENT_COMPOSE_RUNTIME_VERSION: str = ""
     MODEL_QUALIFICATION_AGENT_NAME: str = "model-qualifier"
     MODEL_QUALIFICATION_TIMEOUT_SECONDS: float = 120.0
     MODEL_API_ENDPOINT: str = ""

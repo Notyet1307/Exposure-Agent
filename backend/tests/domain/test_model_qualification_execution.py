@@ -4,7 +4,14 @@ from typing import Any
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, select
 
-from app.domain.model_qualification import execute_model_qualification
+from app.domain.model_qualification import (
+    ModelBinding,
+    ModelQualificationOutput,
+    evaluate_qualification,
+    execute_model_qualification,
+    model_binding,
+    qualification_run_result_json,
+)
 from app.domain.models import ModelQualificationResult
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
@@ -21,9 +28,9 @@ class _Client:
         self.calls: list[dict[str, Any]] = []
 
     def start_model_qualification(
-        self, *, client_request_id: str, prompt: str
+        self, *, client_request_id: str
     ) -> AgentComposeRunStart:
-        self.calls.append({"client_request_id": client_request_id, "prompt": prompt})
+        self.calls.append({"client_request_id": client_request_id})
         return AgentComposeRunStart(
             run_id="a" * 64,
             started=True,
@@ -50,7 +57,7 @@ def _session() -> Session:
     return Session(engine)
 
 
-def _passing_output() -> str:
+def _passing_model_output() -> str:
     actions = (
         "CONFIRM_ASSET_OWNER",
         "ADD_AUTHENTICATED_SCAN",
@@ -79,9 +86,30 @@ def _passing_output() -> str:
     )
 
 
-def test_execution_sends_only_the_fixed_fixture_and_persists_redacted_pass() -> None:
+def _binding(*, runner_build_version: str = "runner-v1") -> ModelBinding:
+    return model_binding(
+        endpoint="http://127.0.0.1:8081/v1",
+        model_identity="fake-model",
+        protocol="chat_completions",
+        config_revision="test-v1",
+        runner_build_version=runner_build_version,
+        agent_compose_runtime_version="compose-v1",
+    )
+
+
+def _passing_run_output(*, runner_build_version: str = "runner-v1") -> str:
+    evaluation = evaluate_qualification(
+        ModelQualificationOutput.model_validate_json(_passing_model_output())
+    )
+    return qualification_run_result_json(
+        binding=_binding(runner_build_version=runner_build_version),
+        evaluation=evaluation,
+    )
+
+
+def test_execution_runs_a_fixed_command_and_persists_redacted_attested_pass() -> None:
     session = _session()
-    client = _Client(_passing_output())
+    client = _Client(_passing_run_output())
 
     result = execute_model_qualification(
         session=session,
@@ -90,12 +118,13 @@ def test_execution_sends_only_the_fixed_fixture_and_persists_redacted_pass() -> 
         model_identity="fake-model",
         protocol="chat_completions",
         config_revision="test-v1",
+        runner_build_version="runner-v1",
+        agent_compose_runtime_version="compose-v1",
         request_id="qualification-test",
     )
 
     assert result.status == "PASS"
-    assert "fixture-finding-1" in client.calls[0]["prompt"]
-    assert "customer" in client.calls[0]["prompt"].lower()
+    assert client.calls == [{"client_request_id": "qualification-test"}]
     stored = session.exec(select(ModelQualificationResult)).one()
     serialized = repr(stored.model_dump())
     assert "fixture-finding" not in serialized
@@ -108,7 +137,7 @@ def test_execution_sends_only_the_fixed_fixture_and_persists_redacted_pass() -> 
 def test_agent_compose_observation_failure_persists_fail_closed() -> None:
     class UnavailableClient(_Client):
         def start_model_qualification(
-            self, *, client_request_id: str, prompt: str
+            self, *, client_request_id: str
         ) -> AgentComposeRunStart:
             return AgentComposeRunStart(
                 run_id="e" * 64,
@@ -126,6 +155,8 @@ def test_agent_compose_observation_failure_persists_fail_closed() -> None:
         model_identity="fake-model",
         protocol="chat_completions",
         config_revision="test-v1",
+        runner_build_version="runner-v1",
+        agent_compose_runtime_version="compose-v1",
         request_id="qualification-test",
     )
 
@@ -143,8 +174,27 @@ def test_invalid_or_missing_provider_output_persists_fail_closed() -> None:
             model_identity="fake-model",
             protocol="chat_completions",
             config_revision="test-v1",
+            runner_build_version="runner-v1",
+            agent_compose_runtime_version="compose-v1",
             request_id="qualification-test",
         )
 
         assert result.status == "FAIL"
         assert result.failure_code == "model_output_invalid"
+
+
+def test_runtime_attestation_mismatch_fails_closed() -> None:
+    result = execute_model_qualification(
+        session=_session(),
+        client=_Client(_passing_run_output(runner_build_version="stale-runner")),
+        endpoint="http://127.0.0.1:8081/v1",
+        model_identity="fake-model",
+        protocol="chat_completions",
+        config_revision="test-v1",
+        runner_build_version="runner-v1",
+        agent_compose_runtime_version="compose-v1",
+        request_id="qualification-test",
+    )
+
+    assert result.status == "FAIL"
+    assert result.failure_code == "model_binding_attestation_failed"

@@ -23,10 +23,9 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 from sqlmodel import Session, create_engine  # noqa: E402
 
 from app.domain.model_qualification import (  # noqa: E402
-    ModelQualificationOutput,
     QualificationEvaluation,
+    QualificationRunResult,
     current_model_is_qualified,
-    evaluate_qualification,
     model_config_fingerprint,
     persist_qualification_result,
     qualification_prompt,
@@ -73,6 +72,7 @@ class FakeProvider(BaseHTTPRequestHandler):
     output = ""
     receipt: dict[str, Any] = {}
     calls = 0
+    redirect = False
 
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", "0"))
@@ -85,6 +85,11 @@ class FakeProvider(BaseHTTPRequestHandler):
             == f"Bearer {SECRET}",
             "fixed_fixture_present": "fixture-finding-1" in json.dumps(payload),
         }
+        if type(self).redirect:
+            self.send_response(307)
+            self.send_header("Location", "https://api.openai.com/v1/chat/completions")
+            self.end_headers()
+            return
         chunk = {
             "id": "fixture-response",
             "object": "chat.completion.chunk",
@@ -120,41 +125,20 @@ class FakeProvider(BaseHTTPRequestHandler):
         return
 
 
-def run_pi(*, passing: bool) -> QualificationEvaluation:
+def run_qualification_runner(
+    *, passing: bool, redirect: bool = False
+) -> QualificationEvaluation:
     FakeProvider.output = qualification_output(passing=passing)
     FakeProvider.receipt = {}
     FakeProvider.calls = 0
+    FakeProvider.redirect = redirect
     server = ThreadingHTTPServer(("127.0.0.1", 0), FakeProvider)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            config_dir = Path(temporary_directory) / "agent"
-            config_dir.mkdir()
-            (config_dir / "settings.json").write_text(
-                json.dumps(
-                    {
-                        "retry": {
-                            "enabled": False,
-                            "provider": {"maxRetries": 0},
-                        }
-                    }
-                )
-            )
-            (config_dir / "models.json").write_text(
-                json.dumps(
-                    {
-                        "providers": {
-                            "customer": {
-                                "baseUrl": f"http://127.0.0.1:{server.server_port}/v1",
-                                "api": "openai-completions",
-                                "apiKey": "$MODEL_FAKE_SECRET",
-                                "models": [{"id": "fake-model"}],
-                            }
-                        }
-                    }
-                )
-            )
+            runner_version_path = Path(temporary_directory) / "runner-build-version"
+            runner_version_path.write_text("fixture-runner-v1\n", encoding="utf-8")
             environment = {
                 key: value
                 for key, value in os.environ.items()
@@ -162,42 +146,36 @@ def run_pi(*, passing: bool) -> QualificationEvaluation:
             }
             environment.update(
                 {
-                    "MODEL_FAKE_SECRET": SECRET,
-                    "PI_CODING_AGENT_DIR": str(config_dir),
-                    "PI_OFFLINE": "1",
-                    "PI_SKIP_VERSION_CHECK": "1",
-                    "PI_TELEMETRY": "0",
+                    "AGENT_COMPOSE_RUNTIME_VERSION": "fixture-compose-v1",
+                    "LLM_API_ENDPOINT": (f"http://127.0.0.1:{server.server_port}/v1"),
+                    "LLM_API_KEY": SECRET,
+                    "LLM_API_PROTOCOL": "chat_completions",
+                    "MODEL_CONFIG_REVISION": "fixture-v1",
+                    "MODEL_IDENTITY": "fake-model",
+                    "RUNNER_BUILD_VERSION_PATH": str(runner_version_path),
                 }
             )
             completed = subprocess.run(
-                [
-                    "pi",
-                    "--print",
-                    "--no-session",
-                    "--no-tools",
-                    "--no-extensions",
-                    "--no-skills",
-                    "--no-prompt-templates",
-                    "--no-themes",
-                    "--no-context-files",
-                    "--no-approve",
-                    "--provider",
-                    "customer",
-                    "--model",
-                    "fake-model",
-                    qualification_prompt(),
-                ],
-                cwd=temporary_directory,
+                [sys.executable, "-m", "app.model_qualification_runner"],
+                cwd=REPOSITORY_ROOT / "backend",
                 env=environment,
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
             if completed.returncode != 0:
-                raise RuntimeError("pi_fixture_failed")
-            if SECRET in completed.stdout or SECRET in completed.stderr:
-                raise RuntimeError("secret_exposed")
-            parsed = ModelQualificationOutput.model_validate_json(
+                raise RuntimeError("qualification_runner_fixture_failed")
+            sensitive_values = (
+                SECRET,
+                qualification_prompt(),
+                qualification_output(passing=passing),
+            )
+            if any(
+                value in completed.stdout or value in completed.stderr
+                for value in sensitive_values
+            ):
+                raise RuntimeError("qualification_output_exposed")
+            parsed = QualificationRunResult.model_validate_json(
                 completed.stdout.strip()
             )
     finally:
@@ -212,7 +190,7 @@ def run_pi(*, passing: bool) -> QualificationEvaluation:
         "fixed_fixture_present": True,
     }:
         raise RuntimeError("provider_boundary_failed")
-    return evaluate_qualification(parsed)
+    return parsed.evaluation()
 
 
 def verify_backend_drift(pass_evaluation: QualificationEvaluation) -> None:
@@ -228,6 +206,8 @@ def verify_backend_drift(pass_evaluation: QualificationEvaluation) -> None:
             model_identity="fake-model",
             protocol="chat_completions",
             config_revision="v1",
+            runner_build_version="fixture-runner-v1",
+            agent_compose_runtime_version="fixture-compose-v1",
         )
         stored = persist_qualification_result(
             session=session,
@@ -256,9 +236,14 @@ def verify_backend_drift(pass_evaluation: QualificationEvaluation) -> None:
 
 
 def main() -> int:
-    passed = run_pi(passing=True)
-    failed = run_pi(passing=False)
-    if passed.status != "PASS" or failed.status != "FAIL":
+    passed = run_qualification_runner(passing=True)
+    failed = run_qualification_runner(passing=False)
+    redirected = run_qualification_runner(passing=True, redirect=True)
+    if (
+        passed.status != "PASS"
+        or failed.status != "FAIL"
+        or redirected.status != "FAIL"
+    ):
         raise RuntimeError("quality_gate_failed")
     verify_backend_drift(passed)
     sys.stdout.write("model qualification fixture: PASS\n")

@@ -58,13 +58,24 @@ def test_fixed_fixture_passes_only_when_every_quality_gate_holds() -> None:
 
 def test_exactly_seventy_five_percent_availability_passes() -> None:
     output = _passing_output()
-    output["recommendations"][0]["action_code"] = "TEXT_EDIT_REQUIRED"
+    output["recommendations"].pop()
 
     result = evaluate_qualification(ModelQualificationOutput.model_validate(output))
 
     assert result.status == "PASS"
     assert result.availability_numerator == 3
     assert result.availability_denominator == 4
+
+
+def test_invented_action_is_a_hallucination_even_at_seventy_five_percent() -> None:
+    output = _passing_output()
+    output["recommendations"][0]["action_code"] = "INVENTED_ACTION"
+
+    result = evaluate_qualification(ModelQualificationOutput.model_validate(output))
+
+    assert result.status == "FAIL"
+    assert result.hallucination_count == 1
+    assert result.failure_code == "hallucination_detected"
 
 
 @pytest.mark.parametrize(
@@ -117,31 +128,54 @@ def test_config_fingerprint_is_deterministic_secret_free_and_drift_sensitive() -
         model_identity="customer-model",
         protocol="chat_completions",
         config_revision="v1",
+        runner_build_version="runner-v1",
+        agent_compose_runtime_version="compose-v1",
     )
     same = model_config_fingerprint(
         endpoint="http://model.internal/v1/",
         model_identity="customer-model",
         protocol="chat_completions",
         config_revision="v1",
+        runner_build_version="runner-v1",
+        agent_compose_runtime_version="compose-v1",
     )
     drifted = model_config_fingerprint(
         endpoint="http://model.internal/v1",
         model_identity="customer-model",
         protocol="chat_completions",
         config_revision="v2",
+        runner_build_version="runner-v1",
+        agent_compose_runtime_version="compose-v1",
+    )
+    runtime_drifted = model_config_fingerprint(
+        endpoint="http://model.internal/v1",
+        model_identity="customer-model",
+        protocol="chat_completions",
+        config_revision="v1",
+        runner_build_version="runner-v2",
+        agent_compose_runtime_version="compose-v1",
     )
 
     assert first == same
     assert first != drifted
+    assert first != runtime_drifted
     assert len(first) == 64
     assert "secret" not in json.dumps(first)
 
 
-def test_external_provider_endpoints_are_rejected_without_fallback() -> None:
+@pytest.mark.parametrize(
+    "endpoint",
+    ("https://api.openai.com/v1", "https://8.8.8.8/v1"),
+)
+def test_external_provider_endpoints_are_rejected_without_fallback(
+    endpoint: str,
+) -> None:
     with pytest.raises(ValueError, match="external_model_provider_forbidden"):
         model_binding(
-            endpoint="https://api.openai.com/v1",
+            endpoint=endpoint,
             model_identity="gpt",
             protocol="responses",
             config_revision="v1",
+            runner_build_version="runner-v1",
+            agent_compose_runtime_version="compose-v1",
         )

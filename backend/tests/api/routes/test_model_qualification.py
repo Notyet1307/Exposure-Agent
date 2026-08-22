@@ -17,10 +17,12 @@ def test_status_fails_closed_and_invalidates_on_configuration_drift(
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(settings, "MODEL_API_ENDPOINT", "http://model.internal/v1")
+    monkeypatch.setattr(settings, "MODEL_API_ENDPOINT", "http://127.0.0.1/v1")
     monkeypatch.setattr(settings, "MODEL_IDENTITY", "customer-model")
     monkeypatch.setattr(settings, "MODEL_API_PROTOCOL", "chat_completions")
     monkeypatch.setattr(settings, "MODEL_CONFIG_REVISION", "v1")
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "runner-v1")
+    monkeypatch.setattr(settings, "AGENT_COMPOSE_RUNTIME_VERSION", "compose-v1")
     monkeypatch.setattr(settings, "MODEL_API_KEY", SecretStr("fixture-secret"))
 
     response = client.get(
@@ -39,6 +41,8 @@ def test_status_fails_closed_and_invalidates_on_configuration_drift(
             model_identity=settings.MODEL_IDENTITY,
             protocol=settings.MODEL_API_PROTOCOL,
             config_revision=settings.MODEL_CONFIG_REVISION,
+            runner_build_version=settings.RUNNER_BUILD_VERSION,
+            agent_compose_runtime_version=settings.AGENT_COMPOSE_RUNTIME_VERSION,
         ),
         agent_compose_run_id="d" * 64,
         evaluation=QualificationEvaluation(

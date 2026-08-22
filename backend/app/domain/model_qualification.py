@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
+import socket
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlmodel import Session, col, select
 
 from app.domain.models import ModelQualificationResult
@@ -17,6 +19,20 @@ from app.integrations.agent_compose import (
 )
 
 FIXTURE_VERSION = "model-qualification-v1"
+QUALIFICATION_CONTRACT_VERSION = "model-qualification-runner-v2"
+_INTERNAL_MODEL_NETWORKS = tuple(
+    ipaddress.ip_network(network)
+    for network in (
+        "10.0.0.0/8",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
 
 # Fixed synthetic facts: these identifiers and examples do not originate from a
 # customer deployment.
@@ -106,19 +122,73 @@ class QualificationEvaluation:
     failure_code: str | None
 
 
+class QualificationRunResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    config_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    fixture_version: str = Field(min_length=1, max_length=100)
+    status: Literal["PASS", "FAIL"]
+    availability_numerator: int = Field(ge=0)
+    availability_denominator: int = Field(gt=0)
+    traceable_citations: int = Field(ge=0)
+    total_citations: int = Field(ge=0)
+    hallucination_count: int = Field(ge=0)
+    finding_modification_count: int = Field(ge=0)
+    unauthorized_side_effect_count: int = Field(ge=0)
+    failure_code: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_verdict(self) -> QualificationRunResult:
+        passing = (
+            self.availability_numerator * 4 >= self.availability_denominator * 3
+            and self.total_citations > 0
+            and self.traceable_citations == self.total_citations
+            and self.hallucination_count == 0
+            and self.finding_modification_count == 0
+            and self.unauthorized_side_effect_count == 0
+        )
+        if self.availability_numerator > self.availability_denominator:
+            raise ValueError("invalid availability")
+        if self.traceable_citations > self.total_citations:
+            raise ValueError("invalid citations")
+        if (self.status == "PASS") != (passing and self.failure_code is None):
+            raise ValueError("invalid verdict")
+        if self.status == "FAIL" and self.failure_code is None:
+            raise ValueError("missing failure code")
+        return self
+
+    def evaluation(self) -> QualificationEvaluation:
+        values = self.model_dump(exclude={"config_fingerprint"})
+        return QualificationEvaluation(**values)
+
+
+def qualification_run_result_json(
+    *, binding: ModelBinding, evaluation: QualificationEvaluation
+) -> str:
+    return QualificationRunResult(
+        config_fingerprint=binding.config_fingerprint,
+        **asdict(evaluation),
+    ).model_dump_json()
+
+
 def model_config_fingerprint(
     *,
     endpoint: str,
     model_identity: str,
     protocol: str,
     config_revision: str,
+    runner_build_version: str,
+    agent_compose_runtime_version: str,
 ) -> str:
     encoded = json.dumps(
         {
+            "agent_compose_runtime_version": agent_compose_runtime_version,
             "config_revision": config_revision,
             "endpoint": endpoint.rstrip("/"),
             "model_identity": model_identity,
             "protocol": protocol,
+            "qualification_contract_version": QUALIFICATION_CONTRACT_VERSION,
+            "runner_build_version": runner_build_version,
         },
         ensure_ascii=True,
         separators=(",", ":"),
@@ -154,16 +224,51 @@ class ModelBinding:
     model_identity: str
     protocol: str
     config_revision: str
+    runner_build_version: str
+    agent_compose_runtime_version: str
     config_fingerprint: str
 
 
+def _model_endpoint_is_internal(hostname: str, port: int | None) -> bool:
+    try:
+        addresses = {ipaddress.ip_address(hostname)}
+    except ValueError:
+        try:
+            addresses = {
+                ipaddress.ip_address(item[4][0])
+                for item in socket.getaddrinfo(
+                    hostname,
+                    port,
+                    type=socket.SOCK_STREAM,
+                )
+            }
+        except OSError, ValueError:
+            raise ValueError("model_endpoint_unresolvable") from None
+    return bool(addresses) and all(
+        any(address in network for network in _INTERNAL_MODEL_NETWORKS)
+        for address in addresses
+    )
+
+
 def model_binding(
-    *, endpoint: str, model_identity: str, protocol: str, config_revision: str
+    *,
+    endpoint: str,
+    model_identity: str,
+    protocol: str,
+    config_revision: str,
+    runner_build_version: str,
+    agent_compose_runtime_version: str,
 ) -> ModelBinding:
     endpoint = endpoint.strip().rstrip("/")
     model_identity = model_identity.strip()
     config_revision = config_revision.strip()
+    runner_build_version = runner_build_version.strip()
+    agent_compose_runtime_version = agent_compose_runtime_version.strip()
     parsed = urlsplit(endpoint)
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ValueError("model_configuration_invalid") from None
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.hostname
@@ -176,38 +281,37 @@ def model_binding(
         or len(model_identity) > 255
         or not config_revision
         or len(config_revision) > 255
+        or not runner_build_version
+        or len(runner_build_version) > 255
+        or not agent_compose_runtime_version
+        or len(agent_compose_runtime_version) > 255
         or len(endpoint) > 2048
     ):
         raise ValueError("model_configuration_invalid")
     hostname = parsed.hostname.lower()
-    external_provider_domains = (
-        "openai.com",
-        "anthropic.com",
-        "googleapis.com",
-        "openrouter.ai",
-    )
-    if any(
-        hostname == domain or hostname.endswith(f".{domain}")
-        for domain in external_provider_domains
-    ):
+    if not _model_endpoint_is_internal(hostname, port):
         raise ValueError("external_model_provider_forbidden")
     return ModelBinding(
         endpoint=endpoint,
         model_identity=model_identity,
         protocol=protocol,
         config_revision=config_revision,
+        runner_build_version=runner_build_version,
+        agent_compose_runtime_version=agent_compose_runtime_version,
         config_fingerprint=model_config_fingerprint(
             endpoint=endpoint,
             model_identity=model_identity,
             protocol=protocol,
             config_revision=config_revision,
+            runner_build_version=runner_build_version,
+            agent_compose_runtime_version=agent_compose_runtime_version,
         ),
     )
 
 
 class QualificationClient(Protocol):
     def start_model_qualification(
-        self, *, client_request_id: str, prompt: str
+        self, *, client_request_id: str
     ) -> AgentComposeRunStart: ...
 
     def get_run(self, run_id: str) -> AgentComposeRunStart | None: ...
@@ -236,6 +340,8 @@ def execute_model_qualification(
     model_identity: str,
     protocol: str,
     config_revision: str,
+    runner_build_version: str,
+    agent_compose_runtime_version: str,
     request_id: str,
     timeout_seconds: float = 120.0,
 ) -> ModelQualificationResult:
@@ -244,15 +350,14 @@ def execute_model_qualification(
         model_identity=model_identity,
         protocol=protocol,
         config_revision=config_revision,
+        runner_build_version=runner_build_version,
+        agent_compose_runtime_version=agent_compose_runtime_version,
     )
     endpoint = binding.endpoint
     model_identity = binding.model_identity
     fingerprint = binding.config_fingerprint
     try:
-        run = client.start_model_qualification(
-            client_request_id=request_id,
-            prompt=qualification_prompt(),
-        )
+        run = client.start_model_qualification(client_request_id=request_id)
     except AgentComposeBoundaryError:
         run_id = hashlib.sha256(request_id.encode()).hexdigest()
         return persist_qualification_result(
@@ -287,11 +392,19 @@ def execute_model_qualification(
                 try:
                     if run.output is None:
                         raise ValueError("missing output")
-                    parsed = ModelQualificationOutput.model_validate_json(run.output)
+                    parsed = QualificationRunResult.model_validate_json(run.output)
                 except ValidationError, ValueError:
                     evaluation = _failed_evaluation("model_output_invalid")
                 else:
-                    evaluation = evaluate_qualification(parsed)
+                    if (
+                        parsed.config_fingerprint != fingerprint
+                        or parsed.fixture_version != FIXTURE_VERSION
+                    ):
+                        evaluation = _failed_evaluation(
+                            "model_binding_attestation_failed"
+                        )
+                    else:
+                        evaluation = parsed.evaluation()
     except AgentComposeBoundaryError:
         evaluation = _failed_evaluation("agent_compose_failed")
 
@@ -382,6 +495,8 @@ def evaluate_qualification(
             seen_findings.add(recommendation.finding_id)
             if recommendation.action_code == fixture["expected_action_code"]:
                 availability += 1
+            else:
+                hallucinations += 1
         modifications += int(recommendation.finding_modified)
 
         allowed_claims = fixture["claims"] if fixture is not None else {}

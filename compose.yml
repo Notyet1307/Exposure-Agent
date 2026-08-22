@@ -29,7 +29,7 @@ services:
 
   agent-compose:
     # Pin the multi-architecture manifest with Pi provider support.
-    image: 'chaitin/agent-compose@sha256:092f8c4fbf7254ddd200a36d99ae6583cd08f5ddeda9cafd559b3636890c9670'
+    image: 'chaitin/agent-compose@${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}'
     restart: always
     environment:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
@@ -51,7 +51,7 @@ services:
       start_period: 15s
 
   agent-compose-project-init:
-    image: 'chaitin/agent-compose@sha256:092f8c4fbf7254ddd200a36d99ae6583cd08f5ddeda9cafd559b3636890c9670'
+    image: 'chaitin/agent-compose@${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}'
     depends_on:
       agent-compose:
         condition: service_healthy
@@ -70,6 +70,7 @@ services:
       - .env
     environment:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
+      AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}
       ARTIFACT_HOST_PATH: ${ARTIFACT_HOST_PATH:?Variable not set or empty}
       CLOUDATLAS_CAPSET_TOKEN: ${CLOUDATLAS_CAPSET_TOKEN:?Variable not set or empty}
       DOCKER_IMAGE_RUNNER: ${DOCKER_IMAGE_RUNNER?Variable not set}
@@ -80,6 +81,7 @@ services:
       MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}
       MODEL_API_KEY: ${MODEL_API_KEY:?Variable not set or empty}
       MODEL_IDENTITY: ${MODEL_IDENTITY:?Variable not set or empty}
+      MODEL_CONFIG_REVISION: ${MODEL_CONFIG_REVISION:-v1}
       SECRET_KEY: ${SECRET_KEY:?Variable not set or empty}
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
@@ -181,6 +183,7 @@ services:
       CLOUDATLAS_CAPSET_TOKEN: ${CLOUDATLAS_CAPSET_TOKEN:?Variable not set or empty}
       AGENT_COMPOSE_URL: http://agent-compose:7410
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
+      AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION:?Variable not set or empty}
       MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:?Variable not set or empty}
       MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}

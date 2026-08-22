@@ -236,13 +236,13 @@ class AgentComposeClient:
         )
 
     def start_model_qualification(
-        self, *, client_request_id: str, prompt: str
+        self, *, client_request_id: str
     ) -> AgentComposeRunStart:
         return self._start_run(
             agent_name=settings.MODEL_QUALIFICATION_AGENT_NAME,
             client_request_id=client_request_id,
             environment={},
-            prompt=prompt,
+            command="/app/.venv/bin/python -m app.model_qualification_runner",
         )
 
     def _start_run(

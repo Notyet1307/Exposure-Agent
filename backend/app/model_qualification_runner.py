@@ -1,0 +1,208 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlsplit
+
+import httpx
+
+from app.domain.model_qualification import (
+    ModelBinding,
+    ModelQualificationOutput,
+    _failed_evaluation,
+    evaluate_qualification,
+    model_binding,
+    qualification_prompt,
+    qualification_run_result_json,
+)
+
+
+def _required_environment(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise ValueError("model_configuration_invalid")
+    return value
+
+
+def _runner_build_version() -> str:
+    path = Path(
+        os.environ.get("RUNNER_BUILD_VERSION_PATH", "/app/runner-build-version")
+    )
+    value = path.read_text(encoding="utf-8").strip()
+    if not value:
+        raise ValueError("model_configuration_invalid")
+    return value
+
+
+def _start_provider_proxy(
+    binding_endpoint: str, protocol: str
+) -> tuple[ThreadingHTTPServer, threading.Thread]:
+    target_path = "/responses" if protocol == "responses" else "/chat/completions"
+
+    class ProviderProxy(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            parsed = urlsplit(self.path)
+            if parsed.path != target_path or parsed.query:
+                self.send_error(404)
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length > 1_000_000:
+                self.send_error(413)
+                return
+            request_body = self.rfile.read(length)
+            headers = {
+                name: value
+                for name, value in self.headers.items()
+                if name.lower()
+                not in {"connection", "content-length", "host", "transfer-encoding"}
+            }
+            try:
+                with httpx.Client(
+                    follow_redirects=False, timeout=120, trust_env=False
+                ) as client:
+                    response = client.post(
+                        binding_endpoint.rstrip("/") + target_path,
+                        headers=headers,
+                        content=request_body,
+                    )
+            except httpx.HTTPError:
+                self.send_error(502)
+                return
+            if response.is_redirect or len(response.content) > 1_000_000:
+                self.send_error(502)
+                return
+            self.send_response(response.status_code)
+            if content_type := response.headers.get("Content-Type"):
+                self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(response.content)))
+            self.end_headers()
+            self.wfile.write(response.content)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), ProviderProxy)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread
+
+
+def main() -> int:
+    try:
+        api_key = _required_environment("LLM_API_KEY")
+        binding = model_binding(
+            endpoint=_required_environment("LLM_API_ENDPOINT"),
+            model_identity=_required_environment("MODEL_IDENTITY"),
+            protocol=_required_environment("LLM_API_PROTOCOL"),
+            config_revision=_required_environment("MODEL_CONFIG_REVISION"),
+            runner_build_version=_runner_build_version(),
+            agent_compose_runtime_version=_required_environment(
+                "AGENT_COMPOSE_RUNTIME_VERSION"
+            ),
+        )
+    except OSError, ValueError:
+        return 1
+
+    proxy, proxy_thread = _start_provider_proxy(binding.endpoint, binding.protocol)
+    try:
+        return _run_qualification(binding, api_key, proxy.server_port)
+    finally:
+        proxy.shutdown()
+        proxy.server_close()
+        proxy_thread.join()
+
+
+def _run_qualification(binding: ModelBinding, api_key: str, proxy_port: int) -> int:
+    with tempfile.TemporaryDirectory(prefix="model-qualification-") as temporary:
+        config_dir = Path(temporary) / "agent"
+        config_dir.mkdir()
+        (config_dir / "settings.json").write_text(
+            '{"retry":{"enabled":false,"provider":{"maxRetries":0}}}',
+            encoding="utf-8",
+        )
+        (config_dir / "models.json").write_text(
+            json.dumps(
+                {
+                    "providers": {
+                        "customer": {
+                            "baseUrl": f"http://127.0.0.1:{proxy_port}",
+                            "api": (
+                                "openai-responses"
+                                if binding.protocol == "responses"
+                                else "openai-completions"
+                            ),
+                            "apiKey": "$MODEL_API_KEY",
+                            "models": [{"id": binding.model_identity}],
+                        }
+                    }
+                },
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+        environment = {
+            "HOME": temporary,
+            "LANG": "C.UTF-8",
+            "MODEL_API_KEY": api_key,
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PI_CODING_AGENT_DIR": str(config_dir),
+            "PI_OFFLINE": "1",
+            "PI_SKIP_VERSION_CHECK": "1",
+            "PI_TELEMETRY": "0",
+        }
+        try:
+            completed = subprocess.run(
+                [
+                    "pi",
+                    "--print",
+                    "--no-session",
+                    "--no-tools",
+                    "--no-extensions",
+                    "--no-skills",
+                    "--no-prompt-templates",
+                    "--no-themes",
+                    "--no-context-files",
+                    "--no-approve",
+                    "--provider",
+                    "customer",
+                    "--model",
+                    binding.model_identity,
+                    qualification_prompt(),
+                ],
+                cwd=temporary,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=float(
+                    os.environ.get("MODEL_QUALIFICATION_TIMEOUT_SECONDS", "120")
+                ),
+            )
+        except OSError, subprocess.TimeoutExpired, ValueError:
+            evaluation = _failed_evaluation("model_run_failed")
+        else:
+            if completed.returncode:
+                evaluation = _failed_evaluation("model_run_failed")
+            else:
+                try:
+                    output = ModelQualificationOutput.model_validate_json(
+                        completed.stdout.strip()
+                    )
+                except ValueError:
+                    evaluation = _failed_evaluation("model_output_invalid")
+                else:
+                    evaluation = evaluate_qualification(output)
+
+    sys.stdout.write(
+        qualification_run_result_json(binding=binding, evaluation=evaluation) + "\n"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -29,6 +29,8 @@ def read_model_qualification_status(session: SessionDep) -> ModelQualificationSt
             model_identity=settings.MODEL_IDENTITY,
             protocol=settings.MODEL_API_PROTOCOL,
             config_revision=settings.MODEL_CONFIG_REVISION,
+            runner_build_version=settings.RUNNER_BUILD_VERSION,
+            agent_compose_runtime_version=settings.AGENT_COMPOSE_RUNTIME_VERSION,
         )
     except ValueError:
         return ModelQualificationStatus(qualified=False)

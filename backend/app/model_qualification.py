@@ -21,6 +21,8 @@ def main() -> int:
             model_identity=settings.MODEL_IDENTITY,
             protocol=settings.MODEL_API_PROTOCOL,
             config_revision=settings.MODEL_CONFIG_REVISION,
+            runner_build_version=settings.RUNNER_BUILD_VERSION,
+            agent_compose_runtime_version=settings.AGENT_COMPOSE_RUNTIME_VERSION,
         )
         if not settings.MODEL_API_KEY.get_secret_value():
             raise ValueError("model_configuration_invalid")
@@ -36,6 +38,8 @@ def main() -> int:
             model_identity=binding.model_identity,
             protocol=binding.protocol,
             config_revision=binding.config_revision,
+            runner_build_version=binding.runner_build_version,
+            agent_compose_runtime_version=binding.agent_compose_runtime_version,
             request_id=f"model-qualification:{uuid.uuid4().hex}",
             timeout_seconds=settings.MODEL_QUALIFICATION_TIMEOUT_SECONDS,
         )

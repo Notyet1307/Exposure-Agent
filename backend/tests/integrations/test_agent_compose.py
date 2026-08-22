@@ -134,7 +134,7 @@ def test_start_governance_run_builds_sorted_environment_and_returns_result(
     ]
 
 
-def test_model_qualification_uses_a_pi_prompt_without_secret_environment(
+def test_model_qualification_uses_the_sanitizing_runner_without_a_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _configure_settings(monkeypatch)
@@ -159,16 +159,15 @@ def test_model_qualification_uses_a_pi_prompt_without_secret_environment(
 
     monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
 
-    client.start_model_qualification(
-        client_request_id="qualification-1",
-        prompt="fixed synthetic fixture",
-    )
+    client.start_model_qualification(client_request_id="qualification-1")
 
     run_request = calls[1]["json"]["run"]
     assert calls[1]["path"].endswith("StartAgentRun")
     assert run_request["agentName"] == "model-qualifier"
-    assert run_request["prompt"] == "fixed synthetic fixture"
-    assert "command" not in run_request
+    assert run_request["command"] == (
+        "/app/.venv/bin/python -m app.model_qualification_runner"
+    )
+    assert "prompt" not in run_request
     assert run_request["env"] == []
     assert "secret" not in json.dumps(calls)
 
