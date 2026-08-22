@@ -364,13 +364,12 @@ def execute_model_qualification(
     try:
         run = client.start_model_qualification(client_request_id=request_id)
     except AgentComposeBoundaryError:
-        run_id = hashlib.sha256(request_id.encode()).hexdigest()
         return persist_qualification_result(
             session=session,
             endpoint=endpoint,
             model_identity=model_identity,
             config_fingerprint=fingerprint,
-            agent_compose_run_id=run_id,
+            agent_compose_run_id=None,
             evaluation=_failed_evaluation("agent_compose_failed"),
         )
 
@@ -433,7 +432,7 @@ def persist_qualification_result(
     endpoint: str,
     model_identity: str,
     config_fingerprint: str,
-    agent_compose_run_id: str,
+    agent_compose_run_id: str | None,
     evaluation: QualificationEvaluation,
 ) -> ModelQualificationResult:
     evaluation = QualificationRunResult(

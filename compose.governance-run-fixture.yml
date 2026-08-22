@@ -7,6 +7,8 @@ services:
     depends_on:
       cloudatlas-fixture-init:
         condition: service_completed_successfully
+      model-qualification-fixture:
+        condition: service_healthy
     environment:
       AGENT_COMPOSE_URL: http://cloudatlas-fixture:18080
 
@@ -22,6 +24,30 @@ services:
 
   frontend:
     ports: !reset []
+
+  model-qualification-fixture:
+    image: '${DOCKER_IMAGE_RUNNER?Variable not set}:${RUNNER_BUILD_VERSION?Variable not set}'
+    depends_on:
+      governance-runner-image:
+        condition: service_completed_successfully
+    command:
+      - /app/.venv/bin/python
+      - /fixture/fake_provider.py
+    environment:
+      MODEL_API_KEY: ${MODEL_API_KEY:?Variable not set or empty}
+    volumes:
+      - ./tests/model_qualification_fixture:/fixture:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/app/.venv/bin/python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 15
 
   cloudatlas-fixture:
     build:

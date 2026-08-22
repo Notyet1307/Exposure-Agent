@@ -28,7 +28,8 @@ services:
     command: ["true"]
 
   agent-compose:
-    # Pin the multi-architecture manifest with Pi provider support.
+    # v2608.4.0 multi-architecture manifest with Pi support; upstream
+    # revision 5df1acb0cda4159f7106f263e358c8a84026a142.
     image: 'chaitin/agent-compose@${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}'
     restart: always
     environment:
@@ -77,11 +78,12 @@ services:
       ENVIRONMENT: ${ENVIRONMENT?Variable not set}
       PROJECT_NAME: ${PROJECT_NAME?Variable not set}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION?Variable not set}
-      MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:?Variable not set or empty}
+      MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:-http://127.0.0.1:9/v1}
       MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}
-      MODEL_API_KEY: ${MODEL_API_KEY:?Variable not set or empty}
-      MODEL_IDENTITY: ${MODEL_IDENTITY:?Variable not set or empty}
+      MODEL_API_KEY: ${MODEL_API_KEY-}
+      MODEL_IDENTITY: ${MODEL_IDENTITY:-unconfigured}
       MODEL_CONFIG_REVISION: ${MODEL_CONFIG_REVISION:-v1}
+      MODEL_QUALIFICATION_TIMEOUT_SECONDS: ${MODEL_QUALIFICATION_TIMEOUT_SECONDS:-120}
       SECRET_KEY: ${SECRET_KEY:?Variable not set or empty}
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
@@ -185,11 +187,12 @@ services:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
       AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION:?Variable not set or empty}
-      MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:?Variable not set or empty}
+      MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:-http://127.0.0.1:9/v1}
       MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}
-      MODEL_API_KEY: ${MODEL_API_KEY:?Variable not set or empty}
-      MODEL_IDENTITY: ${MODEL_IDENTITY:?Variable not set or empty}
+      MODEL_API_KEY: ${MODEL_API_KEY-}
+      MODEL_IDENTITY: ${MODEL_IDENTITY:-unconfigured}
       MODEL_CONFIG_REVISION: ${MODEL_CONFIG_REVISION:-v1}
+      MODEL_QUALIFICATION_TIMEOUT_SECONDS: ${MODEL_QUALIFICATION_TIMEOUT_SECONDS:-120}
     volumes:
       - type: bind
         source: ${ARTIFACT_HOST_PATH:?Variable not set or empty}

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+: "${AGENT_COMPOSE_RUNTIME_VERSION:=sha256:092f8c4fbf7254ddd200a36d99ae6583cd08f5ddeda9cafd559b3636890c9670}"
+export AGENT_COMPOSE_RUNTIME_VERSION
+
 compose_config="$(docker compose -f compose.yml -f compose.override.yml config --format json)"
 
 printf '%s' "$compose_config" | python3 -c '
@@ -68,6 +71,7 @@ for name in (
     "MODEL_API_KEY",
     "MODEL_IDENTITY",
     "MODEL_CONFIG_REVISION",
+    "MODEL_QUALIFICATION_TIMEOUT_SECONDS",
 ):
     expected = service_environment("backend").get(name)
     require_equal("agent-compose-project-init", name, expected)
@@ -91,4 +95,22 @@ for service in ("agent-compose", "backend"):
         raise SystemExit(f"{service} does not use the configured Artifact bind path")
 
 print("Compose CI credential parity passed")
+'
+
+optional_model_config="$(
+  MODEL_API_ENDPOINT= MODEL_API_KEY= MODEL_IDENTITY= \
+    docker compose -f compose.yml config --format json
+)"
+printf '%s' "$optional_model_config" | python3 -c '
+import json
+import sys
+
+services = json.load(sys.stdin)["services"]
+for service in ("backend", "agent-compose-project-init"):
+    environment = services[service]["environment"]
+    assert environment["MODEL_API_ENDPOINT"] == "http://127.0.0.1:9/v1"
+    assert environment["MODEL_API_KEY"] == ""
+    assert environment["MODEL_IDENTITY"] == "unconfigured"
+    assert environment["MODEL_QUALIFICATION_TIMEOUT_SECONDS"] == "120"
+print("Optional model configuration passed")
 '

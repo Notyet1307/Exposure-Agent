@@ -1898,7 +1898,7 @@ class ModelQualificationResult(SQLModel, table=True):
     finding_modification_count: int
     unauthorized_side_effect_count: int
     failure_code: str | None = Field(default=None, max_length=100)
-    agent_compose_run_id: str = Field(max_length=64)
+    agent_compose_run_id: str | None = Field(default=None, max_length=64)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore

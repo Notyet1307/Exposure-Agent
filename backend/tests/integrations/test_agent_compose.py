@@ -63,6 +63,7 @@ def _configure_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "MODEL_QUALIFICATION_AGENT_NAME", "model-qualifier")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_TIMEOUT_SECONDS", 2.0)
     monkeypatch.setattr(settings, "AGENT_COMPOSE_AUTH_TOKEN", SecretStr("test-token"))
+    monkeypatch.setattr(settings, "MODEL_API_KEY", SecretStr("model-secret"))
 
 
 def _install_response(
@@ -76,6 +77,16 @@ def _install_response(
 
     monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
     return calls
+
+
+def test_project_id_matches_the_pinned_runtime_id_space(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+
+    assert AgentComposeClient().project_id == (
+        "b3a86d1b61ca36d1bbbea3526fc1cc9bb0074966efb9517c1396901a1a292c24"
+    )
 
 
 def test_start_governance_run_builds_sorted_environment_and_returns_result(
@@ -168,8 +179,9 @@ def test_model_qualification_uses_the_sanitizing_runner_without_a_prompt(
         "/app/.venv/bin/python -m app.model_qualification_runner"
     )
     assert "prompt" not in run_request
-    assert run_request["env"] == []
-    assert "secret" not in json.dumps(calls)
+    assert run_request["env"] == [
+        {"name": "LLM_API_KEY", "value": "model-secret", "secret": True}
+    ]
 
 
 def test_get_run_returns_terminal_model_output_without_logging_events(

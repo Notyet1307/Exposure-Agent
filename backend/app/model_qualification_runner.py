@@ -26,7 +26,7 @@ from app.domain.model_qualification import (
 def _required_environment(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
-        raise ValueError("model_configuration_invalid")
+        raise ValueError(f"{name.lower()}_missing")
     return value
 
 
@@ -130,7 +130,13 @@ def main() -> int:
                 "AGENT_COMPOSE_RUNTIME_VERSION"
             ),
         )
-    except (OSError, ValueError):
+    except OSError:
+        sys.stderr.write(
+            "model qualification runner: FAIL (runtime_version_unavailable)\n"
+        )
+        return 1
+    except ValueError as error:
+        sys.stderr.write(f"model qualification runner: FAIL ({error})\n")
         return 1
 
     proxy, proxy_thread = _start_provider_proxy(binding)
@@ -201,6 +207,7 @@ def _run_qualification(binding: ModelBinding, api_key: str, proxy_port: int) -> 
                 ],
                 cwd=temporary,
                 env=environment,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=float(

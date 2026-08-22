@@ -20,7 +20,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_GOVERNANCE_RUN_REVISION = "c2d3e4f5a6b7"
+CURRENT_GOVERNANCE_RUN_REVISION = "d2e3f4a5b6c7"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -157,6 +157,12 @@ def test_template_database_upgrades_without_losing_users(
                 "model_endpoint",
             }
         )
+        assert connection.execute(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            "AND table_name = 'model_qualification_results' "
+            "AND column_name = 'agent_compose_run_id'"
+        ).fetchone() == ("YES",)
 
 
 def test_existing_projects_and_audit_events_survive_lifecycle_upgrade(

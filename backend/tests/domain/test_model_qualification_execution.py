@@ -137,6 +137,30 @@ def test_execution_runs_a_fixed_command_and_persists_redacted_attested_pass() ->
     assert "secret" not in serialized
 
 
+def test_agent_compose_start_failure_has_no_fabricated_run_id() -> None:
+    class UnavailableClient(_Client):
+        def start_model_qualification(
+            self, *, client_request_id: str
+        ) -> AgentComposeRunStart:
+            raise AgentComposeBoundaryError("agent_compose_unavailable")
+
+    result = execute_model_qualification(
+        session=_session(),
+        client=UnavailableClient(None),
+        endpoint="http://127.0.0.1:8081/v1",
+        model_identity="fake-model",
+        protocol="chat_completions",
+        config_revision="test-v1",
+        runner_build_version="runner-v1",
+        agent_compose_runtime_version="compose-v1",
+        request_id="qualification-test",
+    )
+
+    assert result.status == "FAIL"
+    assert result.failure_code == "agent_compose_failed"
+    assert result.agent_compose_run_id is None
+
+
 def test_agent_compose_observation_failure_persists_fail_closed() -> None:
     class UnavailableClient(_Client):
         def start_model_qualification(

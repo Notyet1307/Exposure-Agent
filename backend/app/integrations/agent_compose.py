@@ -242,6 +242,9 @@ class AgentComposeClient:
             agent_name=settings.MODEL_QUALIFICATION_AGENT_NAME,
             client_request_id=client_request_id,
             environment={},
+            secret_environment={
+                "LLM_API_KEY": settings.MODEL_API_KEY.get_secret_value()
+            },
             command="/app/.venv/bin/python -m app.model_qualification_runner",
         )
 
@@ -251,6 +254,7 @@ class AgentComposeClient:
         agent_name: str,
         client_request_id: str,
         environment: dict[str, str],
+        secret_environment: dict[str, str] | None = None,
         command: str | None = None,
         prompt: str | None = None,
         session_id: str | None = None,
@@ -268,6 +272,15 @@ class AgentComposeClient:
                     "agent_compose_response_contract_failed"
                 )
             return existing
+        run_environment = {
+            name: (value, False) for name, value in environment.items()
+        }
+        run_environment.update(
+            {
+                name: (value, True)
+                for name, value in (secret_environment or {}).items()
+            }
+        )
         run_request: dict[str, Any] = {
             "projectId": self.project_id,
             "agentName": agent_name,
@@ -275,8 +288,8 @@ class AgentComposeClient:
             "clientRequestId": client_request_id,
             "cleanupPolicy": ("RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION"),
             "env": [
-                {"name": name, "value": value, "secret": False}
-                for name, value in sorted(environment.items())
+                {"name": name, "value": value, "secret": secret}
+                for name, (value, secret) in sorted(run_environment.items())
             ],
         }
         if command is not None:

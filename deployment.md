@@ -36,9 +36,10 @@ Replace every placeholder before deployment. Required installation-specific valu
 - `RUNNER_BUILD_VERSION`, `ARTIFACT_HOST_PATH`;
 - `AGENT_COMPOSE_AUTH_TOKEN`, pinned `AGENT_COMPOSE_RUNTIME_VERSION`,
   `CLOUDATLAS_CAPSET_TOKEN`;
-- the customer-internal OpenAI-compatible `MODEL_API_ENDPOINT`,
-  `MODEL_API_PROTOCOL`, `MODEL_API_KEY`, `MODEL_IDENTITY`, and the non-secret
-  `MODEL_CONFIG_REVISION`.
+- when model qualification is enabled, the customer-internal OpenAI-compatible
+  `MODEL_API_ENDPOINT`, `MODEL_API_PROTOCOL`, `MODEL_API_KEY`, `MODEL_IDENTITY`,
+  non-secret `MODEL_CONFIG_REVISION`, and optional
+  `MODEL_QUALIFICATION_TIMEOUT_SECONDS`.
 
 Generate independent random secrets, for example:
 
@@ -48,6 +49,8 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 
 The first-superuser values idempotently bootstrap the initial global Admin. OctoBus and agent-compose credentials must not enter PostgreSQL, application audit records, Git, image layers or ordinary logs. Restrict runtime `.env` permissions and store deployment secrets in the customer-approved secret mechanism.
 
+Leaving the model endpoint, identity, or Secret unset keeps admission
+fail-closed without preventing the rest of the deployment from starting.
 `MODEL_API_KEY` is injected into agent-compose as a Secret and must never be
 placed in `MODEL_CONFIG_REVISION`. Production model configuration must resolve
 only to loopback, link-local, or private-network addresses. The qualification
@@ -55,6 +58,16 @@ runner rejects public addresses and Provider redirects; OpenAI, Codex and other
 external model providers are not fallback paths.
 
 `FRONTEND_HOST` and `BACKEND_CORS_ORIGINS` are only needed for trusted cross-origin development. The deployed browser uses same-origin `/api`.
+
+### agent-compose v2608.4.0 upgrade
+
+This runtime derives Project and Run IDs from the project name without the
+legacy source-path component. Before upgrading from the prior pinned runtime,
+block new Governance Run triggers and finish every active or retryable Session;
+do not carry an in-flight retry across the upgrade. Back up the coordinated
+state, apply the new project, then rerun any unfinished business operation as a
+new Governance Run. This bounded cutover preserves PostgreSQL business facts
+while avoiding lookup or deduplication against the legacy ID space.
 
 ## Start and verify
 
@@ -66,6 +79,11 @@ docker compose -f compose.yml up -d --wait
 ```
 
 `prestart` applies Alembic migrations and creates the initial Admin. `octobus-package-init` imports the product-owned package, and `agent-compose-project-init` installs the Governance Runner and Pi model-qualification agents before the backend starts.
+
+The default runtime digest identifies upstream agent-compose v2608.4.0 at
+revision `5df1acb0cda4159f7106f263e358c8a84026a142`; both service and guest images
+carry that OCI source revision and remain pinned by multi-architecture manifest
+digest.
 
 Run the fixed non-customer qualification fixture after startup and whenever the
 endpoint, model identity, protocol, non-secret model configuration, Runner

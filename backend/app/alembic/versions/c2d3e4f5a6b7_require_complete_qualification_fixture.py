@@ -13,6 +13,9 @@ down_revision = "b1c2d3e4f5a6"
 branch_labels = None
 depends_on = None
 
+# This corrective revision is intentionally separate: both committed revisions
+# remain append-only, as required by the repository migration policy.
+
 
 def upgrade() -> None:
     op.drop_constraint(

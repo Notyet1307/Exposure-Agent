@@ -9,16 +9,18 @@ input=${1:?input template is required}
 output=${2:?output path is required}
 
 awk '
-function replace_literal(text, needle, value, at) {
-  while ((at = index(text, needle)) > 0) {
-    text = substr(text, 1, at - 1) value substr(text, at + length(needle))
+function render(text, token, name, at) {
+  while (match(text, /\$\{[A-Z][A-Z0-9_]*\}/)) {
+    at = RSTART
+    token = substr(text, at, RLENGTH)
+    name = substr(token, 3, length(token) - 3)
+    if (!(name in ENVIRON)) {
+      print name " is required" > "/dev/stderr"
+      exit 1
+    }
+    text = substr(text, 1, at - 1) ENVIRON[name] substr(text, at + length(token))
   }
   return text
 }
-{
-  line = replace_literal($0, "${DOCKER_IMAGE_RUNNER}", ENVIRON["DOCKER_IMAGE_RUNNER"])
-  line = replace_literal(line, "${RUNNER_BUILD_VERSION}", ENVIRON["RUNNER_BUILD_VERSION"])
-  line = replace_literal(line, "${ARTIFACT_HOST_PATH}", ENVIRON["ARTIFACT_HOST_PATH"])
-  print line
-}
+{ print render($0) }
 ' "$input" > "$output"
