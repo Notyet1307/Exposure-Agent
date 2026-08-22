@@ -11,9 +11,16 @@ import psycopg
 import pytest
 from psycopg import sql
 from sqlalchemy import CheckConstraint
+from sqlalchemy.engine import URL
+from sqlmodel import Session, create_engine
 
 from app.core.config import settings
+from app.domain.model_qualification import execute_model_qualification, model_binding
 from app.domain.models import ModelQualificationResult
+from app.integrations.agent_compose import (
+    AgentComposeBoundaryError,
+    AgentComposeRunStart,
+)
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PRE_CLEANUP_REVISION = "fe56fa70289e"
@@ -244,6 +251,63 @@ def test_model_qualification_final_schema_matches_model_and_accepts_start_failur
             with pytest.raises(psycopg.errors.CheckViolation):
                 with connection.transaction():
                     insert(**{field: "not-a-sha256"})
+
+
+def test_migrated_schema_persists_start_failure_and_completed_audit(
+    template_baseline_database: str,
+) -> None:
+    class UnavailableClient:
+        def start_model_qualification(
+            self, *, client_request_id: str
+        ) -> AgentComposeRunStart:
+            raise AgentComposeBoundaryError("agent_compose_unavailable")
+
+        def get_run(self, run_id: str) -> AgentComposeRunStart | None:
+            raise AssertionError("start failure must not be observed")
+
+    run_migration(template_baseline_database, "head")
+    engine = create_engine(
+        URL.create(
+            "postgresql+psycopg",
+            username=settings.POSTGRES_USER,
+            password=settings.POSTGRES_PASSWORD,
+            host=settings.POSTGRES_SERVER,
+            port=settings.POSTGRES_PORT,
+            database=template_baseline_database,
+        )
+    )
+    try:
+        with Session(engine) as session:
+            result = execute_model_qualification(
+                session=session,
+                client=UnavailableClient(),
+                binding=model_binding(
+                    endpoint="http://127.0.0.1:8081/v1",
+                    model_identity="fake-model",
+                    protocol="chat_completions",
+                    config_revision="test-v1",
+                    runner_build_version="runner-v1",
+                    agent_compose_runtime_version="compose-v1",
+                ),
+                request_id="qualification-start-failure",
+            )
+    finally:
+        engine.dispose()
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT status, failure_code, agent_compose_run_id "
+            "FROM model_qualification_results WHERE id = %s",
+            (result.id,),
+        ).fetchone() == ("FAIL", "agent_compose_failed", None)
+        assert connection.execute(
+            "SELECT action FROM audit_events WHERE target_id = %s "
+            "ORDER BY created_at, action DESC",
+            (result.id,),
+        ).fetchall() == [
+            ("model_qualification.triggered",),
+            ("model_qualification.completed",),
+        ]
 
 
 def test_existing_projects_and_audit_events_survive_lifecycle_upgrade(
