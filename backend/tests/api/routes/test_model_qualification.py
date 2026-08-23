@@ -68,3 +68,22 @@ def test_status_fails_closed_and_invalidates_on_configuration_drift(
         f"{settings.API_V1_STR}/model-qualification/status",
         headers=superuser_token_headers,
     ).json() == {"qualified": False}
+
+
+def test_status_fails_closed_without_a_secret_or_valid_binding(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "MODEL_API_KEY", SecretStr(""))
+    assert client.get(
+        f"{settings.API_V1_STR}/model-qualification/status",
+        headers=superuser_token_headers,
+    ).json() == {"qualified": False}
+
+    monkeypatch.setattr(settings, "MODEL_API_KEY", SecretStr("fixture-secret"))
+    monkeypatch.setattr(settings, "MODEL_API_ENDPOINT", "https://8.8.8.8/v1")
+    assert client.get(
+        f"{settings.API_V1_STR}/model-qualification/status",
+        headers=superuser_token_headers,
+    ).json() == {"qualified": False}
