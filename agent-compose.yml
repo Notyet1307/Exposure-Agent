@@ -33,3 +33,25 @@ agents:
       - type: bind
         source: ${ARTIFACT_HOST_PATH}
         target: /app/artifacts
+
+  model-qualifier:
+    provider: pi
+    model: customer/${MODEL_IDENTITY}
+    image: ${DOCKER_IMAGE_RUNNER}:${RUNNER_BUILD_VERSION}
+    driver:
+      docker: {}
+    env:
+      PROJECT_NAME: model-qualification
+      POSTGRES_SERVER: unused
+      POSTGRES_USER: unused
+      FIRST_SUPERUSER: fixture@example.com
+      FIRST_SUPERUSER_PASSWORD: unused
+      LLM_API_ENDPOINT: ${MODEL_API_ENDPOINT}
+      LLM_API_PROTOCOL: ${MODEL_API_PROTOCOL}
+      LLM_API_KEY:
+        value: ${MODEL_API_KEY}
+        secret: true
+      MODEL_IDENTITY: ${MODEL_IDENTITY}
+      MODEL_CONFIG_REVISION: ${MODEL_CONFIG_REVISION}
+      AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION}
+      MODEL_QUALIFICATION_TIMEOUT_SECONDS: ${MODEL_QUALIFICATION_TIMEOUT_SECONDS}

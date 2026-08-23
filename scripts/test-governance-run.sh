@@ -7,10 +7,17 @@ export POSTGRES_PASSWORD="$(openssl rand -hex 32)"
 export FIRST_SUPERUSER="admin-$$@governance-fixture.example"
 export FIRST_SUPERUSER_PASSWORD="$(openssl rand -hex 32)"
 export AGENT_COMPOSE_AUTH_TOKEN="$(openssl rand -hex 32)"
+export AGENT_COMPOSE_RUNTIME_VERSION="${AGENT_COMPOSE_RUNTIME_VERSION:-sha256:092f8c4fbf7254ddd200a36d99ae6583cd08f5ddeda9cafd559b3636890c9670}"
 export CLOUDATLAS_CAPSET_TOKEN="$(openssl rand -hex 32)"
 export FIXTURE_CLOUDATLAS_TOKEN="$(openssl rand -hex 32)"
 export RUNNER_BUILD_VERSION="governance-fixture-$$"
 export TAG="governance-fixture-$$"
+export MODEL_API_ENDPOINT="http://model-qualification-fixture:8080/v1"
+export MODEL_API_PROTOCOL="chat_completions"
+export MODEL_API_KEY="$(openssl rand -hex 32)"
+export MODEL_IDENTITY="fixture-model"
+export MODEL_CONFIG_REVISION="fixture-v1"
+export MODEL_QUALIFICATION_TIMEOUT_SECONDS="30"
 
 compose_files=(-f compose.yml -f compose.override.yml -f compose.governance-run-fixture.yml)
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/exposure-agent-governance.XXXXXX")"
@@ -31,7 +38,8 @@ finish() {
   trap - EXIT
   if ((exit_code != 0)); then
     docker compose "${compose_files[@]}" logs --no-color --tail 200 \
-      backend agent-compose octobus cloudatlas-fixture || true
+      backend agent-compose octobus cloudatlas-fixture \
+      model-qualification-fixture || true
     docker compose "${compose_files[@]}" run --rm --no-deps \
       --entrypoint /bin/sh agent-compose-project-init -ec '
         sh /usr/local/bin/render-exposure-agent-config \
@@ -64,6 +72,8 @@ trap finish EXIT
 stack_cleanup
 docker compose "${compose_files[@]}" build playwright
 docker compose "${compose_files[@]}" up --build -d --wait frontend
+./scripts/test-model-qualification-fixture.sh
+./scripts/qualify-model.sh
 docker compose "${compose_files[@]}" run --rm --no-deps \
   -e RUN_GOVERNANCE_E2E=1 playwright \
   bunx playwright test tests/governance-run.spec.ts \

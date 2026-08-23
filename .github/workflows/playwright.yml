@@ -65,6 +65,7 @@ jobs:
           echo "FIRST_SUPERUSER_PASSWORD=$(openssl rand -hex 32)"
           echo "AGENT_COMPOSE_AUTH_TOKEN=$(openssl rand -hex 32)"
           echo "CLOUDATLAS_CAPSET_TOKEN=$(openssl rand -hex 32)"
+          echo "MODEL_API_KEY=$(openssl rand -hex 32)"
           echo "ARTIFACT_HOST_PATH=$artifact_path"
         } >> "$GITHUB_ENV"
     - run: uv sync

@@ -58,12 +58,11 @@ class _Client:
 def _configure_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "AGENT_COMPOSE_URL", "http://agent-compose/")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_NAME", "project")
-    monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_SOURCE_PATH", "/source")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_AGENT_NAME", "runner")
+    monkeypatch.setattr(settings, "MODEL_QUALIFICATION_AGENT_NAME", "model-qualifier")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_TIMEOUT_SECONDS", 2.0)
-    monkeypatch.setattr(
-        settings, "AGENT_COMPOSE_AUTH_TOKEN", SecretStr("test-token")
-    )
+    monkeypatch.setattr(settings, "AGENT_COMPOSE_AUTH_TOKEN", SecretStr("test-token"))
+    monkeypatch.setattr(settings, "MODEL_API_KEY", SecretStr("model-secret"))
 
 
 def _install_response(
@@ -77,6 +76,16 @@ def _install_response(
 
     monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
     return calls
+
+
+def test_project_id_matches_the_pinned_runtime_id_space(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+
+    assert AgentComposeClient().project_id == (
+        "b3a86d1b61ca36d1bbbea3526fc1cc9bb0074966efb9517c1396901a1a292c24"
+    )
 
 
 def test_start_governance_run_builds_sorted_environment_and_returns_result(
@@ -127,12 +136,80 @@ def test_start_governance_run_builds_sorted_environment_and_returns_result(
     assert result.started is True
     assert result.status == "RUNNING"
     assert calls[0]["path"].endswith("GetRun")
-    assert calls[1]["path"].endswith("StartRun")
+    assert calls[1]["path"].endswith("StartAgentRun")
     assert calls[1]["headers"]["Authorization"] == "Bearer test-token"
     assert calls[1]["json"]["run"]["env"] == [
         {"name": "A_FIRST", "value": "first", "secret": False},
         {"name": "Z_LAST", "value": "last", "secret": False},
     ]
+
+
+def test_model_qualification_uses_the_sanitizing_runner_without_a_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+    client = AgentComposeClient()
+    expected_id = client.expected_model_qualification_run_id("qualification-1")
+    calls: list[dict[str, Any]] = []
+    responses = iter(
+        [
+            _Response(404),
+            _Response(
+                200,
+                {
+                    "run": {"runId": expected_id, "status": "RUNNING"},
+                    "started": True,
+                },
+            ),
+        ]
+    )
+
+    def factory(**_kwargs: Any) -> _Client:
+        return _Client(next(responses), calls)
+
+    monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
+
+    client.start_model_qualification(client_request_id="qualification-1")
+
+    run_request = calls[1]["json"]["run"]
+    assert calls[1]["path"].endswith("StartAgentRun")
+    assert run_request["agentName"] == "model-qualifier"
+    assert run_request["command"] == (
+        "/app/.venv/bin/python -m app.model_qualification_runner"
+    )
+    assert "prompt" not in run_request
+    assert run_request["env"] == [
+        {"name": "LLM_API_KEY", "value": "model-secret", "secret": True}
+    ]
+
+
+def test_get_run_returns_terminal_model_output_without_logging_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+    client = AgentComposeClient()
+    run_id = client.expected_model_qualification_run_id("qualification-1")
+    _install_response(
+        monkeypatch,
+        _Response(
+            200,
+            {
+                "run": {
+                    "summary": {
+                        "runId": run_id,
+                        "status": "RUN_STATUS_SUCCEEDED",
+                    },
+                    "output": '{"recommendations": []}',
+                }
+            },
+        ),
+    )
+
+    result = client.get_run(run_id)
+
+    assert result is not None
+    assert result.output == '{"recommendations": []}'
+    assert result.is_terminal
 
 
 def test_start_governance_run_reuses_existing_run(
@@ -217,7 +294,11 @@ def test_agent_compose_run_observation_fails_closed_for_unknown_status() -> None
         (httpx.ConnectError("offline"), False, "agent_compose_unavailable"),
         (_Response(500), False, "agent_compose_start_failed"),
         (_Response(404), False, "agent_compose_start_failed"),
-        (_Response(200, invalid_json=True), False, "agent_compose_response_contract_failed"),
+        (
+            _Response(200, invalid_json=True),
+            False,
+            "agent_compose_response_contract_failed",
+        ),
         (_Response(200, []), False, "agent_compose_response_contract_failed"),
     ],
 )
@@ -245,11 +326,21 @@ def test_session_query_and_resume_preserve_the_authoritative_session_id(
         [
             _Response(
                 200,
-                {"sandbox": {"sandboxId": session_id, "status": "STOPPED"}},
+                {
+                    "sandbox": {
+                        "sandboxId": session_id,
+                        "status": "SANDBOX_STATUS_STOPPED",
+                    }
+                },
             ),
             _Response(
                 200,
-                {"sandbox": {"sandboxId": session_id, "status": "RUNNING"}},
+                {
+                    "sandbox": {
+                        "sandboxId": session_id,
+                        "status": "SANDBOX_STATUS_RUNNING",
+                    }
+                },
             ),
         ]
     )
@@ -444,6 +535,4 @@ def test_start_governance_run_rejects_invalid_started_flag(
     monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
 
     with pytest.raises(AgentComposeBoundaryError, match="contract_failed"):
-        client.start_governance_run(
-            client_request_id="project:trigger", environment={}
-        )
+        client.start_governance_run(client_request_id="project:trigger", environment={})

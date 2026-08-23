@@ -20,7 +20,8 @@ def db() -> Generator[Session]:
         yield session
         session.execute(
             text(
-                "TRUNCATE TABLE source_snapshots, run_steps, governance_runs, "
+                "TRUNCATE TABLE model_qualification_results, source_snapshots, "
+                "run_steps, governance_runs, "
                 "source_instances, project_memberships, audit_events, "
                 "customer_uploads, artifacts, customer_upload_profiles, "
                 "projects CASCADE"

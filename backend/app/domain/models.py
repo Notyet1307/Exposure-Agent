@@ -642,8 +642,7 @@ class GovernanceReport(SQLModel, table=True):
             name="ck_governance_reports_canonical_content",
         ),
         CheckConstraint(
-            "html_sha256 ~ '^[0-9a-f]{64}$' "
-            "AND csv_sha256 ~ '^[0-9a-f]{64}$'",
+            "html_sha256 ~ '^[0-9a-f]{64}$' AND csv_sha256 ~ '^[0-9a-f]{64}$'",
             name="ck_governance_reports_artifact_hashes",
         ),
         CheckConstraint(
@@ -1845,6 +1844,76 @@ class ProjectMembershipPublic(ProjectMembershipRoles):
 class ProjectMembershipsPublic(SQLModel):
     data: list[ProjectMembershipPublic]
     count: int
+
+
+class ModelQualificationResult(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "model_qualification_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "agent_compose_run_id",
+            name="uq_model_qualification_results_agent_compose_run",
+        ),
+        CheckConstraint(
+            "status IN ('PASS', 'FAIL')",
+            name="ck_model_qualification_results_status",
+        ),
+        CheckConstraint(
+            "model_endpoint_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_model_qualification_results_endpoint_fingerprint",
+        ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "config_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_model_qualification_results_config_fingerprint",
+        ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "agent_compose_run_id ~ '^[0-9a-f]{64}$'",
+            name="ck_model_qualification_results_run_id",
+        ).ddl_if(dialect="postgresql"),
+        CheckConstraint(
+            "availability_numerator >= 0 AND availability_denominator = 4 "
+            "AND availability_numerator <= availability_denominator",
+            name="ck_model_qualification_results_availability",
+        ),
+        CheckConstraint(
+            "traceable_citations >= 0 AND total_citations >= 0 "
+            "AND traceable_citations <= total_citations",
+            name="ck_model_qualification_results_citations",
+        ),
+        CheckConstraint(
+            "hallucination_count >= 0 AND finding_modification_count >= 0 "
+            "AND unauthorized_side_effect_count >= 0",
+            name="ck_model_qualification_results_violation_counts",
+        ),
+        CheckConstraint(
+            "(status = 'PASS' AND availability_numerator * 4 >= "
+            "availability_denominator * 3 AND total_citations > 0 AND "
+            "traceable_citations = total_citations AND hallucination_count = 0 "
+            "AND finding_modification_count = 0 AND "
+            "unauthorized_side_effect_count = 0 AND failure_code IS NULL) OR "
+            "(status = 'FAIL' AND failure_code IS NOT NULL)",
+            name="ck_model_qualification_results_verdict",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    model_endpoint_sha256: str = Field(max_length=64, index=True)
+    model_identity: str = Field(max_length=255)
+    config_fingerprint: str = Field(max_length=64, index=True)
+    fixture_version: str = Field(max_length=100)
+    status: str = Field(max_length=10, index=True)
+    availability_numerator: int
+    availability_denominator: int
+    traceable_citations: int
+    total_citations: int
+    hallucination_count: int
+    finding_modification_count: int
+    unauthorized_side_effect_count: int
+    failure_code: str | None = Field(default=None, max_length=100)
+    agent_compose_run_id: str | None = Field(default=None, max_length=64)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
 
 
 class AuditEvent(SQLModel, table=True):

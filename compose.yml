@@ -28,8 +28,9 @@ services:
     command: ["true"]
 
   agent-compose:
-    # Pin the multi-architecture manifest; the previous digest was arm64-only.
-    image: 'ghcr.io/chaitin/agent-compose@sha256:3117226250256b03d25815bd1bb584ade5ac225b83f55d527be122b8b75a61e8'
+    # v2608.4.0 multi-architecture manifest with Pi support; upstream
+    # revision 5df1acb0cda4159f7106f263e358c8a84026a142.
+    image: 'chaitin/agent-compose@${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}'
     restart: always
     environment:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
@@ -51,7 +52,7 @@ services:
       start_period: 15s
 
   agent-compose-project-init:
-    image: 'ghcr.io/chaitin/agent-compose@sha256:3117226250256b03d25815bd1bb584ade5ac225b83f55d527be122b8b75a61e8'
+    image: 'chaitin/agent-compose@${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}'
     depends_on:
       agent-compose:
         condition: service_healthy
@@ -70,12 +71,19 @@ services:
       - .env
     environment:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
+      AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}
       ARTIFACT_HOST_PATH: ${ARTIFACT_HOST_PATH:?Variable not set or empty}
       CLOUDATLAS_CAPSET_TOKEN: ${CLOUDATLAS_CAPSET_TOKEN:?Variable not set or empty}
       DOCKER_IMAGE_RUNNER: ${DOCKER_IMAGE_RUNNER?Variable not set}
       ENVIRONMENT: ${ENVIRONMENT?Variable not set}
       PROJECT_NAME: ${PROJECT_NAME?Variable not set}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION?Variable not set}
+      MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:-http://127.0.0.1:9/v1}
+      MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}
+      MODEL_API_KEY: ${MODEL_API_KEY-}
+      MODEL_IDENTITY: ${MODEL_IDENTITY:-unconfigured}
+      MODEL_CONFIG_REVISION: ${MODEL_CONFIG_REVISION:-v1}
+      MODEL_QUALIFICATION_TIMEOUT_SECONDS: ${MODEL_QUALIFICATION_TIMEOUT_SECONDS:-120}
       SECRET_KEY: ${SECRET_KEY:?Variable not set or empty}
       FIRST_SUPERUSER: ${FIRST_SUPERUSER?Variable not set}
       FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD?Variable not set}
@@ -177,7 +185,14 @@ services:
       CLOUDATLAS_CAPSET_TOKEN: ${CLOUDATLAS_CAPSET_TOKEN:?Variable not set or empty}
       AGENT_COMPOSE_URL: http://agent-compose:7410
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
+      AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION:?Variable not set or empty}
+      MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:-http://127.0.0.1:9/v1}
+      MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}
+      MODEL_API_KEY: ${MODEL_API_KEY-}
+      MODEL_IDENTITY: ${MODEL_IDENTITY:-unconfigured}
+      MODEL_CONFIG_REVISION: ${MODEL_CONFIG_REVISION:-v1}
+      MODEL_QUALIFICATION_TIMEOUT_SECONDS: ${MODEL_QUALIFICATION_TIMEOUT_SECONDS:-120}
     volumes:
       - type: bind
         source: ${ARTIFACT_HOST_PATH:?Variable not set or empty}

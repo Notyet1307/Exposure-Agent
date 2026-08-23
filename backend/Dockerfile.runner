@@ -1,8 +1,8 @@
 FROM python:3.14-bookworm AS python-runtime
 
-# Pin the multi-architecture manifest, not the arm64-only image manifest.
-# GitHub Actions builds on amd64 while local development may use arm64.
-FROM ghcr.io/chaitin/agent-compose-guest@sha256:a99584629d9fe8c677683cdb6be88578b556a6e04e50abc5f1039424fdbefe73
+# Pin the multi-architecture v2608.4.0 manifest from upstream revision
+# 5df1acb0cda4159f7106f263e358c8a84026a142. CI is amd64; development may be arm64.
+FROM chaitin/agent-compose-guest@sha256:a016062c336a4c3e7ddd863a0c3ed698159655d80966b900585ecb2a67ea0740
 
 ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
@@ -10,6 +10,16 @@ ENV PYTHONUNBUFFERED=1 \
 
 COPY --from=python-runtime /usr/local /usr/local
 COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
+
+# Qualification runs have no tool capability; the governance runner uses a
+# direct command and is unaffected by the Pi wrapper.
+RUN mv /usr/bin/pi /usr/bin/pi-with-tools && \
+    printf '%s\n' '#!/bin/sh' \
+    'config_dir=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}' \
+    'mkdir -p "$config_dir"' \
+    'printf '\''%s\n'\'' '\''{"retry":{"enabled":false,"provider":{"maxRetries":0}}}'\'' > "$config_dir/settings.json"' \
+    'exec /usr/bin/pi-with-tools --no-tools "$@"' \
+    > /usr/bin/pi && chmod 0755 /usr/bin/pi
 
 WORKDIR /app/
 

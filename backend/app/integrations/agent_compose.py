@@ -12,7 +12,7 @@ from app.core.config import settings
 _PROJECT_KIND: Final = "project"
 _RUN_KIND: Final = "run"
 _RUN_SOURCE: Final = "api"
-_START_RUN_PATH: Final = "/agentcompose.v2.RunService/StartRun"
+_START_RUN_PATH: Final = "/agentcompose.v2.RunService/StartAgentRun"
 _GET_RUN_PATH: Final = "/agentcompose.v2.RunService/GetRun"
 _GET_SESSION_PATH: Final = "/agentcompose.v2.SandboxService/GetSandbox"
 _RESUME_SESSION_PATH: Final = "/agentcompose.v2.SandboxService/ResumeSandbox"
@@ -30,6 +30,14 @@ class AgentComposeRunStart:
     started: bool
     status: str
     session_id: str | None = None
+    output: str | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.status.upper() in {
+            "SUCCEEDED",
+            "RUN_STATUS_SUCCEEDED",
+        }
 
     @property
     def is_terminal(self) -> bool:
@@ -55,9 +63,9 @@ class AgentComposeSession:
 
 def _session_observation(status: str) -> AgentComposeSessionObservation:
     normalized = status.lower()
-    if normalized == "stopped":
+    if normalized in {"stopped", "sandbox_status_stopped"}:
         return AgentComposeSessionObservation.TERMINAL
-    if normalized == "running":
+    if normalized in {"running", "sandbox_status_running"}:
         return AgentComposeSessionObservation.RUNNING
     return AgentComposeSessionObservation.UNKNOWN
 
@@ -89,7 +97,6 @@ class AgentComposeClient:
         self.project_id = _stable_id(
             _PROJECT_KIND,
             settings.AGENT_COMPOSE_PROJECT_NAME,
-            settings.AGENT_COMPOSE_PROJECT_SOURCE_PATH,
         )
 
     def _request(
@@ -122,18 +129,28 @@ class AgentComposeClient:
         try:
             body = response.json()
         except ValueError:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         return _required_object(body)
 
-    def expected_run_id(self, client_request_id: str) -> str:
+    def _expected_run_id(self, *, agent_name: str, client_request_id: str) -> str:
         return _stable_id(
             _RUN_KIND,
             self.project_id,
-            settings.AGENT_COMPOSE_AGENT_NAME,
+            agent_name,
             _RUN_SOURCE,
             client_request_id,
+        )
+
+    def expected_run_id(self, client_request_id: str) -> str:
+        return self._expected_run_id(
+            agent_name=settings.AGENT_COMPOSE_AGENT_NAME,
+            client_request_id=client_request_id,
+        )
+
+    def expected_model_qualification_run_id(self, client_request_id: str) -> str:
+        return self._expected_run_id(
+            agent_name=settings.MODEL_QUALIFICATION_AGENT_NAME,
+            client_request_id=client_request_id,
         )
 
     def get_run(self, run_id: str) -> AgentComposeRunStart | None:
@@ -148,22 +165,22 @@ class AgentComposeClient:
         summary = _required_object(detail.get("summary"))
         returned_id = _required_string(summary.get("runId"))
         if returned_id != run_id:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         status = _required_string(summary.get("status"))
         session_id = summary.get("sandboxId")
         if session_id is not None and (
             not isinstance(session_id, str) or not session_id
         ):
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
+        output = detail.get("output")
+        if output is not None and not isinstance(output, str):
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         return AgentComposeRunStart(
             run_id=run_id,
             started=False,
             status=status,
             session_id=session_id,
+            output=output,
         )
 
     def get_session(self, session_id: str) -> AgentComposeSession | None:
@@ -177,9 +194,7 @@ class AgentComposeClient:
         sandbox = _required_object(body.get("sandbox"))
         returned_id = _required_string(sandbox.get("sandboxId"))
         if returned_id != session_id:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         status = _required_string(sandbox.get("status"))
         return AgentComposeSession(
             session_id=session_id,
@@ -194,15 +209,11 @@ class AgentComposeClient:
             non_ok_code="agent_compose_session_not_recoverable",
         )
         if body is None:
-            raise AgentComposeBoundaryError(
-                "agent_compose_session_not_recoverable"
-            )
+            raise AgentComposeBoundaryError("agent_compose_session_not_recoverable")
         sandbox = _required_object(body.get("sandbox"))
         returned_id = _required_string(sandbox.get("sandboxId"))
         if returned_id != session_id:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         status = _required_string(sandbox.get("status"))
         return AgentComposeSession(
             session_id=session_id,
@@ -216,7 +227,41 @@ class AgentComposeClient:
         environment: dict[str, str],
         session_id: str | None = None,
     ) -> AgentComposeRunStart:
-        run_id = self.expected_run_id(client_request_id)
+        return self._start_run(
+            agent_name=settings.AGENT_COMPOSE_AGENT_NAME,
+            client_request_id=client_request_id,
+            environment=environment,
+            command="/app/.venv/bin/python -m app.governance_runner",
+            session_id=session_id,
+        )
+
+    def start_model_qualification(
+        self, *, client_request_id: str
+    ) -> AgentComposeRunStart:
+        return self._start_run(
+            agent_name=settings.MODEL_QUALIFICATION_AGENT_NAME,
+            client_request_id=client_request_id,
+            environment={},
+            secret_environment={
+                "LLM_API_KEY": settings.MODEL_API_KEY.get_secret_value()
+            },
+            command="/app/.venv/bin/python -m app.model_qualification_runner",
+        )
+
+    def _start_run(
+        self,
+        *,
+        agent_name: str,
+        client_request_id: str,
+        environment: dict[str, str],
+        command: str,
+        secret_environment: dict[str, str] | None = None,
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        run_id = self._expected_run_id(
+            agent_name=agent_name,
+            client_request_id=client_request_id,
+        )
         existing = self.get_run(run_id)
         if existing is not None:
             if session_id is not None and existing.session_id != session_id:
@@ -224,20 +269,25 @@ class AgentComposeClient:
                     "agent_compose_response_contract_failed"
                 )
             return existing
+        run_environment = {
+            name: (value, False) for name, value in environment.items()
+        }
+        run_environment.update(
+            {
+                name: (value, True)
+                for name, value in (secret_environment or {}).items()
+            }
+        )
         run_request: dict[str, Any] = {
             "projectId": self.project_id,
-            "agentName": settings.AGENT_COMPOSE_AGENT_NAME,
-            "command": (
-                "/app/.venv/bin/python -m app.governance_runner"
-            ),
+            "agentName": agent_name,
             "source": "RUN_SOURCE_API",
             "clientRequestId": client_request_id,
-            "cleanupPolicy": (
-                "RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION"
-            ),
+            "cleanupPolicy": ("RUN_SANDBOX_CLEANUP_POLICY_STOP_ON_COMPLETION"),
+            "command": command,
             "env": [
-                {"name": name, "value": value, "secret": False}
-                for name, value in sorted(environment.items())
+                {"name": name, "value": value, "secret": secret}
+                for name, (value, secret) in sorted(run_environment.items())
             ],
         }
         if session_id is not None:
@@ -250,25 +300,18 @@ class AgentComposeClient:
         summary = _required_object(body.get("run"))
         returned_id = _required_string(summary.get("runId"))
         if returned_id != run_id:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         status = _required_string(summary.get("status"))
         started = body.get("started")
         if not isinstance(started, bool):
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         returned_session_id = (
             _required_string(summary.get("sandboxId"))
             if summary.get("sandboxId") is not None
             else None
         )
         if session_id is not None:
-            if (
-                returned_session_id is not None
-                and returned_session_id != session_id
-            ):
+            if returned_session_id is not None and returned_session_id != session_id:
                 raise AgentComposeBoundaryError(
                     "agent_compose_response_contract_failed"
                 )

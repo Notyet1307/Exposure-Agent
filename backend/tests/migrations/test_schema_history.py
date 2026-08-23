@@ -10,8 +10,17 @@ from typing import Any
 import psycopg
 import pytest
 from psycopg import sql
+from sqlalchemy import CheckConstraint
+from sqlalchemy.engine import URL
+from sqlmodel import Session, create_engine
 
 from app.core.config import settings
+from app.domain.model_qualification import execute_model_qualification, model_binding
+from app.domain.models import ModelQualificationResult
+from app.integrations.agent_compose import (
+    AgentComposeBoundaryError,
+    AgentComposeRunStart,
+)
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 PRE_CLEANUP_REVISION = "fe56fa70289e"
@@ -20,7 +29,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_GOVERNANCE_RUN_REVISION = "a2b3c4d5e6f7"
+CURRENT_GOVERNANCE_RUN_REVISION = "e3f4a5b6c7d8"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -137,6 +146,168 @@ def test_template_database_upgrades_without_losing_users(
         assert connection.execute(
             "SELECT to_regclass('public.project_memberships')"
         ).fetchone() == ("project_memberships",)
+        assert connection.execute(
+            "SELECT to_regclass('public.model_qualification_results')"
+        ).fetchone() == ("model_qualification_results",)
+        qualification_columns = {
+            row[0]
+            for row in connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' "
+                "AND table_name = 'model_qualification_results'"
+            ).fetchall()
+        }
+        assert qualification_columns.isdisjoint(
+            {
+                "secret",
+                "prompt",
+                "provider_events",
+                "raw_output",
+                "model_endpoint",
+            }
+        )
+        assert connection.execute(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            "AND table_name = 'model_qualification_results' "
+            "AND column_name = 'agent_compose_run_id'"
+        ).fetchone() == ("YES",)
+
+
+def test_model_qualification_final_schema_matches_model_and_accepts_start_failure(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "head")
+    model_checks = {
+        constraint.name
+        for constraint in ModelQualificationResult.__table__.constraints  # type: ignore[attr-defined]
+        if isinstance(constraint, CheckConstraint)
+    }
+
+    with connect(template_baseline_database) as connection:
+        database_checks = {
+            row[0]
+            for row in connection.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'model_qualification_results'::regclass "
+                "AND contype = 'c'"
+            ).fetchall()
+        }
+        assert database_checks == model_checks
+        assert connection.execute(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_schema = 'public' "
+            "AND table_name = 'model_qualification_results' "
+            "AND column_name = 'agent_compose_run_id'"
+        ).fetchone() == ("YES",)
+
+        statement = (
+            "INSERT INTO model_qualification_results "
+            "(id, model_endpoint_sha256, model_identity, config_fingerprint, "
+            "fixture_version, status, availability_numerator, "
+            "availability_denominator, traceable_citations, total_citations, "
+            "hallucination_count, finding_modification_count, "
+            "unauthorized_side_effect_count, failure_code, agent_compose_run_id) "
+            "VALUES (%(id)s, %(endpoint)s, 'fake-model', %(fingerprint)s, "
+            "'model-qualification-v1', %(status)s, %(availability)s, 4, "
+            "%(traceable)s, %(total)s, 0, 0, 0, %(failure_code)s, %(run_id)s)"
+        )
+
+        def insert(**overrides: object) -> None:
+            values: dict[str, object] = {
+                "id": uuid.uuid4(),
+                "endpoint": "a" * 64,
+                "fingerprint": "b" * 64,
+                "status": "FAIL",
+                "availability": 0,
+                "traceable": 0,
+                "total": 0,
+                "failure_code": "agent_compose_failed",
+                "run_id": None,
+            }
+            values.update(overrides)
+            connection.execute(statement, values)
+
+        insert()
+        insert(
+            status="PASS",
+            availability=3,
+            traceable=1,
+            total=1,
+            failure_code=None,
+            run_id="c" * 64,
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with connection.transaction():
+                insert(
+                    status="PASS",
+                    availability=3,
+                    traceable=0,
+                    total=0,
+                    failure_code=None,
+                    run_id="d" * 64,
+                )
+        for field in ("endpoint", "fingerprint", "run_id"):
+            with pytest.raises(psycopg.errors.CheckViolation):
+                with connection.transaction():
+                    insert(**{field: "not-a-sha256"})
+
+
+def test_migrated_schema_persists_start_failure_and_completed_audit(
+    template_baseline_database: str,
+) -> None:
+    class UnavailableClient:
+        def start_model_qualification(
+            self, *, client_request_id: str
+        ) -> AgentComposeRunStart:
+            raise AgentComposeBoundaryError("agent_compose_unavailable")
+
+        def get_run(self, run_id: str) -> AgentComposeRunStart | None:
+            raise AssertionError("start failure must not be observed")
+
+    run_migration(template_baseline_database, "head")
+    engine = create_engine(
+        URL.create(
+            "postgresql+psycopg",
+            username=settings.POSTGRES_USER,
+            password=settings.POSTGRES_PASSWORD,
+            host=settings.POSTGRES_SERVER,
+            port=settings.POSTGRES_PORT,
+            database=template_baseline_database,
+        )
+    )
+    try:
+        with Session(engine) as session:
+            result = execute_model_qualification(
+                session=session,
+                client=UnavailableClient(),
+                binding=model_binding(
+                    endpoint="http://127.0.0.1:8081/v1",
+                    model_identity="fake-model",
+                    protocol="chat_completions",
+                    config_revision="test-v1",
+                    runner_build_version="runner-v1",
+                    agent_compose_runtime_version="compose-v1",
+                ),
+                request_id="qualification-start-failure",
+            )
+    finally:
+        engine.dispose()
+
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT status, failure_code, agent_compose_run_id "
+            "FROM model_qualification_results WHERE id = %s",
+            (result.id,),
+        ).fetchone() == ("FAIL", "agent_compose_failed", None)
+        assert connection.execute(
+            "SELECT action FROM audit_events WHERE target_id = %s "
+            "ORDER BY created_at, action DESC",
+            (result.id,),
+        ).fetchall() == [
+            ("model_qualification.triggered",),
+            ("model_qualification.completed",),
+        ]
 
 
 def test_existing_projects_and_audit_events_survive_lifecycle_upgrade(
@@ -1011,8 +1182,7 @@ def test_report_contract_version_and_steps_are_persistable(
     with pytest.raises(psycopg.errors.RaiseException, match="pinned facts"):
         with connect(template_baseline_database) as connection:
             connection.execute(
-                "UPDATE governance_runs SET report_contract_version = %s "
-                "WHERE id = %s",
+                "UPDATE governance_runs SET report_contract_version = %s WHERE id = %s",
                 ("deterministic-report-v2", ids["run_id"]),
             )
 
@@ -1140,11 +1310,14 @@ def test_stage4_run_history_upgrades_without_report_backfill_or_new_steps(
             "FROM governance_runs WHERE id = %s",
             (ids["run_id"],),
         ).fetchone() == (expected_status, "ip-v1", None)
-        assert connection.execute(
-            "SELECT id, step_code, status, attempt FROM run_steps "
-            "WHERE governance_run_id = %s ORDER BY step_code",
-            (ids["run_id"],),
-        ).fetchall() == steps_before_upgrade
+        assert (
+            connection.execute(
+                "SELECT id, step_code, status, attempt FROM run_steps "
+                "WHERE governance_run_id = %s ORDER BY step_code",
+                (ids["run_id"],),
+            ).fetchall()
+            == steps_before_upgrade
+        )
         assert connection.execute(
             "SELECT count(*) FROM governance_reports"
         ).fetchone() == (0,)
