@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useEffect, useState } from "react"
 
 import {
+  type AiGovernanceDraftPublic,
+  ApiError,
   type GovernanceReportDetailPublic,
   type GovernanceReportSummaryPublic,
   GovernanceReportsService,
@@ -16,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -34,6 +37,72 @@ import {
 
 const REPORT_PAGE_SIZE = 20
 const HTML_EVIDENCE_LIMIT = 8
+const MAX_DRAFT_FINDINGS = 8
+
+function draftIdempotencyStorageKey(projectId: string, reportId: string) {
+  return `exposure:ai-governance-draft:${projectId}:${reportId}:idempotency-key`
+}
+
+type DraftRequestRecovery = {
+  idempotencyKey: string
+  findingIds: string[]
+}
+
+function readDraftRequestRecovery(
+  storageKey: string,
+): DraftRequestRecovery | null {
+  try {
+    const serialized = window.sessionStorage.getItem(storageKey)
+    if (serialized === null) return null
+    const value: unknown = JSON.parse(serialized)
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null
+    }
+    const { idempotencyKey, findingIds } = value as {
+      idempotencyKey?: unknown
+      findingIds?: unknown
+    }
+    if (
+      typeof idempotencyKey !== "string" ||
+      !Array.isArray(findingIds) ||
+      findingIds.length === 0 ||
+      findingIds.length > MAX_DRAFT_FINDINGS ||
+      findingIds.some((findingId) => typeof findingId !== "string")
+    ) {
+      return null
+    }
+    return { idempotencyKey, findingIds }
+  } catch {
+    return null
+  }
+}
+
+function storeDraftRequestRecovery(
+  storageKey: string,
+  value: DraftRequestRecovery,
+) {
+  try {
+    window.sessionStorage.setItem(storageKey, JSON.stringify(value))
+  } catch {
+    // The API remains usable when browser storage is unavailable; only
+    // remount recovery is disabled for that tab.
+  }
+}
+
+function clearDraftIdempotencyKey(storageKey: string) {
+  try {
+    window.sessionStorage.removeItem(storageKey)
+  } catch {
+    // Nothing durable was available to clear.
+  }
+}
+
+function isActiveDraftGenerationConflict(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 409) return false
+  const body = asObject(error.body)
+  const detail = body ? asObject(body.detail) : null
+  return detail?.code === "draft_generation_active"
+}
 
 type JsonObject = Record<string, unknown>
 
@@ -237,7 +306,300 @@ function EvidenceCards({
   )
 }
 
-function PublishedReport({ detail }: { detail: GovernanceReportDetailPublic }) {
+type EligibleDraftFinding = {
+  id: string
+  canonicalIp: string
+}
+
+function eligibleDraftFindings(
+  detail: GovernanceReportDetailPublic,
+): EligibleDraftFinding[] {
+  const root = asObject(detail.canonical_content)
+  const evidencePlan = root ? objectField(root, "evidence_plan") : null
+  if (!evidencePlan) return []
+  const persistedEvidence = new Set(
+    (detail.evidence ?? []).map(
+      (evidence) => `${evidence.fact_type}:${evidence.fact_id}`,
+    ),
+  )
+  return objectArray(evidencePlan, "entries").flatMap((entry) => {
+    const reference = objectField(entry, "evidence_reference")
+    const id = stringField(entry, "finding_id", "")
+    const factType = reference ? stringField(reference, "fact_type", "") : ""
+    const factId = reference ? stringField(reference, "fact_id", "") : ""
+    if (
+      entry.finding_type !== "UNOBSERVED_ASSET" ||
+      !id ||
+      !persistedEvidence.has(`${factType}:${factId}`)
+    ) {
+      return []
+    }
+    return [{ id, canonicalIp: stringField(entry, "canonical_ip") }]
+  })
+}
+
+function DraftGeneration({
+  detail,
+  projectId,
+}: {
+  detail: GovernanceReportDetailPublic
+  projectId: string
+}) {
+  const queryClient = useQueryClient()
+  const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(
+    new Set(),
+  )
+  const storageKey = draftIdempotencyStorageKey(projectId, detail.id)
+  const [pendingRequest, setPendingRequest] =
+    useState<DraftRequestRecovery | null>(() =>
+      readDraftRequestRecovery(storageKey),
+    )
+  const eligibleFindings = eligibleDraftFindings(detail)
+  const clearPendingRequest = () => {
+    clearDraftIdempotencyKey(storageKey)
+    setPendingRequest(null)
+  }
+  const generationMutation = useMutation({
+    mutationFn: ({ findingIds, key }: { findingIds: string[]; key: string }) =>
+      GovernanceReportsService.requestAiGovernanceDraft({
+        projectId,
+        reportId: detail.id,
+        requestBody: { finding_ids: findingIds },
+        idempotencyKey: key,
+      }),
+    onSuccess: (draft) => {
+      // A response to this exact request key proves that the recovered key is
+      // bound to the returned draft. A bound Session needs no further replay.
+      if (draft.session_id !== null) clearPendingRequest()
+    },
+    onSettled: async (_data, error) => {
+      const queryKey = ["governance-report", projectId, detail.id]
+      try {
+        // A request error is ambiguous until the persisted report is read
+        // again. A no-draft read, or the definitive active-generation
+        // conflict with its active draft, releases this browser key.
+        await queryClient.invalidateQueries({ queryKey, refetchType: "none" })
+        const refreshed = await queryClient.fetchQuery({
+          queryKey,
+          queryFn: () =>
+            GovernanceReportsService.readGovernanceReport({
+              projectId,
+              reportId: detail.id,
+            }),
+        })
+        const hasActiveDraft =
+          refreshed.ai_governance_drafts?.some(
+            (draft) => draft.status === "GENERATING",
+          ) ?? false
+        if (
+          error &&
+          ((refreshed.ai_governance_drafts?.length ?? 0) === 0 ||
+            (hasActiveDraft && isActiveDraftGenerationConflict(error)))
+        ) {
+          clearPendingRequest()
+        }
+      } catch {
+        // Keep the key if the post-request read did not conclusively rule out
+        // a persisted draft or Session.
+      }
+    },
+  })
+  const latestDraft: AiGovernanceDraftPublic | undefined =
+    detail.ai_governance_drafts?.[0] ?? generationMutation.data
+  const generationAfterFailureBlocked =
+    detail.ai_governance_drafts?.some((draft) => draft.status === "FAILED") ??
+    false
+  const activeDraft =
+    latestDraft?.status === "GENERATING" ? latestDraft : undefined
+  useEffect(() => {
+    setSelectedFindingIds(new Set())
+    setPendingRequest(readDraftRequestRecovery(storageKey))
+  }, [storageKey])
+
+  const toggleFinding = (findingId: string, checked: boolean) => {
+    // Once a request key has been issued, the response may be ambiguous.  The
+    // key and original selection are the only safe recovery handle until a
+    // replay of that key confirms the resulting draft state.
+    if (pendingRequest) return
+    setSelectedFindingIds((current) => {
+      const next = new Set(current)
+      if (checked) {
+        if (next.size < MAX_DRAFT_FINDINGS) next.add(findingId)
+      } else {
+        next.delete(findingId)
+      }
+      return next
+    })
+  }
+
+  const requestDraft = () => {
+    if (
+      generationAfterFailureBlocked ||
+      pendingRequest !== null ||
+      selectedFindingIds.size === 0 ||
+      generationMutation.isPending
+    )
+      return
+    const request = {
+      idempotencyKey: crypto.randomUUID(),
+      findingIds: [...selectedFindingIds],
+    }
+    setPendingRequest(request)
+    storeDraftRequestRecovery(storageKey, request)
+    generationMutation.mutate({
+      findingIds: request.findingIds,
+      key: request.idempotencyKey,
+    })
+  }
+
+  const resumePendingRequest = () => {
+    if (!pendingRequest || generationMutation.isPending) return
+    generationMutation.mutate({
+      findingIds: pendingRequest.findingIds,
+      key: pendingRequest.idempotencyKey,
+    })
+  }
+
+  return (
+    <ReportSection id="ai-governance-draft" title="AI governance draft">
+      <p className="text-sm text-muted-foreground">
+        Select one to eight eligible unobserved assets. Nothing is selected
+        automatically, and the deterministic report remains unchanged.
+      </p>
+      {generationAfterFailureBlocked ? (
+        <p className="text-sm text-muted-foreground">
+          A new draft attempt after failure is not available in this release.
+        </p>
+      ) : pendingRequest ? (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            A previous request is pending. Replaying it sends the same
+            idempotency key and exactly the Findings selected before reload.
+          </p>
+          <Button
+            disabled={generationMutation.isPending}
+            onClick={resumePendingRequest}
+            type="button"
+            variant="outline"
+          >
+            {generationMutation.isPending
+              ? "Resuming draft request…"
+              : "Resume your draft request"}
+          </Button>
+        </div>
+      ) : activeDraft ? (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Draft generation is already active.
+          </p>
+          {activeDraft.session_id === null && (
+            <p className="text-sm text-muted-foreground">
+              This browser does not have a recoverable request for the active
+              draft.
+            </p>
+          )}
+        </div>
+      ) : !detail.can_request_ai_governance_draft ? (
+        <p className="text-sm text-muted-foreground">
+          A Project Operator can request an AI governance draft.
+        </p>
+      ) : (
+        <>
+          {eligibleFindings.length === 0 ? (
+            <p className="text-sm">
+              No eligible unobserved-asset Findings are available.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {eligibleFindings.map((finding) => {
+                const selected = selectedFindingIds.has(finding.id)
+                return (
+                  <div
+                    className="flex cursor-pointer items-center gap-2 rounded-md border p-2 text-sm"
+                    key={finding.id}
+                  >
+                    <Checkbox
+                      checked={selected}
+                      disabled={
+                        generationMutation.isPending ||
+                        pendingRequest !== null ||
+                        (!selected &&
+                          selectedFindingIds.size >= MAX_DRAFT_FINDINGS)
+                      }
+                      id={`ai-draft-finding-${finding.id}`}
+                      onCheckedChange={(checked) =>
+                        toggleFinding(finding.id, checked === true)
+                      }
+                    />
+                    <label
+                      className="flex cursor-pointer items-center gap-2"
+                      htmlFor={`ai-draft-finding-${finding.id}`}
+                    >
+                      <span className="font-mono text-xs">{finding.id}</span>
+                      <span className="text-muted-foreground">
+                        {finding.canonicalIp}
+                      </span>
+                    </label>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <Button
+              disabled={
+                selectedFindingIds.size === 0 || generationMutation.isPending
+              }
+              onClick={requestDraft}
+              type="button"
+            >
+              {generationMutation.isPending
+                ? "Requesting draft…"
+                : "Request AI draft"}
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {selectedFindingIds.size} of {MAX_DRAFT_FINDINGS} selected
+            </span>
+          </div>
+        </>
+      )}
+      {generationMutation.isError && (
+        <Alert variant="destructive">
+          <AlertTitle>Draft request could not be started</AlertTitle>
+          <AlertDescription>
+            {pendingRequest
+              ? "The original request, including its selected Findings, is retained in this browser tab and can be replayed safely."
+              : "No draft was persisted. You can update the selection or prerequisites and try again."}
+          </AlertDescription>
+        </Alert>
+      )}
+      {latestDraft && (
+        <div className="rounded-md border p-3 text-sm" role="status">
+          <p>
+            Generation <Badge>{latestDraft.status}</Badge>
+          </p>
+          <p className="break-all font-mono text-xs">Draft {latestDraft.id}</p>
+          {latestDraft.session_id && (
+            <p className="break-all font-mono text-xs">
+              Session {latestDraft.session_id}
+            </p>
+          )}
+          {latestDraft.failure_code && (
+            <p>Failure: {latestDraft.failure_code}</p>
+          )}
+        </div>
+      )}
+    </ReportSection>
+  )
+}
+
+function PublishedReport({
+  detail,
+  projectId,
+}: {
+  detail: GovernanceReportDetailPublic
+  projectId: string
+}) {
   const root = asObject(detail.canonical_content)
   const report = root ? objectField(root, "report") : null
   const evidencePlan = root ? objectField(root, "evidence_plan") : null
@@ -311,6 +673,7 @@ function PublishedReport({ detail }: { detail: GovernanceReportDetailPublic }) {
 
   return (
     <article className="space-y-4" aria-label="Immutable governance report">
+      <DraftGeneration detail={detail} projectId={projectId} />
       <ReportSection
         id="report-identity"
         title="Report identity and generation mode"
@@ -503,6 +866,12 @@ function ReportDetailDialog({
         reportId: reportId as string,
       }),
     enabled: reportId !== null,
+    refetchInterval: (query) => {
+      const draft = query.state.data?.ai_governance_drafts?.[0]
+      return draft?.status === "GENERATING" && draft.session_id === null
+        ? 2000
+        : false
+    },
   })
 
   return (
@@ -522,7 +891,9 @@ function ReportDetailDialog({
             <AlertDescription>Please try again later.</AlertDescription>
           </Alert>
         )}
-        {detailQuery.data && <PublishedReport detail={detailQuery.data} />}
+        {detailQuery.data && (
+          <PublishedReport detail={detailQuery.data} projectId={projectId} />
+        )}
       </DialogContent>
     </Dialog>
   )

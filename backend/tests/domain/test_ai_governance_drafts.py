@@ -171,6 +171,7 @@ def test_runner_handoff_accepts_only_draft_and_session_identity() -> None:
     session_id = "c" * 64
     environment = {
         "AI_DRAFT_ID": str(draft_id),
+        "AI_DRAFT_RUN_ID": "b" * 64,
         "SANDBOX_ID": session_id,
         "LLM_API_KEY": "secret-value",
         "PROMPT_TEXT": "complete prompt material",
@@ -180,9 +181,11 @@ def test_runner_handoff_accepts_only_draft_and_session_identity() -> None:
     handoff = DraftRunnerHandoff.from_environment(environment)
 
     assert handoff.draft_id == draft_id
+    assert handoff.agent_compose_run_id == "b" * 64
     assert handoff.session_id == session_id
     assert {field.name for field in fields(DraftRunnerHandoff)} == {
         "draft_id",
+        "agent_compose_run_id",
         "session_id",
     }
 
@@ -215,6 +218,7 @@ def test_runner_entry_rejects_all_command_arguments(
 
     monkeypatch.setattr(sys, "argv", ["ai-draft-runner", "complete prompt material"])
     monkeypatch.setenv("AI_DRAFT_ID", str(uuid.uuid4()))
+    monkeypatch.setenv("AI_DRAFT_RUN_ID", "b" * 64)
     monkeypatch.setenv("SANDBOX_ID", "c" * 64)
 
     assert main() == 1

@@ -31,6 +31,7 @@ from app.domain.ai_governance_drafts import (
     fail_draft,
     load_draft_runner_inputs,
     mark_draft_reviewable,
+    reserve_draft_run_identity,
     review_draft,
 )
 from app.domain.models import (
@@ -40,6 +41,7 @@ from app.domain.models import (
     GovernanceReport,
 )
 from tests.migrations.test_schema_history import (
+    CURRENT_SCHEMA_REVISION,
     DEPLOYMENT_TENANT_ID,
     _insert_governance_report,
     _insert_scoped_report_artifacts,
@@ -773,7 +775,11 @@ def test_draft_pins_inputs_and_enforces_idempotency_and_one_active_generation(
         "ai_governance_draft",
         draft.id,
         None,
-        {"status": "GENERATING", "finding_count": 1},
+        {
+            "governance_report_id": str(ids["report_id"]),
+            "status": "GENERATING",
+            "finding_count": 1,
+        },
     )
     assert _draft_audit_events(draft_database, draft.id) == [requested_event]
 
@@ -880,6 +886,136 @@ def test_draft_pins_inputs_and_enforces_idempotency_and_one_active_generation(
         _create_draft(draft_database, unpublished)
 
 
+def test_draft_reserves_launch_identity_before_idempotent_session_binding(
+    draft_database: str,
+) -> None:
+    ids = _seed_draft_fixture(draft_database, identity_suffix="-launch-reservation")
+    run_id = "b" * 64
+    session_id = "c" * 64
+    creation = _request_draft(draft_database, ids, idempotency_key="reserved-launch")
+    reserved = _apply(
+        draft_database,
+        reserve_draft_run_identity,
+        creation.draft,
+        agent_compose_run_id=run_id,
+        agent_compose_project_id="a" * 64,
+        agent_compose_agent_name="ai-governance-draft",
+    )
+
+    assert creation.created is True
+    assert reserved.agent_compose_run_id == run_id
+    assert reserved.session_id is None
+    bound = _apply(
+        draft_database,
+        bind_draft_session,
+        reserved,
+        agent_compose_run_id=run_id,
+        session_id=session_id,
+    )
+    rebound = _apply(
+        draft_database,
+        bind_draft_session,
+        reserved,
+        agent_compose_run_id=run_id,
+        session_id=session_id,
+    )
+    assert rebound.id == bound.id
+    assert rebound.agent_compose_run_id == run_id
+    assert rebound.session_id == session_id
+
+
+def test_draft_reservation_freezes_a_complete_agent_compose_namespace(
+    draft_database: str,
+) -> None:
+    ids = _seed_draft_fixture(draft_database, identity_suffix="-namespace")
+    draft = _create_draft(draft_database, ids, idempotency_key="frozen-namespace")
+    namespace = {"project_id": "a" * 64, "agent_name": "ai-governance-draft"}
+    reserved = _apply(
+        draft_database,
+        reserve_draft_run_identity,
+        draft,
+        agent_compose_run_id="b" * 64,
+        agent_compose_project_id=namespace["project_id"],
+        agent_compose_agent_name=namespace["agent_name"],
+    )
+
+    assert (
+        reserved.agent_compose_run_id,
+        reserved.agent_compose_project_id,
+        reserved.agent_compose_agent_name,
+    ) == ("b" * 64, namespace["project_id"], namespace["agent_name"])
+    replay = _apply(
+        draft_database,
+        reserve_draft_run_identity,
+        reserved,
+        agent_compose_run_id="b" * 64,
+        agent_compose_project_id=namespace["project_id"],
+        agent_compose_agent_name=namespace["agent_name"],
+    )
+    assert replay.id == reserved.id
+    _assert_state_error(
+        draft_database,
+        "session_already_bound",
+        reserve_draft_run_identity,
+        reserved,
+        agent_compose_run_id="b" * 64,
+        agent_compose_project_id="c" * 64,
+        agent_compose_agent_name=namespace["agent_name"],
+    )
+    _assert_trigger_rejects(
+        draft_database,
+        "namespace cannot be replaced",
+        "UPDATE ai_governance_drafts SET agent_compose_agent_name = %s WHERE id = %s",
+        ("renamed-draft-agent", reserved.id),
+    )
+    _assert_trigger_rejects(
+        draft_database,
+        "namespace cannot be replaced",
+        "UPDATE ai_governance_drafts SET agent_compose_agent_name = NULL "
+        "WHERE id = %s",
+        (reserved.id,),
+    )
+
+
+def test_latest_downgrade_rejects_a_reserved_unbound_launch(
+    draft_database: str,
+) -> None:
+    ids = _seed_draft_fixture(draft_database, identity_suffix="-downgrade-reservation")
+    run_id = "b" * 64
+    creation = _request_draft(
+        draft_database, ids, idempotency_key="downgrade-reservation"
+    )
+    reserved = _apply(
+        draft_database,
+        reserve_draft_run_identity,
+        creation.draft,
+        agent_compose_run_id=run_id,
+        agent_compose_project_id="a" * 64,
+        agent_compose_agent_name="ai-governance-draft",
+    )
+
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        run_downgrade(draft_database, "a1b2c3d4e5f6")
+    assert "frozen agent-compose namespace" in error.value.stderr
+
+    with connect(draft_database) as connection:
+        assert connection.execute(
+            "SELECT agent_compose_run_id, session_id FROM ai_governance_drafts "
+            "WHERE id = %s",
+            (reserved.id,),
+        ).fetchone() == (run_id, None)
+        constraint = connection.execute(
+            "SELECT pg_get_constraintdef(oid), convalidated FROM pg_constraint "
+            "WHERE conrelid = 'ai_governance_drafts'::regclass "
+            "AND conname = 'ck_ai_governance_drafts_session_binding'"
+        ).fetchone()
+    assert constraint is not None
+    assert "session_id IS NULL OR agent_compose_run_id IS NOT NULL" in constraint[
+        0
+    ].replace("(", "").replace(")", "")
+    assert constraint[1] is True
+
+
 def test_failed_draft_replays_by_key_and_requires_an_explicit_new_attempt(
     draft_database: str,
 ) -> None:
@@ -978,6 +1114,37 @@ def test_mandatory_audit_failure_rolls_back_audited_business_mutations(
         ),
         "status, failure_code, generation_terminal_at",
         ("GENERATING", None, None),
+    )
+
+    reserved_ids = _seed_draft_fixture(
+        draft_database, identity_suffix="-audit-failure-terminal-binding"
+    )
+    reserved_candidate = _create_draft(
+        draft_database,
+        reserved_ids,
+        idempotency_key="audit-failure-at-terminal-binding",
+    )
+    reserved = _apply(
+        draft_database,
+        reserve_draft_run_identity,
+        reserved_candidate,
+        agent_compose_run_id="e" * 64,
+        agent_compose_project_id="a" * 64,
+        agent_compose_agent_name="ai-governance-draft",
+    )
+    assert_rollback(
+        reserved,
+        lambda: _apply(
+            draft_database,
+            fail_draft,
+            reserved,
+            failure_code="timeout",
+            actor_subject="agent-compose-control-plane",
+            agent_compose_run_id="e" * 64,
+            session_id="f" * 64,
+        ),
+        "status, failure_code, generation_terminal_at, session_id",
+        ("GENERATING", None, None, None),
     )
 
 
@@ -1460,6 +1627,47 @@ def test_failed_draft_is_terminal_and_keeps_bindings_sealed(
         _assert_trigger_rejects(draft_database, match, statement, parameters)
 
 
+def test_failed_draft_reconciles_only_its_previously_reserved_run(
+    draft_database: str,
+) -> None:
+    ids = _seed_draft_fixture(draft_database)
+    run_id = "b" * 64
+    draft = _request_draft(
+        draft_database,
+        ids,
+        idempotency_key="failed-same-run-reconciliation",
+    ).draft
+    draft = _apply(
+        draft_database,
+        reserve_draft_run_identity,
+        draft,
+        agent_compose_run_id=run_id,
+        agent_compose_project_id="a" * 64,
+        agent_compose_agent_name="ai-governance-draft",
+    )
+    failed = _apply(draft_database, fail_draft, draft, failure_code="timeout")
+
+    reconciled = _apply(
+        draft_database,
+        bind_draft_session,
+        draft,
+        agent_compose_run_id=run_id,
+        session_id="c" * 64,
+    )
+    assert reconciled.id == failed.id
+    assert reconciled.status == "FAILED"
+    assert reconciled.session_id is None
+
+    _assert_state_error(
+        draft_database,
+        "session_already_bound",
+        bind_draft_session,
+        draft,
+        agent_compose_run_id="d" * 64,
+        session_id="c" * 64,
+    )
+
+
 def test_edited_review_is_separate_operator_text_and_immutable_model_output(
     draft_database: str,
 ) -> None:
@@ -1589,6 +1797,7 @@ def _run_draft_runner(
     database: str,
     *,
     draft_id: uuid.UUID,
+    agent_compose_run_id: str,
     session_id: str,
 ) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
@@ -1600,6 +1809,7 @@ def _run_draft_runner(
             "POSTGRES_USER": settings.POSTGRES_USER,
             "POSTGRES_PASSWORD": settings.POSTGRES_PASSWORD,
             "AI_DRAFT_ID": str(draft_id),
+            "AI_DRAFT_RUN_ID": agent_compose_run_id,
             "SANDBOX_ID": session_id,
             "LLM_API_KEY": "sensitive-model-secret",
             "PROMPT_TEXT": "complete-prompt-material",
@@ -1621,11 +1831,26 @@ def test_draft_runner_starts_with_only_draft_identity_and_handles_mismatches(
     draft_database: str,
 ) -> None:
     ids = _seed_draft_fixture(draft_database)
-    draft = _create_draft(draft_database, ids)
-    _bind_draft(draft_database, draft)
+    run_id = "b" * 64
+    draft = _request_draft(
+        draft_database,
+        ids,
+        idempotency_key="runner-reservation",
+    ).draft
+    draft = _apply(
+        draft_database,
+        reserve_draft_run_identity,
+        draft,
+        agent_compose_run_id=run_id,
+        agent_compose_project_id="a" * 64,
+        agent_compose_agent_name="ai-governance-draft",
+    )
 
     completed = _run_draft_runner(
-        draft_database, draft_id=draft.id, session_id="c" * 64
+        draft_database,
+        draft_id=draft.id,
+        agent_compose_run_id=run_id,
+        session_id="c" * 64,
     )
     assert completed.returncode == 0, completed.stderr
     for sensitive_material in (
@@ -1646,8 +1871,18 @@ def test_draft_runner_starts_with_only_draft_identity_and_handles_mismatches(
     assert payload["findings"][0]["evidence"][0]["fact_type"] == "FINDING_OCCURRENCE"
 
     for failed in (
-        _run_draft_runner(draft_database, draft_id=draft.id, session_id="d" * 64),
-        _run_draft_runner(draft_database, draft_id=uuid.uuid4(), session_id="c" * 64),
+        _run_draft_runner(
+            draft_database,
+            draft_id=draft.id,
+            agent_compose_run_id=run_id,
+            session_id="d" * 64,
+        ),
+        _run_draft_runner(
+            draft_database,
+            draft_id=uuid.uuid4(),
+            agent_compose_run_id=run_id,
+            session_id="c" * 64,
+        ),
     ):
         assert failed.returncode == 1
         assert "sensitive-model-secret" not in failed.stdout
@@ -1713,7 +1948,9 @@ def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
     assert_legacy_schema_protections()
 
     run_migration(draft_database, "head")
-    assert_revision("a1b2c3d4e5f6")
+    # A single uninterrupted upgrade from main must reach the current head,
+    # including the frozen agent-compose namespace constraint.
+    assert_revision(CURRENT_SCHEMA_REVISION)
 
     fresh_ids = _seed_draft_fixture(
         draft_database, identity_suffix="-fresh", complete_run=True

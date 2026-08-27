@@ -12,7 +12,20 @@ const runIds = [
   "20000000-0000-0000-0000-000000000002",
   "20000000-0000-0000-0000-000000000003",
 ]
-
+const draftFindingId = "50000000-0000-0000-0000-000000000001"
+const draftEvidenceId = "60000000-0000-0000-0000-000000000001"
+const draftId = "70000000-0000-0000-0000-000000000001"
+const draftRunId = "8".repeat(64)
+const draftSessionId = "9".repeat(64)
+const governanceReportsPath = new RegExp(
+  `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
+)
+async function openReport(page: Page, navigate = true) {
+  if (navigate) await page.goto("/")
+  await page.getByRole("tab", { name: "Reports", exact: true }).click()
+  await page.getByRole("button", { name: "Read report" }).click()
+  return page.getByRole("dialog")
+}
 function reportSummary(index: number) {
   return {
     id: reportIds[index],
@@ -139,6 +152,63 @@ function canonicalContent({ zeroFindings = false } = {}) {
       max_entries: 50,
       entries,
     },
+  }
+}
+
+function draftReportDetail(status?: "GENERATING" | "REVIEWABLE" | "FAILED") {
+  const canonical = canonicalContent()
+  canonical.evidence_plan.entries[0] = {
+    ...canonical.evidence_plan.entries[0],
+    finding_id: draftFindingId,
+    evidence_reference: {
+      governance_run_id: runIds[0],
+      fact_type: "OBSERVATION",
+      fact_id: draftEvidenceId,
+    },
+  }
+  const draft = status
+    ? {
+        id: draftId,
+        governance_report_id: reportIds[0],
+        governance_run_id: runIds[0],
+        report_sha256: "a".repeat(64),
+        initiated_by: "30000000-0000-0000-0000-000000000001",
+        model_identity: "qualified-model",
+        config_fingerprint: "b".repeat(64),
+        agent_compose_run_id: draftRunId,
+        session_id: draftSessionId,
+        status,
+        failure_code: status === "FAILED" ? "provider_failed" : null,
+        finding_ids: [draftFindingId],
+        created_at: completedAt,
+        updated_at: completedAt,
+      }
+    : null
+  return {
+    ...reportSummary(0),
+    canonical_content: canonical,
+    evidence: canonical.evidence_plan.entries.map((entry, index) => ({
+      id: `61000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`,
+      fact_type: entry.evidence_reference.fact_type,
+      fact_id: entry.evidence_reference.fact_id,
+    })),
+    evidence_count: 9,
+    evidence_max_entries: 50,
+    can_request_ai_governance_draft: true,
+    ai_governance_drafts: draft ? [draft] : [],
+  }
+}
+
+function reportListResponse() {
+  return {
+    data: [reportSummary(0)],
+    count: 1,
+    page_size: 1,
+    next_cursor: null,
+    compatible: true,
+    compatibility_code: null,
+    latest_completed_run_id: runIds[0],
+    latest_completed_run_at: completedAt,
   }
 }
 
@@ -379,5 +449,450 @@ test.describe("Project Reports", () => {
           "With both inputs complete, all observed IP identities matched; this Run produced zero Findings.",
         ),
     ).toBeVisible()
+  })
+
+  test("stops polling after the draft Session is bound", async ({ page }) => {
+    let detailReads = 0
+    let requested = false
+    const postedBodies: unknown[] = []
+    const requestKeys: string[] = []
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        requested = true
+        postedBodies.push(request.postDataJSON())
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        return route.fulfill({
+          status: 202,
+          json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        detailReads += 1
+        return route.fulfill({
+          json: draftReportDetail(requested ? "GENERATING" : undefined),
+        })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
+
+    const report = await openReport(page)
+    const requestButton = report.getByRole("button", {
+      name: "Request AI draft",
+    })
+    await expect(report.getByText("0 of 8 selected")).toBeVisible()
+    await expect(requestButton).toBeDisabled()
+
+    await report.getByRole("checkbox").first().click()
+    await expect(report.getByText("1 of 8 selected")).toBeVisible()
+    await requestButton.click()
+
+    const persistedDraft = report.locator(
+      "#ai-governance-draft [role='status']",
+    )
+    await expect(persistedDraft.getByText("GENERATING")).toBeVisible()
+    expect(postedBodies).toEqual([{ finding_ids: [draftFindingId] }])
+    expect(requestKeys).toHaveLength(1)
+    expect(requestKeys[0]).toMatch(/^[0-9a-f-]{36}$/)
+    await expect.poll(() => detailReads).toBeGreaterThanOrEqual(2)
+    const readsAfterSessionBinding = detailReads
+    await page.waitForTimeout(2200)
+    expect(detailReads).toBe(readsAfterSessionBinding)
+  })
+
+  test("refetches persisted report state when a draft request fails", async ({
+    page,
+  }) => {
+    let detailReads = 0
+    let postCount = 0
+    await page.route(governanceReportsPath, (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        return route.fulfill({
+          status: 503,
+          json: {
+            detail: {
+              code: "agent_compose_session_pending",
+              message: "Session identity is pending.",
+            },
+          },
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        detailReads += 1
+        return route.fulfill({
+          json: draftReportDetail(postCount > 0 ? "FAILED" : undefined),
+        })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
+
+    const report = await openReport(page)
+    await report.getByRole("checkbox").first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+
+    await expect(
+      report.getByRole("alert").getByText("Draft request could not be started"),
+    ).toBeVisible()
+    const persistedDraft = report.locator(
+      "#ai-governance-draft [role='status']",
+    )
+    await expect(
+      persistedDraft.getByText("FAILED", { exact: true }),
+    ).toBeVisible()
+    await expect(persistedDraft.getByText(`Draft ${draftId}`)).toBeVisible()
+    await expect(
+      persistedDraft.getByText("Failure: provider_failed"),
+    ).toBeVisible()
+    await expect(
+      report.getByText(
+        "A new draft attempt after failure is not available in this release.",
+      ),
+    ).toBeVisible()
+    await expect(
+      report.getByRole("button", { name: "Request AI draft" }),
+    ).toHaveCount(0)
+    await expect(report.getByRole("checkbox")).toHaveCount(0)
+    await expect.poll(() => detailReads).toBeGreaterThanOrEqual(2)
+    expect(postCount).toBe(1)
+  })
+
+  test("clears a rejected draft key after refresh confirms no draft exists", async ({
+    page,
+  }) => {
+    let postCount = 0
+    const requestKeys: string[] = []
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        return route.fulfill({
+          status: 409,
+          json: {
+            detail: {
+              code: "model_not_qualified",
+              message: "The current model is not qualified.",
+            },
+          },
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        return route.fulfill({ json: draftReportDetail() })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
+
+    let report = await openReport(page)
+    await report.getByRole("checkbox").first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+
+    const storageKey = `exposure:ai-governance-draft:${projectId}:${reportIds[0]}:idempotency-key`
+    await expect
+      .poll(() =>
+        page.evaluate((key) => window.sessionStorage.getItem(key), storageKey),
+      )
+      .toBeNull()
+
+    await page.reload()
+    report = await openReport(page, false)
+    await expect(report.getByRole("checkbox").first()).toBeEnabled()
+    expect(postCount).toBe(1)
+    expect(requestKeys).toHaveLength(1)
+  })
+
+  test("clears a losing draft key after the active-generation conflict refresh", async ({
+    page,
+  }) => {
+    const requestKeys: string[] = []
+    let requestAttempted = false
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        requestAttempted = true
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        return route.fulfill({
+          status: 409,
+          json: {
+            detail: {
+              code: "draft_generation_active",
+              message: "This report already has an active draft generation.",
+            },
+          },
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        return route.fulfill({
+          json: draftReportDetail(requestAttempted ? "GENERATING" : undefined),
+        })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
+
+    const report = await openReport(page)
+    await report.getByRole("checkbox").first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+
+    await expect(report.getByText(`Draft ${draftId}`)).toBeVisible()
+    await expect(
+      report.getByRole("button", { name: "Resume your draft request" }),
+    ).toHaveCount(0)
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (key) => window.sessionStorage.getItem(key),
+          `exposure:ai-governance-draft:${projectId}:${reportIds[0]}:idempotency-key`,
+        ),
+      )
+      .toBeNull()
+    expect(requestKeys).toHaveLength(1)
+  })
+
+  test("recovers a pending Session with the same key after a page reload", async ({
+    page,
+  }) => {
+    let postCount = 0
+    let recovered = false
+    const requestKeys: string[] = []
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        if (postCount === 1) {
+          return route.fulfill({
+            status: 503,
+            json: {
+              detail: {
+                code: "agent_compose_session_pending",
+                message: "Session identity is pending.",
+              },
+            },
+          })
+        }
+        recovered = true
+        return route.fulfill({
+          status: 200,
+          json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        if (postCount === 0) {
+          return route.fulfill({ json: draftReportDetail() })
+        }
+        const detail = draftReportDetail("GENERATING")
+        const pendingDraft = detail.ai_governance_drafts[0]
+        if (!recovered && pendingDraft) pendingDraft.session_id = null
+        return route.fulfill({ json: detail })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
+
+    let report = await openReport(page)
+    await report.getByRole("checkbox").first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+    await expect(
+      report.getByRole("alert").getByText("Draft request could not be started"),
+    ).toBeVisible()
+
+    await page.reload()
+    report = await openReport(page, false)
+    await report
+      .getByRole("button", { name: "Resume your draft request" })
+      .click()
+
+    await expect(report.getByText(`Session ${draftSessionId}`)).toBeVisible()
+    expect(postCount).toBe(2)
+    expect(requestKeys).toHaveLength(2)
+    expect(requestKeys[0]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(requestKeys[1]).toBe(requestKeys[0])
+  })
+
+  test("replays its saved selection instead of an unrelated active draft", async ({
+    page,
+  }) => {
+    let postCount = 0
+    let recovered = false
+    const postedBodies: unknown[] = []
+    const requestKeys: string[] = []
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        postedBodies.push(request.postDataJSON())
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        if (postCount === 1) {
+          return route.fulfill({
+            status: 503,
+            json: {
+              detail: {
+                code: "agent_compose_session_pending",
+                message: "Session identity is pending.",
+              },
+            },
+          })
+        }
+        recovered = true
+        return route.fulfill({
+          status: 200,
+          json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        if (postCount === 0) {
+          return route.fulfill({ json: draftReportDetail() })
+        }
+        if (recovered) {
+          return route.fulfill({ json: draftReportDetail("GENERATING") })
+        }
+        const unrelated = draftReportDetail("GENERATING")
+        const activeDraft = unrelated.ai_governance_drafts[0]
+        if (activeDraft) {
+          activeDraft.finding_ids = ["50000000-0000-0000-0000-000000000009"]
+          activeDraft.session_id = null
+        }
+        return route.fulfill({ json: unrelated })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
+
+    let report = await openReport(page)
+    await report.getByRole("checkbox").first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+    await expect(
+      report.getByRole("alert").getByText("Draft request could not be started"),
+    ).toBeVisible()
+
+    await page.reload()
+    report = await openReport(page, false)
+    await report
+      .getByRole("button", { name: "Resume your draft request" })
+      .click()
+
+    await expect(report.getByText(`Session ${draftSessionId}`)).toBeVisible()
+    expect(postedBodies).toEqual([
+      { finding_ids: [draftFindingId] },
+      { finding_ids: [draftFindingId] },
+    ])
+    expect(requestKeys).toHaveLength(2)
+    expect(requestKeys[1]).toBe(requestKeys[0])
+  })
+
+  test("keeps an ambiguous request key when report refresh fails", async ({
+    page,
+  }) => {
+    let postCount = 0
+    let recoverAfterReload = false
+    const requestKeys: string[] = []
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        if (postCount === 1) {
+          return route.fulfill({
+            status: 503,
+            json: {
+              detail: {
+                code: "agent_compose_session_pending",
+                message: "Session identity is pending.",
+              },
+            },
+          })
+        }
+        return route.fulfill({
+          status: 200,
+          json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        if (postCount > 0 && !recoverAfterReload) {
+          return route.fulfill({
+            status: 503,
+            json: { detail: "unavailable" },
+          })
+        }
+        return route.fulfill({
+          json:
+            postCount > 0
+              ? draftReportDetail("GENERATING")
+              : draftReportDetail(),
+        })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
+
+    let report = await openReport(page)
+    const findings = report.getByRole("checkbox")
+    await findings.first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+    await expect(
+      report.getByRole("alert").getByText("Draft request could not be started"),
+    ).toBeVisible()
+    await expect(
+      report.getByRole("button", { name: "Resume your draft request" }),
+    ).toBeVisible()
+    await expect(
+      report.getByRole("button", { name: "Request AI draft" }),
+    ).toHaveCount(0)
+    await expect(report.getByRole("checkbox")).toHaveCount(0)
+    expect(postCount).toBe(1)
+    expect(
+      await page.evaluate(
+        (key) => window.sessionStorage.getItem(key),
+        `exposure:ai-governance-draft:${projectId}:${reportIds[0]}:idempotency-key`,
+      ),
+    ).toBe(
+      JSON.stringify({
+        idempotencyKey: requestKeys[0],
+        findingIds: [draftFindingId],
+      }),
+    )
+
+    recoverAfterReload = true
+    await page.reload()
+    report = await openReport(page, false)
+    await report
+      .getByRole("button", { name: "Resume your draft request" })
+      .click()
+
+    await expect(report.getByText(`Session ${draftSessionId}`)).toBeVisible()
+    expect(requestKeys).toHaveLength(2)
+    expect(requestKeys[1]).toBe(requestKeys[0])
+  })
+
+  test("requires explicit selection and caps the request at eight Findings", async ({
+    page,
+  }) => {
+    await page.route(governanceReportsPath, (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        return route.fulfill({ json: draftReportDetail() })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
+
+    const report = await openReport(page)
+    const findings = report.getByRole("checkbox")
+
+    await expect(findings).toHaveCount(9)
+    await expect(report.getByText("0 of 8 selected")).toBeVisible()
+    for (let index = 0; index < 8; index += 1) {
+      await findings.nth(index).click()
+    }
+    await expect(report.getByText("8 of 8 selected")).toBeVisible()
+    await expect(findings.nth(8)).toBeDisabled()
+
+    await findings.nth(0).click()
+    await expect(report.getByText("7 of 8 selected")).toBeVisible()
+    await expect(findings.nth(8)).toBeEnabled()
   })
 })

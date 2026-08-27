@@ -16,7 +16,10 @@ def test_qualification_agent_is_pi_only_internal_and_toolless() -> None:
     assert "        value: ${MODEL_API_KEY}\n" in qualifier
     assert "      MODEL_IDENTITY: ${MODEL_IDENTITY}\n" in qualifier
     assert "      MODEL_CONFIG_REVISION: ${MODEL_CONFIG_REVISION}\n" in qualifier
-    assert "      AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION}\n" in qualifier
+    assert (
+        "      AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION}\n"
+        in qualifier
+    )
     assert (
         "      MODEL_QUALIFICATION_TIMEOUT_SECONDS: "
         "${MODEL_QUALIFICATION_TIMEOUT_SECONDS}\n" in qualifier
@@ -34,6 +37,29 @@ def test_qualification_agent_is_pi_only_internal_and_toolless() -> None:
         REPOSITORY_ROOT / "backend/app/integrations/agent_compose.py"
     ).read_text()
     assert "/app/.venv/bin/python -m app.model_qualification_runner" in integration
+
+
+def test_draft_session_agent_has_no_application_or_model_credentials() -> None:
+    compose = (REPOSITORY_ROOT / "agent-compose.yml").read_text()
+    draft_agent = compose.split("  ai-governance-draft:\n", maxsplit=1)[1]
+
+    assert "    provider: pi\n" in draft_agent
+    assert "    model: customer/${MODEL_IDENTITY}\n" in draft_agent
+    assert "    env:\n" not in draft_agent
+    for forbidden in (
+        "POSTGRES_",
+        "SECRET_KEY",
+        "FIRST_SUPERUSER",
+        "LLM_",
+        "MODEL_API_",
+        "AI_DRAFT_",
+    ):
+        assert forbidden not in draft_agent
+
+    integration = (
+        REPOSITORY_ROOT / "backend/app/integrations/agent_compose.py"
+    ).read_text()
+    assert 'command="/usr/bin/true"' in integration
 
 
 def test_renderer_resolves_the_complete_qualification_configuration(

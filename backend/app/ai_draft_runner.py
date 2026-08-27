@@ -16,8 +16,10 @@ from app.domain.ai_governance_drafts import (
     AiGovernanceDraftStateError,
     DraftRunnerHandoff,
     DraftRunnerInputs,
+    bind_draft_session,
     load_draft_runner_inputs,
 )
+from app.domain.models import AiGovernanceDraft
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,7 @@ def main() -> int:
         handoff = DraftRunnerHandoff.from_environment(
             {
                 "AI_DRAFT_ID": os.environ.get("AI_DRAFT_ID", ""),
+                "AI_DRAFT_RUN_ID": os.environ.get("AI_DRAFT_RUN_ID", ""),
                 "SANDBOX_ID": os.environ.get("SANDBOX_ID", ""),
             }
         )
@@ -49,9 +52,18 @@ def main() -> int:
         return _stop(error.code)
     try:
         with Session(engine) as session:
+            draft = session.get(AiGovernanceDraft, handoff.draft_id)
+            if draft is None:
+                raise AiGovernanceDraftStateError("draft_not_found")
+            bound = bind_draft_session(
+                session=session,
+                draft=draft,
+                agent_compose_run_id=handoff.agent_compose_run_id,
+                session_id=handoff.session_id,
+            )
             inputs = load_draft_runner_inputs(
                 session=session,
-                draft_id=handoff.draft_id,
+                draft_id=bound.id,
                 session_id=handoff.session_id,
             )
     except AiGovernanceDraftStateError as error:
