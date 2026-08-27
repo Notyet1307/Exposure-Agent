@@ -17,7 +17,15 @@ const draftEvidenceId = "60000000-0000-0000-0000-000000000001"
 const draftId = "70000000-0000-0000-0000-000000000001"
 const draftRunId = "8".repeat(64)
 const draftSessionId = "9".repeat(64)
-
+const governanceReportsPath = new RegExp(
+  `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
+)
+async function openReport(page: Page, navigate = true) {
+  if (navigate) await page.goto("/")
+  await page.getByRole("tab", { name: "Reports", exact: true }).click()
+  await page.getByRole("button", { name: "Read report" }).click()
+  return page.getByRole("dialog")
+}
 function reportSummary(index: number) {
   return {
     id: reportIds[index],
@@ -448,38 +456,28 @@ test.describe("Project Reports", () => {
     let requested = false
     const postedBodies: unknown[] = []
     const requestKeys: string[] = []
-    await page.route(
-      new RegExp(
-        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
-      ),
-      async (route) => {
-        const request = route.request()
-        const url = new URL(request.url())
-        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
-          requested = true
-          postedBodies.push(request.postDataJSON())
-          requestKeys.push(
-            (await request.allHeaders())["idempotency-key"] ?? "",
-          )
-          return route.fulfill({
-            status: 202,
-            json: draftReportDetail("GENERATING").ai_governance_drafts[0],
-          })
-        }
-        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
-          detailReads += 1
-          return route.fulfill({
-            json: draftReportDetail(requested ? "GENERATING" : undefined),
-          })
-        }
-        return route.fulfill({ json: reportListResponse() })
-      },
-    )
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        requested = true
+        postedBodies.push(request.postDataJSON())
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        return route.fulfill({
+          status: 202,
+          json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        detailReads += 1
+        return route.fulfill({
+          json: draftReportDetail(requested ? "GENERATING" : undefined),
+        })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    const report = page.getByRole("dialog")
+    const report = await openReport(page)
     const requestButton = report.getByRole("button", {
       name: "Request AI draft",
     })
@@ -508,39 +506,31 @@ test.describe("Project Reports", () => {
   }) => {
     let detailReads = 0
     let postCount = 0
-    await page.route(
-      new RegExp(
-        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
-      ),
-      (route) => {
-        const request = route.request()
-        const url = new URL(request.url())
-        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
-          postCount += 1
-          return route.fulfill({
-            status: 503,
-            json: {
-              detail: {
-                code: "agent_compose_session_pending",
-                message: "Session identity is pending.",
-              },
+    await page.route(governanceReportsPath, (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        return route.fulfill({
+          status: 503,
+          json: {
+            detail: {
+              code: "agent_compose_session_pending",
+              message: "Session identity is pending.",
             },
-          })
-        }
-        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
-          detailReads += 1
-          return route.fulfill({
-            json: draftReportDetail(postCount > 0 ? "FAILED" : undefined),
-          })
-        }
-        return route.fulfill({ json: reportListResponse() })
-      },
-    )
+          },
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        detailReads += 1
+        return route.fulfill({
+          json: draftReportDetail(postCount > 0 ? "FAILED" : undefined),
+        })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    const report = page.getByRole("dialog")
+    const report = await openReport(page)
     await report.getByRole("checkbox").first().click()
     await report.getByRole("button", { name: "Request AI draft" }).click()
 
@@ -575,39 +565,29 @@ test.describe("Project Reports", () => {
   }) => {
     let postCount = 0
     const requestKeys: string[] = []
-    await page.route(
-      new RegExp(
-        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
-      ),
-      async (route) => {
-        const request = route.request()
-        const url = new URL(request.url())
-        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
-          postCount += 1
-          requestKeys.push(
-            (await request.allHeaders())["idempotency-key"] ?? "",
-          )
-          return route.fulfill({
-            status: 409,
-            json: {
-              detail: {
-                code: "model_not_qualified",
-                message: "The current model is not qualified.",
-              },
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        return route.fulfill({
+          status: 409,
+          json: {
+            detail: {
+              code: "model_not_qualified",
+              message: "The current model is not qualified.",
             },
-          })
-        }
-        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
-          return route.fulfill({ json: draftReportDetail() })
-        }
-        return route.fulfill({ json: reportListResponse() })
-      },
-    )
+          },
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        return route.fulfill({ json: draftReportDetail() })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    let report = page.getByRole("dialog")
+    let report = await openReport(page)
     await report.getByRole("checkbox").first().click()
     await report.getByRole("button", { name: "Request AI draft" }).click()
 
@@ -619,9 +599,7 @@ test.describe("Project Reports", () => {
       .toBeNull()
 
     await page.reload()
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    report = page.getByRole("dialog")
+    report = await openReport(page, false)
     await expect(report.getByRole("checkbox").first()).toBeEnabled()
     expect(postCount).toBe(1)
     expect(requestKeys).toHaveLength(1)
@@ -632,43 +610,31 @@ test.describe("Project Reports", () => {
   }) => {
     const requestKeys: string[] = []
     let requestAttempted = false
-    await page.route(
-      new RegExp(
-        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
-      ),
-      async (route) => {
-        const request = route.request()
-        const url = new URL(request.url())
-        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
-          requestAttempted = true
-          requestKeys.push(
-            (await request.allHeaders())["idempotency-key"] ?? "",
-          )
-          return route.fulfill({
-            status: 409,
-            json: {
-              detail: {
-                code: "draft_generation_active",
-                message: "This report already has an active draft generation.",
-              },
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        requestAttempted = true
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        return route.fulfill({
+          status: 409,
+          json: {
+            detail: {
+              code: "draft_generation_active",
+              message: "This report already has an active draft generation.",
             },
-          })
-        }
-        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
-          return route.fulfill({
-            json: draftReportDetail(
-              requestAttempted ? "GENERATING" : undefined,
-            ),
-          })
-        }
-        return route.fulfill({ json: reportListResponse() })
-      },
-    )
+          },
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        return route.fulfill({
+          json: draftReportDetail(requestAttempted ? "GENERATING" : undefined),
+        })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    const report = page.getByRole("dialog")
+    const report = await openReport(page)
     await report.getByRole("checkbox").first().click()
     await report.getByRole("button", { name: "Request AI draft" }).click()
 
@@ -693,52 +659,42 @@ test.describe("Project Reports", () => {
     let postCount = 0
     let recovered = false
     const requestKeys: string[] = []
-    await page.route(
-      new RegExp(
-        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
-      ),
-      async (route) => {
-        const request = route.request()
-        const url = new URL(request.url())
-        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
-          postCount += 1
-          requestKeys.push(
-            (await request.allHeaders())["idempotency-key"] ?? "",
-          )
-          if (postCount === 1) {
-            return route.fulfill({
-              status: 503,
-              json: {
-                detail: {
-                  code: "agent_compose_session_pending",
-                  message: "Session identity is pending.",
-                },
-              },
-            })
-          }
-          recovered = true
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        if (postCount === 1) {
           return route.fulfill({
-            status: 200,
-            json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+            status: 503,
+            json: {
+              detail: {
+                code: "agent_compose_session_pending",
+                message: "Session identity is pending.",
+              },
+            },
           })
         }
-        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
-          if (postCount === 0) {
-            return route.fulfill({ json: draftReportDetail() })
-          }
-          const detail = draftReportDetail("GENERATING")
-          const pendingDraft = detail.ai_governance_drafts[0]
-          if (!recovered && pendingDraft) pendingDraft.session_id = null
-          return route.fulfill({ json: detail })
+        recovered = true
+        return route.fulfill({
+          status: 200,
+          json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        if (postCount === 0) {
+          return route.fulfill({ json: draftReportDetail() })
         }
-        return route.fulfill({ json: reportListResponse() })
-      },
-    )
+        const detail = draftReportDetail("GENERATING")
+        const pendingDraft = detail.ai_governance_drafts[0]
+        if (!recovered && pendingDraft) pendingDraft.session_id = null
+        return route.fulfill({ json: detail })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    let report = page.getByRole("dialog")
+    let report = await openReport(page)
     await report.getByRole("checkbox").first().click()
     await report.getByRole("button", { name: "Request AI draft" }).click()
     await expect(
@@ -746,9 +702,7 @@ test.describe("Project Reports", () => {
     ).toBeVisible()
 
     await page.reload()
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    report = page.getByRole("dialog")
+    report = await openReport(page, false)
     await report
       .getByRole("button", { name: "Resume your draft request" })
       .click()
@@ -767,59 +721,49 @@ test.describe("Project Reports", () => {
     let recovered = false
     const postedBodies: unknown[] = []
     const requestKeys: string[] = []
-    await page.route(
-      new RegExp(
-        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
-      ),
-      async (route) => {
-        const request = route.request()
-        const url = new URL(request.url())
-        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
-          postCount += 1
-          postedBodies.push(request.postDataJSON())
-          requestKeys.push(
-            (await request.allHeaders())["idempotency-key"] ?? "",
-          )
-          if (postCount === 1) {
-            return route.fulfill({
-              status: 503,
-              json: {
-                detail: {
-                  code: "agent_compose_session_pending",
-                  message: "Session identity is pending.",
-                },
-              },
-            })
-          }
-          recovered = true
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        postedBodies.push(request.postDataJSON())
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        if (postCount === 1) {
           return route.fulfill({
-            status: 200,
-            json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+            status: 503,
+            json: {
+              detail: {
+                code: "agent_compose_session_pending",
+                message: "Session identity is pending.",
+              },
+            },
           })
         }
-        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
-          if (postCount === 0) {
-            return route.fulfill({ json: draftReportDetail() })
-          }
-          if (recovered) {
-            return route.fulfill({ json: draftReportDetail("GENERATING") })
-          }
-          const unrelated = draftReportDetail("GENERATING")
-          const activeDraft = unrelated.ai_governance_drafts[0]
-          if (activeDraft) {
-            activeDraft.finding_ids = ["50000000-0000-0000-0000-000000000009"]
-            activeDraft.session_id = null
-          }
-          return route.fulfill({ json: unrelated })
+        recovered = true
+        return route.fulfill({
+          status: 200,
+          json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        if (postCount === 0) {
+          return route.fulfill({ json: draftReportDetail() })
         }
-        return route.fulfill({ json: reportListResponse() })
-      },
-    )
+        if (recovered) {
+          return route.fulfill({ json: draftReportDetail("GENERATING") })
+        }
+        const unrelated = draftReportDetail("GENERATING")
+        const activeDraft = unrelated.ai_governance_drafts[0]
+        if (activeDraft) {
+          activeDraft.finding_ids = ["50000000-0000-0000-0000-000000000009"]
+          activeDraft.session_id = null
+        }
+        return route.fulfill({ json: unrelated })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    let report = page.getByRole("dialog")
+    let report = await openReport(page)
     await report.getByRole("checkbox").first().click()
     await report.getByRole("button", { name: "Request AI draft" }).click()
     await expect(
@@ -827,9 +771,7 @@ test.describe("Project Reports", () => {
     ).toBeVisible()
 
     await page.reload()
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    report = page.getByRole("dialog")
+    report = await openReport(page, false)
     await report
       .getByRole("button", { name: "Resume your draft request" })
       .click()
@@ -849,56 +791,46 @@ test.describe("Project Reports", () => {
     let postCount = 0
     let recoverAfterReload = false
     const requestKeys: string[] = []
-    await page.route(
-      new RegExp(
-        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
-      ),
-      async (route) => {
-        const request = route.request()
-        const url = new URL(request.url())
-        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
-          postCount += 1
-          requestKeys.push(
-            (await request.allHeaders())["idempotency-key"] ?? "",
-          )
-          if (postCount === 1) {
-            return route.fulfill({
-              status: 503,
-              json: {
-                detail: {
-                  code: "agent_compose_session_pending",
-                  message: "Session identity is pending.",
-                },
+    await page.route(governanceReportsPath, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+        postCount += 1
+        requestKeys.push((await request.allHeaders())["idempotency-key"] ?? "")
+        if (postCount === 1) {
+          return route.fulfill({
+            status: 503,
+            json: {
+              detail: {
+                code: "agent_compose_session_pending",
+                message: "Session identity is pending.",
               },
-            })
-          }
-          return route.fulfill({
-            status: 200,
-            json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+            },
           })
         }
-        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
-          if (postCount > 0 && !recoverAfterReload) {
-            return route.fulfill({
-              status: 503,
-              json: { detail: "unavailable" },
-            })
-          }
+        return route.fulfill({
+          status: 200,
+          json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+        })
+      }
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        if (postCount > 0 && !recoverAfterReload) {
           return route.fulfill({
-            json:
-              postCount > 0
-                ? draftReportDetail("GENERATING")
-                : draftReportDetail(),
+            status: 503,
+            json: { detail: "unavailable" },
           })
         }
-        return route.fulfill({ json: reportListResponse() })
-      },
-    )
+        return route.fulfill({
+          json:
+            postCount > 0
+              ? draftReportDetail("GENERATING")
+              : draftReportDetail(),
+        })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    let report = page.getByRole("dialog")
+    let report = await openReport(page)
     const findings = report.getByRole("checkbox")
     await findings.first().click()
     await report.getByRole("button", { name: "Request AI draft" }).click()
@@ -927,9 +859,7 @@ test.describe("Project Reports", () => {
 
     recoverAfterReload = true
     await page.reload()
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    report = page.getByRole("dialog")
+    report = await openReport(page, false)
     await report
       .getByRole("button", { name: "Resume your draft request" })
       .click()
@@ -942,23 +872,15 @@ test.describe("Project Reports", () => {
   test("requires explicit selection and caps the request at eight Findings", async ({
     page,
   }) => {
-    await page.route(
-      new RegExp(
-        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
-      ),
-      (route) => {
-        const url = new URL(route.request().url())
-        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
-          return route.fulfill({ json: draftReportDetail() })
-        }
-        return route.fulfill({ json: reportListResponse() })
-      },
-    )
+    await page.route(governanceReportsPath, (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        return route.fulfill({ json: draftReportDetail() })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    const report = page.getByRole("dialog")
+    const report = await openReport(page)
     const findings = report.getByRole("checkbox")
 
     await expect(findings).toHaveCount(9)

@@ -163,6 +163,49 @@ def _configure_qualified_model(*, session: Session, monkeypatch: MonkeyPatch) ->
     )
 
 
+def _operator_draft_request_context(
+    *,
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    omit_unobserved_evidence: bool = False,
+    qualify_model: bool = True,
+) -> tuple[dict[str, object], GovernanceReport, dict[str, str], str, str]:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        omit_unobserved_evidence=omit_unobserved_evidence,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    if qualify_model:
+        _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    return (
+        project,
+        report,
+        operator_headers,
+        selected_id,
+        _draft_url(project_id=project["id"], report_id=report.id),
+    )
+
+
 def test_operator_request_is_canonical_idempotent_and_audited(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -439,29 +482,14 @@ def test_request_rejects_missing_persisted_evidence_before_session_creation(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
         omit_unobserved_evidence=True,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    entry = next(
-        entry
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     calls: list[object] = []
     monkeypatch.setattr(
         AgentComposeClient,
@@ -469,9 +497,9 @@ def test_request_rejects_missing_persisted_evidence_before_session_creation(
         lambda *_args, **_kwargs: calls.append(None),
     )
     response = client.post(
-        _draft_url(project_id=project["id"], report_id=report.id),
+        url,
         headers={**operator_headers, "Idempotency-Key": "missing-evidence"},
-        json={"finding_ids": [entry["finding_id"]]},
+        json={"finding_ids": [selected_id]},
     )
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "evidence_not_bound"
@@ -496,28 +524,13 @@ def test_request_reconciles_an_accepted_session_before_returning(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, _url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     accepted: dict[str, str] = {}
     start_calls: list[str] = []
     get_calls: list[str] = []
@@ -576,28 +589,13 @@ def test_pending_session_replay_recovers_without_another_start(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     accepted: dict[str, str] = {}
     start_calls: list[str] = []
     session_visible = False
@@ -634,7 +632,6 @@ def test_pending_session_replay_recovers_without_another_start(
 
     monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
     monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
-    url = _draft_url(project_id=project["id"], report_id=report.id)
     headers = {**operator_headers, "Idempotency-Key": "pending-session"}
     first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
     assert first.status_code == 503
@@ -668,28 +665,13 @@ def test_reserved_run_retries_after_agent_compose_naming_changes(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     calls: list[tuple[str, str]] = []
     accepted: dict[str, str] = {}
 
@@ -709,7 +691,6 @@ def test_reserved_run_retries_after_agent_compose_naming_changes(
     monkeypatch.setattr(
         AgentComposeClient, "start_ai_governance_draft", unavailable_start
     )
-    url = _draft_url(project_id=project["id"], report_id=report.id)
     headers = {**operator_headers, "Idempotency-Key": "renamed-reservation"}
     first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
     assert first.status_code == 503
@@ -773,28 +754,13 @@ def test_unknown_run_status_remains_recoverable_without_a_failure_audit_event(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     start_calls: list[str] = []
     recovered_session_id: str | None = None
 
@@ -824,7 +790,6 @@ def test_unknown_run_status_remains_recoverable_without_a_failure_audit_event(
 
     monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
     monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
-    url = _draft_url(project_id=project["id"], report_id=report.id)
     headers = {**operator_headers, "Idempotency-Key": "unknown-run-status"}
 
     first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
@@ -867,28 +832,13 @@ def test_bound_generating_draft_replays_after_agent_compose_naming_changes(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     bound_session_ids: list[str] = []
     start_calls: list[str] = []
 
@@ -908,7 +858,6 @@ def test_bound_generating_draft_replays_after_agent_compose_naming_changes(
         )
 
     monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
-    url = _draft_url(project_id=project["id"], report_id=report.id)
     headers = {**operator_headers, "Idempotency-Key": "bound-reconciliation"}
     first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
     assert first.status_code == 202, first.text
@@ -939,28 +888,13 @@ def test_pending_session_replay_rechecks_qualification_before_start(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     qualified = True
     start_calls: list[str] = []
 
@@ -982,7 +916,6 @@ def test_pending_session_replay_rechecks_qualification_before_start(
         AgentComposeClient, "start_ai_governance_draft", unavailable_start
     )
     monkeypatch.setattr(AgentComposeClient, "get_run", lambda *_args: None)
-    url = _draft_url(project_id=project["id"], report_id=report.id)
     headers = {**operator_headers, "Idempotency-Key": "qualification-replay"}
 
     first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
@@ -1004,28 +937,13 @@ def test_pending_session_replay_fails_a_draft_when_its_model_binding_drifts(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     start_calls: list[str] = []
 
     def unavailable_start(
@@ -1039,7 +957,6 @@ def test_pending_session_replay_fails_a_draft_when_its_model_binding_drifts(
         AgentComposeClient, "start_ai_governance_draft", unavailable_start
     )
     monkeypatch.setattr(AgentComposeClient, "get_run", lambda *_args: None)
-    url = _draft_url(project_id=project["id"], report_id=report.id)
     headers = {**operator_headers, "Idempotency-Key": "binding-drift-replay"}
 
     first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
@@ -1083,28 +1000,13 @@ def test_terminal_session_launch_converges_to_a_durable_state(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     start_calls: list[str] = []
     get_calls: list[str] = []
 
@@ -1132,7 +1034,6 @@ def test_terminal_session_launch_converges_to_a_durable_state(
 
     monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", terminal_start)
     monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
-    url = _draft_url(project_id=project["id"], report_id=report.id)
     headers = {**operator_headers, "Idempotency-Key": "terminal-launch"}
 
     first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
@@ -1177,28 +1078,16 @@ def test_failed_draft_blocks_an_explicit_new_attempt(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    project, report = _publish_report_with_unobserved_asset(
+    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
-    )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
     )
     detail_url = (
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}"
     )
-    detail = client.get(detail_url, headers=operator_headers).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     start_calls: list[str] = []
 
     def start_draft(
@@ -1215,7 +1104,6 @@ def test_failed_draft_blocks_an_explicit_new_attempt(
         )
 
     monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
-    url = _draft_url(project_id=project["id"], report_id=report.id)
     first = client.post(
         url,
         headers={**operator_headers, "Idempotency-Key": "failed-original"},
@@ -1303,28 +1191,13 @@ def _create_reserved_pending_draft(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> tuple[uuid.UUID, str]:
-    project, report = _publish_report_with_unobserved_asset(
+    project, _report, operator_headers, selected_id, url = _operator_draft_request_context(
         client=client,
-        headers=superuser_token_headers,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    operator_headers = _create_member(
-        client,
-        superuser_token_headers,
-        project_id=project["id"],
-        roles=["operator"],
-    )
-    detail = client.get(
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
-        headers=operator_headers,
-    ).json()
-    selected_id = next(
-        entry["finding_id"]
-        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
-        if entry["finding_type"] == "UNOBSERVED_ASSET"
-    )
-    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
     monkeypatch.setattr(
         AgentComposeClient,
         "start_ai_governance_draft",
@@ -1334,7 +1207,7 @@ def _create_reserved_pending_draft(
     )
     monkeypatch.setattr(AgentComposeClient, "get_run", lambda *_args: None)
     response = client.post(
-        _draft_url(project_id=project["id"], report_id=report.id),
+        url,
         headers={**operator_headers, "Idempotency-Key": "concurrent-same-key"},
         json={"finding_ids": [selected_id]},
     )
@@ -1419,9 +1292,7 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
             with Session(engine) as session:
                 draft = session.get(AiGovernanceDraft, draft_id)
                 assert draft is not None
-                # Persisted-run replays intentionally skip reservation. Load
-                # two stale snapshots, close their transactions, then let
-                # only the winner reconcile the control plane.
+                # Two stale snapshots race; only the winner reconciles.
                 session.expunge(draft)
                 session.commit()
                 snapshots_loaded.wait(timeout=5)
@@ -1441,8 +1312,7 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
         except BaseException as error:
             errors.append(error)
         finally:
-            # A failed winner must still release a waiting loser, so joins
-            # below are bounded even when an assertion or database call fails.
+            # Always release a waiting loser so joins stay bounded.
             persisted.set()
 
     winner = threading.Thread(target=replay, name="replay-winner")
@@ -1527,9 +1397,7 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
             with Session(engine) as session:
                 draft = session.get(AiGovernanceDraft, draft_id)
                 assert draft is not None
-                # Keep synchronization outside a database transaction. The
-                # loser must reconcile the persisted terminal state, not call
-                # agent-compose from its stale snapshot.
+                # The loser reconciles the persisted terminal state, never agent-compose.
                 session.expunge(draft)
                 session.commit()
                 snapshots_loaded.wait(timeout=5)
