@@ -341,6 +341,7 @@ def _request_draft(
     finding_override: uuid.UUID | None = None,
     evidence_override: uuid.UUID | None = None,
     report_override: GovernanceReport | None = None,
+    agent_compose_run_id: str | None = None,
 ) -> AiGovernanceDraftCreation:
     with _session_scope(database) as session:
         report = (
@@ -356,6 +357,7 @@ def _request_draft(
             idempotency_key=idempotency_key,
             model_identity="customer-model",
             config_fingerprint="a" * 64,
+            agent_compose_run_id=agent_compose_run_id,
             bindings=[
                 DraftFindingBinding(
                     finding_id=finding_override or ids["finding_id"],
@@ -882,6 +884,41 @@ def test_draft_pins_inputs_and_enforces_idempotency_and_one_active_generation(
     )
     with pytest.raises(AiGovernanceDraftStateError, match="report_not_published"):
         _create_draft(draft_database, unpublished)
+
+
+def test_draft_reserves_launch_identity_before_idempotent_session_binding(
+    draft_database: str,
+) -> None:
+    ids = _seed_draft_fixture(draft_database, identity_suffix="-launch-reservation")
+    run_id = "b" * 64
+    session_id = "c" * 64
+    creation = _request_draft(
+        draft_database,
+        ids,
+        idempotency_key="reserved-launch",
+        agent_compose_run_id=run_id,
+    )
+
+    assert creation.created is True
+    assert creation.draft.agent_compose_run_id == run_id
+    assert creation.draft.session_id is None
+    bound = _apply(
+        draft_database,
+        bind_draft_session,
+        creation.draft,
+        agent_compose_run_id=run_id,
+        session_id=session_id,
+    )
+    rebound = _apply(
+        draft_database,
+        bind_draft_session,
+        creation.draft,
+        agent_compose_run_id=run_id,
+        session_id=session_id,
+    )
+    assert rebound.id == bound.id
+    assert rebound.agent_compose_run_id == run_id
+    assert rebound.session_id == session_id
 
 
 def test_failed_draft_replays_by_key_and_requires_an_explicit_new_attempt(
@@ -1593,6 +1630,7 @@ def _run_draft_runner(
     database: str,
     *,
     draft_id: uuid.UUID,
+    agent_compose_run_id: str,
     session_id: str,
 ) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
@@ -1604,6 +1642,7 @@ def _run_draft_runner(
             "POSTGRES_USER": settings.POSTGRES_USER,
             "POSTGRES_PASSWORD": settings.POSTGRES_PASSWORD,
             "AI_DRAFT_ID": str(draft_id),
+            "AI_DRAFT_RUN_ID": agent_compose_run_id,
             "SANDBOX_ID": session_id,
             "LLM_API_KEY": "sensitive-model-secret",
             "PROMPT_TEXT": "complete-prompt-material",
@@ -1625,11 +1664,19 @@ def test_draft_runner_starts_with_only_draft_identity_and_handles_mismatches(
     draft_database: str,
 ) -> None:
     ids = _seed_draft_fixture(draft_database)
-    draft = _create_draft(draft_database, ids)
-    _bind_draft(draft_database, draft)
+    run_id = "b" * 64
+    draft = _request_draft(
+        draft_database,
+        ids,
+        idempotency_key="runner-reservation",
+        agent_compose_run_id=run_id,
+    ).draft
 
     completed = _run_draft_runner(
-        draft_database, draft_id=draft.id, session_id="c" * 64
+        draft_database,
+        draft_id=draft.id,
+        agent_compose_run_id=run_id,
+        session_id="c" * 64,
     )
     assert completed.returncode == 0, completed.stderr
     for sensitive_material in (
@@ -1650,8 +1697,18 @@ def test_draft_runner_starts_with_only_draft_identity_and_handles_mismatches(
     assert payload["findings"][0]["evidence"][0]["fact_type"] == "FINDING_OCCURRENCE"
 
     for failed in (
-        _run_draft_runner(draft_database, draft_id=draft.id, session_id="d" * 64),
-        _run_draft_runner(draft_database, draft_id=uuid.uuid4(), session_id="c" * 64),
+        _run_draft_runner(
+            draft_database,
+            draft_id=draft.id,
+            agent_compose_run_id=run_id,
+            session_id="d" * 64,
+        ),
+        _run_draft_runner(
+            draft_database,
+            draft_id=uuid.uuid4(),
+            agent_compose_run_id=run_id,
+            session_id="c" * 64,
+        ),
     ):
         assert failed.returncode == 1
         assert "sensitive-model-secret" not in failed.stdout
@@ -1717,7 +1774,7 @@ def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
     assert_legacy_schema_protections()
 
     run_migration(draft_database, "head")
-    assert_revision("a1b2c3d4e5f6")
+    assert_revision("b2c3d4e5f6a7")
 
     fresh_ids = _seed_draft_fixture(
         draft_database, identity_suffix="-fresh", complete_run=True

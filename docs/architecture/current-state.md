@@ -27,6 +27,7 @@
 - GovernanceRun 的 Trigger、Retry、Rerun、RunStep、SourceSnapshot 与 Publish；
 - agent-compose Session 创建、终态查询、同 Session 恢复和未知状态 fail-closed；
 - 客户内部 OpenAI-compatible 模型经 Pi 使用固定非客户 fixture 执行部署资格检查，PostgreSQL 仅保存脱敏门禁指标和当前配置绑定；
+- Operator 可从已发布报告显式选择一至八个有持久 Evidence 的“未观测资产”并创建 `GENERATING` AI 治理草稿；Controller 先持久保留确定性的 agent-compose Run identity，再启动独立 Pi Session，Runner 仅凭草稿、Run 与 Session identity 从 PostgreSQL 重载有界输入；
 - CustomerUpload 与 CloudAtlas 的 IP Observation、Project 级稳定 IP Resource 和精确解析；
 - “未报备资产”“未观测资产”两类 Finding、Occurrence、Transition 与来源引用；
 - `deterministic-report-v1` 报告：canonical JSON、HTML、CSV 与 Hash；
@@ -41,12 +42,13 @@
 - CloudAtlas Package、Descriptor、Instance、Capset、方法或 token material 漂移时验证失败。
 - agent-compose Session 只有权威查询确认终态后才允许恢复；未知、不可达或未识别状态保持 fail-closed。
 - 模型资格只允许 Pi 经无重定向本地代理连接解析到私网地址的部署注入端点，禁用模型工具和自动 retry；Secret、完整 Prompt、模型原始输出和 Provider 原始事件不进入 PostgreSQL 或 agent-compose Run 输出；端点、模型、非 Secret 配置、Runner build、资格契约或 agent-compose runtime 指纹漂移立即失效。
+- 当前 AI 草稿 Runner 的 direct command 不接收模型凭据，也不发出产品模型请求；API 或 Runner 可按已保留的 Run identity 幂等补齐同一 Session 绑定，控制面响应丢失或 Session identity 尚不可见时保留 `GENERATING` 状态供同一 Idempotency-Key 重放。
 - 更换 agent-compose 镜像 digest、架构或 driver 后，旧 probe 结论不能外推，必须重新验证当前运行时契约。
 - 真实 CloudAtlas 只读 canary 仍是部署门禁，步骤见 [Runbook](../runbooks/cloudatlas-canary.md)。
 
 ## 明确未实现
 
-- AI 报告草稿生成与审核 Agent（当前仅实现部署模型资格检查）；
+- AI 报告草稿的模型生成、结构化输出校验与人工审核 Agent（当前仅实现请求、持久草稿、独立 Session 与确定性 Runner handoff）；
 - PDF 报告；
 - URL、域名、Endpoint、Application 或责任主体治理；
 - 客户系统正式 SourceInstance；

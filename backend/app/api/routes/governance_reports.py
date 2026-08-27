@@ -33,7 +33,11 @@ from app.domain.models import (
     Project,
     ProjectRole,
 )
-from app.integrations.agent_compose import AgentComposeBoundaryError, AgentComposeClient
+from app.integrations.agent_compose import (
+    AgentComposeBoundaryError,
+    AgentComposeClient,
+    AgentComposeRunStart,
+)
 
 router = APIRouter(prefix="/projects", tags=["governance-reports"])
 
@@ -53,6 +57,9 @@ _DRAFT_ERROR_MESSAGES = {
     "model_not_qualified": "The current model is not qualified for draft generation.",
     "agent_compose_unavailable": "The draft Session control plane is unavailable.",
     "agent_compose_start_failed": "The draft Session could not be started.",
+    "agent_compose_session_pending": (
+        "The draft Run was accepted; its Session identity is not visible yet."
+    ),
     "agent_compose_response_contract_failed": (
         "The draft Session control plane returned an invalid response."
     ),
@@ -107,19 +114,69 @@ def _agent_compose_error(error: AgentComposeBoundaryError) -> HTTPException:
     )
 
 
-def _fail_unbound_draft(
-    *, session: SessionDep, draft: AiGovernanceDraft, failure_code: str
-) -> None:
-    if draft.session_id is not None:
-        return
+def _draft_client_request_id(draft: AiGovernanceDraft) -> str:
+    return f"ai-governance-draft:{draft.id}"
+
+
+def _start_draft_or_recover_response(
+    *,
+    client: AgentComposeClient,
+    draft: AiGovernanceDraft,
+    client_request_id: str,
+    run_id: str,
+) -> AgentComposeRunStart:
     try:
-        draft_service.fail_draft(
-            session=session,
-            draft=draft,
-            failure_code=failure_code,
+        return client.start_ai_governance_draft(
+            client_request_id=client_request_id,
+            draft_id=str(draft.id),
         )
-    except draft_service.AiGovernanceDraftStateError, SQLAlchemyError:
-        session.rollback()
+    except AgentComposeBoundaryError as start_error:
+        observed = client.get_run(run_id)
+        if observed is None:
+            raise start_error
+        return observed
+
+
+def _launch_or_reconcile_draft_session(
+    *,
+    session: SessionDep,
+    draft: AiGovernanceDraft,
+    launch_now: bool,
+) -> AiGovernanceDraft:
+    if draft.status != "GENERATING" or draft.session_id is not None:
+        return draft
+    client = AgentComposeClient()
+    client_request_id = _draft_client_request_id(draft)
+    expected_run_id = client.expected_ai_governance_draft_run_id(client_request_id)
+    reserved = draft_service.reserve_draft_run_identity(
+        session=session,
+        draft=draft,
+        agent_compose_run_id=expected_run_id,
+    )
+    observed = None
+    if not launch_now:
+        observed = client.get_run(expected_run_id)
+    if observed is None:
+        observed = _start_draft_or_recover_response(
+            client=client,
+            draft=reserved,
+            client_request_id=client_request_id,
+            run_id=expected_run_id,
+        )
+    if observed.run_id != expected_run_id:
+        raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
+    if observed.session_id is None:
+        refreshed = client.get_run(expected_run_id)
+        if refreshed is not None:
+            observed = refreshed
+    if observed.session_id is None:
+        raise AgentComposeBoundaryError("agent_compose_session_pending")
+    return draft_service.bind_draft_session(
+        session=session,
+        draft=reserved,
+        agent_compose_run_id=expected_run_id,
+        session_id=observed.session_id,
+    )
 
 
 def _report_artifact_path(artifact: Artifact) -> Path:
@@ -299,6 +356,16 @@ def request_ai_governance_draft(
         )
     ).one_or_none()
     if existing is not None:
+        try:
+            existing = _launch_or_reconcile_draft_session(
+                session=session,
+                draft=existing,
+                launch_now=False,
+            )
+        except AgentComposeBoundaryError as error:
+            raise _agent_compose_error(error) from None
+        except draft_service.AiGovernanceDraftStateError as error:
+            raise _draft_state_error(error) from None
         response.status_code = status.HTTP_200_OK
         return report_service.ai_governance_draft_public(
             session=session, draft=existing
@@ -367,36 +434,18 @@ def request_ai_governance_draft(
         )
     except draft_service.AiGovernanceDraftStateError as error:
         raise _draft_state_error(error) from None
-    if not creation.created:
-        response.status_code = status.HTTP_200_OK
-        return report_service.ai_governance_draft_public(
-            session=session, draft=creation.draft
-        )
-
-    client = AgentComposeClient()
     try:
-        started = client.start_ai_governance_draft(
-            client_request_id=f"ai-governance-draft:{creation.draft.id}",
-            draft_id=str(creation.draft.id),
-        )
-        if started.session_id is None:
-            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
-        draft = draft_service.bind_draft_session(
+        draft = _launch_or_reconcile_draft_session(
             session=session,
             draft=creation.draft,
-            agent_compose_run_id=started.run_id,
-            session_id=started.session_id,
+            launch_now=creation.created,
         )
     except AgentComposeBoundaryError as error:
-        _fail_unbound_draft(
-            session=session, draft=creation.draft, failure_code=error.code
-        )
         raise _agent_compose_error(error) from None
     except draft_service.AiGovernanceDraftStateError as error:
-        _fail_unbound_draft(
-            session=session, draft=creation.draft, failure_code=error.code
-        )
         raise _draft_state_error(error) from None
+    if not creation.created:
+        response.status_code = status.HTTP_200_OK
     return report_service.ai_governance_draft_public(session=session, draft=draft)
 
 

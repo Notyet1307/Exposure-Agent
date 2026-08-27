@@ -293,14 +293,14 @@ function DraftGeneration({
         requestBody: { finding_ids: findingIds },
         idempotencyKey: key,
       }),
-    onSuccess: () => {
+    onSettled: () => {
       void queryClient.invalidateQueries({
         queryKey: ["governance-report", projectId, detail.id],
       })
     },
   })
   const latestDraft: AiGovernanceDraftPublic | undefined =
-    generationMutation.data ?? detail.ai_governance_drafts?.[0]
+    detail.ai_governance_drafts?.[0] ?? generationMutation.data
 
   const toggleFinding = (findingId: string, checked: boolean) => {
     setSelectedFindingIds((current) => {
@@ -693,6 +693,10 @@ function ReportDetailDialog({
         reportId: reportId as string,
       }),
     enabled: reportId !== null,
+    refetchInterval: (query) =>
+      query.state.data?.ai_governance_drafts?.[0]?.status === "GENERATING"
+        ? 2000
+        : false,
   })
 
   return (

@@ -65,13 +65,10 @@ agents:
     env:
       PROJECT_NAME: ai-governance-draft
       ENVIRONMENT: ${ENVIRONMENT}
-      SECRET_KEY:
-        value: ${SECRET_KEY}
-        secret: true
-      FIRST_SUPERUSER: ${FIRST_SUPERUSER}
-      FIRST_SUPERUSER_PASSWORD:
-        value: ${FIRST_SUPERUSER_PASSWORD}
-        secret: true
+      # The #143 direct command only validates the persisted Session handoff.
+      # It receives no model credential; the bounded model request belongs to #144.
+      FIRST_SUPERUSER: ai-draft-runner@example.invalid
+      FIRST_SUPERUSER_PASSWORD: ai-draft-runner-unused
       POSTGRES_SERVER: db
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${POSTGRES_DB}
@@ -79,12 +76,4 @@ agents:
       POSTGRES_PASSWORD:
         value: ${POSTGRES_PASSWORD}
         secret: true
-      LLM_API_ENDPOINT: ${MODEL_API_ENDPOINT}
-      LLM_API_PROTOCOL: ${MODEL_API_PROTOCOL}
-      LLM_API_KEY:
-        value: ${MODEL_API_KEY}
-        secret: true
-      MODEL_IDENTITY: ${MODEL_IDENTITY}
-      MODEL_CONFIG_REVISION: ${MODEL_CONFIG_REVISION}
-      AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION}

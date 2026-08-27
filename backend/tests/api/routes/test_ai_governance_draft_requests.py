@@ -2,6 +2,7 @@ import hashlib
 import uuid
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from pytest import MonkeyPatch
@@ -10,6 +11,7 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.db import engine
 from app.domain import governance_runs as governance_runs_domain
+from app.domain.ai_governance_drafts import bind_draft_session
 from app.domain.cloudatlas_sources import OctobusCloudAtlasClient
 from app.domain.model_qualification import (
     QualificationEvaluation,
@@ -26,7 +28,11 @@ from app.domain.models import (
     GovernanceRun,
 )
 from app.governance_runner import main as run_governance_runner
-from app.integrations.agent_compose import AgentComposeClient, AgentComposeRunStart
+from app.integrations.agent_compose import (
+    AgentComposeBoundaryError,
+    AgentComposeClient,
+    AgentComposeRunStart,
+)
 from tests.api.routes.test_governance_runs import (
     _create_member,
     _create_project,
@@ -232,11 +238,26 @@ def test_operator_request_is_canonical_idempotent_and_audited(
         _client: object, *, client_request_id: str, draft_id: str
     ) -> AgentComposeRunStart:
         calls.append((client_request_id, draft_id))
+        run_id = AgentComposeClient().expected_ai_governance_draft_run_id(
+            client_request_id
+        )
+        session_id = hashlib.sha256(draft_id.encode()).hexdigest()
+        with Session(engine) as runner_session:
+            persisted = runner_session.get(AiGovernanceDraft, uuid.UUID(draft_id))
+            assert persisted is not None
+            assert persisted.agent_compose_run_id == run_id
+            assert persisted.session_id is None
+            bind_draft_session(
+                session=runner_session,
+                draft=persisted,
+                agent_compose_run_id=run_id,
+                session_id=session_id,
+            )
         return AgentComposeRunStart(
-            run_id=hashlib.sha256(client_request_id.encode()).hexdigest(),
+            run_id=run_id,
             started=True,
             status="RUN_STATUS_PENDING",
-            session_id=hashlib.sha256(draft_id.encode()).hexdigest(),
+            session_id=session_id,
         )
 
     monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
@@ -449,6 +470,170 @@ def test_request_rejects_missing_persisted_evidence_before_session_creation(
         )
 
 
+@pytest.mark.parametrize("launch_mode", ("missing-session", "response-loss"))
+def test_request_reconciles_an_accepted_session_before_returning(
+    launch_mode: str,
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    accepted: dict[str, str] = {}
+    start_calls: list[str] = []
+    get_calls: list[str] = []
+
+    def start_draft(
+        _client: object, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        start_calls.append(client_request_id)
+        run_id = AgentComposeClient().expected_ai_governance_draft_run_id(
+            client_request_id
+        )
+        accepted.update(
+            run_id=run_id,
+            session_id=hashlib.sha256(draft_id.encode()).hexdigest(),
+        )
+        if launch_mode == "response-loss":
+            raise AgentComposeBoundaryError("agent_compose_unavailable")
+        return AgentComposeRunStart(
+            run_id=run_id,
+            started=True,
+            status="RUN_STATUS_PENDING",
+            session_id=None,
+        )
+
+    def get_run(_client: object, run_id: str) -> AgentComposeRunStart:
+        get_calls.append(run_id)
+        assert run_id == accepted["run_id"]
+        return AgentComposeRunStart(
+            run_id=run_id,
+            started=False,
+            status="RUN_STATUS_PENDING",
+            session_id=accepted["session_id"],
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
+    monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
+    response = client.post(
+        _draft_url(project_id=project["id"], report_id=report.id),
+        headers={**operator_headers, "Idempotency-Key": f"{launch_mode}-draft"},
+        json={"finding_ids": [selected_id]},
+    )
+
+    assert response.status_code == 202, response.text
+    assert response.json()["agent_compose_run_id"] == accepted["run_id"]
+    assert response.json()["session_id"] == accepted["session_id"]
+    assert len(start_calls) == 1
+    assert get_calls == [accepted["run_id"]]
+
+
+def test_pending_session_replay_recovers_without_another_start(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    accepted: dict[str, str] = {}
+    start_calls: list[str] = []
+    session_visible = False
+
+    def start_draft(
+        _client: object, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        start_calls.append(client_request_id)
+        run_id = AgentComposeClient().expected_ai_governance_draft_run_id(
+            client_request_id
+        )
+        accepted.update(
+            run_id=run_id,
+            session_id=hashlib.sha256(draft_id.encode()).hexdigest(),
+        )
+        return AgentComposeRunStart(
+            run_id=run_id,
+            started=True,
+            status="RUN_STATUS_PENDING",
+            session_id=None,
+        )
+
+    def get_run(_client: object, run_id: str) -> AgentComposeRunStart:
+        return AgentComposeRunStart(
+            run_id=run_id,
+            started=False,
+            status="RUN_STATUS_PENDING",
+            session_id=accepted["session_id"] if session_visible else None,
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
+    monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
+    url = _draft_url(project_id=project["id"], report_id=report.id)
+    headers = {**operator_headers, "Idempotency-Key": "pending-session"}
+    first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert first.status_code == 503
+    assert first.json()["detail"]["code"] == "agent_compose_session_pending"
+    with Session(engine) as session:
+        draft = session.exec(
+            select(AiGovernanceDraft).where(
+                AiGovernanceDraft.project_id == uuid.UUID(str(project["id"]))
+            )
+        ).one()
+        assert draft.status == "GENERATING"
+        assert draft.agent_compose_run_id == accepted["run_id"]
+        assert draft.session_id is None
+
+    session_visible = True
+    replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["agent_compose_run_id"] == accepted["run_id"]
+    assert replay.json()["session_id"] == accepted["session_id"]
+    assert len(start_calls) == 1
+
+
 def test_global_admin_can_request_ai_governance_draft(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -479,7 +664,9 @@ def test_global_admin_can_request_ai_governance_draft(
     ) -> AgentComposeRunStart:
         calls.append((client_request_id, draft_id))
         return AgentComposeRunStart(
-            run_id=hashlib.sha256(client_request_id.encode()).hexdigest(),
+            run_id=AgentComposeClient().expected_ai_governance_draft_run_id(
+                client_request_id
+            ),
             started=True,
             status="RUN_STATUS_PENDING",
             session_id=hashlib.sha256(draft_id.encode()).hexdigest(),

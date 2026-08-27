@@ -12,6 +12,11 @@ const runIds = [
   "20000000-0000-0000-0000-000000000002",
   "20000000-0000-0000-0000-000000000003",
 ]
+const draftFindingId = "50000000-0000-0000-0000-000000000001"
+const draftEvidenceId = "60000000-0000-0000-0000-000000000001"
+const draftId = "70000000-0000-0000-0000-000000000001"
+const draftRunId = "8".repeat(64)
+const draftSessionId = "9".repeat(64)
 
 function reportSummary(index: number) {
   return {
@@ -139,6 +144,63 @@ function canonicalContent({ zeroFindings = false } = {}) {
       max_entries: 50,
       entries,
     },
+  }
+}
+
+function draftReportDetail(status?: "GENERATING" | "REVIEWABLE" | "FAILED") {
+  const canonical = canonicalContent()
+  canonical.evidence_plan.entries[0] = {
+    ...canonical.evidence_plan.entries[0],
+    finding_id: draftFindingId,
+    evidence_reference: {
+      governance_run_id: runIds[0],
+      fact_type: "OBSERVATION",
+      fact_id: draftEvidenceId,
+    },
+  }
+  const draft = status
+    ? {
+        id: draftId,
+        governance_report_id: reportIds[0],
+        governance_run_id: runIds[0],
+        report_sha256: "a".repeat(64),
+        initiated_by: "30000000-0000-0000-0000-000000000001",
+        model_identity: "qualified-model",
+        config_fingerprint: "b".repeat(64),
+        agent_compose_run_id: draftRunId,
+        session_id: draftSessionId,
+        status,
+        failure_code: status === "FAILED" ? "provider_failed" : null,
+        finding_ids: [draftFindingId],
+        created_at: completedAt,
+        updated_at: completedAt,
+      }
+    : null
+  return {
+    ...reportSummary(0),
+    canonical_content: canonical,
+    evidence: canonical.evidence_plan.entries.map((entry, index) => ({
+      id: `61000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`,
+      fact_type: entry.evidence_reference.fact_type,
+      fact_id: entry.evidence_reference.fact_id,
+    })),
+    evidence_count: 9,
+    evidence_max_entries: 50,
+    can_request_ai_governance_draft: true,
+    ai_governance_drafts: draft ? [draft] : [],
+  }
+}
+
+function reportListResponse() {
+  return {
+    data: [reportSummary(0)],
+    count: 1,
+    page_size: 1,
+    next_cursor: null,
+    compatible: true,
+    compatibility_code: null,
+    latest_completed_run_id: runIds[0],
+    latest_completed_run_at: completedAt,
   }
 }
 
@@ -379,5 +441,160 @@ test.describe("Project Reports", () => {
           "With both inputs complete, all observed IP identities matched; this Run produced zero Findings.",
         ),
     ).toBeVisible()
+  })
+
+  test("polls persisted draft status instead of pinning the mutation response", async ({
+    page,
+  }) => {
+    let detailReads = 0
+    let requested = false
+    const postedBodies: unknown[] = []
+    const requestKeys: string[] = []
+    await page.route(
+      new RegExp(
+        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
+      ),
+      async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+          requested = true
+          postedBodies.push(request.postDataJSON())
+          requestKeys.push(
+            (await request.allHeaders())["idempotency-key"] ?? "",
+          )
+          return route.fulfill({
+            status: 202,
+            json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+          })
+        }
+        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+          detailReads += 1
+          const persistedStatus =
+            requested && detailReads >= 3
+              ? "REVIEWABLE"
+              : requested
+                ? "GENERATING"
+                : undefined
+          return route.fulfill({ json: draftReportDetail(persistedStatus) })
+        }
+        return route.fulfill({ json: reportListResponse() })
+      },
+    )
+
+    await page.goto("/")
+    await page.getByRole("tab", { name: "Reports", exact: true }).click()
+    await page.getByRole("button", { name: "Read report" }).click()
+    const report = page.getByRole("dialog")
+    const requestButton = report.getByRole("button", {
+      name: "Request AI draft",
+    })
+    await expect(report.getByText("0 of 8 selected")).toBeVisible()
+    await expect(requestButton).toBeDisabled()
+
+    await report.getByRole("checkbox").first().click()
+    await expect(report.getByText("1 of 8 selected")).toBeVisible()
+    await requestButton.click()
+
+    const persistedDraft = report.locator(
+      "#ai-governance-draft [role='status']",
+    )
+    await expect(persistedDraft.getByText("REVIEWABLE")).toBeVisible({
+      timeout: 7000,
+    })
+    await expect(persistedDraft.getByText("GENERATING")).not.toBeVisible()
+    expect(postedBodies).toEqual([{ finding_ids: [draftFindingId] }])
+    expect(requestKeys).toHaveLength(1)
+    expect(requestKeys[0]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(detailReads).toBeGreaterThanOrEqual(3)
+  })
+
+  test("refetches persisted report state when a draft request fails", async ({
+    page,
+  }) => {
+    let detailReads = 0
+    let postCount = 0
+    await page.route(
+      new RegExp(
+        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
+      ),
+      (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+          postCount += 1
+          return route.fulfill({
+            status: 503,
+            json: {
+              detail: {
+                code: "agent_compose_session_pending",
+                message: "Session identity is pending.",
+              },
+            },
+          })
+        }
+        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+          detailReads += 1
+          return route.fulfill({ json: draftReportDetail("FAILED") })
+        }
+        return route.fulfill({ json: reportListResponse() })
+      },
+    )
+
+    await page.goto("/")
+    await page.getByRole("tab", { name: "Reports", exact: true }).click()
+    await page.getByRole("button", { name: "Read report" }).click()
+    const report = page.getByRole("dialog")
+    await report.getByRole("checkbox").first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+
+    await expect(
+      report.getByRole("alert").getByText("Draft request could not be started"),
+    ).toBeVisible()
+    const persistedDraft = report.locator(
+      "#ai-governance-draft [role='status']",
+    )
+    await expect(persistedDraft.getByText("FAILED")).toBeVisible()
+    await expect(persistedDraft.getByText(`Draft ${draftId}`)).toBeVisible()
+    await expect(
+      persistedDraft.getByText("Failure: provider_failed"),
+    ).toBeVisible()
+    await expect.poll(() => detailReads).toBeGreaterThanOrEqual(2)
+    expect(postCount).toBe(1)
+  })
+
+  test("requires explicit selection and caps the request at eight Findings", async ({
+    page,
+  }) => {
+    await page.route(
+      new RegExp(
+        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
+      ),
+      (route) => {
+        const url = new URL(route.request().url())
+        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+          return route.fulfill({ json: draftReportDetail() })
+        }
+        return route.fulfill({ json: reportListResponse() })
+      },
+    )
+
+    await page.goto("/")
+    await page.getByRole("tab", { name: "Reports", exact: true }).click()
+    await page.getByRole("button", { name: "Read report" }).click()
+    const report = page.getByRole("dialog")
+    const findings = report.getByRole("checkbox")
+
+    await expect(findings).toHaveCount(9)
+    await expect(report.getByText("0 of 8 selected")).toBeVisible()
+    for (let index = 0; index < 8; index += 1) {
+      await findings.nth(index).click()
+    }
+    await expect(report.getByText("8 of 8 selected")).toBeVisible()
+    await expect(findings.nth(8)).toBeDisabled()
+
+    await findings.nth(0).click()
+    await expect(report.getByText("7 of 8 selected")).toBeVisible()
+    await expect(findings.nth(8)).toBeEnabled()
   })
 })

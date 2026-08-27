@@ -60,6 +60,9 @@ def _configure_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_NAME", "project")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_AGENT_NAME", "runner")
     monkeypatch.setattr(settings, "MODEL_QUALIFICATION_AGENT_NAME", "model-qualifier")
+    monkeypatch.setattr(
+        settings, "AI_GOVERNANCE_DRAFT_AGENT_NAME", "ai-governance-draft"
+    )
     monkeypatch.setattr(settings, "AGENT_COMPOSE_TIMEOUT_SECONDS", 2.0)
     monkeypatch.setattr(settings, "AGENT_COMPOSE_AUTH_TOKEN", SecretStr("test-token"))
     monkeypatch.setattr(settings, "MODEL_API_KEY", SecretStr("model-secret"))
@@ -180,6 +183,53 @@ def test_model_qualification_uses_the_sanitizing_runner_without_a_prompt(
     assert "prompt" not in run_request
     assert run_request["env"] == [
         {"name": "LLM_API_KEY", "value": "model-secret", "secret": True}
+    ]
+
+
+def test_ai_draft_reserves_its_run_identity_without_model_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+    client = AgentComposeClient()
+    request_id = "ai-governance-draft:draft-1"
+    expected_id = client.expected_ai_governance_draft_run_id(request_id)
+    calls: list[dict[str, Any]] = []
+    responses = iter(
+        [
+            _Response(404),
+            _Response(
+                200,
+                {
+                    "run": {
+                        "runId": expected_id,
+                        "status": "RUN_STATUS_PENDING",
+                    },
+                    "started": True,
+                },
+            ),
+        ]
+    )
+
+    def factory(**_kwargs: Any) -> _Client:
+        return _Client(next(responses), calls)
+
+    monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
+
+    client.start_ai_governance_draft(
+        client_request_id=request_id,
+        draft_id="00000000-0000-0000-0000-000000000001",
+    )
+
+    run_request = calls[1]["json"]["run"]
+    assert run_request["agentName"] == "ai-governance-draft"
+    assert run_request["command"] == "/app/.venv/bin/python -m app.ai_draft_runner"
+    assert run_request["env"] == [
+        {
+            "name": "AI_DRAFT_ID",
+            "value": "00000000-0000-0000-0000-000000000001",
+            "secret": False,
+        },
+        {"name": "AI_DRAFT_RUN_ID", "value": expected_id, "secret": False},
     ]
 
 

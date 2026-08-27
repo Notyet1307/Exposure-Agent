@@ -194,6 +194,7 @@ class DraftRunnerHandoff:
     """Persisted draft and validated Session identity only."""
 
     draft_id: uuid.UUID
+    agent_compose_run_id: str
     session_id: str
 
     @classmethod
@@ -205,10 +206,17 @@ class DraftRunnerHandoff:
             raise AiGovernanceDraftStateError("runner_handoff_invalid") from None
         if str(draft_id) != raw_draft_id:
             raise AiGovernanceDraftStateError("runner_handoff_invalid")
+        agent_compose_run_id = environment.get("AI_DRAFT_RUN_ID", "").strip()
         session_id = environment.get("SANDBOX_ID", "").strip()
-        if not _is_lower_hex_identity(session_id):
+        if not _is_lower_hex_identity(
+            agent_compose_run_id
+        ) or not _is_lower_hex_identity(session_id):
             raise AiGovernanceDraftStateError("runner_handoff_invalid")
-        return cls(draft_id=draft_id, session_id=session_id)
+        return cls(
+            draft_id=draft_id,
+            agent_compose_run_id=agent_compose_run_id,
+            session_id=session_id,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -605,11 +613,16 @@ def create_ai_governance_draft(
     model_identity: str,
     config_fingerprint: str,
     bindings: Sequence[DraftFindingBinding],
+    agent_compose_run_id: str | None = None,
 ) -> AiGovernanceDraftCreation:
     _require_nonblank(initiated_by, max_length=255, code="draft_request_invalid")
     _require_nonblank(idempotency_key, max_length=255, code="draft_request_invalid")
     _require_nonblank(model_identity, max_length=255, code="draft_request_invalid")
     if not _is_lower_hex_identity(config_fingerprint):
+        raise AiGovernanceDraftStateError("draft_request_invalid")
+    if agent_compose_run_id is not None and not _is_lower_hex_identity(
+        agent_compose_run_id
+    ):
         raise AiGovernanceDraftStateError("draft_request_invalid")
     scoped_report = require_published_report_for_draft(session=session, report=report)
 
@@ -699,6 +712,11 @@ def create_ai_governance_draft(
         draft.bindings_sealed_at = get_datetime_utc()
         session.add(draft)
         session.flush()
+        if agent_compose_run_id is not None:
+            draft.agent_compose_run_id = agent_compose_run_id
+            draft.updated_at = get_datetime_utc()
+            session.add(draft)
+            session.flush()
         session.add(
             _draft_audit_event(
                 draft=draft,
@@ -721,6 +739,53 @@ def create_ai_governance_draft(
     return AiGovernanceDraftCreation(draft=draft, created=True)
 
 
+def reserve_draft_run_identity(
+    *,
+    session: Session,
+    draft: AiGovernanceDraft,
+    agent_compose_run_id: str,
+) -> AiGovernanceDraft:
+    """Durably reserve the deterministic Run before asking agent-compose to start it."""
+
+    if not _is_lower_hex_identity(agent_compose_run_id):
+        raise AiGovernanceDraftStateError("session_identity_invalid")
+    try:
+        locked = _locked_active_draft(session=session, draft_id=draft.id)
+        _require_generating(locked)
+        _require_input_sealed(locked)
+        if locked.agent_compose_run_id is not None:
+            if locked.agent_compose_run_id == agent_compose_run_id:
+                session.commit()
+                session.refresh(locked)
+                return locked
+            raise AiGovernanceDraftStateError("session_already_bound")
+        if locked.session_id is not None:
+            raise AiGovernanceDraftStateError("session_already_bound")
+        reused_draft_identity = session.exec(
+            select(AiGovernanceDraft.id).where(
+                col(AiGovernanceDraft.agent_compose_run_id) == agent_compose_run_id,
+                AiGovernanceDraft.id != locked.id,
+            )
+        ).first()
+        if reused_draft_identity is not None:
+            raise AiGovernanceDraftStateError("session_identity_reused")
+        locked.agent_compose_run_id = agent_compose_run_id
+        locked.updated_at = get_datetime_utc()
+        try:
+            return _commit_draft(session=session, draft=locked)
+        except IntegrityError as error:
+            diagnostic = getattr(error.orig, "diag", None)
+            if (
+                getattr(diagnostic, "constraint_name", None)
+                == "uq_ai_governance_drafts_agent_compose_run"
+            ):
+                raise AiGovernanceDraftStateError("session_identity_reused") from None
+            raise error
+    except AiGovernanceDraftStateError:
+        session.rollback()
+        raise
+
+
 def bind_draft_session(
     *,
     session: Session,
@@ -736,7 +801,19 @@ def bind_draft_session(
         locked = _locked_active_draft(session=session, draft_id=draft.id)
         _require_generating(locked)
         _require_input_sealed(locked)
-        if locked.session_id is not None or locked.agent_compose_run_id is not None:
+        if (
+            locked.agent_compose_run_id is not None
+            and locked.agent_compose_run_id != agent_compose_run_id
+        ):
+            raise AiGovernanceDraftStateError("session_already_bound")
+        if locked.session_id is not None:
+            if (
+                locked.agent_compose_run_id == agent_compose_run_id
+                and locked.session_id == session_id
+            ):
+                session.commit()
+                session.refresh(locked)
+                return locked
             raise AiGovernanceDraftStateError("session_already_bound")
         reused_session = session.exec(
             select(GovernanceRun.id).where(GovernanceRun.session_id == session_id)
@@ -748,7 +825,8 @@ def bind_draft_session(
                 or_(
                     col(AiGovernanceDraft.agent_compose_run_id) == agent_compose_run_id,
                     col(AiGovernanceDraft.session_id) == session_id,
-                )
+                ),
+                AiGovernanceDraft.id != locked.id,
             )
         ).first()
         if reused_draft_identity is not None:

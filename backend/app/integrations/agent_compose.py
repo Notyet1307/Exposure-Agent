@@ -153,6 +153,12 @@ class AgentComposeClient:
             client_request_id=client_request_id,
         )
 
+    def expected_ai_governance_draft_run_id(self, client_request_id: str) -> str:
+        return self._expected_run_id(
+            agent_name=settings.AI_GOVERNANCE_DRAFT_AGENT_NAME,
+            client_request_id=client_request_id,
+        )
+
     def get_run(self, run_id: str) -> AgentComposeRunStart | None:
         body = self._request(
             _GET_RUN_PATH,
@@ -251,12 +257,13 @@ class AgentComposeClient:
     def start_ai_governance_draft(
         self, *, client_request_id: str, draft_id: str
     ) -> AgentComposeRunStart:
+        run_id = self.expected_ai_governance_draft_run_id(client_request_id)
         return self._start_run(
             agent_name=settings.AI_GOVERNANCE_DRAFT_AGENT_NAME,
             client_request_id=client_request_id,
-            environment={"AI_DRAFT_ID": draft_id},
-            secret_environment={
-                "LLM_API_KEY": settings.MODEL_API_KEY.get_secret_value()
+            environment={
+                "AI_DRAFT_ID": draft_id,
+                "AI_DRAFT_RUN_ID": run_id,
             },
             command="/app/.venv/bin/python -m app.ai_draft_runner",
         )
@@ -282,14 +289,9 @@ class AgentComposeClient:
                     "agent_compose_response_contract_failed"
                 )
             return existing
-        run_environment = {
-            name: (value, False) for name, value in environment.items()
-        }
+        run_environment = {name: (value, False) for name, value in environment.items()}
         run_environment.update(
-            {
-                name: (value, True)
-                for name, value in (secret_environment or {}).items()
-            }
+            {name: (value, True) for name, value in (secret_environment or {}).items()}
         )
         run_request: dict[str, Any] = {
             "projectId": self.project_id,
