@@ -845,7 +845,14 @@ test.describe("Project Reports", () => {
     await expect(
       report.getByRole("alert").getByText("Draft request could not be started"),
     ).toBeVisible()
-    await expect(findings.nth(1)).toBeDisabled()
+    await expect(
+      report.getByRole("button", { name: "Resume your draft request" }),
+    ).toBeVisible()
+    await expect(
+      report.getByRole("button", { name: "Request AI draft" }),
+    ).toHaveCount(0)
+    await expect(report.getByRole("checkbox")).toHaveCount(0)
+    expect(postCount).toBe(1)
     expect(
       await page.evaluate(
         (key) => window.sessionStorage.getItem(key),
