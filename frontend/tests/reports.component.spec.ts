@@ -443,9 +443,7 @@ test.describe("Project Reports", () => {
     ).toBeVisible()
   })
 
-  test("stops polling after the draft Session is bound", async ({
-    page,
-  }) => {
+  test("stops polling after the draft Session is bound", async ({ page }) => {
     let detailReads = 0
     let requested = false
     const postedBodies: unknown[] = []

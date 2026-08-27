@@ -47,7 +47,9 @@ type DraftRequestRecovery = {
   findingIds: string[]
 }
 
-function readDraftRequestRecovery(storageKey: string): DraftRequestRecovery | null {
+function readDraftRequestRecovery(
+  storageKey: string,
+): DraftRequestRecovery | null {
   try {
     const serialized = window.sessionStorage.getItem(storageKey)
     if (serialized === null) return null
@@ -340,9 +342,10 @@ function DraftGeneration({
     new Set(),
   )
   const storageKey = draftIdempotencyStorageKey(projectId, detail.id)
-  const [pendingRequest, setPendingRequest] = useState<DraftRequestRecovery | null>(
-    () => readDraftRequestRecovery(storageKey),
-  )
+  const [pendingRequest, setPendingRequest] =
+    useState<DraftRequestRecovery | null>(() =>
+      readDraftRequestRecovery(storageKey),
+    )
   const eligibleFindings = eligibleDraftFindings(detail)
   const clearPendingRequest = () => {
     clearDraftIdempotencyKey(storageKey)
