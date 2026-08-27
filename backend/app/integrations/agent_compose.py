@@ -48,6 +48,15 @@ class AgentComposeRunStart:
             "RUN_STATUS_SUCCEEDED",
         }
 
+    @property
+    def is_active(self) -> bool:
+        return self.status.upper() in {
+            "PENDING",
+            "RUNNING",
+            "RUN_STATUS_PENDING",
+            "RUN_STATUS_RUNNING",
+        }
+
 
 class AgentComposeSessionObservation(StrEnum):
     TERMINAL = "terminal"

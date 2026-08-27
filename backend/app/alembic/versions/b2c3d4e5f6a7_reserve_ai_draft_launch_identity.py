@@ -6,6 +6,7 @@ Create Date: 2026-08-27 00:00:00.000000
 
 """
 
+import sqlalchemy as sa
 from alembic import op
 
 revision = "b2c3d4e5f6a7"
@@ -26,16 +27,22 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    reserved_unbound = op.get_bind().execute(
+        sa.text(
+            "SELECT EXISTS ("
+            "SELECT 1 FROM ai_governance_drafts "
+            "WHERE agent_compose_run_id IS NOT NULL AND session_id IS NULL"
+            ")"
+        )
+    ).scalar_one()
+    if reserved_unbound:
+        raise RuntimeError(
+            "cannot downgrade while an AI draft has a reserved unbound Run identity"
+        )
     op.drop_constraint(_CONSTRAINT, "ai_governance_drafts", type_="check")
-    # A reachable reserved-but-unbound row cannot satisfy the predecessor's
-    # stricter rule without erasing its immutable launch identity. PostgreSQL's
-    # NOT VALID form preserves those rows while restoring the predecessor rule
-    # for new writes during a rollback. A later re-upgrade replaces this with
-    # the fully validated forward-compatible constraint.
-    op.execute(
-        "ALTER TABLE ai_governance_drafts "
-        f"ADD CONSTRAINT {_CONSTRAINT} CHECK ("
+    op.create_check_constraint(
+        _CONSTRAINT,
+        "ai_governance_drafts",
         "(session_id IS NULL AND agent_compose_run_id IS NULL) OR "
-        "(session_id IS NOT NULL AND agent_compose_run_id IS NOT NULL)"
-        ") NOT VALID"
+        "(session_id IS NOT NULL AND agent_compose_run_id IS NOT NULL)",
     )

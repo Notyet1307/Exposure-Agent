@@ -76,6 +76,10 @@ _DRAFT_ERROR_MESSAGES = {
 }
 
 
+class ModelBindingChangedError(Exception):
+    """The immutable draft binding no longer matches deployment configuration."""
+
+
 class ReportCSVArtifactError(Exception):
     pass
 
@@ -144,11 +148,6 @@ def _require_current_model_binding(
             runner_build_version=settings.RUNNER_BUILD_VERSION,
             agent_compose_runtime_version=settings.AGENT_COMPOSE_RUNTIME_VERSION,
         )
-        if draft is not None and (
-            binding.model_identity != draft.model_identity
-            or binding.config_fingerprint != draft.config_fingerprint
-        ):
-            raise ValueError("model_binding_changed")
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -157,6 +156,11 @@ def _require_current_model_binding(
                 "message": _DRAFT_ERROR_MESSAGES["model_not_qualified"],
             },
         ) from None
+    if draft is not None and (
+        binding.model_identity != draft.model_identity
+        or binding.config_fingerprint != draft.config_fingerprint
+    ):
+        raise ModelBindingChangedError
     if not current_model_is_qualified(
         session=session,
         endpoint=binding.endpoint,
@@ -199,23 +203,48 @@ def _launch_or_reconcile_draft_session(
     launch_now: bool,
     authorize_start: Callable[[], object],
 ) -> AiGovernanceDraft:
-    if draft.status != "GENERATING" or draft.session_id is not None:
+    if draft.status != "GENERATING":
         return draft
     client = AgentComposeClient()
     client_request_id = _draft_client_request_id(draft)
     expected_run_id = client.expected_ai_governance_draft_run_id(client_request_id)
-    reserved = draft_service.reserve_draft_run_identity(
-        session=session,
-        draft=draft,
-        agent_compose_run_id=expected_run_id,
-    )
-    observed = None
-    if not launch_now:
+    if draft.agent_compose_run_id is not None and (
+        draft.agent_compose_run_id != expected_run_id
+    ):
+        raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
+
+    reserved = draft
+    observed: AgentComposeRunStart | None = None
+    if draft.session_id is not None:
+        # A bound Session is still a GENERATING draft until its runner reaches a
+        # durable terminal state.  Reconcile the Run on replay instead of
+        # returning it blindly: a later control-plane failure must release the
+        # one-active-generation slot.
+        if draft.agent_compose_run_id is None:
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
+        observed = client.get_run(expected_run_id)
+        if observed is None:
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
+    else:
+        reserved = draft_service.reserve_draft_run_identity(
+            session=session,
+            draft=draft,
+            agent_compose_run_id=expected_run_id,
+        )
+    if observed is None and not launch_now:
         observed = client.get_run(expected_run_id)
     if observed is None:
         # A missing Run means this request would create a new Session. Recheck
         # the persisted model binding and latest qualification at that boundary.
-        authorize_start()
+        try:
+            authorize_start()
+        except ModelBindingChangedError:
+            return draft_service.fail_draft(
+                session=session,
+                draft=reserved,
+                failure_code="model_binding_changed",
+                actor_subject="agent-compose-control-plane",
+            )
         observed = _start_draft_or_recover_response(
             client=client,
             draft=reserved,
@@ -224,6 +253,13 @@ def _launch_or_reconcile_draft_session(
         )
     if observed.run_id != expected_run_id:
         raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
+    if not observed.is_terminal and not observed.is_active:
+        return draft_service.fail_draft(
+            session=session,
+            draft=reserved,
+            failure_code="agent_compose_run_unknown_status",
+            actor_subject="agent-compose-control-plane",
+        )
     if observed.session_id is None and not observed.is_terminal:
         refreshed = client.get_run(expected_run_id)
         if refreshed is not None:
@@ -232,20 +268,28 @@ def _launch_or_reconcile_draft_session(
                 raise AgentComposeBoundaryError(
                     "agent_compose_response_contract_failed"
                 )
+            if not observed.is_terminal and not observed.is_active:
+                return draft_service.fail_draft(
+                    session=session,
+                    draft=reserved,
+                    failure_code="agent_compose_run_unknown_status",
+                    actor_subject="agent-compose-control-plane",
+                )
     if observed.is_terminal and (not observed.succeeded or observed.session_id is None):
-        terminal_draft = reserved
-        if observed.session_id is not None:
-            terminal_draft = draft_service.bind_draft_session(
-                session=session,
-                draft=reserved,
-                agent_compose_run_id=expected_run_id,
-                session_id=observed.session_id,
-            )
+        failure_binding = (
+            {
+                "agent_compose_run_id": expected_run_id,
+                "session_id": observed.session_id,
+            }
+            if observed.session_id is not None
+            else {}
+        )
         return draft_service.fail_draft(
             session=session,
-            draft=terminal_draft,
+            draft=reserved,
             failure_code="agent_compose_run_failed",
             actor_subject="agent-compose-control-plane",
+            **failure_binding,
         )
     if observed.session_id is None:
         raise AgentComposeBoundaryError("agent_compose_session_pending")
@@ -478,6 +522,18 @@ def request_ai_governance_draft(
             draft_service.AiGovernanceDraftStateError(
                 "draft_generation_after_failure_not_supported"
             )
+        )
+    active_draft = session.exec(
+        select(AiGovernanceDraft.id).where(
+            AiGovernanceDraft.tenant_id == project.tenant_id,
+            AiGovernanceDraft.project_id == project.id,
+            AiGovernanceDraft.governance_report_id == report.id,
+            AiGovernanceDraft.status == "GENERATING",
+        )
+    ).first()
+    if active_draft is not None:
+        raise _draft_state_error(
+            draft_service.AiGovernanceDraftStateError("draft_generation_active")
         )
     try:
         report = draft_service.require_published_report_for_draft(

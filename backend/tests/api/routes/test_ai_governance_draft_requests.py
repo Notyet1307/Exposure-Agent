@@ -398,6 +398,10 @@ def test_operator_request_is_canonical_idempotent_and_audited(
         "draft_idempotency_conflict"
     )
     assert len(calls) == 1
+    monkeypatch.setattr(
+        "app.api.routes.governance_reports.current_model_is_qualified",
+        lambda **_kwargs: False,
+    )
     conflict = client.post(
         url,
         headers={**operator_headers, "Idempotency-Key": "draft-2"},
@@ -644,6 +648,86 @@ def test_pending_session_replay_recovers_without_another_start(
     assert len(start_calls) == 1
 
 
+@pytest.mark.parametrize(
+    ("reconciled_status", "failure_code"),
+    (
+        ("RUN_STATUS_FAILED", "agent_compose_run_failed"),
+        ("RUN_STATUS_UNKNOWN", "agent_compose_run_unknown_status"),
+    ),
+)
+def test_bound_generating_draft_reconciles_terminal_and_unknown_runs(
+    reconciled_status: str,
+    failure_code: str,
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    session_id = "d" * 64
+    start_calls: list[str] = []
+
+    def start_draft(
+        _client: object, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        del draft_id
+        start_calls.append(client_request_id)
+        return AgentComposeRunStart(
+            run_id=AgentComposeClient().expected_ai_governance_draft_run_id(
+                client_request_id
+            ),
+            started=True,
+            status="RUN_STATUS_PENDING",
+            session_id=session_id,
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
+    url = _draft_url(project_id=project["id"], report_id=report.id)
+    headers = {**operator_headers, "Idempotency-Key": "bound-reconciliation"}
+    first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert first.status_code == 202, first.text
+    assert first.json()["session_id"] == session_id
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_run",
+        lambda _client, run_id: AgentComposeRunStart(
+            run_id=run_id,
+            started=False,
+            status=reconciled_status,
+            session_id=session_id,
+        ),
+    )
+    replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["status"] == "FAILED"
+    assert replay.json()["failure_code"] == failure_code
+    assert replay.json()["session_id"] == session_id
+    assert len(start_calls) == 1
+
+
 def test_pending_session_replay_rechecks_qualification_before_start(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -707,6 +791,74 @@ def test_pending_session_replay_rechecks_qualification_before_start(
     assert replay.status_code == 409
     assert replay.json()["detail"]["code"] == "model_not_qualified"
     assert len(start_calls) == 1
+
+
+def test_pending_session_replay_fails_a_draft_when_its_model_binding_drifts(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    start_calls: list[str] = []
+
+    def unavailable_start(
+        _client: object, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        del draft_id
+        start_calls.append(client_request_id)
+        raise AgentComposeBoundaryError("agent_compose_unavailable")
+
+    monkeypatch.setattr(
+        AgentComposeClient, "start_ai_governance_draft", unavailable_start
+    )
+    monkeypatch.setattr(AgentComposeClient, "get_run", lambda *_args: None)
+    url = _draft_url(project_id=project["id"], report_id=report.id)
+    headers = {**operator_headers, "Idempotency-Key": "binding-drift-replay"}
+
+    first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert first.status_code == 503
+    assert len(start_calls) == 1
+
+    monkeypatch.setattr(settings, "MODEL_CONFIG_REVISION", "fixture-v2")
+    replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["status"] == "FAILED"
+    assert replay.json()["failure_code"] == "model_binding_changed"
+    assert len(start_calls) == 1
+    with Session(engine) as session:
+        event = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.action == "ai_governance_draft.generation_failed",
+                AuditEvent.target_id == uuid.UUID(replay.json()["id"]),
+            )
+        ).one()
+    assert event.after_data == {
+        "status": "FAILED",
+        "failure_code": "model_binding_changed",
+    }
 
 
 @pytest.mark.parametrize(

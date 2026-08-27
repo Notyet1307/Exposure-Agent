@@ -647,6 +647,88 @@ test.describe("Project Reports", () => {
     expect(requestKeys[1]).toBe(requestKeys[0])
   })
 
+  test("keeps an ambiguous request key when report refresh fails", async ({
+    page,
+  }) => {
+    let postCount = 0
+    let recoverAfterReload = false
+    const requestKeys: string[] = []
+    await page.route(
+      new RegExp(
+        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
+      ),
+      async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+          postCount += 1
+          requestKeys.push(
+            (await request.allHeaders())["idempotency-key"] ?? "",
+          )
+          if (postCount === 1) {
+            return route.fulfill({
+              status: 503,
+              json: {
+                detail: {
+                  code: "agent_compose_session_pending",
+                  message: "Session identity is pending.",
+                },
+              },
+            })
+          }
+          return route.fulfill({
+            status: 200,
+            json: draftReportDetail("GENERATING").ai_governance_drafts[0],
+          })
+        }
+        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+          if (postCount > 0 && !recoverAfterReload) {
+            return route.fulfill({
+              status: 503,
+              json: { detail: "unavailable" },
+            })
+          }
+          return route.fulfill({
+            json:
+              postCount > 0
+                ? draftReportDetail("GENERATING")
+                : draftReportDetail(),
+          })
+        }
+        return route.fulfill({ json: reportListResponse() })
+      },
+    )
+
+    await page.goto("/")
+    await page.getByRole("tab", { name: "Reports", exact: true }).click()
+    await page.getByRole("button", { name: "Read report" }).click()
+    let report = page.getByRole("dialog")
+    const findings = report.getByRole("checkbox")
+    await findings.first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+    await expect(
+      report.getByRole("alert").getByText("Draft request could not be started"),
+    ).toBeVisible()
+    await expect(findings.nth(1)).toBeDisabled()
+    expect(
+      await page.evaluate(
+        (key) => window.sessionStorage.getItem(key),
+        `exposure:ai-governance-draft:${projectId}:${reportIds[0]}:idempotency-key`,
+      ),
+    ).toBe(requestKeys[0])
+
+    recoverAfterReload = true
+    await page.reload()
+    await page.getByRole("tab", { name: "Reports", exact: true }).click()
+    await page.getByRole("button", { name: "Read report" }).click()
+    report = page.getByRole("dialog")
+    await report.getByRole("button", { name: "Resume draft Session" }).click()
+
+    await expect(report.getByText(`Session ${draftSessionId}`)).toBeVisible()
+    expect(requestKeys).toHaveLength(2)
+    expect(requestKeys[1]).toBe(requestKeys[0])
+  })
+
   test("requires explicit selection and caps the request at eight Findings", async ({
     page,
   }) => {

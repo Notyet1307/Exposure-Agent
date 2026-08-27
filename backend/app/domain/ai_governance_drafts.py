@@ -898,14 +898,50 @@ def fail_draft(
     draft: AiGovernanceDraft,
     failure_code: str,
     actor_subject: str = "ai-draft-runner",
+    agent_compose_run_id: str | None = None,
+    session_id: str | None = None,
 ) -> AiGovernanceDraft:
     if not _is_failure_code(failure_code):
         raise AiGovernanceDraftStateError("failure_code_invalid")
     _require_nonblank(actor_subject, max_length=255, code="draft_request_invalid")
+    if (agent_compose_run_id is None) != (session_id is None):
+        raise AiGovernanceDraftStateError("session_identity_invalid")
+    if agent_compose_run_id is not None and (
+        not _is_lower_hex_identity(agent_compose_run_id)
+        or not _is_lower_hex_identity(session_id)
+    ):
+        raise AiGovernanceDraftStateError("session_identity_invalid")
     try:
         locked = _locked_active_draft(session=session, draft_id=draft.id)
         _require_generating(locked)
         _require_input_sealed(locked)
+        if agent_compose_run_id is not None and session_id is not None:
+            if (
+                locked.agent_compose_run_id is not None
+                and locked.agent_compose_run_id != agent_compose_run_id
+            ):
+                raise AiGovernanceDraftStateError("session_already_bound")
+            if locked.session_id is not None and locked.session_id != session_id:
+                raise AiGovernanceDraftStateError("session_already_bound")
+            reused_session = session.exec(
+                select(GovernanceRun.id).where(GovernanceRun.session_id == session_id)
+            ).one_or_none()
+            if reused_session is not None:
+                raise AiGovernanceDraftStateError("session_identity_reused")
+            reused_draft_identity = session.exec(
+                select(AiGovernanceDraft.id).where(
+                    or_(
+                        col(AiGovernanceDraft.agent_compose_run_id)
+                        == agent_compose_run_id,
+                        col(AiGovernanceDraft.session_id) == session_id,
+                    ),
+                    AiGovernanceDraft.id != locked.id,
+                )
+            ).first()
+            if reused_draft_identity is not None:
+                raise AiGovernanceDraftStateError("session_identity_reused")
+            locked.agent_compose_run_id = agent_compose_run_id
+            locked.session_id = session_id
         locked.status = AiGovernanceDraftStatus.FAILED.value
         locked.failure_code = failure_code
         locked.generation_terminal_at = get_datetime_utc()

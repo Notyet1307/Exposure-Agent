@@ -352,6 +352,10 @@ function DraftGeneration({
   }, [latestDraft, storageKey])
 
   const toggleFinding = (findingId: string, checked: boolean) => {
+    // Once a request key has been issued, the response may be ambiguous.  The
+    // key is the only safe recovery handle until the report confirms the
+    // resulting draft state, so selection changes must not replace it.
+    if (idempotencyKey) return
     setSelectedFindingIds((current) => {
       const next = new Set(current)
       if (checked) {
@@ -361,8 +365,6 @@ function DraftGeneration({
       }
       return next
     })
-    setIdempotencyKey(null)
-    clearDraftIdempotencyKey(storageKey)
   }
 
   const requestDraft = () => {
@@ -448,6 +450,7 @@ function DraftGeneration({
                       checked={selected}
                       disabled={
                         generationMutation.isPending ||
+                        idempotencyKey !== null ||
                         (!selected &&
                           selectedFindingIds.size >= MAX_DRAFT_FINDINGS)
                       }

@@ -31,6 +31,7 @@ from app.domain.ai_governance_drafts import (
     fail_draft,
     load_draft_runner_inputs,
     mark_draft_reviewable,
+    reserve_draft_run_identity,
     review_draft,
 )
 from app.domain.models import (
@@ -921,7 +922,7 @@ def test_draft_reserves_launch_identity_before_idempotent_session_binding(
     assert rebound.session_id == session_id
 
 
-def test_latest_downgrade_preserves_a_reserved_unbound_launch(
+def test_latest_downgrade_rejects_a_reserved_unbound_launch(
     draft_database: str,
 ) -> None:
     ids = _seed_draft_fixture(draft_database, identity_suffix="-downgrade-reservation")
@@ -933,7 +934,9 @@ def test_latest_downgrade_preserves_a_reserved_unbound_launch(
         agent_compose_run_id=run_id,
     )
 
-    run_downgrade(draft_database, "a1b2c3d4e5f6")
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        run_downgrade(draft_database, "a1b2c3d4e5f6")
+    assert "reserved unbound Run identity" in error.value.stderr
 
     with connect(draft_database) as connection:
         assert connection.execute(
@@ -947,16 +950,8 @@ def test_latest_downgrade_preserves_a_reserved_unbound_launch(
             "AND conname = 'ck_ai_governance_drafts_session_binding'"
         ).fetchone()
     assert constraint is not None
-    assert "session_id IS NULL" in constraint[0]
-    assert "agent_compose_run_id IS NULL" in constraint[0]
-    assert constraint[1] is False
-
-    run_migration(draft_database, "head")
-    assert _draft_row(
-        draft_database,
-        creation.draft.id,
-        "agent_compose_run_id, session_id",
-    ) == (run_id, None)
+    assert "session_id IS NULL OR agent_compose_run_id IS NOT NULL" in constraint[0]
+    assert constraint[1] is True
 
 
 def test_failed_draft_replays_by_key_and_requires_an_explicit_new_attempt(
@@ -1057,6 +1052,30 @@ def test_mandatory_audit_failure_rolls_back_audited_business_mutations(
         ),
         "status, failure_code, generation_terminal_at",
         ("GENERATING", None, None),
+    )
+
+    reserved_candidate = _create_draft(
+        draft_database, ids, idempotency_key="audit-failure-at-terminal-binding"
+    )
+    reserved = _apply(
+        draft_database,
+        reserve_draft_run_identity,
+        reserved_candidate,
+        agent_compose_run_id="e" * 64,
+    )
+    assert_rollback(
+        reserved,
+        lambda: _apply(
+            draft_database,
+            fail_draft,
+            reserved,
+            failure_code="timeout",
+            actor_subject="agent-compose-control-plane",
+            agent_compose_run_id="e" * 64,
+            session_id="f" * 64,
+        ),
+        "status, failure_code, generation_terminal_at, session_id",
+        ("GENERATING", None, None, None),
     )
 
 
