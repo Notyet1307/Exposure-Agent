@@ -897,9 +897,11 @@ def fail_draft(
     session: Session,
     draft: AiGovernanceDraft,
     failure_code: str,
+    actor_subject: str = "ai-draft-runner",
 ) -> AiGovernanceDraft:
     if not _is_failure_code(failure_code):
         raise AiGovernanceDraftStateError("failure_code_invalid")
+    _require_nonblank(actor_subject, max_length=255, code="draft_request_invalid")
     try:
         locked = _locked_active_draft(session=session, draft_id=draft.id)
         _require_generating(locked)
@@ -913,7 +915,7 @@ def fail_draft(
             draft=locked,
             audit_event=_draft_audit_event(
                 draft=locked,
-                actor_subject="ai-draft-runner",
+                actor_subject=actor_subject,
                 actor_type="system",
                 action="ai_governance_draft.generation_failed",
                 before_data={"status": AiGovernanceDraftStatus.GENERATING.value},

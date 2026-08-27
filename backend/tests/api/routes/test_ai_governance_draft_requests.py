@@ -709,6 +709,107 @@ def test_pending_session_replay_rechecks_qualification_before_start(
     assert len(start_calls) == 1
 
 
+@pytest.mark.parametrize(
+    ("run_status", "session_id"),
+    (
+        ("RUN_STATUS_FAILED", None),
+        ("RUN_STATUS_FAILED", "d" * 64),
+        ("RUN_STATUS_SUCCEEDED", None),
+        ("RUN_STATUS_SUCCEEDED", "e" * 64),
+    ),
+)
+def test_terminal_session_launch_converges_to_a_durable_state(
+    run_status: str,
+    session_id: str | None,
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    start_calls: list[str] = []
+    get_calls: list[str] = []
+
+    def terminal_start(
+        _client: object, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        del draft_id
+        start_calls.append(client_request_id)
+        return AgentComposeRunStart(
+            run_id=AgentComposeClient().expected_ai_governance_draft_run_id(
+                client_request_id
+            ),
+            started=True,
+            status=run_status,
+            session_id=session_id,
+        )
+
+    def get_run(_client: object, run_id: str) -> None:
+        get_calls.append(run_id)
+        return None
+
+    monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", terminal_start)
+    monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
+    url = _draft_url(project_id=project["id"], report_id=report.id)
+    headers = {**operator_headers, "Idempotency-Key": "terminal-launch"}
+
+    first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert first.status_code == 202, first.text
+    successful_bootstrap = (
+        run_status == "RUN_STATUS_SUCCEEDED" and session_id is not None
+    )
+    assert first.json()["status"] == (
+        "GENERATING" if successful_bootstrap else "FAILED"
+    )
+    assert first.json()["failure_code"] == (
+        None if successful_bootstrap else "agent_compose_run_failed"
+    )
+    assert first.json()["session_id"] == session_id
+    assert len(start_calls) == 1
+    assert get_calls == []
+    if not successful_bootstrap:
+        with Session(engine) as session:
+            failure_event = session.exec(
+                select(AuditEvent).where(
+                    AuditEvent.action == "ai_governance_draft.generation_failed",
+                    AuditEvent.target_id == uuid.UUID(first.json()["id"]),
+                )
+            ).one()
+        assert failure_event.actor_subject == "agent-compose-control-plane"
+        assert failure_event.after_data == {
+            "status": "FAILED",
+            "failure_code": "agent_compose_run_failed",
+        }
+
+    replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == first.json()
+    assert len(start_calls) == 1
+    assert get_calls == []
+
+
 def test_failed_draft_blocks_an_explicit_new_attempt(
     client: TestClient,
     superuser_token_headers: dict[str, str],

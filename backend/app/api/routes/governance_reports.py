@@ -224,10 +224,29 @@ def _launch_or_reconcile_draft_session(
         )
     if observed.run_id != expected_run_id:
         raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
-    if observed.session_id is None:
+    if observed.session_id is None and not observed.is_terminal:
         refreshed = client.get_run(expected_run_id)
         if refreshed is not None:
             observed = refreshed
+            if observed.run_id != expected_run_id:
+                raise AgentComposeBoundaryError(
+                    "agent_compose_response_contract_failed"
+                )
+    if observed.is_terminal and (not observed.succeeded or observed.session_id is None):
+        terminal_draft = reserved
+        if observed.session_id is not None:
+            terminal_draft = draft_service.bind_draft_session(
+                session=session,
+                draft=reserved,
+                agent_compose_run_id=expected_run_id,
+                session_id=observed.session_id,
+            )
+        return draft_service.fail_draft(
+            session=session,
+            draft=terminal_draft,
+            failure_code="agent_compose_run_failed",
+            actor_subject="agent-compose-control-plane",
+        )
     if observed.session_id is None:
         raise AgentComposeBoundaryError("agent_compose_session_pending")
     return draft_service.bind_draft_session(

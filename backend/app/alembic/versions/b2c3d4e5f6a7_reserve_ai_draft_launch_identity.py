@@ -27,9 +27,15 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_constraint(_CONSTRAINT, "ai_governance_drafts", type_="check")
-    op.create_check_constraint(
-        _CONSTRAINT,
-        "ai_governance_drafts",
+    # A reachable reserved-but-unbound row cannot satisfy the predecessor's
+    # stricter rule without erasing its immutable launch identity. PostgreSQL's
+    # NOT VALID form preserves those rows while restoring the predecessor rule
+    # for new writes during a rollback. A later re-upgrade replaces this with
+    # the fully validated forward-compatible constraint.
+    op.execute(
+        "ALTER TABLE ai_governance_drafts "
+        f"ADD CONSTRAINT {_CONSTRAINT} CHECK ("
         "(session_id IS NULL AND agent_compose_run_id IS NULL) OR "
-        "(session_id IS NOT NULL AND agent_compose_run_id IS NOT NULL)",
+        "(session_id IS NOT NULL AND agent_compose_run_id IS NOT NULL)"
+        ") NOT VALID"
     )

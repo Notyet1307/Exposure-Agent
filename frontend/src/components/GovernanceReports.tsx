@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import {
   type AiGovernanceDraftPublic,
@@ -37,6 +37,35 @@ import {
 const REPORT_PAGE_SIZE = 20
 const HTML_EVIDENCE_LIMIT = 8
 const MAX_DRAFT_FINDINGS = 8
+
+function draftIdempotencyStorageKey(projectId: string, reportId: string) {
+  return `exposure:ai-governance-draft:${projectId}:${reportId}:idempotency-key`
+}
+
+function readDraftIdempotencyKey(storageKey: string) {
+  try {
+    return window.sessionStorage.getItem(storageKey)
+  } catch {
+    return null
+  }
+}
+
+function storeDraftIdempotencyKey(storageKey: string, value: string) {
+  try {
+    window.sessionStorage.setItem(storageKey, value)
+  } catch {
+    // The API remains usable when browser storage is unavailable; only
+    // remount recovery is disabled for that tab.
+  }
+}
+
+function clearDraftIdempotencyKey(storageKey: string) {
+  try {
+    window.sessionStorage.removeItem(storageKey)
+  } catch {
+    // Nothing durable was available to clear.
+  }
+}
 
 type JsonObject = Record<string, unknown>
 
@@ -283,7 +312,10 @@ function DraftGeneration({
   const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(
     new Set(),
   )
-  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null)
+  const storageKey = draftIdempotencyStorageKey(projectId, detail.id)
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(() =>
+    readDraftIdempotencyKey(storageKey),
+  )
   const eligibleFindings = eligibleDraftFindings(detail)
   const generationMutation = useMutation({
     mutationFn: ({ findingIds, key }: { findingIds: string[]; key: string }) =>
@@ -304,6 +336,20 @@ function DraftGeneration({
   const generationAfterFailureBlocked =
     detail.ai_governance_drafts?.some((draft) => draft.status === "FAILED") ??
     false
+  const activeDraft =
+    latestDraft?.status === "GENERATING" ? latestDraft : undefined
+  const pendingSessionDraft =
+    activeDraft?.session_id === null ? activeDraft : undefined
+
+  useEffect(() => {
+    if (
+      latestDraft &&
+      (latestDraft.status !== "GENERATING" || latestDraft.session_id !== null)
+    ) {
+      clearDraftIdempotencyKey(storageKey)
+      setIdempotencyKey(null)
+    }
+  }, [latestDraft, storageKey])
 
   const toggleFinding = (findingId: string, checked: boolean) => {
     setSelectedFindingIds((current) => {
@@ -316,6 +362,7 @@ function DraftGeneration({
       return next
     })
     setIdempotencyKey(null)
+    clearDraftIdempotencyKey(storageKey)
   }
 
   const requestDraft = () => {
@@ -327,7 +374,23 @@ function DraftGeneration({
       return
     const key = idempotencyKey ?? crypto.randomUUID()
     setIdempotencyKey(key)
+    storeDraftIdempotencyKey(storageKey, key)
     generationMutation.mutate({ findingIds: [...selectedFindingIds], key })
+  }
+
+  const resumeDraftSession = () => {
+    const findingIds = pendingSessionDraft?.finding_ids
+    if (
+      !findingIds ||
+      findingIds.length === 0 ||
+      !idempotencyKey ||
+      generationMutation.isPending
+    )
+      return
+    generationMutation.mutate({
+      findingIds,
+      key: idempotencyKey,
+    })
   }
 
   return (
@@ -340,6 +403,28 @@ function DraftGeneration({
         <p className="text-sm text-muted-foreground">
           A new draft attempt after failure is not available in this release.
         </p>
+      ) : activeDraft ? (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Draft generation is already active.
+          </p>
+          {pendingSessionDraft && idempotencyKey ? (
+            <Button
+              disabled={generationMutation.isPending}
+              onClick={resumeDraftSession}
+              type="button"
+              variant="outline"
+            >
+              {generationMutation.isPending
+                ? "Resuming Session…"
+                : "Resume draft Session"}
+            </Button>
+          ) : pendingSessionDraft ? (
+            <p className="text-sm text-muted-foreground">
+              Session recovery requires the original browser tab.
+            </p>
+          ) : null}
+        </div>
       ) : !detail.can_request_ai_governance_draft ? (
         <p className="text-sm text-muted-foreground">
           A Project Operator can request an AI governance draft.
@@ -407,8 +492,8 @@ function DraftGeneration({
         <Alert variant="destructive">
           <AlertTitle>Draft request could not be started</AlertTitle>
           <AlertDescription>
-            The same selection can be submitted again with its original request
-            key.
+            The original request key is retained in this browser tab so the
+            pending Session can be resumed safely.
           </AlertDescription>
         </Alert>
       )}

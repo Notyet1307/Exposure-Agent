@@ -921,6 +921,44 @@ def test_draft_reserves_launch_identity_before_idempotent_session_binding(
     assert rebound.session_id == session_id
 
 
+def test_latest_downgrade_preserves_a_reserved_unbound_launch(
+    draft_database: str,
+) -> None:
+    ids = _seed_draft_fixture(draft_database, identity_suffix="-downgrade-reservation")
+    run_id = "b" * 64
+    creation = _request_draft(
+        draft_database,
+        ids,
+        idempotency_key="downgrade-reservation",
+        agent_compose_run_id=run_id,
+    )
+
+    run_downgrade(draft_database, "a1b2c3d4e5f6")
+
+    with connect(draft_database) as connection:
+        assert connection.execute(
+            "SELECT agent_compose_run_id, session_id FROM ai_governance_drafts "
+            "WHERE id = %s",
+            (creation.draft.id,),
+        ).fetchone() == (run_id, None)
+        constraint = connection.execute(
+            "SELECT pg_get_constraintdef(oid), convalidated FROM pg_constraint "
+            "WHERE conrelid = 'ai_governance_drafts'::regclass "
+            "AND conname = 'ck_ai_governance_drafts_session_binding'"
+        ).fetchone()
+    assert constraint is not None
+    assert "session_id IS NULL" in constraint[0]
+    assert "agent_compose_run_id IS NULL" in constraint[0]
+    assert constraint[1] is False
+
+    run_migration(draft_database, "head")
+    assert _draft_row(
+        draft_database,
+        creation.draft.id,
+        "agent_compose_run_id, session_id",
+    ) == (run_id, None)
+
+
 def test_failed_draft_replays_by_key_and_requires_an_explicit_new_attempt(
     draft_database: str,
 ) -> None:
