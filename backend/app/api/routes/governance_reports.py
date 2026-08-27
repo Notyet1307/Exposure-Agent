@@ -70,6 +70,10 @@ _DRAFT_ERROR_MESSAGES = {
     "agent_compose_session_pending": (
         "The draft Run was accepted; its Session identity is not visible yet."
     ),
+    "agent_compose_run_status_unknown": (
+        "The draft Run status is not yet recognized; retry with the same "
+        "Idempotency-Key."
+    ),
     "agent_compose_response_contract_failed": (
         "The draft Session control plane returned an invalid response."
     ),
@@ -250,12 +254,10 @@ def _launch_or_reconcile_draft_session(
     if observed.run_id != expected_run_id:
         raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
     if not observed.is_terminal and not observed.is_active:
-        return draft_service.fail_draft(
-            session=session,
-            draft=reserved,
-            failure_code="agent_compose_run_unknown_status",
-            actor_subject="agent-compose-control-plane",
-        )
+        # An unknown status can be a newer active control-plane state.  The
+        # deterministic Run identity is already reserved, so leave this draft
+        # recoverable and reconcile that exact Run on the next replay.
+        raise AgentComposeBoundaryError("agent_compose_run_status_unknown")
     if observed.session_id is None and not observed.is_terminal:
         refreshed = client.get_run(expected_run_id)
         if refreshed is not None:
@@ -265,12 +267,7 @@ def _launch_or_reconcile_draft_session(
                     "agent_compose_response_contract_failed"
                 )
             if not observed.is_terminal and not observed.is_active:
-                return draft_service.fail_draft(
-                    session=session,
-                    draft=reserved,
-                    failure_code="agent_compose_run_unknown_status",
-                    actor_subject="agent-compose-control-plane",
-                )
+                raise AgentComposeBoundaryError("agent_compose_run_status_unknown")
     if observed.is_terminal and (not observed.succeeded or observed.session_id is None):
         failure_binding = (
             {

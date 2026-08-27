@@ -648,6 +648,100 @@ def test_pending_session_replay_recovers_without_another_start(
     assert len(start_calls) == 1
 
 
+def test_unknown_run_status_remains_recoverable_without_a_failure_audit_event(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    start_calls: list[str] = []
+    recovered_session_id: str | None = None
+
+    def start_draft(
+        _client: object, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        nonlocal recovered_session_id
+        start_calls.append(client_request_id)
+        recovered_session_id = hashlib.sha256(draft_id.encode()).hexdigest()
+        return AgentComposeRunStart(
+            run_id=AgentComposeClient().expected_ai_governance_draft_run_id(
+                client_request_id
+            ),
+            started=True,
+            status="RUN_STATUS_UNSPECIFIED",
+            session_id=recovered_session_id,
+        )
+
+    def get_run(_client: object, run_id: str) -> AgentComposeRunStart:
+        assert recovered_session_id is not None
+        return AgentComposeRunStart(
+            run_id=run_id,
+            started=False,
+            status="RUN_STATUS_PENDING",
+            session_id=recovered_session_id,
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
+    monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
+    url = _draft_url(project_id=project["id"], report_id=report.id)
+    headers = {**operator_headers, "Idempotency-Key": "unknown-run-status"}
+
+    first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert first.status_code == 503
+    assert first.json()["detail"]["code"] == "agent_compose_run_status_unknown"
+    with Session(engine) as session:
+        draft = session.exec(
+            select(AiGovernanceDraft).where(
+                AiGovernanceDraft.project_id == uuid.UUID(str(project["id"]))
+            )
+        ).one()
+        assert draft.status == "GENERATING"
+        assert draft.agent_compose_run_id == (
+            AgentComposeClient().expected_ai_governance_draft_run_id(
+                f"ai-governance-draft:{draft.id}"
+            )
+        )
+        assert draft.session_id is None
+        assert (
+            session.exec(
+                select(AuditEvent).where(
+                    AuditEvent.action == "ai_governance_draft.generation_failed",
+                    AuditEvent.target_id == draft.id,
+                )
+            ).all()
+            == []
+        )
+
+    replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["status"] == "GENERATING"
+    assert replay.json()["session_id"] == recovered_session_id
+    assert len(start_calls) == 1
+
+
 def test_bound_generating_draft_replays_without_control_plane_reconciliation(
     client: TestClient,
     superuser_token_headers: dict[str, str],

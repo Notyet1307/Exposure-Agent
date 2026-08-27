@@ -576,6 +576,63 @@ test.describe("Project Reports", () => {
     expect(postCount).toBe(1)
   })
 
+  test("clears a rejected draft key after refresh confirms no draft exists", async ({
+    page,
+  }) => {
+    let postCount = 0
+    const requestKeys: string[] = []
+    await page.route(
+      new RegExp(
+        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
+      ),
+      async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+          postCount += 1
+          requestKeys.push(
+            (await request.allHeaders())["idempotency-key"] ?? "",
+          )
+          return route.fulfill({
+            status: 409,
+            json: {
+              detail: {
+                code: "model_not_qualified",
+                message: "The current model is not qualified.",
+              },
+            },
+          })
+        }
+        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+          return route.fulfill({ json: draftReportDetail() })
+        }
+        return route.fulfill({ json: reportListResponse() })
+      },
+    )
+
+    await page.goto("/")
+    await page.getByRole("tab", { name: "Reports", exact: true }).click()
+    await page.getByRole("button", { name: "Read report" }).click()
+    let report = page.getByRole("dialog")
+    await report.getByRole("checkbox").first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+
+    const storageKey = `exposure:ai-governance-draft:${projectId}:${reportIds[0]}:idempotency-key`
+    await expect
+      .poll(() =>
+        page.evaluate((key) => window.sessionStorage.getItem(key), storageKey),
+      )
+      .toBeNull()
+
+    await page.reload()
+    await page.getByRole("tab", { name: "Reports", exact: true }).click()
+    await page.getByRole("button", { name: "Read report" }).click()
+    report = page.getByRole("dialog")
+    await expect(report.getByRole("checkbox").first()).toBeEnabled()
+    expect(postCount).toBe(1)
+    expect(requestKeys).toHaveLength(1)
+  })
+
   test("recovers a pending Session with the same key after a page reload", async ({
     page,
   }) => {

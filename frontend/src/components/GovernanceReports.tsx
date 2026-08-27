@@ -325,10 +325,28 @@ function DraftGeneration({
         requestBody: { finding_ids: findingIds },
         idempotencyKey: key,
       }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["governance-report", projectId, detail.id],
-      })
+    onSettled: async (_data, error) => {
+      const queryKey = ["governance-report", projectId, detail.id]
+      try {
+        // A request error is ambiguous until the persisted report is read
+        // again.  Only a successful no-draft read releases this browser key.
+        await queryClient.invalidateQueries({ queryKey, refetchType: "none" })
+        const refreshed = await queryClient.fetchQuery({
+          queryKey,
+          queryFn: () =>
+            GovernanceReportsService.readGovernanceReport({
+              projectId,
+              reportId: detail.id,
+            }),
+        })
+        if (error && (refreshed.ai_governance_drafts?.length ?? 0) === 0) {
+          clearDraftIdempotencyKey(storageKey)
+          setIdempotencyKey(null)
+        }
+      } catch {
+        // Keep the key if the post-request read did not conclusively rule out
+        // a persisted draft or Session.
+      }
     },
   })
   const latestDraft: AiGovernanceDraftPublic | undefined =
@@ -495,8 +513,9 @@ function DraftGeneration({
         <Alert variant="destructive">
           <AlertTitle>Draft request could not be started</AlertTitle>
           <AlertDescription>
-            The original request key is retained in this browser tab so the
-            pending Session can be resumed safely.
+            {idempotencyKey
+              ? "The original request key is retained in this browser tab so the pending Session can be resumed safely."
+              : "No draft was persisted. You can update the selection or prerequisites and try again."}
           </AlertDescription>
         </Alert>
       )}
