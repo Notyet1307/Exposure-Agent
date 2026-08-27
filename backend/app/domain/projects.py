@@ -9,6 +9,8 @@ from app.domain.customer_upload_profiles import (
     default_customer_upload_profile_definition,
 )
 from app.domain.models import (
+    AiGovernanceDraft,
+    AiGovernanceDraftStatus,
     AuditEvent,
     CustomerUploadProfile,
     GovernanceRun,
@@ -105,8 +107,10 @@ def create_project(
     return project
 
 
-class ActiveGovernanceRunError(Exception):
-    pass
+class ActiveProjectWorkError(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 def archive_project(
@@ -116,6 +120,11 @@ def archive_project(
     actor_subject: str,
     ip_address: str | None,
 ) -> Project:
+    project = session.exec(
+        select(Project)
+        .where(Project.id == project.id, Project.tenant_id == project.tenant_id)
+        .with_for_update()
+    ).one()
     if project.archived_at is not None:
         return project
     active_run = session.exec(
@@ -125,7 +134,16 @@ def archive_project(
         )
     ).first()
     if active_run is not None or project.governance_launch_trigger_id is not None:
-        raise ActiveGovernanceRunError
+        raise ActiveProjectWorkError("project_has_active_governance_run")
+    active_draft = session.exec(
+        select(AiGovernanceDraft.id).where(
+            AiGovernanceDraft.project_id == project.id,
+            AiGovernanceDraft.tenant_id == project.tenant_id,
+            AiGovernanceDraft.status == AiGovernanceDraftStatus.GENERATING.value,
+        )
+    ).first()
+    if active_draft is not None:
+        raise ActiveProjectWorkError("project_has_active_ai_governance_draft")
 
     changed_at = get_datetime_utc()
     project.archived_at = changed_at
