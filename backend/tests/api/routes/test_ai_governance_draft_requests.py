@@ -1371,41 +1371,12 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
         monkeypatch=monkeypatch,
     )
     session_id = "a" * 64
-    loser_reserved_run = threading.Event()
+    snapshots_loaded = threading.Barrier(2)
     persisted = threading.Event()
     start = threading.Event()
     outcomes: list[AiGovernanceDraft] = []
     errors: list[BaseException] = []
-    original_reserve = draft_service.reserve_draft_run_identity
     original_bind = draft_service.bind_draft_session
-
-    def reserve(
-        *,
-        session: Session,
-        draft: AiGovernanceDraft,
-        agent_compose_run_id: str,
-        agent_compose_project_id: str,
-        agent_compose_agent_name: str,
-    ) -> AiGovernanceDraft:
-        result = original_reserve(
-            session=session,
-            draft=draft,
-            agent_compose_run_id=agent_compose_run_id,
-            agent_compose_project_id=agent_compose_project_id,
-            agent_compose_agent_name=agent_compose_agent_name,
-        )
-        # reserve_draft_run_identity refreshes the result after its
-        # commit.  End that implicit read transaction before coordinating the
-        # replay threads: the loser must not wait while holding any database
-        # transaction or Project lock.
-        session.commit()
-        if threading.current_thread().name == "replay-loser":
-            loser_reserved_run.set()
-            if not persisted.wait(timeout=5):
-                raise AssertionError("winner did not persist the Session binding")
-        elif not loser_reserved_run.wait(timeout=5):
-            raise AssertionError("loser did not reserve the deterministic Run")
-        return result
 
     def bind(
         *,
@@ -1433,7 +1404,6 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
             session_id=session_id,
         )
 
-    monkeypatch.setattr(draft_service, "reserve_draft_run_identity", reserve)
     monkeypatch.setattr(draft_service, "bind_draft_session", bind)
     monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
     monkeypatch.setattr(
@@ -1449,6 +1419,17 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
             with Session(engine) as session:
                 draft = session.get(AiGovernanceDraft, draft_id)
                 assert draft is not None
+                # Persisted-run replays intentionally skip reservation. Load
+                # two stale snapshots, close their transactions, then let
+                # only the winner reconcile the control plane.
+                session.expunge(draft)
+                session.commit()
+                snapshots_loaded.wait(timeout=5)
+                if (
+                    threading.current_thread().name == "replay-loser"
+                    and not persisted.wait(timeout=5)
+                ):
+                    raise AssertionError("winner did not persist the Session binding")
                 outcomes.append(
                     governance_report_routes._launch_or_reconcile_draft_session(
                         session=session,
@@ -1462,7 +1443,6 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
         finally:
             # A failed winner must still release a waiting loser, so joins
             # below are bounded even when an assertion or database call fails.
-            loser_reserved_run.set()
             persisted.set()
 
     winner = threading.Thread(target=replay, name="replay-winner")
@@ -1496,39 +1476,12 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    loser_reserved_run = threading.Event()
+    snapshots_loaded = threading.Barrier(2)
     persisted = threading.Event()
     start = threading.Event()
     outcomes: list[AiGovernanceDraft] = []
     errors: list[BaseException] = []
-    original_reserve = draft_service.reserve_draft_run_identity
     original_fail = draft_service.fail_draft
-
-    def reserve(
-        *,
-        session: Session,
-        draft: AiGovernanceDraft,
-        agent_compose_run_id: str,
-        agent_compose_project_id: str,
-        agent_compose_agent_name: str,
-    ) -> AiGovernanceDraft:
-        result = original_reserve(
-            session=session,
-            draft=draft,
-            agent_compose_run_id=agent_compose_run_id,
-            agent_compose_project_id=agent_compose_project_id,
-            agent_compose_agent_name=agent_compose_agent_name,
-        )
-        # See the Session-binding race above: do not wait while the refresh
-        # performed by reservation has an implicit transaction open.
-        session.commit()
-        if threading.current_thread().name == "replay-loser":
-            loser_reserved_run.set()
-            if not persisted.wait(timeout=5):
-                raise AssertionError("winner did not persist the terminal failure")
-        elif not loser_reserved_run.wait(timeout=5):
-            raise AssertionError("loser did not reserve the deterministic Run")
-        return result
 
     def fail(
         *,
@@ -1559,7 +1512,6 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
             status="RUN_STATUS_FAILED",
         )
 
-    monkeypatch.setattr(draft_service, "reserve_draft_run_identity", reserve)
     monkeypatch.setattr(draft_service, "fail_draft", fail)
     monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
     monkeypatch.setattr(
@@ -1575,6 +1527,17 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
             with Session(engine) as session:
                 draft = session.get(AiGovernanceDraft, draft_id)
                 assert draft is not None
+                # Keep synchronization outside a database transaction. The
+                # loser must reconcile the persisted terminal state, not call
+                # agent-compose from its stale snapshot.
+                session.expunge(draft)
+                session.commit()
+                snapshots_loaded.wait(timeout=5)
+                if (
+                    threading.current_thread().name == "replay-loser"
+                    and not persisted.wait(timeout=5)
+                ):
+                    raise AssertionError("winner did not persist the terminal failure")
                 outcomes.append(
                     governance_report_routes._launch_or_reconcile_draft_session(
                         session=session,
@@ -1586,7 +1549,6 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
         except BaseException as error:
             errors.append(error)
         finally:
-            loser_reserved_run.set()
             persisted.set()
 
     winner = threading.Thread(target=replay, name="replay-winner")

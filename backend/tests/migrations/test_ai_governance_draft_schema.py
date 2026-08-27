@@ -41,6 +41,7 @@ from app.domain.models import (
     GovernanceReport,
 )
 from tests.migrations.test_schema_history import (
+    CURRENT_SCHEMA_REVISION,
     DEPLOYMENT_TENANT_ID,
     _insert_governance_report,
     _insert_scoped_report_artifacts,
@@ -1947,7 +1948,9 @@ def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
     assert_legacy_schema_protections()
 
     run_migration(draft_database, "head")
-    assert_revision("b2c3d4e5f6a7")
+    # A single uninterrupted upgrade from main must reach the current head,
+    # including the frozen agent-compose namespace constraint.
+    assert_revision(CURRENT_SCHEMA_REVISION)
 
     fresh_ids = _seed_draft_fixture(
         draft_database, identity_suffix="-fresh", complete_run=True
