@@ -1951,6 +1951,7 @@ _AI_DRAFT_CHECKS = {
     "ck_ai_governance_drafts_review_decision": "review_decision IS NULL OR review_decision IN ('ACCEPTED', 'EDITED', 'REJECTED')",
     "ck_ai_governance_drafts_identity_pins": "btrim(idempotency_key) <> '' AND btrim(initiated_by) <> '' AND btrim(model_identity) <> '' AND (failure_code IS NULL OR btrim(failure_code) <> '') AND (reviewed_by IS NULL OR btrim(reviewed_by) <> '')",
     "ck_ai_governance_drafts_session_binding": "session_id IS NULL OR agent_compose_run_id IS NOT NULL",
+    "ck_ai_governance_drafts_agent_compose_namespace": "(agent_compose_run_id IS NULL AND agent_compose_project_id IS NULL AND agent_compose_agent_name IS NULL) OR (agent_compose_run_id IS NOT NULL AND agent_compose_project_id IS NOT NULL AND btrim(agent_compose_agent_name) <> '') OR (agent_compose_run_id IS NOT NULL AND session_id IS NOT NULL AND agent_compose_project_id IS NULL AND agent_compose_agent_name IS NULL)",
     "ck_ai_governance_drafts_binding_seal": "bindings_sealed_at IS NULL OR bindings_sealed_at >= created_at",
     "ck_ai_governance_drafts_generation_consistency": "(status = 'GENERATING' AND model_output IS NULL AND failure_code IS NULL AND generation_terminal_at IS NULL AND review_decision IS NULL) OR (status = 'REVIEWABLE' AND model_output IS NOT NULL AND failure_code IS NULL AND generation_terminal_at IS NOT NULL AND session_id IS NOT NULL) OR (status = 'FAILED' AND model_output IS NULL AND failure_code IS NOT NULL AND generation_terminal_at IS NOT NULL AND review_decision IS NULL)",
     "ck_ai_governance_drafts_review_consistency": "(review_decision IS NULL AND reviewed_by IS NULL AND reviewed_at IS NULL AND operator_edited_output IS NULL) OR (review_decision = 'EDITED' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND operator_edited_output IS NOT NULL) OR (review_decision IN ('ACCEPTED', 'REJECTED') AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND operator_edited_output IS NULL)",
@@ -1960,6 +1961,7 @@ _AI_DRAFT_POSTGRES_CHECKS = {
     "ck_ai_governance_drafts_config_fingerprint": "config_fingerprint ~ '^[0-9a-f]{64}$'",
     "ck_ai_governance_drafts_session_id": "session_id IS NULL OR session_id ~ '^[0-9a-f]{64}$'",
     "ck_ai_governance_drafts_agent_compose_run_id": "agent_compose_run_id IS NULL OR agent_compose_run_id ~ '^[0-9a-f]{64}$'",
+    "ck_ai_governance_drafts_agent_compose_project_id": "agent_compose_project_id IS NULL OR agent_compose_project_id ~ '^[0-9a-f]{64}$'",
     "ck_ai_governance_drafts_failure_code": "failure_code IS NULL OR failure_code ~ '^[a-z][a-z0-9_]{0,99}$'",
     "ck_ai_governance_drafts_json_objects": "(model_output IS NULL OR jsonb_typeof(model_output) = 'object') AND (operator_edited_output IS NULL OR jsonb_typeof(operator_edited_output) = 'object')",
 }
@@ -2038,6 +2040,8 @@ class AiGovernanceDraft(SQLModel, table=True):
     model_identity: str = Field(max_length=255)
     config_fingerprint: str = Field(max_length=64, index=True)
     agent_compose_run_id: str | None = Field(default=None, max_length=64)
+    agent_compose_project_id: str | None = Field(default=None, max_length=64)
+    agent_compose_agent_name: str | None = Field(default=None, max_length=255)
     session_id: str | None = Field(default=None, max_length=64)
     bindings_sealed_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
     status: str = Field(

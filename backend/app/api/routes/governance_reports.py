@@ -40,6 +40,7 @@ from app.domain.models import (
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
     AgentComposeClient,
+    AgentComposeDraftNamespace,
     AgentComposeRunStart,
 )
 
@@ -218,21 +219,35 @@ def _launch_or_reconcile_draft_session(
     if draft.session_id is not None:
         return draft
 
-    client = AgentComposeClient()
     client_request_id = _draft_client_request_id(draft)
-    expected_run_id = client.expected_ai_governance_draft_run_id(client_request_id)
-    if draft.agent_compose_run_id is not None and (
-        draft.agent_compose_run_id != expected_run_id
-    ):
-        raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
-
-    reserved = draft
+    if draft.agent_compose_run_id is None:
+        # The deterministic Run can only be derived before its first durable
+        # reservation.  Persist the namespace alongside it so config changes
+        # cannot retarget a later replay.
+        initial_client = AgentComposeClient()
+        namespace = initial_client.ai_governance_draft_namespace()
+        expected_run_id = initial_client.expected_ai_governance_draft_run_id(
+            client_request_id
+        )
+        reserved = draft_service.reserve_draft_run_identity(
+            session=session,
+            draft=draft,
+            agent_compose_run_id=expected_run_id,
+            agent_compose_project_id=namespace.project_id,
+            agent_compose_agent_name=namespace.agent_name,
+        )
+    else:
+        persisted_namespace = draft_service.draft_agent_compose_namespace(draft)
+        if persisted_namespace is None:
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
+        expected_run_id = draft.agent_compose_run_id
+        namespace = AgentComposeDraftNamespace(
+            project_id=persisted_namespace[0],
+            agent_name=persisted_namespace[1],
+        )
+        reserved = draft
+    client = AgentComposeClient(ai_governance_draft_namespace=namespace)
     observed: AgentComposeRunStart | None = None
-    reserved = draft_service.reserve_draft_run_identity(
-        session=session,
-        draft=draft,
-        agent_compose_run_id=expected_run_id,
-    )
     # Reservation commits to release the Project lock.  Re-read and lock the
     # draft again through reconciliation so a concurrent same-key replay sees
     # the authoritative binding or terminal result before contacting the

@@ -238,7 +238,7 @@ def test_operator_request_is_canonical_idempotent_and_audited(
     calls: list[tuple[str, str]] = []
 
     def start_draft(
-        _client: object, *, client_request_id: str, draft_id: str
+        _client: AgentComposeClient, *, client_request_id: str, draft_id: str
     ) -> AgentComposeRunStart:
         calls.append((client_request_id, draft_id))
         run_id = AgentComposeClient().expected_ai_governance_draft_run_id(
@@ -523,7 +523,7 @@ def test_request_reconciles_an_accepted_session_before_returning(
     get_calls: list[str] = []
 
     def start_draft(
-        _client: object, *, client_request_id: str, draft_id: str
+        _client: AgentComposeClient, *, client_request_id: str, draft_id: str
     ) -> AgentComposeRunStart:
         start_calls.append(client_request_id)
         run_id = AgentComposeClient().expected_ai_governance_draft_run_id(
@@ -532,6 +532,8 @@ def test_request_reconciles_an_accepted_session_before_returning(
         accepted.update(
             run_id=run_id,
             session_id=hashlib.sha256(draft_id.encode()).hexdigest(),
+            project_id=_client.project_id,
+            agent_name=_client.ai_governance_draft_agent_name,
         )
         if launch_mode == "response-loss":
             raise AgentComposeBoundaryError("agent_compose_unavailable")
@@ -601,7 +603,7 @@ def test_pending_session_replay_recovers_without_another_start(
     session_visible = False
 
     def start_draft(
-        _client: object, *, client_request_id: str, draft_id: str
+        _client: AgentComposeClient, *, client_request_id: str, draft_id: str
     ) -> AgentComposeRunStart:
         start_calls.append(client_request_id)
         run_id = AgentComposeClient().expected_ai_governance_draft_run_id(
@@ -610,6 +612,8 @@ def test_pending_session_replay_recovers_without_another_start(
         accepted.update(
             run_id=run_id,
             session_id=hashlib.sha256(draft_id.encode()).hexdigest(),
+            project_id=_client.project_id,
+            agent_name=_client.ai_governance_draft_agent_name,
         )
         return AgentComposeRunStart(
             run_id=run_id,
@@ -618,7 +622,9 @@ def test_pending_session_replay_recovers_without_another_start(
             session_id=None,
         )
 
-    def get_run(_client: object, run_id: str) -> AgentComposeRunStart:
+    def get_run(_client: AgentComposeClient, run_id: str) -> AgentComposeRunStart:
+        assert _client.project_id == accepted["project_id"]
+        assert _client.ai_governance_draft_agent_name == accepted["agent_name"]
         return AgentComposeRunStart(
             run_id=run_id,
             started=False,
@@ -643,12 +649,121 @@ def test_pending_session_replay_recovers_without_another_start(
         assert draft.agent_compose_run_id == accepted["run_id"]
         assert draft.session_id is None
 
+    monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_NAME", "renamed-project")
+    monkeypatch.setattr(
+        settings, "AI_GOVERNANCE_DRAFT_AGENT_NAME", "renamed-draft-agent"
+    )
     session_visible = True
     replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
     assert replay.status_code == 200, replay.text
     assert replay.json()["agent_compose_run_id"] == accepted["run_id"]
     assert replay.json()["session_id"] == accepted["session_id"]
     assert len(start_calls) == 1
+
+
+def test_reserved_run_retries_after_agent_compose_naming_changes(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    calls: list[tuple[str, str]] = []
+    accepted: dict[str, str] = {}
+
+    def unavailable_start(
+        agent_compose: AgentComposeClient, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        del client_request_id, draft_id
+        calls.append(
+            (
+                agent_compose.project_id,
+                agent_compose.ai_governance_draft_agent_name,
+            )
+        )
+        raise AgentComposeBoundaryError("agent_compose_unavailable")
+
+    monkeypatch.setattr(AgentComposeClient, "get_run", lambda *_args: None)
+    monkeypatch.setattr(
+        AgentComposeClient, "start_ai_governance_draft", unavailable_start
+    )
+    url = _draft_url(project_id=project["id"], report_id=report.id)
+    headers = {**operator_headers, "Idempotency-Key": "renamed-reservation"}
+    first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert first.status_code == 503
+
+    with Session(engine) as session:
+        draft = session.exec(
+            select(AiGovernanceDraft).where(
+                AiGovernanceDraft.project_id == uuid.UUID(str(project["id"]))
+            )
+        ).one()
+        assert draft.agent_compose_run_id is not None
+        assert draft.agent_compose_project_id is not None
+        assert draft.agent_compose_agent_name is not None
+        accepted.update(
+            run_id=draft.agent_compose_run_id,
+            project_id=draft.agent_compose_project_id,
+            agent_name=draft.agent_compose_agent_name,
+            session_id=hashlib.sha256(str(draft.id).encode()).hexdigest(),
+        )
+
+    monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_NAME", "renamed-project")
+    monkeypatch.setattr(
+        settings, "AI_GOVERNANCE_DRAFT_AGENT_NAME", "renamed-draft-agent"
+    )
+
+    def start_reserved_run(
+        agent_compose: AgentComposeClient, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        del client_request_id, draft_id
+        calls.append(
+            (
+                agent_compose.project_id,
+                agent_compose.ai_governance_draft_agent_name,
+            )
+        )
+        return AgentComposeRunStart(
+            run_id=accepted["run_id"],
+            started=True,
+            status="RUN_STATUS_PENDING",
+            session_id=accepted["session_id"],
+        )
+
+    monkeypatch.setattr(
+        AgentComposeClient, "start_ai_governance_draft", start_reserved_run
+    )
+    replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["agent_compose_run_id"] == accepted["run_id"]
+    assert replay.json()["session_id"] == accepted["session_id"]
+    assert calls == [
+        (accepted["project_id"], accepted["agent_name"]),
+        (accepted["project_id"], accepted["agent_name"]),
+    ]
 
 
 def test_unknown_run_status_remains_recoverable_without_a_failure_audit_event(
@@ -1265,12 +1380,19 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
     original_bind = draft_service.bind_draft_session
 
     def reserve(
-        *, session: Session, draft: AiGovernanceDraft, agent_compose_run_id: str
+        *,
+        session: Session,
+        draft: AiGovernanceDraft,
+        agent_compose_run_id: str,
+        agent_compose_project_id: str,
+        agent_compose_agent_name: str,
     ) -> AiGovernanceDraft:
         result = original_reserve(
             session=session,
             draft=draft,
             agent_compose_run_id=agent_compose_run_id,
+            agent_compose_project_id=agent_compose_project_id,
+            agent_compose_agent_name=agent_compose_agent_name,
         )
         # reserve_draft_run_identity refreshes the result after its
         # commit.  End that implicit read transaction before coordinating the
@@ -1383,12 +1505,19 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
     original_fail = draft_service.fail_draft
 
     def reserve(
-        *, session: Session, draft: AiGovernanceDraft, agent_compose_run_id: str
+        *,
+        session: Session,
+        draft: AiGovernanceDraft,
+        agent_compose_run_id: str,
+        agent_compose_project_id: str,
+        agent_compose_agent_name: str,
     ) -> AiGovernanceDraft:
         result = original_reserve(
             session=session,
             draft=draft,
             agent_compose_run_id=agent_compose_run_id,
+            agent_compose_project_id=agent_compose_project_id,
+            agent_compose_agent_name=agent_compose_agent_name,
         )
         # See the Session-binding race above: do not wait while the refresh
         # performed by reservation has an implicit transaction open.

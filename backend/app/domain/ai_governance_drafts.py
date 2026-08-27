@@ -296,6 +296,8 @@ def _require_compatible_persisted_session_identity(
     *,
     draft: AiGovernanceDraft,
     agent_compose_run_id: str | None = None,
+    agent_compose_project_id: str | None = None,
+    agent_compose_agent_name: str | None = None,
     session_id: str | None = None,
 ) -> None:
     if (
@@ -303,11 +305,61 @@ def _require_compatible_persisted_session_identity(
         and draft.agent_compose_run_id is not None
         and draft.agent_compose_run_id != agent_compose_run_id
     ) or (
+        agent_compose_project_id is not None
+        and draft.agent_compose_project_id is not None
+        and draft.agent_compose_project_id != agent_compose_project_id
+    ) or (
+        agent_compose_agent_name is not None
+        and draft.agent_compose_agent_name is not None
+        and draft.agent_compose_agent_name != agent_compose_agent_name
+    ) or (
         session_id is not None
         and draft.session_id is not None
         and draft.session_id != session_id
     ):
         raise AiGovernanceDraftStateError("session_already_bound")
+
+
+def _require_agent_compose_namespace(
+    *,
+    agent_compose_run_id: str,
+    agent_compose_project_id: str,
+    agent_compose_agent_name: str,
+) -> None:
+    if (
+        not _is_lower_hex_identity(agent_compose_run_id)
+        or not _is_lower_hex_identity(agent_compose_project_id)
+    ):
+        raise AiGovernanceDraftStateError("session_identity_invalid")
+    _require_nonblank(
+        agent_compose_agent_name,
+        max_length=255,
+        code="session_identity_invalid",
+    )
+
+
+def draft_agent_compose_namespace(
+    draft: AiGovernanceDraft,
+) -> tuple[str, str] | None:
+    """Return the immutable namespace for a reserved Run, fail closed if partial."""
+
+    run_id = draft.agent_compose_run_id
+    project_id = draft.agent_compose_project_id
+    agent_name = draft.agent_compose_agent_name
+    values = (run_id, project_id, agent_name)
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise AiGovernanceDraftStateError("session_identity_invalid")
+    assert isinstance(run_id, str)
+    assert isinstance(project_id, str)
+    assert isinstance(agent_name, str)
+    _require_agent_compose_namespace(
+        agent_compose_run_id=run_id,
+        agent_compose_project_id=project_id,
+        agent_compose_agent_name=agent_name,
+    )
+    return project_id, agent_name
 
 
 def _is_same_run_failed_reconciliation(
@@ -642,16 +694,11 @@ def create_ai_governance_draft(
     model_identity: str,
     config_fingerprint: str,
     bindings: Sequence[DraftFindingBinding],
-    agent_compose_run_id: str | None = None,
 ) -> AiGovernanceDraftCreation:
     _require_nonblank(initiated_by, max_length=255, code="draft_request_invalid")
     _require_nonblank(idempotency_key, max_length=255, code="draft_request_invalid")
     _require_nonblank(model_identity, max_length=255, code="draft_request_invalid")
     if not _is_lower_hex_identity(config_fingerprint):
-        raise AiGovernanceDraftStateError("draft_request_invalid")
-    if agent_compose_run_id is not None and not _is_lower_hex_identity(
-        agent_compose_run_id
-    ):
         raise AiGovernanceDraftStateError("draft_request_invalid")
     scoped_report = require_published_report_for_draft(session=session, report=report)
 
@@ -745,11 +792,6 @@ def create_ai_governance_draft(
         draft.bindings_sealed_at = get_datetime_utc()
         session.add(draft)
         session.flush()
-        if agent_compose_run_id is not None:
-            draft.agent_compose_run_id = agent_compose_run_id
-            draft.updated_at = get_datetime_utc()
-            session.add(draft)
-            session.flush()
         session.add(
             _draft_audit_event(
                 draft=draft,
@@ -777,16 +819,23 @@ def reserve_draft_run_identity(
     session: Session,
     draft: AiGovernanceDraft,
     agent_compose_run_id: str,
+    agent_compose_project_id: str,
+    agent_compose_agent_name: str,
 ) -> AiGovernanceDraft:
     """Durably reserve the deterministic Run before asking agent-compose to start it."""
 
-    if not _is_lower_hex_identity(agent_compose_run_id):
-        raise AiGovernanceDraftStateError("session_identity_invalid")
+    _require_agent_compose_namespace(
+        agent_compose_run_id=agent_compose_run_id,
+        agent_compose_project_id=agent_compose_project_id,
+        agent_compose_agent_name=agent_compose_agent_name,
+    )
     try:
         locked = _locked_active_draft(session=session, draft_id=draft.id)
         _require_compatible_persisted_session_identity(
             draft=locked,
             agent_compose_run_id=agent_compose_run_id,
+            agent_compose_project_id=agent_compose_project_id,
+            agent_compose_agent_name=agent_compose_agent_name,
         )
         if _is_same_run_failed_reconciliation(
             draft=locked, agent_compose_run_id=agent_compose_run_id
@@ -797,6 +846,7 @@ def reserve_draft_run_identity(
         _require_generating(locked)
         _require_input_sealed(locked)
         if locked.agent_compose_run_id is not None:
+            draft_agent_compose_namespace(locked)
             session.commit()
             session.refresh(locked)
             return locked
@@ -811,6 +861,8 @@ def reserve_draft_run_identity(
         if reused_draft_identity is not None:
             raise AiGovernanceDraftStateError("session_identity_reused")
         locked.agent_compose_run_id = agent_compose_run_id
+        locked.agent_compose_project_id = agent_compose_project_id
+        locked.agent_compose_agent_name = agent_compose_agent_name
         locked.updated_at = get_datetime_utc()
         try:
             return _commit_draft(session=session, draft=locked)
@@ -849,6 +901,7 @@ def lock_draft_for_session_reconciliation(
             draft=locked,
             agent_compose_run_id=agent_compose_run_id,
         )
+        draft_agent_compose_namespace(locked)
         if locked.status == AiGovernanceDraftStatus.GENERATING.value:
             _require_input_sealed(locked)
         # Keep the values needed by the control-plane decision, but close the

@@ -65,6 +65,14 @@ class AgentComposeSessionObservation(StrEnum):
 
 
 @dataclass(frozen=True)
+class AgentComposeDraftNamespace:
+    """The stable agent-compose names needed to recover a reserved draft Run."""
+
+    project_id: str
+    agent_name: str
+
+
+@dataclass(frozen=True)
 class AgentComposeSession:
     session_id: str
     observation: AgentComposeSessionObservation
@@ -101,11 +109,26 @@ def _required_string(value: Any) -> str:
 
 
 class AgentComposeClient:
-    def __init__(self) -> None:
+    def __init__(
+        self, *, ai_governance_draft_namespace: AgentComposeDraftNamespace | None = None
+    ) -> None:
         self.base_url = settings.AGENT_COMPOSE_URL.rstrip("/")
-        self.project_id = _stable_id(
-            _PROJECT_KIND,
-            settings.AGENT_COMPOSE_PROJECT_NAME,
+        namespace = ai_governance_draft_namespace
+        self.project_id = (
+            namespace.project_id
+            if namespace is not None
+            else _stable_id(_PROJECT_KIND, settings.AGENT_COMPOSE_PROJECT_NAME)
+        )
+        self.ai_governance_draft_agent_name = (
+            namespace.agent_name
+            if namespace is not None
+            else settings.AI_GOVERNANCE_DRAFT_AGENT_NAME
+        )
+
+    def ai_governance_draft_namespace(self) -> AgentComposeDraftNamespace:
+        return AgentComposeDraftNamespace(
+            project_id=self.project_id,
+            agent_name=self.ai_governance_draft_agent_name,
         )
 
     def _request(
@@ -164,7 +187,7 @@ class AgentComposeClient:
 
     def expected_ai_governance_draft_run_id(self, client_request_id: str) -> str:
         return self._expected_run_id(
-            agent_name=settings.AI_GOVERNANCE_DRAFT_AGENT_NAME,
+            agent_name=self.ai_governance_draft_agent_name,
             client_request_id=client_request_id,
         )
 
@@ -269,7 +292,7 @@ class AgentComposeClient:
         if not draft_id:
             raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         return self._start_run(
-            agent_name=settings.AI_GOVERNANCE_DRAFT_AGENT_NAME,
+            agent_name=self.ai_governance_draft_agent_name,
             client_request_id=client_request_id,
             environment={},
             # Issue #143 creates and binds the dedicated Session only. The

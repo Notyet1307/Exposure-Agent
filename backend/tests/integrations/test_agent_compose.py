@@ -226,6 +226,55 @@ def test_ai_draft_reserves_its_run_identity_without_model_credentials(
     assert run_request["env"] == []
 
 
+def test_ai_draft_recovery_uses_the_frozen_namespace_after_a_configuration_rename(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_settings(monkeypatch)
+    original = AgentComposeClient()
+    namespace = original.ai_governance_draft_namespace()
+    request_id = "ai-governance-draft:draft-1"
+    reserved_run_id = original.expected_ai_governance_draft_run_id(request_id)
+
+    monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_NAME", "renamed-project")
+    monkeypatch.setattr(
+        settings, "AI_GOVERNANCE_DRAFT_AGENT_NAME", "renamed-draft-agent"
+    )
+    recovered = AgentComposeClient(ai_governance_draft_namespace=namespace)
+    calls: list[dict[str, Any]] = []
+    responses = iter(
+        [
+            _Response(404),
+            _Response(
+                200,
+                {
+                    "run": {
+                        "runId": reserved_run_id,
+                        "status": "RUN_STATUS_PENDING",
+                    },
+                    "started": True,
+                },
+            ),
+        ]
+    )
+
+    def factory(**_kwargs: Any) -> _Client:
+        return _Client(next(responses), calls)
+
+    monkeypatch.setattr("app.integrations.agent_compose.httpx.Client", factory)
+    result = recovered.start_ai_governance_draft(
+        client_request_id=request_id,
+        draft_id="00000000-0000-0000-0000-000000000001",
+    )
+
+    assert result.run_id == reserved_run_id
+    assert calls[0]["json"] == {
+        "projectId": namespace.project_id,
+        "runId": reserved_run_id,
+    }
+    assert calls[1]["json"]["run"]["projectId"] == namespace.project_id
+    assert calls[1]["json"]["run"]["agentName"] == namespace.agent_name
+
+
 def test_get_run_returns_terminal_model_output_without_logging_events(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
