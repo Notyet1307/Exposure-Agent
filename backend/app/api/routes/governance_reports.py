@@ -256,6 +256,10 @@ def _launch_or_reconcile_draft_session(
                 failure_code="model_binding_changed",
                 actor_subject="agent-compose-control-plane",
             )
+        # Qualification is a database read.  Do not carry its transaction into
+        # agent-compose: the control plane may synchronously persist this
+        # Session through a separate connection before returning its response.
+        session.commit()
         observed = _start_draft_or_recover_response(
             client=client,
             draft=reserved,

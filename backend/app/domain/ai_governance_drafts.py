@@ -819,7 +819,13 @@ def lock_draft_for_session_reconciliation(
     draft: AiGovernanceDraft,
     agent_compose_run_id: str,
 ) -> AiGovernanceDraft:
-    """Re-read and lock one reserved draft through its control-plane decision."""
+    """Return an authoritative, detached draft snapshot for control-plane work.
+
+    The row lock is only used to make this re-read authoritative.  A caller can
+    safely consult agent-compose after this function returns: external control
+    plane code (including a callback which records the Session) must never wait
+    for this request's Project or draft lock.
+    """
 
     if not _is_lower_hex_identity(agent_compose_run_id):
         raise AiGovernanceDraftStateError("session_identity_invalid")
@@ -831,8 +837,17 @@ def lock_draft_for_session_reconciliation(
         )
         if locked.status == AiGovernanceDraftStatus.GENERATING.value:
             _require_input_sealed(locked)
+        # Keep the values needed by the control-plane decision, but close the
+        # transaction before returning.  Expunging before commit preserves the
+        # loaded snapshot while ensuring it cannot accidentally retain or
+        # reopen this Session's lock-bearing transaction.
+        session.expunge(locked)
+        session.commit()
         return locked
     except AiGovernanceDraftStateError:
+        session.rollback()
+        raise
+    except SQLAlchemyError:
         session.rollback()
         raise
 
