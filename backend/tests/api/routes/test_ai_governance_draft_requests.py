@@ -1243,7 +1243,7 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
         monkeypatch=monkeypatch,
     )
     session_id = "a" * 64
-    reserved = threading.Barrier(2)
+    loser_reserved_run = threading.Event()
     persisted = threading.Event()
     start = threading.Event()
     outcomes: list[AiGovernanceDraft] = []
@@ -1259,9 +1259,17 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
             draft=draft,
             agent_compose_run_id=agent_compose_run_id,
         )
-        reserved.wait(timeout=5)
+        # reserve_draft_run_identity refreshes the result after its
+        # commit.  End that implicit read transaction before coordinating the
+        # replay threads: the loser must not wait while holding any database
+        # transaction or Project lock.
+        session.commit()
         if threading.current_thread().name == "replay-loser":
-            assert persisted.wait(timeout=5)
+            loser_reserved_run.set()
+            if not persisted.wait(timeout=5):
+                raise AssertionError("winner did not persist the Session binding")
+        elif not loser_reserved_run.wait(timeout=5):
+            raise AssertionError("loser did not reserve the deterministic Run")
         return result
 
     def bind(
@@ -1300,8 +1308,9 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
     )
 
     def replay() -> None:
-        start.wait(timeout=5)
         try:
+            if not start.wait(timeout=5):
+                raise AssertionError("replay threads were not started")
             with Session(engine) as session:
                 draft = session.get(AiGovernanceDraft, draft_id)
                 assert draft is not None
@@ -1315,6 +1324,11 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding
                 )
         except BaseException as error:
             errors.append(error)
+        finally:
+            # A failed winner must still release a waiting loser, so joins
+            # below are bounded even when an assertion or database call fails.
+            loser_reserved_run.set()
+            persisted.set()
 
     winner = threading.Thread(target=replay, name="replay-winner")
     loser = threading.Thread(target=replay, name="replay-loser")
@@ -1347,7 +1361,7 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
         tmp_path=tmp_path,
         monkeypatch=monkeypatch,
     )
-    reserved = threading.Barrier(2)
+    loser_reserved_run = threading.Event()
     persisted = threading.Event()
     start = threading.Event()
     outcomes: list[AiGovernanceDraft] = []
@@ -1363,9 +1377,15 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
             draft=draft,
             agent_compose_run_id=agent_compose_run_id,
         )
-        reserved.wait(timeout=5)
+        # See the Session-binding race above: do not wait while the refresh
+        # performed by reservation has an implicit transaction open.
+        session.commit()
         if threading.current_thread().name == "replay-loser":
-            assert persisted.wait(timeout=5)
+            loser_reserved_run.set()
+            if not persisted.wait(timeout=5):
+                raise AssertionError("winner did not persist the terminal failure")
+        elif not loser_reserved_run.wait(timeout=5):
+            raise AssertionError("loser did not reserve the deterministic Run")
         return result
 
     def fail(
@@ -1407,8 +1427,9 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
     )
 
     def replay() -> None:
-        start.wait(timeout=5)
         try:
+            if not start.wait(timeout=5):
+                raise AssertionError("replay threads were not started")
             with Session(engine) as session:
                 draft = session.get(AiGovernanceDraft, draft_id)
                 assert draft is not None
@@ -1422,6 +1443,9 @@ def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failur
                 )
         except BaseException as error:
             errors.append(error)
+        finally:
+            loser_reserved_run.set()
+            persisted.set()
 
     winner = threading.Thread(target=replay, name="replay-winner")
     loser = threading.Thread(target=replay, name="replay-loser")
