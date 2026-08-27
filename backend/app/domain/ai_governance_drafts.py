@@ -310,6 +310,17 @@ def _require_compatible_persisted_session_identity(
         raise AiGovernanceDraftStateError("session_already_bound")
 
 
+def _is_same_run_failed_reconciliation(
+    *, draft: AiGovernanceDraft, agent_compose_run_id: str
+) -> bool:
+    """Allow a stale completion only for the already-reserved failed Run."""
+
+    return (
+        draft.status == AiGovernanceDraftStatus.FAILED.value
+        and draft.agent_compose_run_id == agent_compose_run_id
+    )
+
+
 def _require_input_sealed(draft: AiGovernanceDraft) -> None:
     if draft.bindings_sealed_at is None:
         raise AiGovernanceDraftStateError("draft_input_unsealed")
@@ -777,10 +788,13 @@ def reserve_draft_run_identity(
             draft=locked,
             agent_compose_run_id=agent_compose_run_id,
         )
-        if locked.status != AiGovernanceDraftStatus.GENERATING.value:
+        if _is_same_run_failed_reconciliation(
+            draft=locked, agent_compose_run_id=agent_compose_run_id
+        ):
             session.commit()
             session.refresh(locked)
             return locked
+        _require_generating(locked)
         _require_input_sealed(locked)
         if locked.agent_compose_run_id is not None:
             session.commit()
@@ -870,10 +884,13 @@ def bind_draft_session(
             agent_compose_run_id=agent_compose_run_id,
             session_id=session_id,
         )
-        if locked.status != AiGovernanceDraftStatus.GENERATING.value:
+        if _is_same_run_failed_reconciliation(
+            draft=locked, agent_compose_run_id=agent_compose_run_id
+        ):
             session.commit()
             session.refresh(locked)
             return locked
+        _require_generating(locked)
         _require_input_sealed(locked)
         if locked.session_id is not None:
             session.commit()
@@ -978,10 +995,13 @@ def fail_draft(
             agent_compose_run_id=agent_compose_run_id,
             session_id=session_id,
         )
-        if locked.status != AiGovernanceDraftStatus.GENERATING.value:
+        if agent_compose_run_id is not None and _is_same_run_failed_reconciliation(
+            draft=locked, agent_compose_run_id=agent_compose_run_id
+        ):
             session.commit()
             session.refresh(locked)
             return locked
+        _require_generating(locked)
         _require_input_sealed(locked)
         if agent_compose_run_id is not None and session_id is not None:
             reused_session = session.exec(

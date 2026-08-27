@@ -1221,9 +1221,18 @@ def _create_reserved_pending_draft(
     )
     assert response.status_code == 503
     with Session(engine) as session:
-        draft = session.get(AiGovernanceDraft, uuid.UUID(response.json()["id"]))
-        assert draft is not None
+        draft = session.exec(
+            select(AiGovernanceDraft).where(
+                AiGovernanceDraft.project_id == uuid.UUID(str(project["id"])),
+                AiGovernanceDraft.idempotency_key == "concurrent-same-key",
+            )
+        ).one()
         assert draft.status == "GENERATING"
+        assert draft.agent_compose_run_id == (
+            AgentComposeClient().expected_ai_governance_draft_run_id(
+                f"ai-governance-draft:{draft.id}"
+            )
+        )
         assert draft.agent_compose_run_id is not None
         return draft.id, draft.agent_compose_run_id
 

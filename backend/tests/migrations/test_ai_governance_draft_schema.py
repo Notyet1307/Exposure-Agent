@@ -1565,6 +1565,40 @@ def test_failed_draft_is_terminal_and_keeps_bindings_sealed(
         _assert_trigger_rejects(draft_database, match, statement, parameters)
 
 
+def test_failed_draft_reconciles_only_its_previously_reserved_run(
+    draft_database: str,
+) -> None:
+    ids = _seed_draft_fixture(draft_database)
+    run_id = "b" * 64
+    draft = _request_draft(
+        draft_database,
+        ids,
+        idempotency_key="failed-same-run-reconciliation",
+        agent_compose_run_id=run_id,
+    ).draft
+    failed = _apply(draft_database, fail_draft, draft, failure_code="timeout")
+
+    reconciled = _apply(
+        draft_database,
+        bind_draft_session,
+        draft,
+        agent_compose_run_id=run_id,
+        session_id="c" * 64,
+    )
+    assert reconciled.id == failed.id
+    assert reconciled.status == "FAILED"
+    assert reconciled.session_id is None
+
+    _assert_state_error(
+        draft_database,
+        "session_already_bound",
+        bind_draft_session,
+        draft,
+        agent_compose_run_id="d" * 64,
+        session_id="c" * 64,
+    )
+
+
 def test_edited_review_is_separate_operator_text_and_immutable_model_output(
     draft_database: str,
 ) -> None:
