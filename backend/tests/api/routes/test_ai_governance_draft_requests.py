@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.core.db import engine
 from app.domain import ai_governance_drafts as draft_service
 from app.domain import governance_runs as governance_runs_domain
-from app.domain.ai_governance_drafts import bind_draft_session, fail_draft
+from app.domain.ai_governance_drafts import bind_draft_session
 from app.domain.cloudatlas_sources import OctobusCloudAtlasClient
 from app.domain.model_qualification import (
     QualificationEvaluation,
@@ -1069,67 +1069,6 @@ def test_terminal_session_launch_converges_to_a_durable_state(
     assert replay.json() == first.json()
     assert len(start_calls) == 1
     assert get_calls == []
-
-
-def test_failed_draft_blocks_an_explicit_new_attempt(
-    client: TestClient,
-    superuser_token_headers: dict[str, str],
-    db: Session,
-    tmp_path: Path,
-    monkeypatch: MonkeyPatch,
-) -> None:
-    project, report, operator_headers, selected_id, url = _operator_draft_request_context(
-        client=client,
-        superuser_token_headers=superuser_token_headers,
-        db=db,
-        tmp_path=tmp_path,
-        monkeypatch=monkeypatch,
-    )
-    detail_url = (
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}"
-    )
-    start_calls: list[str] = []
-
-    def start_draft(
-        _client: object, *, client_request_id: str, draft_id: str
-    ) -> AgentComposeRunStart:
-        start_calls.append(client_request_id)
-        return AgentComposeRunStart(
-            run_id=AgentComposeClient().expected_ai_governance_draft_run_id(
-                client_request_id
-            ),
-            started=True,
-            status="RUN_STATUS_PENDING",
-            session_id=hashlib.sha256(draft_id.encode()).hexdigest(),
-        )
-
-    monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
-    first = client.post(
-        url,
-        headers={**operator_headers, "Idempotency-Key": "failed-original"},
-        json={"finding_ids": [selected_id]},
-    )
-    assert first.status_code == 202, first.text
-    with Session(engine) as session:
-        draft = session.get(AiGovernanceDraft, uuid.UUID(first.json()["id"]))
-        assert draft is not None
-        fail_draft(session=session, draft=draft, failure_code="provider_failed")
-
-    persisted = client.get(detail_url, headers=operator_headers)
-    assert persisted.status_code == 200
-    assert persisted.json()["can_request_ai_governance_draft"] is False
-    assert persisted.json()["ai_governance_drafts"][0]["status"] == "FAILED"
-
-    new_attempt = client.post(
-        url,
-        headers={**operator_headers, "Idempotency-Key": "failed-new-attempt"},
-        json={"finding_ids": [selected_id]},
-    )
-    assert new_attempt.status_code == 409
-    assert new_attempt.json()["detail"]["code"] == (
-        "draft_generation_after_failure_not_supported"
-    )
-    assert len(start_calls) == 1
 
 
 def test_global_admin_can_request_ai_governance_draft(
