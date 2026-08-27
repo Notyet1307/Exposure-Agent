@@ -390,6 +390,28 @@ def _published_report(
     ).one_or_none()
 
 
+def require_published_report_for_draft(
+    *, session: Session, report: GovernanceReport
+) -> GovernanceReport:
+    scoped_report = _published_report(
+        session=session,
+        report_id=report.id,
+        project_id=report.project_id,
+        tenant_id=report.tenant_id,
+    )
+    if scoped_report is not None:
+        return scoped_report
+    report_exists = session.exec(
+        select(GovernanceReport.id).where(
+            GovernanceReport.id == report.id,
+            GovernanceReport.project_id == report.project_id,
+            GovernanceReport.tenant_id == report.tenant_id,
+        )
+    ).one_or_none()
+    code = "report_not_found" if report_exists is None else "report_not_published"
+    raise AiGovernanceDraftStateError(code)
+
+
 def _canonical_evidence_bindings(
     report: GovernanceReport,
 ) -> dict[uuid.UUID, _CanonicalEvidenceBinding]:
@@ -510,6 +532,70 @@ def _selected_facts(
     return canonical, evidence_by_id
 
 
+def draft_finding_bindings_for_request(
+    *,
+    session: Session,
+    report: GovernanceReport,
+    finding_ids: Sequence[uuid.UUID],
+) -> tuple[DraftFindingBinding, ...]:
+    """Resolve request IDs through the report's canonical Evidence plan.
+
+    The public request deliberately carries Finding IDs only.  Evidence IDs are
+    selected server-side from the persisted report scope, so a client cannot
+    substitute a conveniently ordered or cross-report Evidence record.
+    """
+    unique_finding_ids = set(finding_ids)
+    if len(unique_finding_ids) != len(finding_ids) or not (
+        1 <= len(unique_finding_ids) <= MAX_SELECTED_FINDINGS
+    ):
+        raise AiGovernanceDraftStateError("invalid_bindings")
+
+    canonical = _canonical_evidence_bindings(report)
+    if not unique_finding_ids.issubset(canonical):
+        raise AiGovernanceDraftStateError("finding_not_selected")
+    required_targets = {
+        (canonical[finding_id].fact_type, canonical[finding_id].fact_id)
+        for finding_id in unique_finding_ids
+    }
+    scoped_evidence = session.exec(
+        select(Evidence).where(
+            Evidence.governance_report_id == report.id,
+            Evidence.governance_run_id == report.governance_run_id,
+            Evidence.project_id == report.project_id,
+            Evidence.tenant_id == report.tenant_id,
+        )
+    ).all()
+    evidence_by_target: dict[tuple[EvidenceFactType, uuid.UUID], uuid.UUID] = {}
+    for evidence in scoped_evidence:
+        target = _evidence_target(evidence)
+        if target not in required_targets:
+            continue
+        if target in evidence_by_target:
+            raise AiGovernanceDraftStateError("evidence_not_bound")
+        evidence_by_target[target] = evidence.id
+    if set(evidence_by_target) != required_targets:
+        raise AiGovernanceDraftStateError("evidence_not_bound")
+
+    bindings = tuple(
+        DraftFindingBinding(
+            finding_id=finding_id,
+            evidence_id=evidence_by_target[
+                (canonical[finding_id].fact_type, canonical[finding_id].fact_id)
+            ],
+        )
+        for finding_id in sorted(unique_finding_ids)
+    )
+    selections = _validated_bindings(bindings=bindings)
+    _selected_facts(
+        session=session,
+        report=report,
+        selections=selections,
+        finding_error="finding_not_selected",
+        evidence_error="evidence_not_bound",
+    )
+    return bindings
+
+
 def create_ai_governance_draft(
     *,
     session: Session,
@@ -525,22 +611,7 @@ def create_ai_governance_draft(
     _require_nonblank(model_identity, max_length=255, code="draft_request_invalid")
     if not _is_lower_hex_identity(config_fingerprint):
         raise AiGovernanceDraftStateError("draft_request_invalid")
-    scoped_report = _published_report(
-        session=session,
-        report_id=report.id,
-        project_id=report.project_id,
-        tenant_id=report.tenant_id,
-    )
-    if scoped_report is None:
-        report_exists = session.exec(
-            select(GovernanceReport.id).where(
-                GovernanceReport.id == report.id,
-                GovernanceReport.project_id == report.project_id,
-                GovernanceReport.tenant_id == report.tenant_id,
-            )
-        ).one_or_none()
-        code = "report_not_found" if report_exists is None else "report_not_published"
-        raise AiGovernanceDraftStateError(code)
+    scoped_report = require_published_report_for_draft(session=session, report=report)
 
     tenant_id = scoped_report.tenant_id
     project_id = scoped_report.project_id
@@ -635,7 +706,11 @@ def create_ai_governance_draft(
                 actor_type="user",
                 action="ai_governance_draft.generation_requested",
                 before_data=None,
-                after_data={"status": draft.status, "finding_count": len(selections)},
+                after_data={
+                    "governance_report_id": str(draft.governance_report_id),
+                    "status": draft.status,
+                    "finding_count": len(selections),
+                },
             )
         )
         session.commit()

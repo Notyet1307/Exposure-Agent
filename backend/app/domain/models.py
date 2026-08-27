@@ -1590,11 +1590,29 @@ class EvidenceReferencePublic(SQLModel):
     fact_id: uuid.UUID
 
 
+class AiGovernanceDraftPublic(SQLModel):
+    id: uuid.UUID
+    governance_report_id: uuid.UUID
+    report_sha256: str
+    finding_ids: list[uuid.UUID] = Field(default_factory=list)
+    status: str
+    failure_code: str | None
+    agent_compose_run_id: str | None
+    session_id: str | None
+    created_at: datetime
+
+
+class AiGovernanceDraftRequest(SQLModel):
+    finding_ids: list[uuid.UUID] = Field(min_length=1, max_length=8)
+
+
 class GovernanceReportDetailPublic(GovernanceReportSummaryPublic):
     canonical_content: dict[str, Any]
     evidence: list[EvidenceReferencePublic] = Field(default_factory=list)
     evidence_count: int
     evidence_max_entries: int
+    can_request_ai_governance_draft: bool
+    ai_governance_drafts: list[AiGovernanceDraftPublic] = Field(default_factory=list)
 
 
 class GovernanceReportsPublic(SQLModel):

@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     AGENT_COMPOSE_TIMEOUT_SECONDS: float = 15.0
     AGENT_COMPOSE_RUNTIME_VERSION: str = ""
     MODEL_QUALIFICATION_AGENT_NAME: str = "model-qualifier"
+    AI_GOVERNANCE_DRAFT_AGENT_NAME: str = "ai-governance-draft"
     MODEL_QUALIFICATION_TIMEOUT_SECONDS: float = 120.0
     MODEL_API_ENDPOINT: str = ""
     MODEL_API_PROTOCOL: Literal["responses", "chat_completions"] = "chat_completions"

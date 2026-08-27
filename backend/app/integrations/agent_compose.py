@@ -248,6 +248,19 @@ class AgentComposeClient:
             command="/app/.venv/bin/python -m app.model_qualification_runner",
         )
 
+    def start_ai_governance_draft(
+        self, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        return self._start_run(
+            agent_name=settings.AI_GOVERNANCE_DRAFT_AGENT_NAME,
+            client_request_id=client_request_id,
+            environment={"AI_DRAFT_ID": draft_id},
+            secret_environment={
+                "LLM_API_KEY": settings.MODEL_API_KEY.get_secret_value()
+            },
+            command="/app/.venv/bin/python -m app.ai_draft_runner",
+        )
+
     def _start_run(
         self,
         *,

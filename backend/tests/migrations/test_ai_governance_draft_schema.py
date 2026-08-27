@@ -773,7 +773,11 @@ def test_draft_pins_inputs_and_enforces_idempotency_and_one_active_generation(
         "ai_governance_draft",
         draft.id,
         None,
-        {"status": "GENERATING", "finding_count": 1},
+        {
+            "governance_report_id": str(ids["report_id"]),
+            "status": "GENERATING",
+            "finding_count": 1,
+        },
     )
     assert _draft_audit_events(draft_database, draft.id) == [requested_event]
 

@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import {
+  type AiGovernanceDraftPublic,
   type GovernanceReportDetailPublic,
   type GovernanceReportSummaryPublic,
   GovernanceReportsService,
@@ -16,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -34,6 +36,7 @@ import {
 
 const REPORT_PAGE_SIZE = 20
 const HTML_EVIDENCE_LIMIT = 8
+const MAX_DRAFT_FINDINGS = 8
 
 type JsonObject = Record<string, unknown>
 
@@ -237,7 +240,193 @@ function EvidenceCards({
   )
 }
 
-function PublishedReport({ detail }: { detail: GovernanceReportDetailPublic }) {
+type EligibleDraftFinding = {
+  id: string
+  canonicalIp: string
+}
+
+function eligibleDraftFindings(
+  detail: GovernanceReportDetailPublic,
+): EligibleDraftFinding[] {
+  const root = asObject(detail.canonical_content)
+  const evidencePlan = root ? objectField(root, "evidence_plan") : null
+  if (!evidencePlan) return []
+  const persistedEvidence = new Set(
+    (detail.evidence ?? []).map(
+      (evidence) => `${evidence.fact_type}:${evidence.fact_id}`,
+    ),
+  )
+  return objectArray(evidencePlan, "entries").flatMap((entry) => {
+    const reference = objectField(entry, "evidence_reference")
+    const id = stringField(entry, "finding_id", "")
+    const factType = reference ? stringField(reference, "fact_type", "") : ""
+    const factId = reference ? stringField(reference, "fact_id", "") : ""
+    if (
+      entry.finding_type !== "UNOBSERVED_ASSET" ||
+      !id ||
+      !persistedEvidence.has(`${factType}:${factId}`)
+    ) {
+      return []
+    }
+    return [{ id, canonicalIp: stringField(entry, "canonical_ip") }]
+  })
+}
+
+function DraftGeneration({
+  detail,
+  projectId,
+}: {
+  detail: GovernanceReportDetailPublic
+  projectId: string
+}) {
+  const queryClient = useQueryClient()
+  const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(
+    new Set(),
+  )
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null)
+  const eligibleFindings = eligibleDraftFindings(detail)
+  const generationMutation = useMutation({
+    mutationFn: ({ findingIds, key }: { findingIds: string[]; key: string }) =>
+      GovernanceReportsService.requestAiGovernanceDraft({
+        projectId,
+        reportId: detail.id,
+        requestBody: { finding_ids: findingIds },
+        idempotencyKey: key,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["governance-report", projectId, detail.id],
+      })
+    },
+  })
+  const latestDraft: AiGovernanceDraftPublic | undefined =
+    generationMutation.data ?? detail.ai_governance_drafts?.[0]
+
+  const toggleFinding = (findingId: string, checked: boolean) => {
+    setSelectedFindingIds((current) => {
+      const next = new Set(current)
+      if (checked) {
+        if (next.size < MAX_DRAFT_FINDINGS) next.add(findingId)
+      } else {
+        next.delete(findingId)
+      }
+      return next
+    })
+    setIdempotencyKey(null)
+  }
+
+  const requestDraft = () => {
+    if (selectedFindingIds.size === 0 || generationMutation.isPending) return
+    const key = idempotencyKey ?? crypto.randomUUID()
+    setIdempotencyKey(key)
+    generationMutation.mutate({ findingIds: [...selectedFindingIds], key })
+  }
+
+  return (
+    <ReportSection id="ai-governance-draft" title="AI governance draft">
+      <p className="text-sm text-muted-foreground">
+        Select one to eight eligible unobserved assets. Nothing is selected
+        automatically, and the deterministic report remains unchanged.
+      </p>
+      {!detail.can_request_ai_governance_draft ? (
+        <p className="text-sm text-muted-foreground">
+          A Project Operator can request an AI governance draft.
+        </p>
+      ) : (
+        <>
+          {eligibleFindings.length === 0 ? (
+            <p className="text-sm">
+              No eligible unobserved-asset Findings are available.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {eligibleFindings.map((finding) => {
+                const selected = selectedFindingIds.has(finding.id)
+                return (
+                  <div
+                    className="flex cursor-pointer items-center gap-2 rounded-md border p-2 text-sm"
+                    key={finding.id}
+                  >
+                    <Checkbox
+                      checked={selected}
+                      disabled={
+                        generationMutation.isPending ||
+                        (!selected &&
+                          selectedFindingIds.size >= MAX_DRAFT_FINDINGS)
+                      }
+                      id={`ai-draft-finding-${finding.id}`}
+                      onCheckedChange={(checked) =>
+                        toggleFinding(finding.id, checked === true)
+                      }
+                    />
+                    <label
+                      className="flex cursor-pointer items-center gap-2"
+                      htmlFor={`ai-draft-finding-${finding.id}`}
+                    >
+                      <span className="font-mono text-xs">{finding.id}</span>
+                      <span className="text-muted-foreground">
+                        {finding.canonicalIp}
+                      </span>
+                    </label>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <Button
+              disabled={
+                selectedFindingIds.size === 0 || generationMutation.isPending
+              }
+              onClick={requestDraft}
+              type="button"
+            >
+              {generationMutation.isPending
+                ? "Requesting draft…"
+                : "Request AI draft"}
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {selectedFindingIds.size} of {MAX_DRAFT_FINDINGS} selected
+            </span>
+          </div>
+          {generationMutation.isError && (
+            <Alert variant="destructive">
+              <AlertTitle>Draft request could not be started</AlertTitle>
+              <AlertDescription>
+                The same selection can be submitted again with its original
+                request key.
+              </AlertDescription>
+            </Alert>
+          )}
+        </>
+      )}
+      {latestDraft && (
+        <div className="rounded-md border p-3 text-sm" role="status">
+          <p>
+            Generation <Badge>{latestDraft.status}</Badge>
+          </p>
+          <p className="break-all font-mono text-xs">Draft {latestDraft.id}</p>
+          {latestDraft.session_id && (
+            <p className="break-all font-mono text-xs">
+              Session {latestDraft.session_id}
+            </p>
+          )}
+          {latestDraft.failure_code && (
+            <p>Failure: {latestDraft.failure_code}</p>
+          )}
+        </div>
+      )}
+    </ReportSection>
+  )
+}
+
+function PublishedReport({
+  detail,
+  projectId,
+}: {
+  detail: GovernanceReportDetailPublic
+  projectId: string
+}) {
   const root = asObject(detail.canonical_content)
   const report = root ? objectField(root, "report") : null
   const evidencePlan = root ? objectField(root, "evidence_plan") : null
@@ -311,6 +500,7 @@ function PublishedReport({ detail }: { detail: GovernanceReportDetailPublic }) {
 
   return (
     <article className="space-y-4" aria-label="Immutable governance report">
+      <DraftGeneration detail={detail} projectId={projectId} />
       <ReportSection
         id="report-identity"
         title="Report identity and generation mode"
@@ -522,7 +712,9 @@ function ReportDetailDialog({
             <AlertDescription>Please try again later.</AlertDescription>
           </Alert>
         )}
-        {detailQuery.data && <PublishedReport detail={detailQuery.data} />}
+        {detailQuery.data && (
+          <PublishedReport detail={detailQuery.data} projectId={projectId} />
+        )}
       </DialogContent>
     </Dialog>
   )

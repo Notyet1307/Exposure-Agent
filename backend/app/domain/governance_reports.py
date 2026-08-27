@@ -14,6 +14,9 @@ from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import Select
 
 from app.domain.models import (
+    AiGovernanceDraft,
+    AiGovernanceDraftFindingBinding,
+    AiGovernanceDraftPublic,
     Evidence,
     EvidenceReferencePublic,
     GovernanceReport,
@@ -247,8 +250,33 @@ def _evidence_reference(evidence: Evidence) -> EvidenceReferencePublic:
     )
 
 
+def ai_governance_draft_public(
+    *, session: Session, draft: AiGovernanceDraft
+) -> AiGovernanceDraftPublic:
+    finding_ids = session.exec(
+        select(AiGovernanceDraftFindingBinding.finding_id)
+        .where(AiGovernanceDraftFindingBinding.draft_id == draft.id)
+        .order_by(col(AiGovernanceDraftFindingBinding.finding_id))
+    ).all()
+    return AiGovernanceDraftPublic(
+        id=draft.id,
+        governance_report_id=draft.governance_report_id,
+        report_sha256=draft.report_sha256,
+        finding_ids=list(finding_ids),
+        status=draft.status,
+        failure_code=draft.failure_code,
+        agent_compose_run_id=draft.agent_compose_run_id,
+        session_id=draft.session_id,
+        created_at=draft.created_at,
+    )
+
+
 def get_report(
-    *, session: Session, project: Project, report_id: uuid.UUID
+    *,
+    session: Session,
+    project: Project,
+    report_id: uuid.UUID,
+    can_request_ai_governance_draft: bool,
 ) -> GovernanceReportDetailPublic | None:
     row = session.exec(
         select(GovernanceReport, col(GovernanceRun.completed_at))
@@ -287,6 +315,16 @@ def get_report(
         .order_by(col(Evidence.created_at), col(Evidence.id))
         .limit(REPORT_DETAIL_MAX_EVIDENCE)
     ).all()
+    drafts = session.exec(
+        select(AiGovernanceDraft)
+        .where(
+            AiGovernanceDraft.governance_report_id == report.id,
+            AiGovernanceDraft.governance_run_id == report.governance_run_id,
+            AiGovernanceDraft.project_id == project.id,
+            AiGovernanceDraft.tenant_id == project.tenant_id,
+        )
+        .order_by(col(AiGovernanceDraft.created_at).desc())
+    ).all()
     summary = _summary(report, run_completed_at=run_completed_at)
     return GovernanceReportDetailPublic(
         **summary.model_dump(),
@@ -294,4 +332,8 @@ def get_report(
         evidence=[_evidence_reference(item) for item in evidence],
         evidence_count=evidence_count,
         evidence_max_entries=REPORT_DETAIL_MAX_EVIDENCE,
+        can_request_ai_governance_draft=can_request_ai_governance_draft,
+        ai_governance_drafts=[
+            ai_governance_draft_public(session=session, draft=draft) for draft in drafts
+        ],
     )
