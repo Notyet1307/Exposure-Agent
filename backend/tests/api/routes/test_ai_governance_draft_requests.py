@@ -648,16 +648,7 @@ def test_pending_session_replay_recovers_without_another_start(
     assert len(start_calls) == 1
 
 
-@pytest.mark.parametrize(
-    ("reconciled_status", "failure_code"),
-    (
-        ("RUN_STATUS_FAILED", "agent_compose_run_failed"),
-        ("RUN_STATUS_UNKNOWN", "agent_compose_run_unknown_status"),
-    ),
-)
-def test_bound_generating_draft_reconciles_terminal_and_unknown_runs(
-    reconciled_status: str,
-    failure_code: str,
+def test_bound_generating_draft_replays_without_control_plane_reconciliation(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     db: Session,
@@ -686,14 +677,15 @@ def test_bound_generating_draft_reconciles_terminal_and_unknown_runs(
         if entry["finding_type"] == "UNOBSERVED_ASSET"
     )
     _configure_qualified_model(session=db, monkeypatch=monkeypatch)
-    session_id = "d" * 64
+    bound_session_ids: list[str] = []
     start_calls: list[str] = []
 
     def start_draft(
         _client: object, *, client_request_id: str, draft_id: str
     ) -> AgentComposeRunStart:
-        del draft_id
         start_calls.append(client_request_id)
+        session_id = hashlib.sha256(draft_id.encode()).hexdigest()
+        bound_session_ids.append(session_id)
         return AgentComposeRunStart(
             run_id=AgentComposeClient().expected_ai_governance_draft_run_id(
                 client_request_id
@@ -708,24 +700,20 @@ def test_bound_generating_draft_reconciles_terminal_and_unknown_runs(
     headers = {**operator_headers, "Idempotency-Key": "bound-reconciliation"}
     first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
     assert first.status_code == 202, first.text
-    assert first.json()["session_id"] == session_id
+    assert first.json()["session_id"] == bound_session_ids[0]
 
+    get_calls: list[str] = []
     monkeypatch.setattr(
         AgentComposeClient,
         "get_run",
-        lambda _client, run_id: AgentComposeRunStart(
-            run_id=run_id,
-            started=False,
-            status=reconciled_status,
-            session_id=session_id,
-        ),
+        lambda _client, run_id: get_calls.append(run_id),
     )
     replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
     assert replay.status_code == 200, replay.text
-    assert replay.json()["status"] == "FAILED"
-    assert replay.json()["failure_code"] == failure_code
-    assert replay.json()["session_id"] == session_id
+    assert replay.json() == first.json()
+    assert replay.json()["session_id"] == bound_session_ids[0]
     assert len(start_calls) == 1
+    assert get_calls == []
 
 
 def test_pending_session_replay_rechecks_qualification_before_start(
@@ -865,9 +853,9 @@ def test_pending_session_replay_fails_a_draft_when_its_model_binding_drifts(
     ("run_status", "session_id"),
     (
         ("RUN_STATUS_FAILED", None),
-        ("RUN_STATUS_FAILED", "d" * 64),
+        ("RUN_STATUS_FAILED", "with-session"),
         ("RUN_STATUS_SUCCEEDED", None),
-        ("RUN_STATUS_SUCCEEDED", "e" * 64),
+        ("RUN_STATUS_SUCCEEDED", "with-session"),
     ),
 )
 def test_terminal_session_launch_converges_to_a_durable_state(
@@ -907,15 +895,19 @@ def test_terminal_session_launch_converges_to_a_durable_state(
     def terminal_start(
         _client: object, *, client_request_id: str, draft_id: str
     ) -> AgentComposeRunStart:
-        del draft_id
         start_calls.append(client_request_id)
+        returned_session_id = (
+            hashlib.sha256(draft_id.encode()).hexdigest()
+            if session_id is not None
+            else None
+        )
         return AgentComposeRunStart(
             run_id=AgentComposeClient().expected_ai_governance_draft_run_id(
                 client_request_id
             ),
             started=True,
             status=run_status,
-            session_id=session_id,
+            session_id=returned_session_id,
         )
 
     def get_run(_client: object, run_id: str) -> None:
@@ -938,7 +930,7 @@ def test_terminal_session_launch_converges_to_a_durable_state(
     assert first.json()["failure_code"] == (
         None if successful_bootstrap else "agent_compose_run_failed"
     )
-    assert first.json()["session_id"] == session_id
+    assert (first.json()["session_id"] is not None) is (session_id is not None)
     assert len(start_calls) == 1
     assert get_calls == []
     if not successful_bootstrap:

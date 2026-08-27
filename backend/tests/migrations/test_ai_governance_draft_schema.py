@@ -950,7 +950,9 @@ def test_latest_downgrade_rejects_a_reserved_unbound_launch(
             "AND conname = 'ck_ai_governance_drafts_session_binding'"
         ).fetchone()
     assert constraint is not None
-    assert "session_id IS NULL OR agent_compose_run_id IS NOT NULL" in constraint[0]
+    assert "session_id IS NULL OR agent_compose_run_id IS NOT NULL" in constraint[
+        0
+    ].replace("(", "").replace(")", "")
     assert constraint[1] is True
 
 
@@ -1054,8 +1056,13 @@ def test_mandatory_audit_failure_rolls_back_audited_business_mutations(
         ("GENERATING", None, None),
     )
 
+    reserved_ids = _seed_draft_fixture(
+        draft_database, identity_suffix="-audit-failure-terminal-binding"
+    )
     reserved_candidate = _create_draft(
-        draft_database, ids, idempotency_key="audit-failure-at-terminal-binding"
+        draft_database,
+        reserved_ids,
+        idempotency_key="audit-failure-at-terminal-binding",
     )
     reserved = _apply(
         draft_database,

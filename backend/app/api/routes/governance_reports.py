@@ -213,24 +213,20 @@ def _launch_or_reconcile_draft_session(
     ):
         raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
 
+    # Once the dedicated Session is durably bound, the idempotency contract is
+    # complete: return that persisted generation identity without consulting
+    # the control plane again.  Execution and terminal-output reconciliation
+    # are deliberately outside this request-creation endpoint's scope.
+    if draft.session_id is not None:
+        return draft
+
     reserved = draft
     observed: AgentComposeRunStart | None = None
-    if draft.session_id is not None:
-        # A bound Session is still a GENERATING draft until its runner reaches a
-        # durable terminal state.  Reconcile the Run on replay instead of
-        # returning it blindly: a later control-plane failure must release the
-        # one-active-generation slot.
-        if draft.agent_compose_run_id is None:
-            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
-        observed = client.get_run(expected_run_id)
-        if observed is None:
-            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
-    else:
-        reserved = draft_service.reserve_draft_run_identity(
-            session=session,
-            draft=draft,
-            agent_compose_run_id=expected_run_id,
-        )
+    reserved = draft_service.reserve_draft_run_identity(
+        session=session,
+        draft=draft,
+        agent_compose_run_id=expected_run_id,
+    )
     if observed is None and not launch_now:
         observed = client.get_run(expected_run_id)
     if observed is None:
