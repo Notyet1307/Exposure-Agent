@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.db import engine
 from app.domain import governance_runs as governance_runs_domain
-from app.domain.ai_governance_drafts import bind_draft_session
+from app.domain.ai_governance_drafts import bind_draft_session, fail_draft
 from app.domain.cloudatlas_sources import OctobusCloudAtlasClient
 from app.domain.model_qualification import (
     QualificationEvaluation,
@@ -388,6 +388,16 @@ def test_operator_request_is_canonical_idempotent_and_audited(
     assert replay.status_code == 200
     assert replay.json() == body
     assert len(calls) == 1
+    cross_report_replay = client.post(
+        _draft_url(project_id=project["id"], report_id=uuid.uuid4()),
+        headers={**operator_headers, "Idempotency-Key": "draft-1"},
+        json={"finding_ids": [selected_id]},
+    )
+    assert cross_report_replay.status_code == 409
+    assert cross_report_replay.json()["detail"]["code"] == (
+        "draft_idempotency_conflict"
+    )
+    assert len(calls) == 1
     conflict = client.post(
         url,
         headers={**operator_headers, "Idempotency-Key": "draft-2"},
@@ -631,6 +641,145 @@ def test_pending_session_replay_recovers_without_another_start(
     assert replay.status_code == 200, replay.text
     assert replay.json()["agent_compose_run_id"] == accepted["run_id"]
     assert replay.json()["session_id"] == accepted["session_id"]
+    assert len(start_calls) == 1
+
+
+def test_pending_session_replay_rechecks_qualification_before_start(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    qualified = True
+    start_calls: list[str] = []
+
+    def is_qualified(**_kwargs: object) -> bool:
+        return qualified
+
+    def unavailable_start(
+        _client: object, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        del draft_id
+        start_calls.append(client_request_id)
+        raise AgentComposeBoundaryError("agent_compose_unavailable")
+
+    monkeypatch.setattr(
+        "app.api.routes.governance_reports.current_model_is_qualified",
+        is_qualified,
+    )
+    monkeypatch.setattr(
+        AgentComposeClient, "start_ai_governance_draft", unavailable_start
+    )
+    monkeypatch.setattr(AgentComposeClient, "get_run", lambda *_args: None)
+    url = _draft_url(project_id=project["id"], report_id=report.id)
+    headers = {**operator_headers, "Idempotency-Key": "qualification-replay"}
+
+    first = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert first.status_code == 503
+    assert first.json()["detail"]["code"] == "agent_compose_unavailable"
+    assert len(start_calls) == 1
+
+    qualified = False
+    replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
+    assert replay.status_code == 409
+    assert replay.json()["detail"]["code"] == "model_not_qualified"
+    assert len(start_calls) == 1
+
+
+def test_failed_draft_blocks_an_explicit_new_attempt(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}"
+    )
+    detail = client.get(detail_url, headers=operator_headers).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    start_calls: list[str] = []
+
+    def start_draft(
+        _client: object, *, client_request_id: str, draft_id: str
+    ) -> AgentComposeRunStart:
+        start_calls.append(client_request_id)
+        return AgentComposeRunStart(
+            run_id=AgentComposeClient().expected_ai_governance_draft_run_id(
+                client_request_id
+            ),
+            started=True,
+            status="RUN_STATUS_PENDING",
+            session_id=hashlib.sha256(draft_id.encode()).hexdigest(),
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_ai_governance_draft", start_draft)
+    url = _draft_url(project_id=project["id"], report_id=report.id)
+    first = client.post(
+        url,
+        headers={**operator_headers, "Idempotency-Key": "failed-original"},
+        json={"finding_ids": [selected_id]},
+    )
+    assert first.status_code == 202, first.text
+    with Session(engine) as session:
+        draft = session.get(AiGovernanceDraft, uuid.UUID(first.json()["id"]))
+        assert draft is not None
+        fail_draft(session=session, draft=draft, failure_code="provider_failed")
+
+    persisted = client.get(detail_url, headers=operator_headers)
+    assert persisted.status_code == 200
+    assert persisted.json()["can_request_ai_governance_draft"] is False
+    assert persisted.json()["ai_governance_drafts"][0]["status"] == "FAILED"
+
+    new_attempt = client.post(
+        url,
+        headers={**operator_headers, "Idempotency-Key": "failed-new-attempt"},
+        json={"finding_ids": [selected_id]},
+    )
+    assert new_attempt.status_code == 409
+    assert new_attempt.json()["detail"]["code"] == (
+        "draft_generation_after_failure_not_supported"
+    )
     assert len(start_calls) == 1
 
 

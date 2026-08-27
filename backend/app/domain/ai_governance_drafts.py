@@ -636,6 +636,8 @@ def create_ai_governance_draft(
         idempotency_key=idempotency_key,
     )
     if existing is not None:
+        if existing.governance_report_id != scoped_report.id:
+            raise AiGovernanceDraftStateError("draft_idempotency_conflict")
         return AiGovernanceDraftCreation(draft=existing, created=False)
     if (
         _active_report_draft(
@@ -684,6 +686,8 @@ def create_ai_governance_draft(
             idempotency_key=idempotency_key,
         )
         if replay is not None:
+            if replay.governance_report_id != scoped_report.id:
+                raise AiGovernanceDraftStateError("draft_idempotency_conflict")
             return AiGovernanceDraftCreation(draft=replay, created=False)
         if (
             _active_report_draft(

@@ -535,7 +535,9 @@ test.describe("Project Reports", () => {
         }
         if (url.pathname.endsWith(`/${reportIds[0]}`)) {
           detailReads += 1
-          return route.fulfill({ json: draftReportDetail("FAILED") })
+          return route.fulfill({
+            json: draftReportDetail(postCount > 0 ? "FAILED" : undefined),
+          })
         }
         return route.fulfill({ json: reportListResponse() })
       },
@@ -554,11 +556,22 @@ test.describe("Project Reports", () => {
     const persistedDraft = report.locator(
       "#ai-governance-draft [role='status']",
     )
-    await expect(persistedDraft.getByText("FAILED")).toBeVisible()
+    await expect(
+      persistedDraft.getByText("FAILED", { exact: true }),
+    ).toBeVisible()
     await expect(persistedDraft.getByText(`Draft ${draftId}`)).toBeVisible()
     await expect(
       persistedDraft.getByText("Failure: provider_failed"),
     ).toBeVisible()
+    await expect(
+      report.getByText(
+        "A new draft attempt after failure is not available in this release.",
+      ),
+    ).toBeVisible()
+    await expect(
+      report.getByRole("button", { name: "Request AI draft" }),
+    ).toHaveCount(0)
+    await expect(report.getByRole("checkbox")).toHaveCount(0)
     await expect.poll(() => detailReads).toBeGreaterThanOrEqual(2)
     expect(postCount).toBe(1)
   })

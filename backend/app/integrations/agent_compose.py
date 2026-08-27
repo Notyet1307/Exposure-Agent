@@ -257,15 +257,16 @@ class AgentComposeClient:
     def start_ai_governance_draft(
         self, *, client_request_id: str, draft_id: str
     ) -> AgentComposeRunStart:
-        run_id = self.expected_ai_governance_draft_run_id(client_request_id)
+        if not draft_id:
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         return self._start_run(
             agent_name=settings.AI_GOVERNANCE_DRAFT_AGENT_NAME,
             client_request_id=client_request_id,
-            environment={
-                "AI_DRAFT_ID": draft_id,
-                "AI_DRAFT_RUN_ID": run_id,
-            },
-            command="/app/.venv/bin/python -m app.ai_draft_runner",
+            environment={},
+            # Issue #143 creates and binds the dedicated Session only. The
+            # bounded model handoff is a downstream capability, so this Agent
+            # receives neither application credentials nor draft input.
+            command="/usr/bin/true",
         )
 
     def _start_run(

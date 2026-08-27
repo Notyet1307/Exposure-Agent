@@ -62,18 +62,3 @@ agents:
     image: ${DOCKER_IMAGE_RUNNER}:${RUNNER_BUILD_VERSION}
     driver:
       docker: {}
-    env:
-      PROJECT_NAME: ai-governance-draft
-      ENVIRONMENT: ${ENVIRONMENT}
-      # The #143 direct command only validates the persisted Session handoff.
-      # It receives no model credential; the bounded model request belongs to #144.
-      FIRST_SUPERUSER: ai-draft-runner@example.invalid
-      FIRST_SUPERUSER_PASSWORD: ai-draft-runner-unused
-      POSTGRES_SERVER: db
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD:
-        value: ${POSTGRES_PASSWORD}
-        secret: true
-      RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION}

@@ -301,6 +301,9 @@ function DraftGeneration({
   })
   const latestDraft: AiGovernanceDraftPublic | undefined =
     detail.ai_governance_drafts?.[0] ?? generationMutation.data
+  const generationAfterFailureBlocked =
+    detail.ai_governance_drafts?.some((draft) => draft.status === "FAILED") ??
+    false
 
   const toggleFinding = (findingId: string, checked: boolean) => {
     setSelectedFindingIds((current) => {
@@ -316,7 +319,12 @@ function DraftGeneration({
   }
 
   const requestDraft = () => {
-    if (selectedFindingIds.size === 0 || generationMutation.isPending) return
+    if (
+      generationAfterFailureBlocked ||
+      selectedFindingIds.size === 0 ||
+      generationMutation.isPending
+    )
+      return
     const key = idempotencyKey ?? crypto.randomUUID()
     setIdempotencyKey(key)
     generationMutation.mutate({ findingIds: [...selectedFindingIds], key })
@@ -328,7 +336,11 @@ function DraftGeneration({
         Select one to eight eligible unobserved assets. Nothing is selected
         automatically, and the deterministic report remains unchanged.
       </p>
-      {!detail.can_request_ai_governance_draft ? (
+      {generationAfterFailureBlocked ? (
+        <p className="text-sm text-muted-foreground">
+          A new draft attempt after failure is not available in this release.
+        </p>
+      ) : !detail.can_request_ai_governance_draft ? (
         <p className="text-sm text-muted-foreground">
           A Project Operator can request an AI governance draft.
         </p>
@@ -389,16 +401,16 @@ function DraftGeneration({
               {selectedFindingIds.size} of {MAX_DRAFT_FINDINGS} selected
             </span>
           </div>
-          {generationMutation.isError && (
-            <Alert variant="destructive">
-              <AlertTitle>Draft request could not be started</AlertTitle>
-              <AlertDescription>
-                The same selection can be submitted again with its original
-                request key.
-              </AlertDescription>
-            </Alert>
-          )}
         </>
+      )}
+      {generationMutation.isError && (
+        <Alert variant="destructive">
+          <AlertTitle>Draft request could not be started</AlertTitle>
+          <AlertDescription>
+            The same selection can be submitted again with its original request
+            key.
+          </AlertDescription>
+        </Alert>
       )}
       {latestDraft && (
         <div className="rounded-md border p-3 text-sm" role="status">

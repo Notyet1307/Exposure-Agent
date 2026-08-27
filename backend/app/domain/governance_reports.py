@@ -17,6 +17,7 @@ from app.domain.models import (
     AiGovernanceDraft,
     AiGovernanceDraftFindingBinding,
     AiGovernanceDraftPublic,
+    AiGovernanceDraftStatus,
     Evidence,
     EvidenceReferencePublic,
     GovernanceReport,
@@ -332,7 +333,12 @@ def get_report(
         evidence=[_evidence_reference(item) for item in evidence],
         evidence_count=evidence_count,
         evidence_max_entries=REPORT_DETAIL_MAX_EVIDENCE,
-        can_request_ai_governance_draft=can_request_ai_governance_draft,
+        can_request_ai_governance_draft=(
+            can_request_ai_governance_draft
+            and not any(
+                draft.status == AiGovernanceDraftStatus.FAILED.value for draft in drafts
+            )
+        ),
         ai_governance_drafts=[
             ai_governance_draft_public(session=session, draft=draft) for draft in drafts
         ],
