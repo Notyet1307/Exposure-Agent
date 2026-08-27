@@ -42,17 +42,44 @@ function draftIdempotencyStorageKey(projectId: string, reportId: string) {
   return `exposure:ai-governance-draft:${projectId}:${reportId}:idempotency-key`
 }
 
-function readDraftIdempotencyKey(storageKey: string) {
+type DraftRequestRecovery = {
+  idempotencyKey: string
+  findingIds: string[]
+}
+
+function readDraftRequestRecovery(storageKey: string): DraftRequestRecovery | null {
   try {
-    return window.sessionStorage.getItem(storageKey)
+    const serialized = window.sessionStorage.getItem(storageKey)
+    if (serialized === null) return null
+    const value: unknown = JSON.parse(serialized)
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null
+    }
+    const { idempotencyKey, findingIds } = value as {
+      idempotencyKey?: unknown
+      findingIds?: unknown
+    }
+    if (
+      typeof idempotencyKey !== "string" ||
+      !Array.isArray(findingIds) ||
+      findingIds.length === 0 ||
+      findingIds.length > MAX_DRAFT_FINDINGS ||
+      findingIds.some((findingId) => typeof findingId !== "string")
+    ) {
+      return null
+    }
+    return { idempotencyKey, findingIds }
   } catch {
     return null
   }
 }
 
-function storeDraftIdempotencyKey(storageKey: string, value: string) {
+function storeDraftRequestRecovery(
+  storageKey: string,
+  value: DraftRequestRecovery,
+) {
   try {
-    window.sessionStorage.setItem(storageKey, value)
+    window.sessionStorage.setItem(storageKey, JSON.stringify(value))
   } catch {
     // The API remains usable when browser storage is unavailable; only
     // remount recovery is disabled for that tab.
@@ -313,10 +340,14 @@ function DraftGeneration({
     new Set(),
   )
   const storageKey = draftIdempotencyStorageKey(projectId, detail.id)
-  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(() =>
-    readDraftIdempotencyKey(storageKey),
+  const [pendingRequest, setPendingRequest] = useState<DraftRequestRecovery | null>(
+    () => readDraftRequestRecovery(storageKey),
   )
   const eligibleFindings = eligibleDraftFindings(detail)
+  const clearPendingRequest = () => {
+    clearDraftIdempotencyKey(storageKey)
+    setPendingRequest(null)
+  }
   const generationMutation = useMutation({
     mutationFn: ({ findingIds, key }: { findingIds: string[]; key: string }) =>
       GovernanceReportsService.requestAiGovernanceDraft({
@@ -325,6 +356,11 @@ function DraftGeneration({
         requestBody: { finding_ids: findingIds },
         idempotencyKey: key,
       }),
+    onSuccess: (draft) => {
+      // A response to this exact request key proves that the recovered key is
+      // bound to the returned draft. A bound Session needs no further replay.
+      if (draft.session_id !== null) clearPendingRequest()
+    },
     onSettled: async (_data, error) => {
       const queryKey = ["governance-report", projectId, detail.id]
       try {
@@ -340,8 +376,7 @@ function DraftGeneration({
             }),
         })
         if (error && (refreshed.ai_governance_drafts?.length ?? 0) === 0) {
-          clearDraftIdempotencyKey(storageKey)
-          setIdempotencyKey(null)
+          clearPendingRequest()
         }
       } catch {
         // Keep the key if the post-request read did not conclusively rule out
@@ -356,24 +391,16 @@ function DraftGeneration({
     false
   const activeDraft =
     latestDraft?.status === "GENERATING" ? latestDraft : undefined
-  const pendingSessionDraft =
-    activeDraft?.session_id === null ? activeDraft : undefined
-
   useEffect(() => {
-    if (
-      latestDraft &&
-      (latestDraft.status !== "GENERATING" || latestDraft.session_id !== null)
-    ) {
-      clearDraftIdempotencyKey(storageKey)
-      setIdempotencyKey(null)
-    }
-  }, [latestDraft, storageKey])
+    setSelectedFindingIds(new Set())
+    setPendingRequest(readDraftRequestRecovery(storageKey))
+  }, [storageKey])
 
   const toggleFinding = (findingId: string, checked: boolean) => {
     // Once a request key has been issued, the response may be ambiguous.  The
-    // key is the only safe recovery handle until the report confirms the
-    // resulting draft state, so selection changes must not replace it.
-    if (idempotencyKey) return
+    // key and original selection are the only safe recovery handle until a
+    // replay of that key confirms the resulting draft state.
+    if (pendingRequest) return
     setSelectedFindingIds((current) => {
       const next = new Set(current)
       if (checked) {
@@ -388,28 +415,28 @@ function DraftGeneration({
   const requestDraft = () => {
     if (
       generationAfterFailureBlocked ||
+      pendingRequest !== null ||
       selectedFindingIds.size === 0 ||
       generationMutation.isPending
     )
       return
-    const key = idempotencyKey ?? crypto.randomUUID()
-    setIdempotencyKey(key)
-    storeDraftIdempotencyKey(storageKey, key)
-    generationMutation.mutate({ findingIds: [...selectedFindingIds], key })
+    const request = {
+      idempotencyKey: crypto.randomUUID(),
+      findingIds: [...selectedFindingIds],
+    }
+    setPendingRequest(request)
+    storeDraftRequestRecovery(storageKey, request)
+    generationMutation.mutate({
+      findingIds: request.findingIds,
+      key: request.idempotencyKey,
+    })
   }
 
-  const resumeDraftSession = () => {
-    const findingIds = pendingSessionDraft?.finding_ids
-    if (
-      !findingIds ||
-      findingIds.length === 0 ||
-      !idempotencyKey ||
-      generationMutation.isPending
-    )
-      return
+  const resumePendingRequest = () => {
+    if (!pendingRequest || generationMutation.isPending) return
     generationMutation.mutate({
-      findingIds,
-      key: idempotencyKey,
+      findingIds: pendingRequest.findingIds,
+      key: pendingRequest.idempotencyKey,
     })
   }
 
@@ -423,27 +450,34 @@ function DraftGeneration({
         <p className="text-sm text-muted-foreground">
           A new draft attempt after failure is not available in this release.
         </p>
+      ) : pendingRequest ? (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            A previous request is pending. Replaying it sends the same
+            idempotency key and exactly the Findings selected before reload.
+          </p>
+          <Button
+            disabled={generationMutation.isPending}
+            onClick={resumePendingRequest}
+            type="button"
+            variant="outline"
+          >
+            {generationMutation.isPending
+              ? "Resuming draft request…"
+              : "Resume your draft request"}
+          </Button>
+        </div>
       ) : activeDraft ? (
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
             Draft generation is already active.
           </p>
-          {pendingSessionDraft && idempotencyKey ? (
-            <Button
-              disabled={generationMutation.isPending}
-              onClick={resumeDraftSession}
-              type="button"
-              variant="outline"
-            >
-              {generationMutation.isPending
-                ? "Resuming Session…"
-                : "Resume draft Session"}
-            </Button>
-          ) : pendingSessionDraft ? (
+          {activeDraft.session_id === null && (
             <p className="text-sm text-muted-foreground">
-              Session recovery requires the original browser tab.
+              This browser does not have a recoverable request for the active
+              draft.
             </p>
-          ) : null}
+          )}
         </div>
       ) : !detail.can_request_ai_governance_draft ? (
         <p className="text-sm text-muted-foreground">
@@ -468,7 +502,7 @@ function DraftGeneration({
                       checked={selected}
                       disabled={
                         generationMutation.isPending ||
-                        idempotencyKey !== null ||
+                        pendingRequest !== null ||
                         (!selected &&
                           selectedFindingIds.size >= MAX_DRAFT_FINDINGS)
                       }
@@ -513,8 +547,8 @@ function DraftGeneration({
         <Alert variant="destructive">
           <AlertTitle>Draft request could not be started</AlertTitle>
           <AlertDescription>
-            {idempotencyKey
-              ? "The original request key is retained in this browser tab so the pending Session can be resumed safely."
+            {pendingRequest
+              ? "The original request, including its selected Findings, is retained in this browser tab and can be replayed safely."
               : "No draft was persisted. You can update the selection or prerequisites and try again."}
           </AlertDescription>
         </Alert>
@@ -812,10 +846,12 @@ function ReportDetailDialog({
         reportId: reportId as string,
       }),
     enabled: reportId !== null,
-    refetchInterval: (query) =>
-      query.state.data?.ai_governance_drafts?.[0]?.status === "GENERATING"
+    refetchInterval: (query) => {
+      const draft = query.state.data?.ai_governance_drafts?.[0]
+      return draft?.status === "GENERATING" && draft.session_id === null
         ? 2000
-        : false,
+        : false
+    },
   })
 
   return (
