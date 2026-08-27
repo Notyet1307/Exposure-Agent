@@ -231,6 +231,17 @@ def _launch_or_reconcile_draft_session(
         draft=draft,
         agent_compose_run_id=expected_run_id,
     )
+    # Reservation commits to release the Project lock.  Re-read and lock the
+    # draft again through reconciliation so a concurrent same-key replay sees
+    # the authoritative binding or terminal result before contacting the
+    # control plane, and cannot lose a later transition race.
+    reserved = draft_service.lock_draft_for_session_reconciliation(
+        session=session,
+        draft=reserved,
+        agent_compose_run_id=expected_run_id,
+    )
+    if reserved.status != "GENERATING" or reserved.session_id is not None:
+        return reserved
     if observed is None and not launch_now:
         observed = client.get_run(expected_run_id)
     if observed is None:

@@ -42,7 +42,7 @@
 - CloudAtlas Package、Descriptor、Instance、Capset、方法或 token material 漂移时验证失败。
 - agent-compose Session 只有权威查询确认终态后才允许恢复；未知、不可达或未识别状态保持 fail-closed。
 - 模型资格只允许 Pi 经无重定向本地代理连接解析到私网地址的部署注入端点，禁用模型工具和自动 retry；Secret、完整 Prompt、模型原始输出和 Provider 原始事件不进入 PostgreSQL 或 agent-compose Run 输出；端点、模型、非 Secret 配置、Runner build、资格契约或 agent-compose runtime 指纹漂移立即失效。
-- 当前 AI 草稿 Session 的 direct command 是无副作用的占位命令，不接收数据库、应用、模型凭据或草稿输入，也不发出产品模型请求；API 可按已保留的 Run identity 幂等补齐同一 Session 绑定，控制面响应丢失或 Session identity 尚不可见时保留 `GENERATING` 状态供同一 Idempotency-Key 重放，前端在 Session 绑定前仅把该键保留在当前浏览器标签页的 `sessionStorage` 中用于重载恢复，已确认的终态启动失败则收敛为脱敏 `FAILED`。
+- 当前 AI 草稿 Session 的 direct command 是无副作用的占位命令，不接收数据库、应用、模型凭据或草稿输入，也不发出产品模型请求；API 可按已保留的 Run identity 幂等补齐同一 Session 绑定，控制面响应丢失或 Session identity 尚不可见时保留 `GENERATING` 状态供同一 Idempotency-Key 重放，前端在 Session 绑定前仅把该键和有界的已选 Finding ID 保留在当前浏览器标签页的 `sessionStorage` 中用于重载恢复，不保留原始 Evidence 内容，已确认的终态启动失败则收敛为脱敏 `FAILED`。
 - 更换 agent-compose 镜像 digest、架构或 driver 后，旧 probe 结论不能外推，必须重新验证当前运行时契约。
 - 真实 CloudAtlas 只读 canary 仍是部署门禁，步骤见 [Runbook](../runbooks/cloudatlas-canary.md)。
 

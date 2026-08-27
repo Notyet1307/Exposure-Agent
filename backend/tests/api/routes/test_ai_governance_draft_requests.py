@@ -1,4 +1,5 @@
 import hashlib
+import threading
 import uuid
 from pathlib import Path
 
@@ -8,8 +9,10 @@ from pydantic import SecretStr
 from pytest import MonkeyPatch
 from sqlmodel import Session, select
 
+from app.api.routes import governance_reports as governance_report_routes
 from app.core.config import settings
 from app.core.db import engine
+from app.domain import ai_governance_drafts as draft_service
 from app.domain import governance_runs as governance_runs_domain
 from app.domain.ai_governance_drafts import bind_draft_session, fail_draft
 from app.domain.cloudatlas_sources import OctobusCloudAtlasClient
@@ -1171,3 +1174,267 @@ def test_global_admin_can_request_ai_governance_draft(
     assert response.status_code == 202, response.text
     assert response.json()["status"] == "GENERATING"
     assert len(calls) == 1
+
+
+def _create_reserved_pending_draft(
+    *,
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> tuple[uuid.UUID, str]:
+    project, report = _publish_report_with_unobserved_asset(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    operator_headers = _create_member(
+        client,
+        superuser_token_headers,
+        project_id=project["id"],
+        roles=["operator"],
+    )
+    detail = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}",
+        headers=operator_headers,
+    ).json()
+    selected_id = next(
+        entry["finding_id"]
+        for entry in detail["canonical_content"]["evidence_plan"]["entries"]
+        if entry["finding_type"] == "UNOBSERVED_ASSET"
+    )
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "start_ai_governance_draft",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AgentComposeBoundaryError("agent_compose_unavailable")
+        ),
+    )
+    monkeypatch.setattr(AgentComposeClient, "get_run", lambda *_args: None)
+    response = client.post(
+        _draft_url(project_id=project["id"], report_id=report.id),
+        headers={**operator_headers, "Idempotency-Key": "concurrent-same-key"},
+        json={"finding_ids": [selected_id]},
+    )
+    assert response.status_code == 503
+    with Session(engine) as session:
+        draft = session.get(AiGovernanceDraft, uuid.UUID(response.json()["id"]))
+        assert draft is not None
+        assert draft.status == "GENERATING"
+        assert draft.agent_compose_run_id is not None
+        return draft.id, draft.agent_compose_run_id
+
+
+def test_postgresql_concurrent_same_key_replay_returns_persisted_session_binding(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    draft_id, run_id = _create_reserved_pending_draft(
+        client=client,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    session_id = "a" * 64
+    reserved = threading.Barrier(2)
+    persisted = threading.Event()
+    start = threading.Event()
+    outcomes: list[AiGovernanceDraft] = []
+    errors: list[BaseException] = []
+    original_reserve = draft_service.reserve_draft_run_identity
+    original_bind = draft_service.bind_draft_session
+
+    def reserve(
+        *, session: Session, draft: AiGovernanceDraft, agent_compose_run_id: str
+    ) -> AiGovernanceDraft:
+        result = original_reserve(
+            session=session,
+            draft=draft,
+            agent_compose_run_id=agent_compose_run_id,
+        )
+        reserved.wait(timeout=5)
+        if threading.current_thread().name == "replay-loser":
+            assert persisted.wait(timeout=5)
+        return result
+
+    def bind(
+        *,
+        session: Session,
+        draft: AiGovernanceDraft,
+        agent_compose_run_id: str,
+        session_id: str,
+    ) -> AiGovernanceDraft:
+        result = original_bind(
+            session=session,
+            draft=draft,
+            agent_compose_run_id=agent_compose_run_id,
+            session_id=session_id,
+        )
+        persisted.set()
+        return result
+
+    def get_run(_client: object, observed_run_id: str) -> AgentComposeRunStart:
+        assert observed_run_id == run_id
+        assert threading.current_thread().name == "replay-winner"
+        return AgentComposeRunStart(
+            run_id=run_id,
+            started=False,
+            status="RUN_STATUS_PENDING",
+            session_id=session_id,
+        )
+
+    monkeypatch.setattr(draft_service, "reserve_draft_run_identity", reserve)
+    monkeypatch.setattr(draft_service, "bind_draft_session", bind)
+    monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "start_ai_governance_draft",
+        lambda *_args, **_kwargs: pytest.fail("stale replay started a second Session"),
+    )
+
+    def replay() -> None:
+        start.wait(timeout=5)
+        try:
+            with Session(engine) as session:
+                draft = session.get(AiGovernanceDraft, draft_id)
+                assert draft is not None
+                outcomes.append(
+                    governance_report_routes._launch_or_reconcile_draft_session(
+                        session=session,
+                        draft=draft,
+                        launch_now=False,
+                        authorize_start=lambda: object(),
+                    )
+                )
+        except BaseException as error:
+            errors.append(error)
+
+    winner = threading.Thread(target=replay, name="replay-winner")
+    loser = threading.Thread(target=replay, name="replay-loser")
+    winner.start()
+    loser.start()
+    start.set()
+    winner.join(timeout=10)
+    loser.join(timeout=10)
+
+    assert not winner.is_alive()
+    assert not loser.is_alive()
+    assert errors == []
+    assert [(item.agent_compose_run_id, item.session_id) for item in outcomes] == [
+        (run_id, session_id),
+        (run_id, session_id),
+    ]
+
+
+def test_postgresql_concurrent_same_key_replay_returns_persisted_terminal_failure(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    draft_id, run_id = _create_reserved_pending_draft(
+        client=client,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    reserved = threading.Barrier(2)
+    persisted = threading.Event()
+    start = threading.Event()
+    outcomes: list[AiGovernanceDraft] = []
+    errors: list[BaseException] = []
+    original_reserve = draft_service.reserve_draft_run_identity
+    original_fail = draft_service.fail_draft
+
+    def reserve(
+        *, session: Session, draft: AiGovernanceDraft, agent_compose_run_id: str
+    ) -> AiGovernanceDraft:
+        result = original_reserve(
+            session=session,
+            draft=draft,
+            agent_compose_run_id=agent_compose_run_id,
+        )
+        reserved.wait(timeout=5)
+        if threading.current_thread().name == "replay-loser":
+            assert persisted.wait(timeout=5)
+        return result
+
+    def fail(
+        *,
+        session: Session,
+        draft: AiGovernanceDraft,
+        failure_code: str,
+        actor_subject: str = "ai-draft-runner",
+        agent_compose_run_id: str | None = None,
+        session_id: str | None = None,
+    ) -> AiGovernanceDraft:
+        result = original_fail(
+            session=session,
+            draft=draft,
+            failure_code=failure_code,
+            actor_subject=actor_subject,
+            agent_compose_run_id=agent_compose_run_id,
+            session_id=session_id,
+        )
+        persisted.set()
+        return result
+
+    def get_run(_client: object, observed_run_id: str) -> AgentComposeRunStart:
+        assert observed_run_id == run_id
+        assert threading.current_thread().name == "replay-winner"
+        return AgentComposeRunStart(
+            run_id=run_id,
+            started=False,
+            status="RUN_STATUS_FAILED",
+        )
+
+    monkeypatch.setattr(draft_service, "reserve_draft_run_identity", reserve)
+    monkeypatch.setattr(draft_service, "fail_draft", fail)
+    monkeypatch.setattr(AgentComposeClient, "get_run", get_run)
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "start_ai_governance_draft",
+        lambda *_args, **_kwargs: pytest.fail("stale replay started a failed Run"),
+    )
+
+    def replay() -> None:
+        start.wait(timeout=5)
+        try:
+            with Session(engine) as session:
+                draft = session.get(AiGovernanceDraft, draft_id)
+                assert draft is not None
+                outcomes.append(
+                    governance_report_routes._launch_or_reconcile_draft_session(
+                        session=session,
+                        draft=draft,
+                        launch_now=False,
+                        authorize_start=lambda: object(),
+                    )
+                )
+        except BaseException as error:
+            errors.append(error)
+
+    winner = threading.Thread(target=replay, name="replay-winner")
+    loser = threading.Thread(target=replay, name="replay-loser")
+    winner.start()
+    loser.start()
+    start.set()
+    winner.join(timeout=10)
+    loser.join(timeout=10)
+
+    assert not winner.is_alive()
+    assert not loser.is_alive()
+    assert errors == []
+    assert [(item.status, item.failure_code) for item in outcomes] == [
+        ("FAILED", "agent_compose_run_failed"),
+        ("FAILED", "agent_compose_run_failed"),
+    ]

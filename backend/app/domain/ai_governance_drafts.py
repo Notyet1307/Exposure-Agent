@@ -292,6 +292,24 @@ def _require_generating(draft: AiGovernanceDraft) -> None:
         raise AiGovernanceDraftStateError("draft_not_generating")
 
 
+def _require_compatible_persisted_session_identity(
+    *,
+    draft: AiGovernanceDraft,
+    agent_compose_run_id: str | None = None,
+    session_id: str | None = None,
+) -> None:
+    if (
+        agent_compose_run_id is not None
+        and draft.agent_compose_run_id is not None
+        and draft.agent_compose_run_id != agent_compose_run_id
+    ) or (
+        session_id is not None
+        and draft.session_id is not None
+        and draft.session_id != session_id
+    ):
+        raise AiGovernanceDraftStateError("session_already_bound")
+
+
 def _require_input_sealed(draft: AiGovernanceDraft) -> None:
     if draft.bindings_sealed_at is None:
         raise AiGovernanceDraftStateError("draft_input_unsealed")
@@ -755,14 +773,19 @@ def reserve_draft_run_identity(
         raise AiGovernanceDraftStateError("session_identity_invalid")
     try:
         locked = _locked_active_draft(session=session, draft_id=draft.id)
-        _require_generating(locked)
+        _require_compatible_persisted_session_identity(
+            draft=locked,
+            agent_compose_run_id=agent_compose_run_id,
+        )
+        if locked.status != AiGovernanceDraftStatus.GENERATING.value:
+            session.commit()
+            session.refresh(locked)
+            return locked
         _require_input_sealed(locked)
         if locked.agent_compose_run_id is not None:
-            if locked.agent_compose_run_id == agent_compose_run_id:
-                session.commit()
-                session.refresh(locked)
-                return locked
-            raise AiGovernanceDraftStateError("session_already_bound")
+            session.commit()
+            session.refresh(locked)
+            return locked
         if locked.session_id is not None:
             raise AiGovernanceDraftStateError("session_already_bound")
         reused_draft_identity = session.exec(
@@ -790,6 +813,30 @@ def reserve_draft_run_identity(
         raise
 
 
+def lock_draft_for_session_reconciliation(
+    *,
+    session: Session,
+    draft: AiGovernanceDraft,
+    agent_compose_run_id: str,
+) -> AiGovernanceDraft:
+    """Re-read and lock one reserved draft through its control-plane decision."""
+
+    if not _is_lower_hex_identity(agent_compose_run_id):
+        raise AiGovernanceDraftStateError("session_identity_invalid")
+    try:
+        locked = _locked_active_draft(session=session, draft_id=draft.id)
+        _require_compatible_persisted_session_identity(
+            draft=locked,
+            agent_compose_run_id=agent_compose_run_id,
+        )
+        if locked.status == AiGovernanceDraftStatus.GENERATING.value:
+            _require_input_sealed(locked)
+        return locked
+    except AiGovernanceDraftStateError:
+        session.rollback()
+        raise
+
+
 def bind_draft_session(
     *,
     session: Session,
@@ -803,22 +850,20 @@ def bind_draft_session(
         raise AiGovernanceDraftStateError("session_identity_invalid")
     try:
         locked = _locked_active_draft(session=session, draft_id=draft.id)
-        _require_generating(locked)
+        _require_compatible_persisted_session_identity(
+            draft=locked,
+            agent_compose_run_id=agent_compose_run_id,
+            session_id=session_id,
+        )
+        if locked.status != AiGovernanceDraftStatus.GENERATING.value:
+            session.commit()
+            session.refresh(locked)
+            return locked
         _require_input_sealed(locked)
-        if (
-            locked.agent_compose_run_id is not None
-            and locked.agent_compose_run_id != agent_compose_run_id
-        ):
-            raise AiGovernanceDraftStateError("session_already_bound")
         if locked.session_id is not None:
-            if (
-                locked.agent_compose_run_id == agent_compose_run_id
-                and locked.session_id == session_id
-            ):
-                session.commit()
-                session.refresh(locked)
-                return locked
-            raise AiGovernanceDraftStateError("session_already_bound")
+            session.commit()
+            session.refresh(locked)
+            return locked
         reused_session = session.exec(
             select(GovernanceRun.id).where(GovernanceRun.session_id == session_id)
         ).one_or_none()
@@ -913,16 +958,17 @@ def fail_draft(
         raise AiGovernanceDraftStateError("session_identity_invalid")
     try:
         locked = _locked_active_draft(session=session, draft_id=draft.id)
-        _require_generating(locked)
+        _require_compatible_persisted_session_identity(
+            draft=locked,
+            agent_compose_run_id=agent_compose_run_id,
+            session_id=session_id,
+        )
+        if locked.status != AiGovernanceDraftStatus.GENERATING.value:
+            session.commit()
+            session.refresh(locked)
+            return locked
         _require_input_sealed(locked)
         if agent_compose_run_id is not None and session_id is not None:
-            if (
-                locked.agent_compose_run_id is not None
-                and locked.agent_compose_run_id != agent_compose_run_id
-            ):
-                raise AiGovernanceDraftStateError("session_already_bound")
-            if locked.session_id is not None and locked.session_id != session_id:
-                raise AiGovernanceDraftStateError("session_already_bound")
             reused_session = session.exec(
                 select(GovernanceRun.id).where(GovernanceRun.session_id == session_id)
             ).one_or_none()
