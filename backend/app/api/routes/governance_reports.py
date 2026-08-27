@@ -209,6 +209,15 @@ def _launch_or_reconcile_draft_session(
 ) -> AiGovernanceDraft:
     if draft.status != "GENERATING":
         return draft
+
+    # Once the dedicated Session is durably bound, the idempotency contract is
+    # complete: return that persisted generation identity without consulting
+    # the mutable control-plane configuration again. Execution and
+    # terminal-output reconciliation are deliberately outside this
+    # request-creation endpoint's scope.
+    if draft.session_id is not None:
+        return draft
+
     client = AgentComposeClient()
     client_request_id = _draft_client_request_id(draft)
     expected_run_id = client.expected_ai_governance_draft_run_id(client_request_id)
@@ -216,13 +225,6 @@ def _launch_or_reconcile_draft_session(
         draft.agent_compose_run_id != expected_run_id
     ):
         raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
-
-    # Once the dedicated Session is durably bound, the idempotency contract is
-    # complete: return that persisted generation identity without consulting
-    # the control plane again.  Execution and terminal-output reconciliation
-    # are deliberately outside this request-creation endpoint's scope.
-    if draft.session_id is not None:
-        return draft
 
     reserved = draft
     observed: AgentComposeRunStart | None = None

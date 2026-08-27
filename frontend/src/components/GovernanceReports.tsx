@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 
 import {
   type AiGovernanceDraftPublic,
+  ApiError,
   type GovernanceReportDetailPublic,
   type GovernanceReportSummaryPublic,
   GovernanceReportsService,
@@ -94,6 +95,13 @@ function clearDraftIdempotencyKey(storageKey: string) {
   } catch {
     // Nothing durable was available to clear.
   }
+}
+
+function isActiveDraftGenerationConflict(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 409) return false
+  const body = asObject(error.body)
+  const detail = body ? asObject(body.detail) : null
+  return detail?.code === "draft_generation_active"
 }
 
 type JsonObject = Record<string, unknown>
@@ -368,7 +376,8 @@ function DraftGeneration({
       const queryKey = ["governance-report", projectId, detail.id]
       try {
         // A request error is ambiguous until the persisted report is read
-        // again.  Only a successful no-draft read releases this browser key.
+        // again. A no-draft read, or the definitive active-generation
+        // conflict with its active draft, releases this browser key.
         await queryClient.invalidateQueries({ queryKey, refetchType: "none" })
         const refreshed = await queryClient.fetchQuery({
           queryKey,
@@ -378,7 +387,15 @@ function DraftGeneration({
               reportId: detail.id,
             }),
         })
-        if (error && (refreshed.ai_governance_drafts?.length ?? 0) === 0) {
+        const hasActiveDraft =
+          refreshed.ai_governance_drafts?.some(
+            (draft) => draft.status === "GENERATING",
+          ) ?? false
+        if (
+          error &&
+          ((refreshed.ai_governance_drafts?.length ?? 0) === 0 ||
+            (hasActiveDraft && isActiveDraftGenerationConflict(error)))
+        ) {
           clearPendingRequest()
         }
       } catch {

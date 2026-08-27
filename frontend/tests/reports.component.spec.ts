@@ -627,6 +627,66 @@ test.describe("Project Reports", () => {
     expect(requestKeys).toHaveLength(1)
   })
 
+  test("clears a losing draft key after the active-generation conflict refresh", async ({
+    page,
+  }) => {
+    const requestKeys: string[] = []
+    let requestAttempted = false
+    await page.route(
+      new RegExp(
+        `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
+      ),
+      async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (url.pathname.endsWith(`/${reportIds[0]}/ai-governance-drafts`)) {
+          requestAttempted = true
+          requestKeys.push(
+            (await request.allHeaders())["idempotency-key"] ?? "",
+          )
+          return route.fulfill({
+            status: 409,
+            json: {
+              detail: {
+                code: "draft_generation_active",
+                message: "This report already has an active draft generation.",
+              },
+            },
+          })
+        }
+        if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+          return route.fulfill({
+            json: draftReportDetail(
+              requestAttempted ? "GENERATING" : undefined,
+            ),
+          })
+        }
+        return route.fulfill({ json: reportListResponse() })
+      },
+    )
+
+    await page.goto("/")
+    await page.getByRole("tab", { name: "Reports", exact: true }).click()
+    await page.getByRole("button", { name: "Read report" }).click()
+    const report = page.getByRole("dialog")
+    await report.getByRole("checkbox").first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+
+    await expect(report.getByText(`Draft ${draftId}`)).toBeVisible()
+    await expect(
+      report.getByRole("button", { name: "Resume your draft request" }),
+    ).toHaveCount(0)
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (key) => window.sessionStorage.getItem(key),
+          `exposure:ai-governance-draft:${projectId}:${reportIds[0]}:idempotency-key`,
+        ),
+      )
+      .toBeNull()
+    expect(requestKeys).toHaveLength(1)
+  })
+
   test("recovers a pending Session with the same key after a page reload", async ({
     page,
   }) => {

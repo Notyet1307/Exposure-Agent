@@ -745,7 +745,7 @@ def test_unknown_run_status_remains_recoverable_without_a_failure_audit_event(
     assert len(start_calls) == 1
 
 
-def test_bound_generating_draft_replays_without_control_plane_reconciliation(
+def test_bound_generating_draft_replays_after_agent_compose_naming_changes(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     db: Session,
@@ -804,6 +804,10 @@ def test_bound_generating_draft_replays_without_control_plane_reconciliation(
         AgentComposeClient,
         "get_run",
         lambda _client, run_id: get_calls.append(run_id),
+    )
+    monkeypatch.setattr(settings, "AGENT_COMPOSE_PROJECT_NAME", "renamed-project")
+    monkeypatch.setattr(
+        settings, "AI_GOVERNANCE_DRAFT_AGENT_NAME", "renamed-draft-agent"
     )
     replay = client.post(url, headers=headers, json={"finding_ids": [selected_id]})
     assert replay.status_code == 200, replay.text
