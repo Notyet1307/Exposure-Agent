@@ -450,6 +450,18 @@ class GovernanceRunStatus(StrEnum):
     COMPLETED_WITH_WARNINGS = "COMPLETED_WITH_WARNINGS"
 
 
+class AiGovernanceDraftStatus(StrEnum):
+    GENERATING = "GENERATING"
+    REVIEWABLE = "REVIEWABLE"
+    FAILED = "FAILED"
+
+
+class AiGovernanceDraftReviewDecision(StrEnum):
+    ACCEPTED = "ACCEPTED"
+    EDITED = "EDITED"
+    REJECTED = "REJECTED"
+
+
 class RunStepCode(StrEnum):
     LOAD_CUSTOMER = "LOAD_CUSTOMER"
     PULL_CLOUDATLAS = "PULL_CLOUDATLAS"
@@ -1914,6 +1926,175 @@ class ModelQualificationResult(SQLModel, table=True):
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
+
+
+_AI_DRAFT_CHECKS = {
+    "ck_ai_governance_drafts_status": "status IN ('GENERATING', 'REVIEWABLE', 'FAILED')",
+    "ck_ai_governance_drafts_review_decision": "review_decision IS NULL OR review_decision IN ('ACCEPTED', 'EDITED', 'REJECTED')",
+    "ck_ai_governance_drafts_identity_pins": "btrim(idempotency_key) <> '' AND btrim(initiated_by) <> '' AND btrim(model_identity) <> '' AND (failure_code IS NULL OR btrim(failure_code) <> '') AND (reviewed_by IS NULL OR btrim(reviewed_by) <> '')",
+    "ck_ai_governance_drafts_session_binding": "(session_id IS NULL AND agent_compose_run_id IS NULL) OR (session_id IS NOT NULL AND agent_compose_run_id IS NOT NULL)",
+    "ck_ai_governance_drafts_binding_seal": "bindings_sealed_at IS NULL OR bindings_sealed_at >= created_at",
+    "ck_ai_governance_drafts_generation_consistency": "(status = 'GENERATING' AND model_output IS NULL AND failure_code IS NULL AND generation_terminal_at IS NULL AND review_decision IS NULL) OR (status = 'REVIEWABLE' AND model_output IS NOT NULL AND failure_code IS NULL AND generation_terminal_at IS NOT NULL AND session_id IS NOT NULL) OR (status = 'FAILED' AND model_output IS NULL AND failure_code IS NOT NULL AND generation_terminal_at IS NOT NULL AND review_decision IS NULL)",
+    "ck_ai_governance_drafts_review_consistency": "(review_decision IS NULL AND reviewed_by IS NULL AND reviewed_at IS NULL AND operator_edited_output IS NULL) OR (review_decision = 'EDITED' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND operator_edited_output IS NOT NULL) OR (review_decision IN ('ACCEPTED', 'REJECTED') AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND operator_edited_output IS NULL)",
+}
+_AI_DRAFT_POSTGRES_CHECKS = {
+    "ck_ai_governance_drafts_report_sha256": "report_sha256 ~ '^[0-9a-f]{64}$'",
+    "ck_ai_governance_drafts_config_fingerprint": "config_fingerprint ~ '^[0-9a-f]{64}$'",
+    "ck_ai_governance_drafts_session_id": "session_id IS NULL OR session_id ~ '^[0-9a-f]{64}$'",
+    "ck_ai_governance_drafts_agent_compose_run_id": "agent_compose_run_id IS NULL OR agent_compose_run_id ~ '^[0-9a-f]{64}$'",
+    "ck_ai_governance_drafts_failure_code": "failure_code IS NULL OR failure_code ~ '^[a-z][a-z0-9_]{0,99}$'",
+    "ck_ai_governance_drafts_json_objects": "(model_output IS NULL OR jsonb_typeof(model_output) = 'object') AND (operator_edited_output IS NULL OR jsonb_typeof(operator_edited_output) = 'object')",
+}
+_DRAFT_TIME: Any = DateTime(timezone=True)
+
+
+class AiGovernanceDraft(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "ai_governance_drafts"
+    __table_args__ = (
+        *(
+            CheckConstraint(expression, name=name)
+            for name, expression in _AI_DRAFT_CHECKS.items()
+        ),
+        *(
+            CheckConstraint(expression, name=name).ddl_if(dialect="postgresql")
+            for name, expression in _AI_DRAFT_POSTGRES_CHECKS.items()
+        ),
+        ForeignKeyConstraint(
+            [
+                "governance_report_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+            ],
+            [
+                "governance_reports.id",
+                "governance_reports.governance_run_id",
+                "governance_reports.project_id",
+                "governance_reports.tenant_id",
+            ],
+            name="fk_ai_governance_drafts_report_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            name="fk_ai_governance_drafts_project_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_ai_governance_drafts_scope",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "idempotency_key",
+            name="uq_ai_governance_drafts_idempotency",
+        ),
+        UniqueConstraint(
+            "agent_compose_run_id",
+            name="uq_ai_governance_drafts_agent_compose_run",
+        ),
+        UniqueConstraint("session_id", name="uq_ai_governance_drafts_session"),
+        Index(
+            "uq_ai_governance_drafts_one_active_per_report",
+            "tenant_id",
+            "project_id",
+            "governance_report_id",
+            unique=True,
+            postgresql_where=text("status = 'GENERATING'"),
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    governance_report_id: uuid.UUID = Field(index=True)
+    report_sha256: str = Field(max_length=64)
+    initiated_by: str = Field(max_length=255)
+    idempotency_key: str = Field(max_length=255)
+    model_identity: str = Field(max_length=255)
+    config_fingerprint: str = Field(max_length=64, index=True)
+    agent_compose_run_id: str | None = Field(default=None, max_length=64)
+    session_id: str | None = Field(default=None, max_length=64)
+    bindings_sealed_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+    status: str = Field(
+        default=AiGovernanceDraftStatus.GENERATING.value,
+        max_length=30,
+        index=True,
+    )
+    failure_code: str | None = Field(default=None, max_length=100)
+    model_output: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB(none_as_null=True), nullable=True),
+    )
+    review_decision: str | None = Field(default=None, max_length=20, index=True)
+    reviewed_by: str | None = Field(default=None, max_length=255)
+    operator_edited_output: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB(none_as_null=True), nullable=True),
+    )
+    reviewed_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+    generation_terminal_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+    created_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_DRAFT_TIME)
+    updated_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_DRAFT_TIME)
+
+
+class AiGovernanceDraftFindingBinding(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "ai_governance_draft_finding_bindings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["draft_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "ai_governance_drafts.id",
+                "ai_governance_drafts.governance_run_id",
+                "ai_governance_drafts.project_id",
+                "ai_governance_drafts.tenant_id",
+            ],
+            name="fk_ai_governance_draft_finding_bindings_draft_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["finding_id", "project_id", "tenant_id"],
+            ["findings.id", "findings.project_id", "findings.tenant_id"],
+            name="fk_ai_governance_draft_finding_bindings_finding_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["evidence_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "evidence.id",
+                "evidence.governance_run_id",
+                "evidence.project_id",
+                "evidence.tenant_id",
+            ],
+            name="fk_ai_governance_draft_finding_bindings_evidence_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "draft_id",
+            "finding_id",
+            name="uq_ai_governance_draft_finding_bindings_finding",
+        ),
+        UniqueConstraint(
+            "draft_id",
+            "evidence_id",
+            name="uq_ai_governance_draft_finding_bindings_evidence",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    draft_id: uuid.UUID = Field(index=True)
+    finding_id: uuid.UUID = Field(index=True)
+    evidence_id: uuid.UUID = Field(index=True)
+    created_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_DRAFT_TIME)
 
 
 class AuditEvent(SQLModel, table=True):

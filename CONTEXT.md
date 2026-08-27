@@ -92,6 +92,10 @@ _Avoid_: FindingOccurrence、AuditEvent、可变状态日志
 某个用户可见治理结论对特定 GovernanceRun 中来源事实和确定性判断依据的结构化引用；用于追溯结论，不复制原始 Artifact，也不记录操作者行为。
 _Avoid_: 原始数据副本、AuditEvent、独立证据平台
 
+**AI Governance Draft**:
+Project Operator 针对一份已发布 GovernanceReport 明确选择 `1–8` 个未观测资产及其 canonical Evidence 后发起的一次独立、不可重试的非权威模型草稿；报告 Hash、选择绑定、模型配置和 Session 在生成前固定，原始模型输出不可变。生成失败或单次 Operator 的 `ACCEPTED | EDITED | REJECTED` 审核均为终态；`EDITED` 只另存 Operator 文字，不改变 GovernanceReport、GovernanceRun、Finding 或 Evidence 事实。
+_Avoid_: 权威报告、GovernanceRun、可变模型结果、自动 Retry、Finding 修改
+
 **Archived Project**:
 不再接受新的项目内操作或授权变更、但保留数据源绑定、策略、成员关系、治理事实和审计记录的 Project；有执行中 GovernanceRun 时不能归档，可由 Admin 在 Run 停止后归档或重新启用，且两个动作都必须审计。重新启用不改变既有 Run；此前确认的 Retry 条件仍全部成立时，最新失败 Run 可以恢复。Project 不被硬删除。
 _Avoid_: 已删除 Project

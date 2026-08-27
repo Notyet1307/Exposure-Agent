@@ -29,7 +29,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_GOVERNANCE_RUN_REVISION = "e3f4a5b6c7d8"
+CURRENT_SCHEMA_REVISION = "a1b2c3d4e5f6"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -133,7 +133,7 @@ def test_template_database_upgrades_without_losing_users(
         ).fetchone() == ("legacy-admin@example.com",)
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_GOVERNANCE_RUN_REVISION,)
+        ).fetchone() == (CURRENT_SCHEMA_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -662,7 +662,7 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_GOVERNANCE_RUN_REVISION,)
+        ).fetchone() == (CURRENT_SCHEMA_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -815,7 +815,7 @@ def test_stage4_schema_is_installed_on_a_fresh_database(
     with connect(template_baseline_database) as connection:
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_GOVERNANCE_RUN_REVISION,)
+        ).fetchone() == (CURRENT_SCHEMA_REVISION,)
         assert connection.execute(
             """
             SELECT table_name
@@ -1474,6 +1474,7 @@ def _insert_governance_report(
     ids: dict[str, uuid.UUID],
     html_artifact_id: uuid.UUID,
     csv_artifact_id: uuid.UUID,
+    report_id: uuid.UUID | None = None,
     tenant_id: uuid.UUID = DEPLOYMENT_TENANT_ID,
     project_id: uuid.UUID | None = None,
     report_contract_version: str = "deterministic-report-v1",
@@ -1481,7 +1482,8 @@ def _insert_governance_report(
     canonical_content: str = '{"report_identity": {"complete": true}}',
     html_sha256: str = "8" * 64,
     csv_sha256: str = "9" * 64,
-) -> None:
+) -> uuid.UUID:
+    report_id = report_id or uuid.uuid4()
     with connect(database) as connection:
         connection.execute(
             "INSERT INTO governance_reports "
@@ -1491,7 +1493,7 @@ def _insert_governance_report(
             "created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, "
             "%s::jsonb, %s, %s, %s, %s, now(), now())",
             (
-                uuid.uuid4(),
+                report_id,
                 tenant_id,
                 project_id or ids["project_id"],
                 ids["run_id"],
@@ -1504,6 +1506,7 @@ def _insert_governance_report(
                 csv_sha256,
             ),
         )
+    return report_id
 
 
 def test_governance_report_checks_reject_partial_or_noncanonical_records(

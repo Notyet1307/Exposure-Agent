@@ -429,12 +429,20 @@ def archive_project(
             actor_subject=str(current_user.id),
             ip_address=get_request_ip_address(request),
         )
-    except project_service.ActiveGovernanceRunError:
+    except project_service.ActiveProjectWorkError as error:
+        messages = {
+            "project_has_active_governance_run": (
+                "Stop the active GovernanceRun before archiving the Project."
+            ),
+            "project_has_active_ai_governance_draft": (
+                "Finish the active AI governance draft before archiving the Project."
+            ),
+        }
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
-                "code": "project_has_active_governance_run",
-                "message": "Stop the active GovernanceRun before archiving the Project.",
+                "code": error.code,
+                "message": messages[error.code],
             },
         )
 
