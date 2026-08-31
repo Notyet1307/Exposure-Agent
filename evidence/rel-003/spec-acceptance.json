@@ -1,0 +1,18 @@
+{
+  "schema": "pi-ticket-planning:spec-acceptance:v1",
+  "parent": {
+    "number": 152,
+    "title": "Delivery Spec: REL-003/r1 Operator-reviewed AI governance draft completion",
+    "bodyHash": "sha256:5f281798c2d29b278aaa06dddcc7498d2133d1c2a84ed0522b2ee28ee904a175"
+  },
+  "source": {
+    "baseSha": "f87287e01f8d48f37af2890bec711ea4126f9d8b",
+    "specContentHash": "sha256:af10031a091b923935cab25d290488b2f5751ebeadce80eb387b2e5a98b25bcb"
+  },
+  "decision": {
+    "caseId": "PC-80d08e6d-48c3-4c0b-8293-8349a65a4c82",
+    "approvalId": "F-human-spec-publication-43839172-1fd9-4834-b935-2a64336e1b41",
+    "acceptedAt": "2026-08-30T14:11:10.161Z"
+  },
+  "digest": "sha256:1f1da915f0d28f897cfbfc3ab0ad823a4ddfd37f8f362f49e24e72e66f3d27c6"
+}

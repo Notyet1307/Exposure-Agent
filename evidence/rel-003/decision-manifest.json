@@ -1,0 +1,55 @@
+{
+  "schema": "pi-ticket-planning:decision-manifest:v1",
+  "baseSha": "54a520922d2d6e298009d74d344018ba7d9515ea",
+  "policy": {
+    "identity": "Exposure-Agent root policy",
+    "path": "AGENTS.md",
+    "sha256": "sha256:830a9aee9a18404cdfafe95fb9283626bae525b6b87e255092e255cf8cc20353",
+    "byteCount": 4293
+  },
+  "productRelease": {
+    "identity": "REL-003/r1",
+    "path": "docs/product/releases/rel-003-ai-governance-draft.md",
+    "sha256": "sha256:980f3e4bdfba20e32032240333570899ad3baf741395d87e4aeffaddce0023c7",
+    "byteCount": 12267
+  },
+  "decisions": [
+    {
+      "identity": "ADR-0002",
+      "status": "ACCEPTED",
+      "path": "docs/adr/0002-global-admin-project-authority.md",
+      "sha256": "sha256:44e90f25fa48c076be13d3b39c8fc96ed42bae0d8ea1a02697c39613a73c7929",
+      "byteCount": 381
+    },
+    {
+      "identity": "ADR-0003",
+      "status": "ACCEPTED",
+      "path": "docs/adr/0003-one-active-governance-run-per-project.md",
+      "sha256": "sha256:d508379127c2d9cc6ee4f6fd88630c648e5222b230c7ea4b90ef29a844555606",
+      "byteCount": 1086
+    },
+    {
+      "identity": "ADR-0004",
+      "status": "ACCEPTED",
+      "path": "docs/adr/0004-confirm-session-termination-before-run-recovery.md",
+      "sha256": "sha256:2d228734b603b74e15ca8206f9c4a5850d3aa3de3724051d01beb23df2635db9",
+      "byteCount": 718
+    },
+    {
+      "identity": "ADR-0006",
+      "status": "ACCEPTED",
+      "path": "docs/adr/0006-allow-deployment-internal-model-qualification-endpoint.md",
+      "sha256": "sha256:dd29cc3a87ce85f5a400afb6c612e7260fa590b7cc1b75462aa5f4145e171a17",
+      "byteCount": 1446
+    },
+    {
+      "identity": "ADR-0007",
+      "status": "ACCEPTED",
+      "path": "docs/adr/0007-allow-bounded-ai-governance-draft-model-call.md",
+      "sha256": "sha256:81ddcce0198804557f62786de62b25e4dda5f2e1aae7c5662602037dda434165",
+      "byteCount": 3798
+    }
+  ],
+  "dependencyHandoffs": [],
+  "digest": "sha256:99ea91348b0c840f5a15a86c24d1defd1d4dc6b37f862cc108634002e974dfc4"
+}
