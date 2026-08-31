@@ -46,17 +46,15 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 
 Wayfinder maps and their children never receive the executable ready-for-agent label.
 
-## Delivery-map operations
+## Delivery-release operations
 
-Used by /to-spec, /to-tickets, and /admit-ticket. A delivery map is separate from every Wayfinder map.
+Used by `/to-spec`, `/to-tickets`, `/prepare-codex-release`, and the explicitly selected Legacy `/admit-ticket` path. Delivery Parents and children are separate from every Wayfinder map.
 
-- **Draft parent**: create the delivery spec with needs-triage and no ready-for-agent.
-- **Candidate child**: create each implementation ticket with stable source Scenario IDs, coverage role, and needs-triage, then attach it as a native GitHub sub-issue of the delivery parent.
-- **Coverage**: keep one `## Ticket coverage` section containing exactly one `<!-- pi-ticket-planning:delivery-graph:v2 -->` marker and its JSON fence. This normalized object is the current Scenario handoffs, source revision/base/Spec content hash, real child IDs and body hashes, roles, starting states, verifications, lanes, walking skeleton, and blocker graph; do not duplicate it as a prose matrix or receipt.
-- **Graph check**: `gh issue view <parent> --json body --jq .body | node "$PI_TICKET_PLANNING_ROOT/scripts/check-delivery-graph.mjs" --input -`. PASS is mandatory before Admission and activation.
-- **Blocking**: use the same native issue-dependency endpoint documented above. Add edges only after every candidate has an issue id.
-- **Order**: arrange native children in a stable topological order of internal blockers. For every `blocker -> dependent` edge, the blocker must be earlier in the native list. HerdrHarness Lite treats the first open child as the strict frontier and never jumps over it. GitHub can reprioritize a child with `gh api --method PATCH repos/<owner>/<repo>/issues/<parent>/sub_issues/priority -F sub_issue_id=<child-db-id> -F after_id=<previous-child-db-id>`; re-fetch after every completed reorder rather than trusting local intent.
-- **Order check**: before admission and again before activation, run `node "$PI_TICKET_PLANNING_ROOT/scripts/check-frontier-order.mjs" --repo <owner>/<repo> --parent <number>`. PASS is mandatory; FAIL or an API/read error leaves the map in needs-triage.
-- **Admission**: /admit-ticket validates Scenario coverage, state/artifact handoffs, walking skeleton, exact parent, children, order, and blockers before label mutation.
-- **Activation**: add ready-for-agent to admitted AGENT children and ready-for-human to admitted HUMAN children, then add ready-for-agent to the delivery parent last. Remove needs-triage and needs-info from each activated issue.
-- **Drift**: when a reviewed body, source, child order, or dependency changes, remove or withhold both ready labels and run admission again.
+- **Accepted Parent**: `/to-spec` creates the Delivery Spec with `needs-triage`. Once its acceptance receipt is recorded, its title and body are immutable authority; later planning never adds a graph marker or coverage block to it.
+- **Candidate child**: `/to-tickets` creates each complete implementation candidate with stable Scenario IDs and `needs-triage`, then attaches it as a native GitHub sub-issue of the accepted Parent.
+- **Release Graph**: `/to-tickets` binds one `delivery-release-graph:v3` to the Planning Case. The Case-bound graph, not the Parent body, is the normalized Scenario coverage, handoff, Oracle, ownership, walking-skeleton, and blocker authority.
+- **Blocking and order**: persist real dependencies with the native issue-dependency endpoint above and keep native children in topological order. Re-fetch tracker state after every relationship write; the Case-bound graph must match the resulting child IDs, body hashes, edges, and order.
+- **Publication state**: a successful ticket publication leaves the accepted Parent and every candidate child in `needs-triage`. A failed publication leaves no partial child or relationship graph.
+- **Default handoff**: continue to `/prepare-codex-release`; it independently reviews the accepted graph and obtains one exact Controller handoff approval without applying ready labels.
+- **Legacy activation**: run `/admit-ticket` only when a human explicitly selects Legacy Admission. That branch owns readiness review and any `ready-for-agent` or `ready-for-human` label mutation.
+- **Drift**: when source authority, candidate bytes, child order, dependency edges, Oracle bindings, or the accepted base changes, keep ready labels absent and rebuild the Case-bound graph before either handoff branch.

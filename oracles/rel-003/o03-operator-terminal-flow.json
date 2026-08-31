@@ -1,0 +1,18 @@
+{
+  "schema": "exposure-agent:rel-003-oracle:v1",
+  "oracleId": "O03",
+  "scenarioIds": ["S3", "S4"],
+  "assertions": [
+    "The report UI renders the immutable reviewable draft with its Finding recommendations and Evidence citations.",
+    "An Operator can submit one terminal ACCEPTED, EDITED, or REJECTED review and sees the persisted terminal result.",
+    "Editorial controls cannot alter model factual identities or Evidence citations.",
+    "A failed draft keeps its redacted history visible and offers an explicit new-attempt action.",
+    "The new-attempt action uses a fresh Idempotency-Key and never presents automatic retry or fallback behavior."
+  ],
+  "commands": [
+    {
+      "cwd": "frontend",
+      "argv": ["bunx", "playwright", "test", "--config", "playwright.oracle.config.ts", "oracles/rel003-terminal-flow.spec.ts"]
+    }
+  ]
+}

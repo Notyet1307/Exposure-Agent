@@ -9,6 +9,9 @@
     "lint": "bun run --filter exposure-agent-frontend lint",
     "test": "bun run --filter exposure-agent-frontend test",
     "test:ui": "bun run --filter exposure-agent-frontend test:ui",
-    "test:cloudatlas-fixture": "./scripts/test-cloudatlas-fixture.sh"
+    "test:cloudatlas-fixture": "./scripts/test-cloudatlas-fixture.sh",
+    "verify:oracle:rel003-c01": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o01-bounded-generation.json",
+    "verify:oracle:rel003-c02": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o02-terminal-review-api.json",
+    "verify:oracle:rel003-c03": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o03-operator-terminal-flow.json"
   }
 }

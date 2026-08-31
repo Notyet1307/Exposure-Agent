@@ -1,0 +1,18 @@
+{
+  "schema": "exposure-agent:rel-003-oracle:v1",
+  "oracleId": "O01",
+  "scenarioIds": ["S1", "S2", "S4"],
+  "assertions": [
+    "A still-qualified exact model binding produces one validated REVIEWABLE draft through the dedicated Session.",
+    "Qualification or configuration drift sends no customer report data to the model and persists one redacted FAILED terminal.",
+    "The model receives only selected Finding and allowlisted Evidence identities and never receives database credentials or application capabilities.",
+    "A failed attempt can be followed only by a new Idempotency-Key, record, Run identity, and Session while the failed history remains unchanged.",
+    "Replaying either key never performs a second model attempt."
+  ],
+  "commands": [
+    {
+      "cwd": "backend",
+      "argv": ["uv", "run", "pytest", "oracles/test_rel003_bounded_generation.py", "-q"]
+    }
+  ]
+}

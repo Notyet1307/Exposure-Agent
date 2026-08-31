@@ -1,0 +1,62 @@
+{
+  "schema": "herdr-codex-controller:oracle-verifier-manifest:v1",
+  "oracleId": "O02",
+  "command": "npm run verify:oracle:rel003-c02",
+  "packageScript": {
+    "name": "verify:oracle:rel003-c02",
+    "definitionSha256": "sha256:f95382906dcdcd790965c945be42fc10fd27ce56cc104f4aa2e170d20b46aa1a"
+  },
+  "files": [
+    {
+      "path": "backend/oracles/conftest.py",
+      "sha256": "sha256:b2b9c24ca75e52ca6bbd2c9c2a7e68441e72a6722c9f4ea5a4c118171727cd57",
+      "byteCount": 158
+    },
+    {
+      "path": "backend/oracles/test_rel003_terminal_review_api.py",
+      "sha256": "sha256:ad6627cfba881b8212e8d69c37cea81e605894da3938bdf55d20be836cce1bca",
+      "byteCount": 8693
+    },
+    {
+      "path": "backend/tests/api/routes/test_ai_governance_draft_requests.py",
+      "sha256": "sha256:535ddbe67eb7acbb2732d8def611bd9a4af6b7e9b5f2e5495635fde56a90a775",
+      "byteCount": 49592
+    },
+    {
+      "path": "backend/tests/api/routes/test_governance_runs.py",
+      "sha256": "sha256:b46c7c14afcd266518b517bd9dd10017d8b0a6d86b47b235e97b9df1facd6bd7",
+      "byteCount": 163286
+    },
+    {
+      "path": "backend/tests/conftest.py",
+      "sha256": "sha256:7b1b05e8e3a20a3262aae3c69380cb6e16eea2b7af8b2bb107a922ab544adf0b",
+      "byteCount": 1568
+    },
+    {
+      "path": "backend/tests/utils/audit.py",
+      "sha256": "sha256:99e6650fa829938e9a5285e0f87d721fdab7e9cb4e86714b9683ba19aed093bc",
+      "byteCount": 4545
+    },
+    {
+      "path": "backend/tests/utils/user.py",
+      "sha256": "sha256:00fb245dc85bdcfda38f0d790597ec56581d1782fdc23fc72646237e6680cb27",
+      "byteCount": 1664
+    },
+    {
+      "path": "backend/tests/utils/utils.py",
+      "sha256": "sha256:ec4de331ed328dda26e329024c1f598996845fb5d9f662413a99a5b39a7e7f70",
+      "byteCount": 717
+    },
+    {
+      "path": "oracles/rel-003/o02-terminal-review-api.json",
+      "sha256": "sha256:5eb87fa97b745ebc0505795f554eab634389be577b678d4d79b9c9d632623778",
+      "byteCount": 810
+    },
+    {
+      "path": "scripts/verify-rel003-oracle.mjs",
+      "sha256": "sha256:6da4ffce67c6bcb4b34ccb4649a2eef7451827cd7489ac5e98ce5e124a233f24",
+      "byteCount": 2373
+    }
+  ],
+  "digest": "sha256:13e4c163d273922ea9892737eeaee39128d50b8eaa3214f74ddf95c8454eaf83"
+}
