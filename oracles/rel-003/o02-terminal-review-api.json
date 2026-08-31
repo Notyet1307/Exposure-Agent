@@ -1,0 +1,18 @@
+{
+  "schema": "exposure-agent:rel-003-oracle:v1",
+  "oracleId": "O02",
+  "scenarioIds": ["S3"],
+  "assertions": [
+    "An authorized Project Operator can complete exactly one ACCEPTED, EDITED, or REJECTED review through the public API.",
+    "EDITED stores only the separate editorial recommendation, pending-verification, and limitation fields.",
+    "The original model output, Finding identities, Evidence citations, and report Hash remain unchanged.",
+    "A second review and an edit outside the editorial contract fail closed.",
+    "The terminal review appends a redacted AuditEvent and triggers no Finding, GovernanceRun, scan, or external action."
+  ],
+  "commands": [
+    {
+      "cwd": "backend",
+      "argv": ["uv", "run", "pytest", "oracles/test_rel003_terminal_review_api.py", "-q"]
+    }
+  ]
+}
