@@ -1,0 +1,16 @@
+{
+  "schema": "exposure-agent:rel-003-oracle:v1",
+  "oracleId": "O07",
+  "scenarioIds": ["S4"],
+  "assertions": [
+    "The report UI keeps the failed draft's redacted terminal history visible.",
+    "Only an explicit Operator action starts a later attempt and that action uses a fresh Idempotency-Key.",
+    "The UI never presents automatic retry, fallback, or in-place resumption behavior."
+  ],
+  "commands": [
+    {
+      "cwd": "frontend",
+      "argv": ["bunx", "playwright", "test", "--config", "playwright.oracle.config.ts", "rel003-terminal-flow.spec.ts", "--grep", "failed history stays visible and only an explicit action starts a fresh attempt"]
+    }
+  ]
+}

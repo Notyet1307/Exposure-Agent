@@ -1,0 +1,16 @@
+{
+  "schema": "exposure-agent:rel-003-oracle:v1",
+  "oracleId": "O05",
+  "scenarioIds": ["S4"],
+  "assertions": [
+    "A failed draft remains an immutable redacted terminal record and is never resumed in place.",
+    "A later attempt requires a fresh Idempotency-Key, draft record, Run identity, and dedicated Session.",
+    "Replaying either the failed key or the later key never performs a second model attempt."
+  ],
+  "commands": [
+    {
+      "cwd": "backend",
+      "argv": ["uv", "run", "pytest", "oracles/test_rel003_bounded_generation.py", "-q", "-k", "failed_attempt_requires_a_fresh_key_record_run_and_session"]
+    }
+  ]
+}

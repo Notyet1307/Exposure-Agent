@@ -1,0 +1,16 @@
+{
+  "schema": "exposure-agent:rel-003-oracle:v1",
+  "oracleId": "O06",
+  "scenarioIds": ["S3"],
+  "assertions": [
+    "The report UI renders the immutable reviewable draft with its Finding recommendations and Evidence citations.",
+    "An Operator can submit exactly one terminal ACCEPTED, EDITED, or REJECTED review and sees the persisted terminal result.",
+    "Editorial controls cannot alter model factual identities or Evidence citations."
+  ],
+  "commands": [
+    {
+      "cwd": "frontend",
+      "argv": ["bunx", "playwright", "test", "--config", "playwright.oracle.config.ts", "rel003-terminal-flow.spec.ts", "--grep", "Operator reviews immutable recommendations and completes one terminal decision"]
+    }
+  ]
+}
