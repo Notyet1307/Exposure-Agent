@@ -1,0 +1,32 @@
+{
+  "schema": "herdr-codex-controller:oracle-verifier-manifest:v1",
+  "oracleId": "O06",
+  "command": "npm run verify:oracle:rel003-r1-review-ui",
+  "packageScript": {
+    "name": "verify:oracle:rel003-r1-review-ui",
+    "definitionSha256": "sha256:504e3f1f888df915d9112309296dd3e0d3092ebbf4e124146fc638f856855f32"
+  },
+  "files": [
+    {
+      "path": "frontend/oracles/rel003-terminal-flow.spec.ts",
+      "sha256": "sha256:d2bce3291539cf3d8211eeae25a72a9544af19ad3f8e07e3cfcd33a807820703",
+      "byteCount": 11933
+    },
+    {
+      "path": "frontend/playwright.oracle.config.ts",
+      "sha256": "sha256:e66aab39b33087e0651fd85b6d6420b947be730b996a468af530d04d5992c0e9",
+      "byteCount": 551
+    },
+    {
+      "path": "oracles/rel-003/o06-terminal-review-ui.json",
+      "sha256": "sha256:85080ba933ae28c56e4a64b5550c33082c01c7e2c983f0ac59745257e95f593c",
+      "byteCount": 721
+    },
+    {
+      "path": "scripts/verify-rel003-oracle.mjs",
+      "sha256": "sha256:6da4ffce67c6bcb4b34ccb4649a2eef7451827cd7489ac5e98ce5e124a233f24",
+      "byteCount": 2373
+    }
+  ],
+  "digest": "sha256:9eb1e919bf1f9056bc7c55a4a602e738314a0ef889643fc922a4be5f56078640"
+}
