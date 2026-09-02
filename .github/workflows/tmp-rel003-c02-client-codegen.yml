@@ -62,7 +62,7 @@ jobs:
       - name: Commit generated output
         shell: bash
         run: |
-          git add frontend/openapi.json frontend/src/client
+          git add frontend/src/client
           if git diff --cached --quiet; then
             exit 0
           fi
