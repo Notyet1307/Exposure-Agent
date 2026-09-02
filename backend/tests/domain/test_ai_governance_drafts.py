@@ -1,7 +1,9 @@
+import json
 import sys
 import uuid
 from dataclasses import fields
 from inspect import signature
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -225,8 +227,6 @@ def test_runner_entry_rejects_all_command_arguments(
 
 
 def test_runner_output_contains_only_reloaded_bounded_identities() -> None:
-    import json
-
     from app.ai_draft_runner import _inputs_json
 
     evidence = DraftRunnerEvidenceReference(
@@ -268,6 +268,36 @@ def test_runner_output_contains_only_reloaded_bounded_identities() -> None:
     assert "prompt" not in encoded.lower()
     assert "secret" not in encoded.lower()
     assert "provider_event" not in encoded.lower()
+
+
+def test_draft_runner_pi_configuration_uses_only_its_local_pinned_proxy(
+    tmp_path: Path,
+) -> None:
+    from app.ai_draft_runner import _model_configuration
+    from app.domain.model_qualification import ModelBinding
+
+    binding = ModelBinding(
+        endpoint="https://internal-model.example/v1",
+        resolved_address="10.0.0.9",
+        model_identity="customer-model",
+        protocol="chat_completions",
+        config_revision="fixture-v1",
+        runner_build_version="runner-v1",
+        agent_compose_runtime_version="compose-v1",
+        config_fingerprint="a" * 64,
+    )
+
+    directory = _model_configuration(
+        binding=binding,
+        proxy_port=43123,
+        directory=tmp_path,
+    )
+
+    configuration = json.loads((directory / "models.json").read_text())
+    provider = configuration["providers"]["customer"]
+    assert provider["baseUrl"] == "http://127.0.0.1:43123"
+    assert binding.endpoint not in json.dumps(configuration)
+    assert provider["apiKey"] == "$MODEL_API_KEY"
 
 
 @pytest.mark.parametrize(

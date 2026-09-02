@@ -4,7 +4,7 @@ import stat
 import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Annotated, BinaryIO
+from typing import Annotated, Any, BinaryIO
 
 from fastapi import APIRouter, Header, HTTPException, Query, Response, status
 from sqlalchemy.exc import SQLAlchemyError
@@ -85,6 +85,12 @@ class ModelBindingChangedError(Exception):
     """The immutable draft binding no longer matches deployment configuration."""
 
 
+class AiGovernanceDraftGenerationPublic(AiGovernanceDraftPublic):
+    """The request/replay projection, including validated reviewable output."""
+
+    model_output: dict[str, Any] | None = None
+
+
 class ReportCSVArtifactError(Exception):
     pass
 
@@ -135,6 +141,18 @@ def _agent_compose_error(error: AgentComposeBoundaryError) -> HTTPException:
 
 def _draft_client_request_id(draft: AiGovernanceDraft) -> str:
     return f"ai-governance-draft:{draft.id}"
+
+
+def _ai_governance_draft_generation_public(
+    *, session: SessionDep, draft: AiGovernanceDraft
+) -> AiGovernanceDraftGenerationPublic:
+    public = report_service.ai_governance_draft_public(session=session, draft=draft)
+    return AiGovernanceDraftGenerationPublic(
+        **public.model_dump(),
+        # A terminal FAILED record is deliberately redacted.  REVIEWABLE
+        # output has already passed the strict persistence validators.
+        model_output=draft.model_output if draft.status == "REVIEWABLE" else None,
+    )
 
 
 def _require_current_model_binding(
@@ -473,7 +491,7 @@ def read_governance_report(
 
 @router.post(
     "/{project_id}/governance-reports/{report_id}/ai-governance-drafts",
-    response_model=AiGovernanceDraftPublic,
+    response_model=AiGovernanceDraftGenerationPublic,
     status_code=status.HTTP_202_ACCEPTED,
 )
 def request_ai_governance_draft(
@@ -485,7 +503,7 @@ def request_ai_governance_draft(
     current_user: CurrentUser,
     response: Response,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> AiGovernanceDraftPublic:
+) -> AiGovernanceDraftGenerationPublic:
     key = _idempotency_key(idempotency_key)
     project = get_authorized_project(
         session=session,
@@ -521,7 +539,7 @@ def request_ai_governance_draft(
         except draft_service.AiGovernanceDraftStateError as error:
             raise _draft_state_error(error) from None
         response.status_code = status.HTTP_200_OK
-        return report_service.ai_governance_draft_public(
+        return _ai_governance_draft_generation_public(
             session=session, draft=existing
         )
 
@@ -599,7 +617,7 @@ def request_ai_governance_draft(
         raise _draft_state_error(error) from None
     if not creation.created:
         response.status_code = status.HTTP_200_OK
-    return report_service.ai_governance_draft_public(session=session, draft=draft)
+    return _ai_governance_draft_generation_public(session=session, draft=draft)
 
 
 @router.get(

@@ -116,6 +116,26 @@ def _start_provider_proxy(
     return server, thread
 
 
+def start_pinned_provider_proxy(
+    binding: ModelBinding,
+) -> tuple[ThreadingHTTPServer, threading.Thread]:
+    """Start the only Provider egress path, pinned to the qualified address."""
+    return _start_provider_proxy(binding)
+
+
+def stop_pinned_provider_proxy(
+    proxy: ThreadingHTTPServer, proxy_thread: threading.Thread
+) -> None:
+    """Close every local proxy resource even if an earlier cleanup step fails."""
+    try:
+        proxy.shutdown()
+    finally:
+        try:
+            proxy.server_close()
+        finally:
+            proxy_thread.join()
+
+
 def main() -> int:
     try:
         api_key = _required_environment("LLM_API_KEY")
@@ -138,13 +158,11 @@ def main() -> int:
         sys.stderr.write(f"model qualification runner: FAIL ({error})\n")
         return 1
 
-    proxy, proxy_thread = _start_provider_proxy(binding)
+    proxy, proxy_thread = start_pinned_provider_proxy(binding)
     try:
         return _run_qualification(binding, api_key, proxy.server_port)
     finally:
-        proxy.shutdown()
-        proxy.server_close()
-        proxy_thread.join()
+        stop_pinned_provider_proxy(proxy, proxy_thread)
 
 
 def _run_qualification(binding: ModelBinding, api_key: str, proxy_port: int) -> int:
