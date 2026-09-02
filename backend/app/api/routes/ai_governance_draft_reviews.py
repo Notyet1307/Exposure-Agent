@@ -81,12 +81,27 @@ def _public_draft(
     *, session: SessionDep, draft: AiGovernanceDraft
 ) -> AiGovernanceDraftReviewPublic:
     summary = report_service.ai_governance_draft_public(session=session, draft=draft)
+    model_output = (
+        AiDraftModelOutput.model_validate(draft.model_output)
+        if draft.model_output is not None
+        else None
+    )
+    review_decision = (
+        AiGovernanceDraftReviewDecision(draft.review_decision)
+        if draft.review_decision is not None
+        else None
+    )
+    operator_edited_output = (
+        AiDraftEditedOutput.model_validate(draft.operator_edited_output)
+        if draft.operator_edited_output is not None
+        else None
+    )
     return AiGovernanceDraftReviewPublic(
         **summary.model_dump(),
         governance_run_id=draft.governance_run_id,
-        model_output=draft.model_output,
-        review_decision=draft.review_decision,
-        operator_edited_output=draft.operator_edited_output,
+        model_output=model_output,
+        review_decision=review_decision,
+        operator_edited_output=operator_edited_output,
         reviewed_by=draft.reviewed_by,
         reviewed_at=draft.reviewed_at,
         generation_terminal_at=draft.generation_terminal_at,
