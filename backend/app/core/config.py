@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     MODEL_QUALIFICATION_AGENT_NAME: str = "model-qualifier"
     AI_GOVERNANCE_DRAFT_AGENT_NAME: str = "ai-governance-draft"
     MODEL_QUALIFICATION_TIMEOUT_SECONDS: float = 120.0
+    AI_GOVERNANCE_DRAFT_TIMEOUT_SECONDS: float = 120.0
     MODEL_API_ENDPOINT: str = ""
     MODEL_API_PROTOCOL: Literal["responses", "chat_completions"] = "chat_completions"
     MODEL_API_KEY: SecretStr = SecretStr("")
