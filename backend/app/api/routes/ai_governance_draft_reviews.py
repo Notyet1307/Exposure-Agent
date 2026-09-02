@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Self
 
 from fastapi import APIRouter, HTTPException, status
@@ -49,8 +50,8 @@ class AiGovernanceDraftReviewPublic(AiGovernanceDraftPublic):
     review_decision: AiGovernanceDraftReviewDecision | None = None
     operator_edited_output: AiDraftEditedOutput | None = None
     reviewed_by: str | None = None
-    reviewed_at: object | None = None
-    generation_terminal_at: object | None = None
+    reviewed_at: datetime | None = None
+    generation_terminal_at: datetime | None = None
 
 
 def _draft_in_scope(
