@@ -47,37 +47,35 @@ jobs:
           if review_import not in text:
               if import_marker not in text:
                   raise SystemExit("alert import marker not found")
-              text = text.replace(
-                  import_marker,
-                  review_import + import_marker,
-                  1,
-              )
+              text = text.replace(import_marker, review_import + import_marker, 1)
 
-          start = '''      {latestDraft && (
-              <div className="rounded-md border p-3 text-sm" role="status">
-          '''
-          start_replacement = '''      {latestDraft && (
-              <>
-                <div className="rounded-md border p-3 text-sm" role="status">
-          '''
+          start = (
+              '      {latestDraft && (\n'
+              '        <div className="rounded-md border p-3 text-sm" '
+              'role="status">\n'
+          )
+          start_replacement = (
+              '      {latestDraft && (\n'
+              '        <>\n'
+              '          <div className="rounded-md border p-3 text-sm" '
+              'role="status">\n'
+          )
           if start not in text:
               raise SystemExit("latest draft block start not found")
           text = text.replace(start, start_replacement, 1)
 
-          end = '''        </div>
-              )}
-            </ReportSection>
-          '''
-          end_replacement = '''          </div>
-                <AiGovernanceDraftReview
-                  draft={latestDraft}
-                  projectId={projectId}
-                  reportId={detail.id}
-                />
-              </>
-            )}
-          </ReportSection>
-          '''
+          end = '        </div>\n      )}\n    </ReportSection>\n'
+          end_replacement = (
+              '          </div>\n'
+              '          <AiGovernanceDraftReview\n'
+              '            draft={latestDraft}\n'
+              '            projectId={projectId}\n'
+              '            reportId={detail.id}\n'
+              '          />\n'
+              '        </>\n'
+              '      )}\n'
+              '    </ReportSection>\n'
+          )
           if end not in text:
               raise SystemExit("latest draft block end not found")
           text = text.replace(end, end_replacement, 1)
