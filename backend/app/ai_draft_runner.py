@@ -49,21 +49,27 @@ def _stop(code: str) -> int:
     return 1
 
 
-def _terminal_output(*, draft_id: object, status: str) -> None:
-    sys.stdout.write(
-        json.dumps(
-            {"draft_id": str(draft_id), "status": status},
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        + "\n"
-    )
-
-
 def _inputs_json(inputs: DraftRunnerInputs) -> str:
-    """Stable bounded-input serialization retained for diagnostics and tests."""
+    """Serialize only the immutable, bounded runner inputs."""
 
     return json.dumps(asdict(inputs), default=str, sort_keys=True)
+
+
+def _terminal_output(
+    *,
+    draft_id: object,
+    status: str,
+    inputs: DraftRunnerInputs | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "draft_id": str(draft_id),
+        "status": status,
+    }
+    if inputs is not None:
+        payload.update(json.loads(_inputs_json(inputs)))
+    sys.stdout.write(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n"
+    )
 
 
 def _generation_prompt(inputs: DraftRunnerInputs) -> str:
@@ -258,7 +264,12 @@ def _load_inputs_and_binding(
         return None, None, "storage_unavailable"
 
 
-def _persist_failure(*, handoff: DraftRunnerHandoff, failure_code: str) -> bool:
+def _persist_failure(
+    *,
+    handoff: DraftRunnerHandoff,
+    failure_code: str,
+    inputs: DraftRunnerInputs | None,
+) -> bool:
     try:
         with Session(engine) as session:
             draft = session.get(AiGovernanceDraft, handoff.draft_id)
@@ -271,14 +282,21 @@ def _persist_failure(*, handoff: DraftRunnerHandoff, failure_code: str) -> bool:
                 agent_compose_run_id=handoff.agent_compose_run_id,
                 session_id=handoff.session_id,
             )
-            _terminal_output(draft_id=failed.id, status=failed.status)
+            _terminal_output(
+                draft_id=failed.id,
+                status=failed.status,
+                inputs=inputs,
+            )
             return True
     except (AiGovernanceDraftStateError, SQLAlchemyError):
         return False
 
 
 def _persist_success(
-    *, handoff: DraftRunnerHandoff, model_output: AiDraftModelOutput
+    *,
+    handoff: DraftRunnerHandoff,
+    model_output: AiDraftModelOutput,
+    inputs: DraftRunnerInputs,
 ) -> tuple[bool, str | None]:
     try:
         with Session(engine) as session:
@@ -290,7 +308,11 @@ def _persist_success(
                 draft=draft,
                 model_output=model_output,
             )
-            _terminal_output(draft_id=completed.id, status=completed.status)
+            _terminal_output(
+                draft_id=completed.id,
+                status=completed.status,
+                inputs=inputs,
+            )
             return True, None
     except AiGovernanceDraftStateError as error:
         return False, error.code
@@ -316,7 +338,11 @@ def main() -> int:
     if failure_code is not None:
         if failure_code == "storage_unavailable":
             return _stop(failure_code)
-        if _persist_failure(handoff=handoff, failure_code=failure_code):
+        if _persist_failure(
+            handoff=handoff,
+            failure_code=failure_code,
+            inputs=inputs,
+        ):
             return 0
         return _stop("terminal_persistence_failed")
     if inputs is None or binding is None:
@@ -324,13 +350,18 @@ def main() -> int:
 
     model_output, failure_code = _run_model(inputs=inputs, binding=binding)
     if failure_code is not None:
-        if _persist_failure(handoff=handoff, failure_code=failure_code):
+        if _persist_failure(
+            handoff=handoff,
+            failure_code=failure_code,
+            inputs=inputs,
+        ):
             return 0
         return _stop("terminal_persistence_failed")
     assert model_output is not None
     persisted, semantic_failure = _persist_success(
         handoff=handoff,
         model_output=model_output,
+        inputs=inputs,
     )
     if persisted:
         logger.info(
@@ -339,7 +370,11 @@ def main() -> int:
         )
         return 0
     if semantic_failure is not None and semantic_failure != "storage_unavailable":
-        if _persist_failure(handoff=handoff, failure_code=semantic_failure):
+        if _persist_failure(
+            handoff=handoff,
+            failure_code=semantic_failure,
+            inputs=inputs,
+        ):
             return 0
     return _stop("terminal_persistence_failed")
 
