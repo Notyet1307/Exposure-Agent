@@ -85,18 +85,17 @@ jobs:
               "frontend/src/components/AiGovernanceDraftReview.tsx"
           )
           component = component_path.read_text(encoding="utf-8")
-          aria_marker = (
-              '      aria-label="AI draft review"\n'
-              '    >\n'
+          region_marker = (
+              '<div className="space-y-4 rounded-md border p-3" '
+              'aria-label="AI draft review">'
           )
           if 'role="region"' not in component:
-              if aria_marker not in component:
+              if region_marker not in component:
                   raise SystemExit("review region marker not found")
               component = component.replace(
-                  aria_marker,
-                  '      aria-label="AI draft review"\n'
-                  '      role="region"\n'
-                  '    >\n',
+                  region_marker,
+                  '<div className="space-y-4 rounded-md border p-3" '
+                  'aria-label="AI draft review" role="region">',
                   1,
               )
           component_path.write_text(component, encoding="utf-8")
