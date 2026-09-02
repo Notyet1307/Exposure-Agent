@@ -39,27 +39,44 @@ def test_qualification_agent_is_pi_only_internal_and_toolless() -> None:
     assert "/app/.venv/bin/python -m app.model_qualification_runner" in integration
 
 
-def test_draft_session_agent_has_no_application_or_model_credentials() -> None:
+def test_draft_session_agent_gives_only_the_parent_runner_required_credentials() -> None:
     compose = (REPOSITORY_ROOT / "agent-compose.yml").read_text()
     draft_agent = compose.split("  ai-governance-draft:\n", maxsplit=1)[1]
 
     assert "    provider: pi\n" in draft_agent
     assert "    model: customer/${MODEL_IDENTITY}\n" in draft_agent
-    assert "    env:\n" not in draft_agent
-    for forbidden in (
-        "POSTGRES_",
+    assert "    env:\n" in draft_agent
+    for required in (
+        "POSTGRES_SERVER",
+        "POSTGRES_PORT",
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
         "SECRET_KEY",
         "FIRST_SUPERUSER",
-        "LLM_",
-        "MODEL_API_",
-        "AI_DRAFT_",
+        "FIRST_SUPERUSER_PASSWORD",
+        "MODEL_API_ENDPOINT",
+        "MODEL_API_PROTOCOL",
+        "MODEL_API_KEY",
+        "MODEL_IDENTITY",
+        "MODEL_CONFIG_REVISION",
+        "AGENT_COMPOSE_RUNTIME_VERSION",
+        "AI_GOVERNANCE_DRAFT_TIMEOUT_SECONDS",
     ):
-        assert forbidden not in draft_agent
+        assert f"      {required}:" in draft_agent
+    assert "      LLM_API_KEY:" not in draft_agent
+    assert "      AI_DRAFT_ID:" not in draft_agent
+    assert "      AI_DRAFT_RUN_ID:" not in draft_agent
+    assert draft_agent.count("        secret: true\n") >= 4
 
     integration = (
         REPOSITORY_ROOT / "backend/app/integrations/agent_compose.py"
     ).read_text()
-    assert 'command="/usr/bin/true"' in integration
+    assert (
+        'command="/app/.venv/bin/python -m app.ai_draft_runner"'
+        in integration
+    )
+    assert "/usr/bin/true" not in integration
 
 
 def test_renderer_resolves_the_complete_qualification_configuration(
@@ -80,6 +97,7 @@ def test_renderer_resolves_the_complete_qualification_configuration(
         "MODEL_CONFIG_REVISION": "fixture-v1",
         "MODEL_IDENTITY": "fixture-model",
         "MODEL_QUALIFICATION_TIMEOUT_SECONDS": "17",
+        "AI_GOVERNANCE_DRAFT_TIMEOUT_SECONDS": "19",
         "POSTGRES_DB": "app",
         "POSTGRES_PASSWORD": "postgres-password",
         "POSTGRES_USER": "postgres",

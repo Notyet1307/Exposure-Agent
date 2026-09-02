@@ -222,8 +222,21 @@ def test_ai_draft_reserves_its_run_identity_without_model_credentials(
 
     run_request = calls[1]["json"]["run"]
     assert run_request["agentName"] == "ai-governance-draft"
-    assert run_request["command"] == "/usr/bin/true"
-    assert run_request["env"] == []
+    assert run_request["command"] == (
+        "/app/.venv/bin/python -m app.ai_draft_runner"
+    )
+    assert run_request["env"] == [
+        {
+            "name": "AI_DRAFT_ID",
+            "value": "00000000-0000-0000-0000-000000000001",
+            "secret": False,
+        },
+        {
+            "name": "AI_DRAFT_RUN_ID",
+            "value": expected_id,
+            "secret": False,
+        },
+    ]
 
 
 def test_ai_draft_recovery_uses_the_frozen_namespace_after_a_configuration_rename(
