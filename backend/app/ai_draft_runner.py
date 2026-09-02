@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from typing import Final
 
@@ -57,6 +58,12 @@ def _terminal_output(*, draft_id: object, status: str) -> None:
         )
         + "\n"
     )
+
+
+def _inputs_json(inputs: DraftRunnerInputs) -> str:
+    """Stable bounded-input serialization retained for diagnostics and tests."""
+
+    return json.dumps(asdict(inputs), default=str, sort_keys=True)
 
 
 def _generation_prompt(inputs: DraftRunnerInputs) -> str:
