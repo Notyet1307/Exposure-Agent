@@ -1606,6 +1606,16 @@ class AiGovernanceDraftRequest(SQLModel):
     finding_ids: list[uuid.UUID] = Field(min_length=1, max_length=8)
 
 
+class AiGovernanceDraftReviewPublic(AiGovernanceDraftPublic):
+    """The persisted terminal review projection, including immutable output."""
+
+    model_output: dict[str, Any]
+    review_decision: AiGovernanceDraftReviewDecision
+    reviewed_by: str
+    reviewed_at: datetime
+    operator_edited_output: dict[str, Any] | None
+
+
 class GovernanceReportDetailPublic(GovernanceReportSummaryPublic):
     canonical_content: dict[str, Any]
     evidence: list[EvidenceReferencePublic] = Field(default_factory=list)

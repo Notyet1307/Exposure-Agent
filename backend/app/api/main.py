@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    ai_governance_draft_reviews,
     audit_events,
     cloudatlas_source_instances,
     governance_reports,
@@ -19,6 +20,7 @@ api_router.include_router(users.router)
 api_router.include_router(projects.router)
 api_router.include_router(cloudatlas_source_instances.router)
 api_router.include_router(governance_reports.router)
+api_router.include_router(ai_governance_draft_reviews.router)
 api_router.include_router(governance_runs.router)
 api_router.include_router(ip_results.router)
 api_router.include_router(model_qualification.router)

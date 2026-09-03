@@ -159,6 +159,15 @@ class AiDraftEditedOutput(BaseModel):
     )
 
 
+class AiGovernanceDraftReviewRequest(BaseModel):
+    """The deliberately narrow public contract for a terminal review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: AiGovernanceDraftReviewDecision
+    edited_output: AiDraftEditedOutput | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class DraftRunnerEvidenceReference:
     id: uuid.UUID
@@ -1117,11 +1126,22 @@ def review_draft(
             raise AiGovernanceDraftStateError("draft_not_reviewable")
         if locked.review_decision is not None:
             raise AiGovernanceDraftStateError("draft_already_reviewed")
+        selections = _bound_selections(session=session, draft=locked)
+        try:
+            persisted_model_output = AiDraftModelOutput.model_validate(
+                locked.model_output
+            )
+        except (TypeError, ValidationError):
+            raise AiGovernanceDraftStateError("draft_model_output_invalid") from None
+        _validate_model_output(
+            model_output=persisted_model_output,
+            report_sha256=locked.report_sha256,
+            selections=selections,
+        )
         validated_edited_output: dict[str, Any] | None = None
         if normalized_decision == AiGovernanceDraftReviewDecision.EDITED:
             if edited_output is None:
                 raise AiGovernanceDraftStateError("review_requires_edited_output")
-            selections = _bound_selections(session=session, draft=locked)
             validated_edited_output = _validate_edited_output(
                 edited_output=edited_output,
                 selections=selections,
