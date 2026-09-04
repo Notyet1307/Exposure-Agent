@@ -20,12 +20,16 @@ _Avoid_: 上传尝试、校验失败文件、客户系统、SourceInstance、可
 归属于一个 Project 的不可变、版本化表格结构契约，定义后续 CustomerUpload 的列名映射、别名、必填或可选，以及缺失时的拒绝或 warning 分类；每个 Project 独立维护版本链，每个 CustomerUpload 固定校验时使用的版本。IP、端口、Web 标识、URL 等值语义及核心字段不可降级约束仍由确定性代码定义。
 _Avoid_: 跨 Project 共享 Profile、通用规则 DSL、可视化规则编辑器、历史上传重解释、值校验脚本
 
+**NetFlowDataset**:
+归属于一个 Project、通过确定性校验后成立的不可变 NetFlow 输入版本，具有不可变 ID、内容 Hash 和校验时使用的合同版本。Project 可以选择其中一个作为当前可选输入，也可以明确不选择；GovernanceRun 固定选择结果，存在但记录数为零的 Dataset 仍不同于未提供 NetFlow。
+_Avoid_: 可变流量库、实时采集流、缺失输入、SourceSnapshot、零记录即 absent
+
 **GovernanceRun**:
-在一个 Project 内由 Runner 实际开始执行的一次有边界的对账周期，固定客户侧输入、暴露面 SourceInstance、已验证连接配置版本和实际参与计算的 Runner 版本，并记录本轮各数据源的快照、观察结果和差异。初期测试的客户侧输入是一个 CustomerUpload 内容 Hash；客户系统可达后的最终输入是客户 SourceInstance。同一 Project 可以持续产生多轮 GovernanceRun，但同一时间最多执行一轮；尚未启动 Runner 的触发请求不是 GovernanceRun。规范化、字段映射或 Policy 功能引入后，其实际版本也随 Run 固定。
+在一个 Project 内由 Runner 实际开始执行的一次有边界的对账周期，固定客户侧输入、暴露面 SourceInstance、已验证连接配置版本、可选 NetFlow 输入的 absent 或 present 状态、输入合同与输入 Hash，以及实际参与计算的 Runner 版本；present 时同时固定 NetFlowDataset 的身份、内容 Hash 和合同版本。初期测试的客户侧输入是一个 CustomerUpload 内容 Hash；客户系统可达后的最终输入是客户 SourceInstance。同一 Project 可以持续产生多轮 GovernanceRun，但同一时间最多执行一轮；尚未启动 Runner 的触发请求不是 GovernanceRun。规范化、字段映射或 Policy 功能引入后，其实际版本也随 Run 固定。历史上尚未建模可选 NetFlow 的 Run 是 unmodeled，不等于明确 absent。
 _Avoid_: Project、长期资产范围、排队中的触发请求
 
 **SourceSnapshot**:
-GovernanceRun 对一个输入来源实际读取结果的不可变批次记录，固定来源版本、原始 Artifact 引用、内容 Hash、Schema 或连接指纹及记录数。它不保存后续规范化的 Observation，也不是统一资产 Resource。
+GovernanceRun 对一个实际参与的输入来源读取结果形成的不可变批次记录，固定来源版本、原始 Artifact 引用、内容 Hash、Schema 或连接指纹及记录数。明确 absent 的 NetFlow 不产生 SourceSnapshot；present 的 NetFlowDataset 即使记录数为零仍产生 NETFLOW SourceSnapshot。它不保存后续规范化的 Observation，也不是统一资产 Resource。
 _Avoid_: CustomerUpload、SourceInstance、Observation、Resource、可变行表
 
 **Observation**:
@@ -57,11 +61,11 @@ GovernanceRun 的最终原子动作，同时写入完成状态并更新 Project 
 _Avoid_: COMPLETE RunStep、部分发布
 
 **Run Retry**:
-对一个未成功完成的 GovernanceRun 再次执行，沿用同一 Run、触发标识和 agent-compose Session，并在 RunStep 中增加尝试；它不创建新的治理周期。只有失败被分类为可恢复、Project 中不存在更新 Run、原 Session 可恢复，且该 Run 固定的客户侧输入、暴露面来源绑定、已验证连接配置与实际参与计算的版本均未变化时才可 Retry；确定性来源或处理契约错误必须修复后 Rerun，更新 Run 一旦创建，旧 Run 永久成为历史记录。
+对一个未成功完成的 GovernanceRun 再次执行，沿用同一 Run、触发标识和 agent-compose Session，并在 RunStep 中增加尝试；它不创建新的治理周期，也不从 Project 当前选择替换原 Run 固定的可选 NetFlow 输入。只有失败被分类为可恢复、Project 中不存在更新 Run、原 Session 可恢复，且该 Run 固定的客户侧输入、暴露面来源绑定、已验证连接配置、可选 NetFlow 选择与实际参与计算的版本均未变化时才可 Retry；确定性来源或处理合同错误必须修复后 Rerun，更新 Run 一旦创建，旧 Run 永久成为历史记录。
 _Avoid_: Rerun、新 GovernanceRun
 
 **Run Rerun**:
-明确发起一个新的治理周期，使用新的触发标识并创建新的 GovernanceRun 和 agent-compose Session，即使它与旧 Run 来自同一 Project。
+明确发起一个新的治理周期，使用新的触发标识并创建新的 GovernanceRun 和 agent-compose Session，即使它与旧 Run 来自同一 Project；新 Run 读取 Rerun 发起时的 Project 当前可选 NetFlow 选择，不继承旧 Run 的选择。
 _Avoid_: Retry、恢复旧 Run
 
 **Trigger ID**:
