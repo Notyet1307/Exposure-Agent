@@ -8,7 +8,6 @@ import os
 import subprocess
 import sys
 import tempfile
-from dataclasses import asdict
 from pathlib import Path
 from typing import Final
 
@@ -49,27 +48,19 @@ def _stop(code: str) -> int:
     return 1
 
 
-def _inputs_json(inputs: DraftRunnerInputs) -> str:
-    """Serialize only the immutable, bounded runner inputs."""
-
-    return json.dumps(asdict(inputs), default=str, sort_keys=True)
-
-
 def _terminal_output(
     *,
     draft_id: object,
     status: str,
-    inputs: DraftRunnerInputs | None = None,
+    failure_code: str | None = None,
 ) -> None:
     payload: dict[str, object] = {
         "draft_id": str(draft_id),
         "status": status,
     }
-    if inputs is not None:
-        payload.update(json.loads(_inputs_json(inputs)))
-    sys.stdout.write(
-        json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n"
-    )
+    if failure_code is not None:
+        payload["failure_code"] = failure_code
+    sys.stdout.write(json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n")
 
 
 def _generation_prompt(inputs: DraftRunnerInputs) -> str:
@@ -123,7 +114,7 @@ def _current_binding(
             runner_build_version=_runner_build_version(),
             agent_compose_runtime_version=settings.AGENT_COMPOSE_RUNTIME_VERSION,
         )
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None, "model_binding_changed"
     if (
         binding.model_identity != inputs.model_identity
@@ -216,7 +207,7 @@ def _run_model(
                 )
             except subprocess.TimeoutExpired:
                 return None, "model_timeout"
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 return None, "model_run_failed"
     finally:
         proxy.shutdown()
@@ -268,7 +259,6 @@ def _persist_failure(
     *,
     handoff: DraftRunnerHandoff,
     failure_code: str,
-    inputs: DraftRunnerInputs | None,
 ) -> bool:
     try:
         with Session(engine) as session:
@@ -285,10 +275,10 @@ def _persist_failure(
             _terminal_output(
                 draft_id=failed.id,
                 status=failed.status,
-                inputs=inputs,
+                failure_code=failed.failure_code,
             )
             return True
-    except (AiGovernanceDraftStateError, SQLAlchemyError):
+    except AiGovernanceDraftStateError, SQLAlchemyError:
         return False
 
 
@@ -296,7 +286,6 @@ def _persist_success(
     *,
     handoff: DraftRunnerHandoff,
     model_output: AiDraftModelOutput,
-    inputs: DraftRunnerInputs,
 ) -> tuple[bool, str | None]:
     try:
         with Session(engine) as session:
@@ -311,7 +300,6 @@ def _persist_success(
             _terminal_output(
                 draft_id=completed.id,
                 status=completed.status,
-                inputs=inputs,
             )
             return True, None
     except AiGovernanceDraftStateError as error:
@@ -341,7 +329,6 @@ def main() -> int:
         if _persist_failure(
             handoff=handoff,
             failure_code=failure_code,
-            inputs=inputs,
         ):
             return 0
         return _stop("terminal_persistence_failed")
@@ -353,7 +340,6 @@ def main() -> int:
         if _persist_failure(
             handoff=handoff,
             failure_code=failure_code,
-            inputs=inputs,
         ):
             return 0
         return _stop("terminal_persistence_failed")
@@ -361,7 +347,6 @@ def main() -> int:
     persisted, semantic_failure = _persist_success(
         handoff=handoff,
         model_output=model_output,
-        inputs=inputs,
     )
     if persisted:
         logger.info(
@@ -373,7 +358,6 @@ def main() -> int:
         if _persist_failure(
             handoff=handoff,
             failure_code=semantic_failure,
-            inputs=inputs,
         ):
             return 0
     return _stop("terminal_persistence_failed")

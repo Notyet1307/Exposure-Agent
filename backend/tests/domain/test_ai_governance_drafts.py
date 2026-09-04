@@ -11,10 +11,7 @@ from app.domain.ai_governance_drafts import (
     AiDraftModelOutput,
     AiGovernanceDraftStateError,
     DraftFindingBinding,
-    DraftRunnerEvidenceReference,
-    DraftRunnerFindingInput,
     DraftRunnerHandoff,
-    DraftRunnerInputs,
     _is_failure_code,
     bind_draft_session,
     create_ai_governance_draft,
@@ -224,50 +221,26 @@ def test_runner_entry_rejects_all_command_arguments(
     assert main() == 1
 
 
-def test_runner_output_contains_only_reloaded_bounded_identities() -> None:
+def test_runner_terminal_stdout_contains_only_redacted_status(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     import json
 
-    from app.ai_draft_runner import _inputs_json
+    from app.ai_draft_runner import _terminal_output
 
-    evidence = DraftRunnerEvidenceReference(
-        id=uuid.uuid4(),
-        fact_type="OBSERVATION",
-        fact_id=uuid.uuid4(),
+    draft_id = uuid.uuid4()
+    _terminal_output(
+        draft_id=draft_id,
+        status="FAILED",
+        failure_code="model_binding_changed",
     )
-    inputs = DraftRunnerInputs(
-        draft_id=uuid.uuid4(),
-        tenant_id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
-        governance_run_id=uuid.uuid4(),
-        governance_report_id=uuid.uuid4(),
-        report_sha256="a" * 64,
-        model_identity="customer-model",
-        config_fingerprint="b" * 64,
-        findings=(
-            DraftRunnerFindingInput(
-                finding_id=uuid.uuid4(),
-                finding_type="UNOBSERVED_ASSET",
-                canonical_ip="192.0.2.10",
-                coverage="OPEN_BACKLOG",
-                transition_type=None,
-                evidence=(evidence,),
-            ),
-        ),
-    )
+    payload = json.loads(capsys.readouterr().out)
 
-    encoded = _inputs_json(inputs)
-    payload = json.loads(encoded)
-
-    assert set(payload) == {item.name for item in fields(DraftRunnerInputs)}
-    assert set(payload["findings"][0]) == {
-        item.name for item in fields(DraftRunnerFindingInput)
+    assert payload == {
+        "draft_id": str(draft_id),
+        "failure_code": "model_binding_changed",
+        "status": "FAILED",
     }
-    assert set(payload["findings"][0]["evidence"][0]) == {
-        item.name for item in fields(DraftRunnerEvidenceReference)
-    }
-    assert "prompt" not in encoded.lower()
-    assert "secret" not in encoded.lower()
-    assert "provider_event" not in encoded.lower()
 
 
 @pytest.mark.parametrize(

@@ -166,6 +166,7 @@ def test_runner_executes_one_sanitized_bounded_model_attempt_and_persists_output
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     context = _request_context(
         client=client,
@@ -181,6 +182,7 @@ def test_runner_executes_one_sanitized_bounded_model_attempt_and_persists_output
         stdout=json.dumps(output),
     )
     _runner_environment(monkeypatch, draft)
+    capsys.readouterr()
 
     assert run_ai_draft() == 0
 
@@ -192,6 +194,10 @@ def test_runner_executes_one_sanitized_bounded_model_attempt_and_persists_output
     assert "SECRET_KEY" not in invocation["environment"]
     assert draft.report_sha256 in invocation["stdin"]
     assert str(context["finding_id"]) in invocation["stdin"]
+
+    terminal = json.loads(capsys.readouterr().out)
+    assert terminal == {"draft_id": str(draft.id), "status": "REVIEWABLE"}
+    assert str(context["finding_id"]) not in json.dumps(terminal)
 
     with Session(engine) as session:
         completed = session.get(AiGovernanceDraft, draft.id)
@@ -207,6 +213,7 @@ def test_runner_fails_closed_before_model_egress_when_binding_drifts(
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     context = _request_context(
         client=client,
@@ -223,9 +230,18 @@ def test_runner_fails_closed_before_model_egress_when_binding_drifts(
         "MODEL_CONFIG_REVISION",
         f"{settings.MODEL_CONFIG_REVISION}-drifted",
     )
+    capsys.readouterr()
 
     assert run_ai_draft() == 0
     assert not capture_path.exists()
+
+    terminal = json.loads(capsys.readouterr().out)
+    assert terminal == {
+        "draft_id": str(draft.id),
+        "failure_code": "model_binding_changed",
+        "status": "FAILED",
+    }
+    assert str(context["finding_id"]) not in json.dumps(terminal)
 
     with Session(engine) as session:
         failed = session.get(AiGovernanceDraft, draft.id)
