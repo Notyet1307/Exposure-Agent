@@ -971,8 +971,7 @@ def test_draft_reservation_freezes_a_complete_agent_compose_namespace(
     _assert_trigger_rejects(
         draft_database,
         "namespace cannot be replaced",
-        "UPDATE ai_governance_drafts SET agent_compose_agent_name = NULL "
-        "WHERE id = %s",
+        "UPDATE ai_governance_drafts SET agent_compose_agent_name = NULL WHERE id = %s",
         (reserved.id,),
     )
 
@@ -1863,12 +1862,11 @@ def test_draft_runner_starts_with_only_draft_identity_and_handles_mismatches(
         assert sensitive_material not in completed.stderr
     payload = json.loads(completed.stdout.strip())
     assert payload["draft_id"] == str(draft.id)
-    assert payload["governance_report_id"] == str(ids["report_id"])
-    assert payload["findings"][0]["finding_id"] == str(ids["finding_id"])
-    assert payload["findings"][0]["finding_type"] == "UNOBSERVED_ASSET"
-    assert payload["findings"][0]["coverage"] == "OPEN_BACKLOG"
-    assert payload["findings"][0]["transition_type"] is None
-    assert payload["findings"][0]["evidence"][0]["fact_type"] == "FINDING_OCCURRENCE"
+    assert set(payload) <= {"draft_id", "failure_code", "status"}
+    assert "status" in payload
+    assert "findings" not in payload
+    assert str(ids["finding_id"]) not in completed.stdout
+    assert str(ids["report_id"]) not in completed.stdout
 
     for failed in (
         _run_draft_runner(
