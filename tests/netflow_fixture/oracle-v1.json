@@ -1,0 +1,513 @@
+{
+  "schema": "exposure-agent:synthetic-netflow-fixture-oracle:v1",
+  "fixture_version": "synthetic-netflow-v1",
+  "provenance": "fully_synthetic_from_zero",
+  "allowed_invalid_hosts": [
+    "bad.example.invalid"
+  ],
+  "allowed_networks": [
+    "192.0.2.0/24",
+    "198.51.100.0/24",
+    "203.0.113.0/24",
+    "2001:db8::/32"
+  ],
+  "schema_fingerprint": "e445a0e962a050f2b7b24589ce19fe6267953952addcc7dbdc7376e9579258f9",
+  "source_limitations": {
+    "coverage": {
+      "status": "UNKNOWN",
+      "value": null
+    },
+    "sampling_rate": {
+      "status": "UNKNOWN",
+      "rate": null
+    },
+    "nat": {
+      "status": "UNKNOWN",
+      "value": null
+    },
+    "observation_point": {
+      "status": "UNKNOWN",
+      "value": null
+    }
+  },
+  "negative_guards": [
+    "reciprocal_ephemeral_port_53000_is_not_a_service",
+    "icmp_0_and_2048_have_no_port_semantics",
+    "unknown_nat_and_observation_point_forbid_direction_or_address_merge",
+    "unknown_coverage_and_sampling_forbid_not_observed_zero_events_zero_risk_or_no_traffic"
+  ],
+  "cases": [
+    {
+      "id": "accepted_mixed",
+      "input_utf8": "IP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT,start_time,end_time,IN_BYTES,IN_PKTS,TCP_FLAGS,FLOW_SAMPLER_ID\n198.51.100.20,192.0.2.10,6,53000,443,2026-09-04 10:00:00,2026-09-04 10:00:01,100,10,2,192.0.2.200\n192.0.2.10,198.51.100.20,6,443,53000,2026-09-04 10:00:02,2026-09-04 10:00:03,200,20,18,192.0.2.200\n192.0.2.10,198.51.100.20,6,443,53000,2026-09-04 10:00:02,2026-09-04 10:00:03,200,20,18,192.0.2.200\n203.0.113.5,192.0.2.10,1,0,2048,2026-09-04 10:00:04,2026-09-04 10:00:05,30,3,0,192.0.2.200\n2001:db8::2,2001:db8::1,17,5353,53,,,40,4,0,192.0.2.200\n192.0.2.30,203.0.113.40,6,65536,22,2026-09-04 10:00:06,2026-09-04 10:00:07,50,5,2,192.0.2.200\n192.0.2.31,203.0.113.41,6,12345,080,2026-09-04 10:00:08,2026-09-04 10:00:09,60,6,2,192.0.2.200\nbad.example.invalid,192.0.2.10,6,12345,443,2026-09-04 10:00:10,2026-09-04 10:00:11,70,7,2,192.0.2.200\n192.0.2.50,203.0.113.50,tcp,12345,443,2026-09-04 10:00:12,2026-09-04 10:00:13,70,7,2,192.0.2.200\n2001:db8::10,2001:db8::20,44,0,0,2026-09-04 10:00:14,2026-09-04 10:00:15,70,7,0,192.0.2.200\n192.0.2.60,203.0.113.60,6,123,80,2026-09-04 10:00:16,2026-09-04 10:00:17,01,-1,256,192.0.2.200\n198.51.100.70,192.0.2.70,17,50000,53,2026-09-04 10:01:00,2026-09-04 10:00:59,80,8,0,192.0.2.200\n",
+      "input_sha256": "a5bed488e9a872e5483dffaa86ae1393b37aac6108b516cc1272b6958de8e92d",
+      "expected": {
+        "outcome": "ACCEPT",
+        "candidate_error_code": null,
+        "objects": {
+          "dataset": true,
+          "raw_artifact": true,
+          "normalized_artifact": true,
+          "accepted_audit_event": true
+        },
+        "presence": "PRESENT",
+        "selectable": true,
+        "raw_record_count": 12,
+        "activity_valid_record_count": 10,
+        "isolated_record_count": 2,
+        "normalized_utf8": "source_record_key,src_ip,dst_ip,protocol,src_port,dst_port,start_time_utc,end_time_utc,in_bytes_estimated,in_packets_estimated,tcp_flags\nrow:1,198.51.100.20,192.0.2.10,6,53000,443,2026-09-04T02:00:00Z,2026-09-04T02:00:01Z,100,10,2\nrow:2,192.0.2.10,198.51.100.20,6,443,53000,2026-09-04T02:00:02Z,2026-09-04T02:00:03Z,200,20,18\nrow:3,192.0.2.10,198.51.100.20,6,443,53000,2026-09-04T02:00:02Z,2026-09-04T02:00:03Z,200,20,18\nrow:4,203.0.113.5,192.0.2.10,1,,,2026-09-04T02:00:04Z,2026-09-04T02:00:05Z,30,3,0\nrow:5,2001:db8::2,2001:db8::1,17,5353,53,,,40,4,0\nrow:6,192.0.2.30,203.0.113.40,6,,22,2026-09-04T02:00:06Z,2026-09-04T02:00:07Z,50,5,2\nrow:7,192.0.2.31,203.0.113.41,6,12345,,2026-09-04T02:00:08Z,2026-09-04T02:00:09Z,60,6,2\nrow:10,2001:db8::10,2001:db8::20,44,,,2026-09-04T02:00:14Z,2026-09-04T02:00:15Z,70,7,0\nrow:11,192.0.2.60,203.0.113.60,6,123,80,2026-09-04T02:00:16Z,2026-09-04T02:00:17Z,,,\nrow:12,198.51.100.70,192.0.2.70,17,50000,53,,,80,8,0\n",
+        "normalized_sha256": "ca545d7bc15a0ce134e5517d0972bb6a53cec13a49a01420a89ae6b22d525472",
+        "schema_fingerprint": "e445a0e962a050f2b7b24589ce19fe6267953952addcc7dbdc7376e9579258f9",
+        "warnings": [
+          {
+            "code": "netflow_duplicate_records",
+            "field": null,
+            "count": 1,
+            "source_record_keys": [
+              "row:3"
+            ]
+          },
+          {
+            "code": "netflow_ignored_input_columns",
+            "field": null,
+            "count": 1,
+            "source_record_keys": []
+          },
+          {
+            "code": "netflow_invalid_count",
+            "field": "IN_BYTES",
+            "count": 1,
+            "source_record_keys": [
+              "row:11"
+            ]
+          },
+          {
+            "code": "netflow_invalid_count",
+            "field": "IN_PKTS",
+            "count": 1,
+            "source_record_keys": [
+              "row:11"
+            ]
+          },
+          {
+            "code": "netflow_invalid_ip",
+            "field": "IP_SRC_ADDR",
+            "count": 1,
+            "source_record_keys": [
+              "row:8"
+            ]
+          },
+          {
+            "code": "netflow_invalid_port",
+            "field": "L4_DST_PORT",
+            "count": 1,
+            "source_record_keys": [
+              "row:7"
+            ]
+          },
+          {
+            "code": "netflow_invalid_port",
+            "field": "L4_SRC_PORT",
+            "count": 1,
+            "source_record_keys": [
+              "row:6"
+            ]
+          },
+          {
+            "code": "netflow_invalid_protocol",
+            "field": "PROTOCOL",
+            "count": 1,
+            "source_record_keys": [
+              "row:9"
+            ]
+          },
+          {
+            "code": "netflow_invalid_tcp_flags",
+            "field": "TCP_FLAGS",
+            "count": 1,
+            "source_record_keys": [
+              "row:11"
+            ]
+          },
+          {
+            "code": "netflow_invalid_time",
+            "field": "end_time",
+            "count": 1,
+            "source_record_keys": [
+              "row:5"
+            ]
+          },
+          {
+            "code": "netflow_invalid_time",
+            "field": "start_time",
+            "count": 1,
+            "source_record_keys": [
+              "row:5"
+            ]
+          },
+          {
+            "code": "netflow_invalid_time_range",
+            "field": null,
+            "count": 1,
+            "source_record_keys": [
+              "row:12"
+            ]
+          },
+          {
+            "code": "netflow_unknown_protocol",
+            "field": "PROTOCOL",
+            "count": 1,
+            "source_record_keys": [
+              "row:10"
+            ]
+          }
+        ],
+        "duplicate_group_count": 1,
+        "duplicate_record_count": 1,
+        "aggregates": [
+          {
+            "canonical_ip": "192.0.2.10",
+            "flow_count": 4,
+            "peer_ips": [
+              "198.51.100.20",
+              "203.0.113.5"
+            ],
+            "protocols": [
+              1,
+              6
+            ],
+            "first_seen_utc": "2026-09-04T02:00:00Z",
+            "last_seen_utc": "2026-09-04T02:00:05Z"
+          },
+          {
+            "canonical_ip": "192.0.2.30",
+            "flow_count": 1,
+            "peer_ips": [
+              "203.0.113.40"
+            ],
+            "protocols": [
+              6
+            ],
+            "first_seen_utc": "2026-09-04T02:00:06Z",
+            "last_seen_utc": "2026-09-04T02:00:07Z"
+          },
+          {
+            "canonical_ip": "192.0.2.31",
+            "flow_count": 1,
+            "peer_ips": [
+              "203.0.113.41"
+            ],
+            "protocols": [
+              6
+            ],
+            "first_seen_utc": "2026-09-04T02:00:08Z",
+            "last_seen_utc": "2026-09-04T02:00:09Z"
+          },
+          {
+            "canonical_ip": "192.0.2.60",
+            "flow_count": 1,
+            "peer_ips": [
+              "203.0.113.60"
+            ],
+            "protocols": [
+              6
+            ],
+            "first_seen_utc": "2026-09-04T02:00:16Z",
+            "last_seen_utc": "2026-09-04T02:00:17Z"
+          },
+          {
+            "canonical_ip": "192.0.2.70",
+            "flow_count": 1,
+            "peer_ips": [
+              "198.51.100.70"
+            ],
+            "protocols": [
+              17
+            ],
+            "first_seen_utc": null,
+            "last_seen_utc": null
+          },
+          {
+            "canonical_ip": "198.51.100.20",
+            "flow_count": 3,
+            "peer_ips": [
+              "192.0.2.10"
+            ],
+            "protocols": [
+              6
+            ],
+            "first_seen_utc": "2026-09-04T02:00:00Z",
+            "last_seen_utc": "2026-09-04T02:00:03Z"
+          },
+          {
+            "canonical_ip": "198.51.100.70",
+            "flow_count": 1,
+            "peer_ips": [
+              "192.0.2.70"
+            ],
+            "protocols": [
+              17
+            ],
+            "first_seen_utc": null,
+            "last_seen_utc": null
+          },
+          {
+            "canonical_ip": "203.0.113.5",
+            "flow_count": 1,
+            "peer_ips": [
+              "192.0.2.10"
+            ],
+            "protocols": [
+              1
+            ],
+            "first_seen_utc": "2026-09-04T02:00:04Z",
+            "last_seen_utc": "2026-09-04T02:00:05Z"
+          },
+          {
+            "canonical_ip": "203.0.113.40",
+            "flow_count": 1,
+            "peer_ips": [
+              "192.0.2.30"
+            ],
+            "protocols": [
+              6
+            ],
+            "first_seen_utc": "2026-09-04T02:00:06Z",
+            "last_seen_utc": "2026-09-04T02:00:07Z"
+          },
+          {
+            "canonical_ip": "203.0.113.41",
+            "flow_count": 1,
+            "peer_ips": [
+              "192.0.2.31"
+            ],
+            "protocols": [
+              6
+            ],
+            "first_seen_utc": "2026-09-04T02:00:08Z",
+            "last_seen_utc": "2026-09-04T02:00:09Z"
+          },
+          {
+            "canonical_ip": "203.0.113.60",
+            "flow_count": 1,
+            "peer_ips": [
+              "192.0.2.60"
+            ],
+            "protocols": [
+              6
+            ],
+            "first_seen_utc": "2026-09-04T02:00:16Z",
+            "last_seen_utc": "2026-09-04T02:00:17Z"
+          },
+          {
+            "canonical_ip": "2001:db8::1",
+            "flow_count": 1,
+            "peer_ips": [
+              "2001:db8::2"
+            ],
+            "protocols": [
+              17
+            ],
+            "first_seen_utc": null,
+            "last_seen_utc": null
+          },
+          {
+            "canonical_ip": "2001:db8::2",
+            "flow_count": 1,
+            "peer_ips": [
+              "2001:db8::1"
+            ],
+            "protocols": [
+              17
+            ],
+            "first_seen_utc": null,
+            "last_seen_utc": null
+          },
+          {
+            "canonical_ip": "2001:db8::10",
+            "flow_count": 1,
+            "peer_ips": [
+              "2001:db8::20"
+            ],
+            "protocols": [
+              44
+            ],
+            "first_seen_utc": "2026-09-04T02:00:14Z",
+            "last_seen_utc": "2026-09-04T02:00:15Z"
+          },
+          {
+            "canonical_ip": "2001:db8::20",
+            "flow_count": 1,
+            "peer_ips": [
+              "2001:db8::10"
+            ],
+            "protocols": [
+              44
+            ],
+            "first_seen_utc": "2026-09-04T02:00:14Z",
+            "last_seen_utc": "2026-09-04T02:00:15Z"
+          }
+        ],
+        "unknowns": {
+          "coverage": {
+            "status": "UNKNOWN",
+            "value": null
+          },
+          "sampling_rate": {
+            "status": "UNKNOWN",
+            "rate": null
+          },
+          "nat": {
+            "status": "UNKNOWN",
+            "value": null
+          },
+          "observation_point": {
+            "status": "UNKNOWN",
+            "value": null
+          }
+        },
+        "defensive_run": null
+      }
+    },
+    {
+      "id": "bad_header",
+      "input_utf8": "ip_src_addr,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT,start_time,end_time,IN_BYTES,IN_PKTS,TCP_FLAGS\n",
+      "input_sha256": "cc284a76b187e4586d38c2765477e8164213a6f0ce734680de9fd9db46ef42ac",
+      "expected": {
+        "outcome": "BATCH_REJECT",
+        "candidate_error_code": "netflow_invalid_header",
+        "objects": {
+          "dataset": false,
+          "raw_artifact": false,
+          "normalized_artifact": false,
+          "accepted_audit_event": false
+        }
+      }
+    },
+    {
+      "id": "nul_byte",
+      "input_utf8": "IP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT,start_time,end_time,IN_BYTES,IN_PKTS,TCP_FLAGS\n192.0.2.\u000010,198.51.100.10,6,12345,443,2026-09-04 10:00:00,2026-09-04 10:00:01,1,1,2\n",
+      "input_sha256": "32416ff33cafb8c265682093f01389af78a0e2048d9007e1e098de4d326185ac",
+      "expected": {
+        "outcome": "BATCH_REJECT",
+        "candidate_error_code": "netflow_nul_forbidden",
+        "objects": {
+          "dataset": false,
+          "raw_artifact": false,
+          "normalized_artifact": false,
+          "accepted_audit_event": false
+        }
+      }
+    },
+    {
+      "id": "unterminated_quote",
+      "input_utf8": "IP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT,start_time,end_time,IN_BYTES,IN_PKTS,TCP_FLAGS\n\"192.0.2.1,198.51.100.1,6,12345,443,,,,,\n",
+      "input_sha256": "50a1d57599c4492e218afb4a59f065e1321497d4dfb5b57e5f0bb1d6fa37cad8",
+      "expected": {
+        "outcome": "BATCH_REJECT",
+        "candidate_error_code": "netflow_invalid_csv",
+        "objects": {
+          "dataset": false,
+          "raw_artifact": false,
+          "normalized_artifact": false,
+          "accepted_audit_event": false
+        }
+      }
+    },
+    {
+      "id": "utf8_bom_header_only",
+      "input_utf8": "\ufeffIP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT,start_time,end_time,IN_BYTES,IN_PKTS,TCP_FLAGS\r\n",
+      "input_sha256": "dfe15b33d3bcf932e0a4d101f8465c533410a9020d0c3d85e47e20ced7f0531d",
+      "expected": {
+        "outcome": "ACCEPT",
+        "candidate_error_code": null,
+        "objects": {
+          "dataset": true,
+          "raw_artifact": true,
+          "normalized_artifact": true,
+          "accepted_audit_event": true
+        },
+        "presence": "PRESENT",
+        "selectable": false,
+        "raw_record_count": 0,
+        "activity_valid_record_count": 0,
+        "isolated_record_count": 0,
+        "normalized_utf8": "source_record_key,src_ip,dst_ip,protocol,src_port,dst_port,start_time_utc,end_time_utc,in_bytes_estimated,in_packets_estimated,tcp_flags\n",
+        "normalized_sha256": "e445a0e962a050f2b7b24589ce19fe6267953952addcc7dbdc7376e9579258f9",
+        "schema_fingerprint": "e445a0e962a050f2b7b24589ce19fe6267953952addcc7dbdc7376e9579258f9",
+        "warnings": [],
+        "duplicate_group_count": 0,
+        "duplicate_record_count": 0,
+        "aggregates": [],
+        "unknowns": {
+          "coverage": {
+            "status": "UNKNOWN",
+            "value": null
+          },
+          "sampling_rate": {
+            "status": "UNKNOWN",
+            "rate": null
+          },
+          "nat": {
+            "status": "UNKNOWN",
+            "value": null
+          },
+          "observation_point": {
+            "status": "UNKNOWN",
+            "value": null
+          }
+        },
+        "defensive_run": {
+          "production_invoked": false,
+          "netflow_snapshot_record_count": 0,
+          "run_status": "FAILED_DATA"
+        }
+      }
+    },
+    {
+      "id": "utf8_bom_only",
+      "input_utf8": "\ufeff\r\n",
+      "input_sha256": "f01a374e9c81e3db89b3a42940c4d6a5447684986a1296e42bf13f196eed6295",
+      "expected": {
+        "outcome": "BATCH_REJECT",
+        "candidate_error_code": "netflow_missing_header",
+        "objects": {
+          "dataset": false,
+          "raw_artifact": false,
+          "normalized_artifact": false,
+          "accepted_audit_event": false
+        }
+      }
+    },
+    {
+      "id": "wrong_record_width",
+      "input_utf8": "IP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT,start_time,end_time,IN_BYTES,IN_PKTS,TCP_FLAGS\n192.0.2.1,198.51.100.1,6,12345\n",
+      "input_sha256": "38ebc02ba2fcda166ff74c4425be96664fe191651191ac715218f1e60a80a3b5",
+      "expected": {
+        "outcome": "BATCH_REJECT",
+        "candidate_error_code": "netflow_invalid_record_width",
+        "objects": {
+          "dataset": false,
+          "raw_artifact": false,
+          "normalized_artifact": false,
+          "accepted_audit_event": false
+        }
+      }
+    },
+    {
+      "id": "zero_bytes",
+      "input_utf8": "",
+      "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "expected": {
+        "outcome": "BATCH_REJECT",
+        "candidate_error_code": "netflow_missing_header",
+        "objects": {
+          "dataset": false,
+          "raw_artifact": false,
+          "normalized_artifact": false,
+          "accepted_audit_event": false
+        }
+      }
+    }
+  ]
+}
