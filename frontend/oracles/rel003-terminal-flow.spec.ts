@@ -331,7 +331,7 @@ test("Operator reviews immutable recommendations and completes one terminal deci
   ).toBeVisible()
   await expect(dialog.getByText(evidenceId)).toBeVisible()
   await expect(
-    dialog.getByRole("button", { name: "Accept draft" }),
+    dialog.getByRole("button", { name: "Accept draft", exact: true }),
   ).toBeVisible()
   await expect(
     dialog.getByRole("button", { name: "Edit and accept draft" }),
@@ -340,12 +340,12 @@ test("Operator reviews immutable recommendations and completes one terminal deci
     dialog.getByRole("button", { name: "Reject draft" }),
   ).toBeVisible()
 
-  await dialog.getByRole("button", { name: "Accept draft" }).click()
+  await dialog.getByRole("button", { name: "Accept draft", exact: true }).click()
 
   await expect.poll(() => reviewBody).toEqual({ decision: "ACCEPTED" })
   await expect(dialog.getByText("Review ACCEPTED")).toBeVisible()
   await expect(
-    dialog.getByRole("button", { name: "Accept draft" }),
+    dialog.getByRole("button", { name: "Accept draft", exact: true }),
   ).toHaveCount(0)
   await expect(
     dialog.getByText("Verify the selected unobserved asset."),
