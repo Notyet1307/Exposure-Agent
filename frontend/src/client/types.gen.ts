@@ -12,6 +12,30 @@ export type AiDraftEditedOutput = {
 };
 
 /**
+ * The report-detail projection for reviewable and terminal drafts.
+ */
+export type AiGovernanceDraftDetailPublic = {
+    id: string;
+    governance_report_id: string;
+    report_sha256: string;
+    finding_ids?: Array<(string)>;
+    status: string;
+    failure_code: (string | null);
+    agent_compose_run_id: (string | null);
+    session_id: (string | null);
+    created_at: string;
+    model_output: ({
+    [key: string]: unknown;
+} | null);
+    review_decision: (AiGovernanceDraftReviewDecision | null);
+    reviewed_by: (string | null);
+    reviewed_at: (string | null);
+    operator_edited_output: ({
+    [key: string]: unknown;
+} | null);
+};
+
+/**
  * The request/replay projection, including validated reviewable output.
  */
 export type AiGovernanceDraftGenerationPublic = {
@@ -27,18 +51,6 @@ export type AiGovernanceDraftGenerationPublic = {
     model_output?: ({
     [key: string]: unknown;
 } | null);
-};
-
-export type AiGovernanceDraftPublic = {
-    id: string;
-    governance_report_id: string;
-    report_sha256: string;
-    finding_ids?: Array<(string)>;
-    status: string;
-    failure_code: (string | null);
-    agent_compose_run_id: (string | null);
-    session_id: (string | null);
-    created_at: string;
 };
 
 export type AiGovernanceDraftRequest = {
@@ -265,7 +277,7 @@ export type GovernanceReportDetailPublic = {
     evidence_count: number;
     evidence_max_entries: number;
     can_request_ai_governance_draft: boolean;
-    ai_governance_drafts?: Array<AiGovernanceDraftPublic>;
+    ai_governance_drafts?: Array<AiGovernanceDraftDetailPublic>;
 };
 
 export type GovernanceReportsPublic = {

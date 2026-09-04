@@ -1602,11 +1602,21 @@ class AiGovernanceDraftPublic(SQLModel):
     created_at: datetime
 
 
+class AiGovernanceDraftDetailPublic(AiGovernanceDraftPublic):
+    """The report-detail projection for reviewable and terminal drafts."""
+
+    model_output: dict[str, Any] | None
+    review_decision: AiGovernanceDraftReviewDecision | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+    operator_edited_output: dict[str, Any] | None
+
+
 class AiGovernanceDraftRequest(SQLModel):
     finding_ids: list[uuid.UUID] = Field(min_length=1, max_length=8)
 
 
-class AiGovernanceDraftReviewPublic(AiGovernanceDraftPublic):
+class AiGovernanceDraftReviewPublic(AiGovernanceDraftDetailPublic):
     """The persisted terminal review projection, including immutable output."""
 
     model_output: dict[str, Any]
@@ -1622,7 +1632,9 @@ class GovernanceReportDetailPublic(GovernanceReportSummaryPublic):
     evidence_count: int
     evidence_max_entries: int
     can_request_ai_governance_draft: bool
-    ai_governance_drafts: list[AiGovernanceDraftPublic] = Field(default_factory=list)
+    ai_governance_drafts: list[AiGovernanceDraftDetailPublic] = Field(
+        default_factory=list
+    )
 
 
 class GovernanceReportsPublic(SQLModel):

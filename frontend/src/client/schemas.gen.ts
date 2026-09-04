@@ -59,6 +59,136 @@ export const AiDraftEditedOutputSchema = {
     title: 'AiDraftEditedOutput'
 } as const;
 
+export const AiGovernanceDraftDetailPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        governance_report_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Report Id'
+        },
+        report_sha256: {
+            type: 'string',
+            title: 'Report Sha256'
+        },
+        finding_ids: {
+            items: {
+                type: 'string',
+                format: 'uuid'
+            },
+            type: 'array',
+            title: 'Finding Ids'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        failure_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Failure Code'
+        },
+        agent_compose_run_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Agent Compose Run Id'
+        },
+        session_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Session Id'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        model_output: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Model Output'
+        },
+        review_decision: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/AiGovernanceDraftReviewDecision'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        reviewed_by: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Reviewed By'
+        },
+        reviewed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Reviewed At'
+        },
+        operator_edited_output: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Operator Edited Output'
+        }
+    },
+    type: 'object',
+    required: ['id', 'governance_report_id', 'report_sha256', 'status', 'failure_code', 'agent_compose_run_id', 'session_id', 'created_at', 'model_output', 'review_decision', 'reviewed_by', 'reviewed_at', 'operator_edited_output'],
+    title: 'AiGovernanceDraftDetailPublic',
+    description: 'The report-detail projection for reviewable and terminal drafts.'
+} as const;
+
 export const AiGovernanceDraftGenerationPublicSchema = {
     properties: {
         id: {
@@ -142,78 +272,6 @@ export const AiGovernanceDraftGenerationPublicSchema = {
     required: ['id', 'governance_report_id', 'report_sha256', 'status', 'failure_code', 'agent_compose_run_id', 'session_id', 'created_at'],
     title: 'AiGovernanceDraftGenerationPublic',
     description: 'The request/replay projection, including validated reviewable output.'
-} as const;
-
-export const AiGovernanceDraftPublicSchema = {
-    properties: {
-        id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Id'
-        },
-        governance_report_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Governance Report Id'
-        },
-        report_sha256: {
-            type: 'string',
-            title: 'Report Sha256'
-        },
-        finding_ids: {
-            items: {
-                type: 'string',
-                format: 'uuid'
-            },
-            type: 'array',
-            title: 'Finding Ids'
-        },
-        status: {
-            type: 'string',
-            title: 'Status'
-        },
-        failure_code: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Failure Code'
-        },
-        agent_compose_run_id: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Agent Compose Run Id'
-        },
-        session_id: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Session Id'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        }
-    },
-    type: 'object',
-    required: ['id', 'governance_report_id', 'report_sha256', 'status', 'failure_code', 'agent_compose_run_id', 'session_id', 'created_at'],
-    title: 'AiGovernanceDraftPublic'
 } as const;
 
 export const AiGovernanceDraftRequestSchema = {
@@ -1302,7 +1360,7 @@ export const GovernanceReportDetailPublicSchema = {
         },
         ai_governance_drafts: {
             items: {
-                '$ref': '#/components/schemas/AiGovernanceDraftPublic'
+                '$ref': '#/components/schemas/AiGovernanceDraftDetailPublic'
             },
             type: 'array',
             title: 'Ai Governance Drafts'

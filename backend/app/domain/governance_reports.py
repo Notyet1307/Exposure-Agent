@@ -15,8 +15,10 @@ from sqlmodel.sql.expression import Select
 
 from app.domain.models import (
     AiGovernanceDraft,
+    AiGovernanceDraftDetailPublic,
     AiGovernanceDraftFindingBinding,
     AiGovernanceDraftPublic,
+    AiGovernanceDraftReviewDecision,
     AiGovernanceDraftStatus,
     Evidence,
     EvidenceReferencePublic,
@@ -272,6 +274,28 @@ def ai_governance_draft_public(
     )
 
 
+def ai_governance_draft_detail_public(
+    *, session: Session, draft: AiGovernanceDraft
+) -> AiGovernanceDraftDetailPublic:
+    public = ai_governance_draft_public(session=session, draft=draft)
+    return AiGovernanceDraftDetailPublic(
+        **public.model_dump(),
+        model_output=(
+            draft.model_output
+            if draft.status == AiGovernanceDraftStatus.REVIEWABLE.value
+            else None
+        ),
+        review_decision=(
+            AiGovernanceDraftReviewDecision(draft.review_decision)
+            if draft.review_decision is not None
+            else None
+        ),
+        reviewed_by=draft.reviewed_by,
+        reviewed_at=draft.reviewed_at,
+        operator_edited_output=draft.operator_edited_output,
+    )
+
+
 def get_report(
     *,
     session: Session,
@@ -340,6 +364,7 @@ def get_report(
             )
         ),
         ai_governance_drafts=[
-            ai_governance_draft_public(session=session, draft=draft) for draft in drafts
+            ai_governance_draft_detail_public(session=session, draft=draft)
+            for draft in drafts
         ],
     )

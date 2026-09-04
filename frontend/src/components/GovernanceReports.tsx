@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 
 import {
-  type AiGovernanceDraftPublic,
+  type AiGovernanceDraftDetailPublic,
+  type AiGovernanceDraftGenerationPublic,
   ApiError,
   type GovernanceReportDetailPublic,
   type GovernanceReportSummaryPublic,
   GovernanceReportsService,
 } from "@/client"
+import { AiGovernanceDraftReview } from "@/components/AiGovernanceDraftReview"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -404,8 +406,11 @@ function DraftGeneration({
       }
     },
   })
-  const latestDraft: AiGovernanceDraftPublic | undefined =
-    detail.ai_governance_drafts?.[0] ?? generationMutation.data
+  const latestDraft:
+    | AiGovernanceDraftDetailPublic
+    | AiGovernanceDraftGenerationPublic
+    | undefined = detail.ai_governance_drafts?.[0] ?? generationMutation.data
+  const persistedDraft = detail.ai_governance_drafts?.[0]
   const generationAfterFailureBlocked =
     detail.ai_governance_drafts?.some((draft) => draft.status === "FAILED") ??
     false
@@ -588,6 +593,14 @@ function DraftGeneration({
             <p>Failure: {latestDraft.failure_code}</p>
           )}
         </div>
+      )}
+      {persistedDraft?.status === "REVIEWABLE" && (
+        <AiGovernanceDraftReview
+          canReview={detail.can_request_ai_governance_draft}
+          draft={persistedDraft}
+          projectId={projectId}
+          reportId={detail.id}
+        />
       )}
     </ReportSection>
   )

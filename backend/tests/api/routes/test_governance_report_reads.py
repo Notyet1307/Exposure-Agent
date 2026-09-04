@@ -21,6 +21,9 @@ from app.integrations.agent_compose import (
     AgentComposeSession,
     AgentComposeSessionObservation,
 )
+from tests.api.routes.test_ai_governance_draft_reviews import (
+    _reviewable_draft_context,
+)
 from tests.api.routes.test_governance_runs import (
     _create_member,
     _create_project,
@@ -441,3 +444,47 @@ def test_stage4_only_project_requires_a_new_stage5_rerun(
         "latest_completed_run_id": run_payload["id"],
         "latest_completed_run_at": run_payload["completed_at"],
     }
+
+
+def test_report_detail_returns_reviewable_and_persisted_terminal_draft(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    project, operator_headers, draft = _reviewable_draft_context(
+        client=client,
+        superuser_token_headers=superuser_token_headers,
+        db=db,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    detail_url = f"{_reports_url(project['id'])}/{draft['report_id']}"
+
+    reviewable = client.get(detail_url, headers=operator_headers)
+
+    assert reviewable.status_code == 200, reviewable.text
+    reviewable_draft = reviewable.json()["ai_governance_drafts"][0]
+    assert reviewable_draft["model_output"] == draft["model_output"]
+    assert reviewable_draft["review_decision"] is None
+    assert reviewable_draft["reviewed_by"] is None
+    assert reviewable_draft["reviewed_at"] is None
+    assert reviewable_draft["operator_edited_output"] is None
+
+    reviewed = client.post(
+        f"{detail_url}/ai-governance-drafts/{draft['id']}/review",
+        headers=operator_headers,
+        json={"decision": "ACCEPTED"},
+    )
+    assert reviewed.status_code == 200, reviewed.text
+
+    terminal = client.get(detail_url, headers=operator_headers)
+
+    assert terminal.status_code == 200, terminal.text
+    terminal_draft = terminal.json()["ai_governance_drafts"][0]
+    assert terminal_draft["model_output"] == draft["model_output"]
+    assert terminal_draft["review_decision"] == "ACCEPTED"
+    assert terminal_draft["reviewed_by"] is not None
+    assert terminal_draft["reviewed_at"] is not None
+    assert terminal_draft["operator_edited_output"] is None
