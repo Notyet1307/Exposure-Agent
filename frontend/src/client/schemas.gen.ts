@@ -1781,6 +1781,104 @@ export const ModelQualificationStatusSchema = {
     title: 'ModelQualificationStatus'
 } as const;
 
+export const NetFlowDatasetPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        display_filename: {
+            type: 'string',
+            title: 'Display Filename'
+        },
+        raw_sha256: {
+            type: 'string',
+            title: 'Raw Sha256'
+        },
+        normalized_sha256: {
+            type: 'string',
+            title: 'Normalized Sha256'
+        },
+        dataset_contract_version: {
+            type: 'string',
+            title: 'Dataset Contract Version'
+        },
+        schema_fingerprint: {
+            type: 'string',
+            title: 'Schema Fingerprint'
+        },
+        encoding: {
+            type: 'string',
+            title: 'Encoding'
+        },
+        byte_size: {
+            type: 'integer',
+            title: 'Byte Size'
+        },
+        raw_record_count: {
+            type: 'integer',
+            title: 'Raw Record Count'
+        },
+        activity_valid_record_count: {
+            type: 'integer',
+            title: 'Activity Valid Record Count'
+        },
+        isolated_record_count: {
+            type: 'integer',
+            title: 'Isolated Record Count'
+        },
+        valid_time_start_utc: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Valid Time Start Utc'
+        },
+        valid_time_end_utc: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Valid Time End Utc'
+        },
+        duplicate_group_count: {
+            type: 'integer',
+            title: 'Duplicate Group Count'
+        },
+        duplicate_record_count: {
+            type: 'integer',
+            title: 'Duplicate Record Count'
+        },
+        warnings: {
+            items: {
+                additionalProperties: true,
+                type: 'object'
+            },
+            type: 'array',
+            title: 'Warnings'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'display_filename', 'raw_sha256', 'normalized_sha256', 'dataset_contract_version', 'schema_fingerprint', 'encoding', 'byte_size', 'raw_record_count', 'activity_valid_record_count', 'isolated_record_count', 'valid_time_start_utc', 'valid_time_end_utc', 'duplicate_group_count', 'duplicate_record_count', 'warnings', 'created_at'],
+    title: 'NetFlowDatasetPublic'
+} as const;
+
 export const ProjectCreateSchema = {
     properties: {
         name: {

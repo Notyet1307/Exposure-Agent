@@ -23,6 +23,7 @@ from app.api.request import get_request_ip_address
 from app.core.config import settings
 from app.domain import customer_uploads as customer_upload_service
 from app.domain import governance_runs as governance_run_service
+from app.domain import netflow_dataset_acceptance as netflow_dataset_service
 from app.domain import projects as project_service
 from app.domain.models import (
     CustomerUpload,
@@ -31,6 +32,7 @@ from app.domain.models import (
     CustomerUploadProfilePublic,
     CustomerUploadPublic,
     CustomerUploadsPublic,
+    NetFlowDatasetPublic,
     Project,
     ProjectCreate,
     ProjectPublic,
@@ -100,6 +102,69 @@ _CUSTOMER_UPLOAD_DELETE_ERRORS = {
         "The CustomerUpload could not be deleted.",
     ),
 }
+_NETFLOW_ERRORS = {
+    "netflow_invalid_filename": (
+        status.HTTP_400_BAD_REQUEST,
+        "The NetFlow filename is invalid.",
+    ),
+    "netflow_incomplete_upload": (
+        status.HTTP_400_BAD_REQUEST,
+        "The NetFlow upload was incomplete.",
+    ),
+    "netflow_too_large": (
+        status.HTTP_413_CONTENT_TOO_LARGE,
+        "The NetFlow upload exceeds the allowed size.",
+    ),
+    "netflow_unsupported_type": (
+        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        "Only CSV or TXT NetFlow files are supported.",
+    ),
+    "netflow_missing_header": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The NetFlow file is empty or missing a header.",
+    ),
+    "netflow_invalid_header": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The NetFlow header is invalid.",
+    ),
+    "netflow_duplicate_header": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The NetFlow header is invalid.",
+    ),
+    "netflow_missing_required_header": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The NetFlow header is missing required fields.",
+    ),
+    "netflow_invalid_record_width": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The NetFlow row structure is invalid.",
+    ),
+    "netflow_invalid_csv": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The NetFlow CSV is malformed.",
+    ),
+    "netflow_invalid_encoding": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The NetFlow encoding is unsupported.",
+    ),
+    "netflow_nul_forbidden": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The NetFlow content is invalid.",
+    ),
+    "netflow_content_changed": (
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        "The NetFlow content changed during acceptance.",
+    ),
+    "netflow_storage_failed": (
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "The NetFlow dataset could not be stored.",
+    ),
+    "netflow_processing_failed": (
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "The NetFlow dataset could not be processed.",
+    ),
+}
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -178,8 +243,7 @@ def read_current_customer_upload_profile(
     )
     profile = session.exec(
         select(CustomerUploadProfile).where(
-            CustomerUploadProfile.id
-            == project.current_customer_upload_profile_id,
+            CustomerUploadProfile.id == project.current_customer_upload_profile_id,
             CustomerUploadProfile.project_id == project.id,
         )
     ).one()
@@ -189,6 +253,72 @@ def read_current_customer_upload_profile(
         version=profile.version,
         **definition.model_dump(),
     )
+
+
+@router.post(
+    "/{project_id}/netflow-datasets",
+    response_model=NetFlowDatasetPublic,
+    status_code=status.HTTP_201_CREATED,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "required": ["file"],
+                        "properties": {
+                            "file": {
+                                "type": "string",
+                                "format": "binary",
+                                "contentMediaType": "text/csv",
+                            }
+                        },
+                    }
+                }
+            },
+        }
+    },
+)
+async def create_netflow_dataset(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    request: Request,
+    response: Response,
+) -> Any:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=(ProjectRole.OPERATOR,),
+        writable=True,
+    )
+    try:
+        streamed = await netflow_dataset_service.stream_netflow_upload(
+            request, settings.ARTIFACT_ROOT
+        )
+        dataset, created = netflow_dataset_service.accept_netflow_dataset(
+            session=session,
+            project=project,
+            streamed_upload=streamed,
+            artifact_root=settings.ARTIFACT_ROOT,
+            actor_subject=str(current_user.id),
+            ip_address=get_request_ip_address(request),
+        )
+    except netflow_dataset_service.NetFlowUploadError as error:
+        error_status, message = _NETFLOW_ERRORS.get(
+            error.code, _NETFLOW_ERRORS["netflow_storage_failed"]
+        )
+        detail: dict[str, Any] = {"code": error.code, "message": message}
+        if error.field is not None:
+            detail["field"] = error.field
+        if error.row is not None:
+            detail["row"] = error.row
+        raise HTTPException(status_code=error_status, detail=detail) from error
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    return NetFlowDatasetPublic.model_validate(dataset)
 
 
 @router.post(
@@ -259,9 +389,7 @@ async def create_customer_upload(
         if error.row is not None:
             detail["row"] = error.row
         raise HTTPException(status_code=error_status, detail=detail)
-    response.status_code = (
-        status.HTTP_201_CREATED if created else status.HTTP_200_OK
-    )
+    response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return CustomerUploadPublic.model_validate(upload)
 
 
@@ -291,9 +419,7 @@ def read_customer_uploads(
     uploads = session.exec(
         select(CustomerUpload)
         .where(CustomerUpload.project_id == project.id)
-        .order_by(
-            col(CustomerUpload.created_at).desc(), col(CustomerUpload.id).desc()
-        )
+        .order_by(col(CustomerUpload.created_at).desc(), col(CustomerUpload.id).desc())
         .offset(skip)
         .limit(limit)
     ).all()

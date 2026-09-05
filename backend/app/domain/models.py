@@ -213,6 +213,16 @@ class Artifact(SQLModel, table=True):
         ),
         UniqueConstraint("id", "tenant_id", name="uq_artifacts_id_tenant"),
         UniqueConstraint(
+            "id", "project_id", "tenant_id", name="uq_artifacts_project_scope"
+        ),
+        UniqueConstraint(
+            "id",
+            "project_id",
+            "tenant_id",
+            "sha256",
+            name="uq_artifacts_project_scope_hash",
+        ),
+        UniqueConstraint(
             "id",
             "governance_run_id",
             "project_id",
@@ -243,6 +253,130 @@ class Artifact(SQLModel, table=True):
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
+
+
+class NetFlowDataset(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "netflow_datasets"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            name="fk_netflow_datasets_project_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["raw_artifact_id", "project_id", "tenant_id", "raw_sha256"],
+            [
+                "artifacts.id",
+                "artifacts.project_id",
+                "artifacts.tenant_id",
+                "artifacts.sha256",
+            ],
+            name="fk_netflow_datasets_raw_artifact_scope_hash",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("raw_record_count >= 0 AND activity_valid_record_count >= 0 AND isolated_record_count >= 0", name="ck_netflow_datasets_counts_nonnegative"),
+        CheckConstraint("encoding IN ('utf-8-sig', 'gb18030')", name="ck_netflow_datasets_encoding"),
+        ForeignKeyConstraint(
+            ["normalized_artifact_id", "project_id", "tenant_id", "normalized_sha256"],
+            [
+                "artifacts.id",
+                "artifacts.project_id",
+                "artifacts.tenant_id",
+                "artifacts.sha256",
+            ],
+            name="fk_netflow_datasets_normalized_artifact_scope_hash",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id", "project_id", "tenant_id", name="uq_netflow_datasets_scope"
+        ),
+        UniqueConstraint(
+            "project_id",
+            "tenant_id",
+            "raw_sha256",
+            "dataset_contract_version",
+            name="uq_netflow_datasets_idempotency",
+        ),
+        CheckConstraint(
+            "raw_artifact_id <> normalized_artifact_id",
+            name="ck_netflow_datasets_distinct_artifacts",
+        ),
+        CheckConstraint("byte_size > 0", name="ck_netflow_datasets_byte_size_positive"),
+        CheckConstraint(
+            "duplicate_group_count >= 0 AND duplicate_record_count >= 0",
+            name="ck_netflow_datasets_duplicate_counts_nonnegative",
+        ),
+        CheckConstraint(
+            "raw_record_count = activity_valid_record_count + isolated_record_count",
+            name="ck_netflow_datasets_count_sum",
+        ),
+        CheckConstraint(
+            "dataset_contract_version <> ''",
+            name="ck_netflow_datasets_contract_nonblank",
+        ),
+        CheckConstraint(
+            "raw_sha256 ~ '^[0-9a-f]{64}$' AND normalized_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_netflow_datasets_hash_format",
+        ),
+        CheckConstraint(
+            "schema_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_netflow_datasets_schema_hash_format",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(default=DEPLOYMENT_TENANT_ID, index=True)
+    project_id: uuid.UUID = Field(index=True)
+    raw_artifact_id: uuid.UUID
+    normalized_artifact_id: uuid.UUID
+    display_filename: str = Field(max_length=128)
+    raw_sha256: str = Field(max_length=64, index=True)
+    normalized_sha256: str = Field(max_length=64)
+    dataset_contract_version: str = Field(max_length=100)
+    schema_fingerprint: str = Field(max_length=64)
+    encoding: str = Field(max_length=32)
+    byte_size: int
+    raw_record_count: int
+    activity_valid_record_count: int
+    isolated_record_count: int
+    valid_time_start_utc: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    valid_time_end_utc: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    duplicate_group_count: int
+    duplicate_record_count: int
+    warnings: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class NetFlowDatasetPublic(SQLModel):
+    id: uuid.UUID
+    display_filename: str
+    raw_sha256: str
+    normalized_sha256: str
+    dataset_contract_version: str
+    schema_fingerprint: str
+    encoding: str
+    byte_size: int
+    raw_record_count: int
+    activity_valid_record_count: int
+    isolated_record_count: int
+    valid_time_start_utc: datetime | None
+    valid_time_end_utc: datetime | None
+    duplicate_group_count: int
+    duplicate_record_count: int
+    warnings: list[dict[str, Any]]
+    created_at: datetime
 
 
 class CustomerUploadWarningPublic(SQLModel):

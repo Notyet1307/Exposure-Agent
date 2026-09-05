@@ -346,6 +346,28 @@ export type ModelQualificationStatus = {
     qualified: boolean;
 };
 
+export type NetFlowDatasetPublic = {
+    id: string;
+    display_filename: string;
+    raw_sha256: string;
+    normalized_sha256: string;
+    dataset_contract_version: string;
+    schema_fingerprint: string;
+    encoding: string;
+    byte_size: number;
+    raw_record_count: number;
+    activity_valid_record_count: number;
+    isolated_record_count: number;
+    valid_time_start_utc: (string | null);
+    valid_time_end_utc: (string | null);
+    duplicate_group_count: number;
+    duplicate_record_count: number;
+    warnings: Array<{
+        [key: string]: unknown;
+    }>;
+    created_at: string;
+};
+
 export type ProjectCreate = {
     name: string;
 };
@@ -696,6 +718,15 @@ export type ProjectsReadCurrentCustomerUploadProfileData = {
 };
 
 export type ProjectsReadCurrentCustomerUploadProfileResponse = (CustomerUploadProfilePublic);
+
+export type ProjectsCreateNetflowDatasetData = {
+    formData: {
+        file: (Blob | File);
+    };
+    projectId: string;
+};
+
+export type ProjectsCreateNetflowDatasetResponse = (NetFlowDatasetPublic);
 
 export type ProjectsCreateCustomerUploadData = {
     formData: {

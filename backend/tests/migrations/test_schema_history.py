@@ -29,7 +29,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_SCHEMA_REVISION = "c3d4e5f6a7b8"
+CURRENT_SCHEMA_REVISION = "d4e5f6a7b8c9"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -1935,3 +1935,28 @@ def test_stage4_scope_uniqueness_immutability_and_completed_run_guards(
                     ids["customer_snapshot_id"],
                 ),
             )
+
+
+def test_netflow_migration_does_not_backfill_existing_run_or_snapshots(
+    template_baseline_database: str,
+) -> None:
+    run_migration(template_baseline_database, "c3d4e5f6a7b8")
+    ids = _seed_stage3_run_facts(template_baseline_database)
+    with connect(template_baseline_database) as connection:
+        before_run = connection.execute(
+            "SELECT * FROM governance_runs WHERE id = %s", (ids["run_id"],)
+        ).fetchone()
+        before_snapshots = connection.execute(
+            "SELECT id, source_type, content_sha256, record_count FROM source_snapshots "
+            "WHERE governance_run_id = %s ORDER BY id", (ids["run_id"],)
+        ).fetchall()
+    run_migration(template_baseline_database, "head")
+    with connect(template_baseline_database) as connection:
+        assert connection.execute(
+            "SELECT * FROM governance_runs WHERE id = %s", (ids["run_id"],)
+        ).fetchone() == before_run
+        assert connection.execute(
+            "SELECT id, source_type, content_sha256, record_count FROM source_snapshots "
+            "WHERE governance_run_id = %s ORDER BY id", (ids["run_id"],)
+        ).fetchall() == before_snapshots
+        assert connection.execute("SELECT count(*) FROM netflow_datasets").fetchone() == (0,)
