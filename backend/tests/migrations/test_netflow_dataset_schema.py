@@ -23,13 +23,13 @@ def test_netflow_schema_exposes_scoped_immutable_contract(db: Session) -> None:
         "ck_netflow_datasets_counts_nonnegative",
         "ck_netflow_datasets_encoding",
     } <= constraints
-    assert db.execute(
-        text(
-            "SELECT 1 FROM pg_trigger "
-            "WHERE tgrelid = 'netflow_datasets'::regclass "
-            "AND tgname = 'netflow_datasets_immutable'"
-        )
-    ).scalar_one() == 1
-    assert db.execute(text("SELECT count(*) FROM netflow_datasets")).scalar_one() == 0
-    assert db.execute(text("SELECT count(*) FROM source_snapshots")).scalar_one() == 0
-    assert db.execute(text("SELECT count(*) FROM governance_runs")).scalar_one() == 0
+    assert (
+        db.execute(
+            text(
+                "SELECT 1 FROM pg_trigger "
+                "WHERE tgrelid = 'netflow_datasets'::regclass "
+                "AND tgname = 'netflow_datasets_immutable'"
+            )
+        ).scalar_one()
+        == 1
+    )

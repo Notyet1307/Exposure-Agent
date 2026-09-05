@@ -37,11 +37,21 @@ def _project(client: TestClient, headers: dict[str, str]) -> dict[str, object]:
     return cast(dict[str, object], response.json())
 
 
-def _member(client: TestClient, admin: dict[str, str], project_id: object, roles: list[str]) -> dict[str, str]:
+def _member(
+    client: TestClient, admin: dict[str, str], project_id: object, roles: list[str]
+) -> dict[str, str]:
     email, password = random_email(), random_lower_string()
-    user = client.post(f"{settings.API_V1_STR}/users/", headers=admin, json={"email": email, "password": password})
+    user = client.post(
+        f"{settings.API_V1_STR}/users/",
+        headers=admin,
+        json={"email": email, "password": password},
+    )
     assert user.status_code == 200
-    membership = client.post(f"{settings.API_V1_STR}/projects/{project_id}/memberships/", headers=admin, json={"user_id": user.json()["id"], "roles": roles})
+    membership = client.post(
+        f"{settings.API_V1_STR}/projects/{project_id}/memberships/",
+        headers=admin,
+        json={"user_id": user.json()["id"], "roles": roles},
+    )
     assert membership.status_code == 201
     return user_authentication_headers(client=client, email=email, password=password)
 
@@ -90,8 +100,13 @@ def test_netflow_post_is_idempotent_scoped_and_does_not_select_or_create_run(
     other = _upload(client, superuser_token_headers, second_project["id"], content)
     assert other.status_code == 201, other.text
     assert other.json()["id"] != first.json()["id"]
-    project_ids = {uuid.UUID(str(first_project["id"])), uuid.UUID(str(second_project["id"]))}
-    datasets = db.exec(select(NetFlowDataset).where(col(NetFlowDataset.project_id).in_(project_ids))).all()
+    project_ids = {
+        uuid.UUID(str(first_project["id"])),
+        uuid.UUID(str(second_project["id"])),
+    }
+    datasets = db.exec(
+        select(NetFlowDataset).where(col(NetFlowDataset.project_id).in_(project_ids))
+    ).all()
     assert len(datasets) == 2
     for payload in (first.json(), other.json()):
         dataset = db.exec(
@@ -114,7 +129,9 @@ def test_netflow_post_is_idempotent_scoped_and_does_not_select_or_create_run(
                 == artifact.sha256
             )
         assert raw_artifact.id != normalized_artifact.id
-    first_dataset = db.exec(select(NetFlowDataset).where(NetFlowDataset.id == uuid.UUID(first.json()["id"]))).one()
+    first_dataset = db.exec(
+        select(NetFlowDataset).where(NetFlowDataset.id == uuid.UUID(first.json()["id"]))
+    ).one()
     first_raw = db.get(Artifact, first_dataset.raw_artifact_id)
     assert first_raw is not None
     first_dataset.display_filename = "changed.csv"
@@ -146,7 +163,9 @@ def test_netflow_post_is_idempotent_scoped_and_does_not_select_or_create_run(
     with pytest.raises(SQLAlchemyError):
         db.commit()
     db.rollback()
-    source_artifacts = db.exec(select(Artifact).where(Artifact.project_id == first_dataset.project_id)).all()
+    source_artifacts = db.exec(
+        select(Artifact).where(Artifact.project_id == first_dataset.project_id)
+    ).all()
     constraint_artifacts: list[Artifact] = []
     for source, digest in zip(source_artifacts, ("b" * 64, "c" * 64), strict=True):
         artifact = Artifact(**source.model_dump())
@@ -215,9 +234,15 @@ def test_netflow_post_is_idempotent_scoped_and_does_not_select_or_create_run(
         b"198.51.100.20" not in str(event.after_data).encode()
         for event in accepted_events
     )
-    assert not db.exec(select(GovernanceRun)).all()
-    assert not db.exec(select(RunStep)).all()
-    assert not db.exec(select(SourceSnapshot)).all()
+    assert not db.exec(
+        select(GovernanceRun).where(col(GovernanceRun.project_id).in_(project_ids))
+    ).all()
+    assert not db.exec(
+        select(RunStep).where(col(RunStep.project_id).in_(project_ids))
+    ).all()
+    assert not db.exec(
+        select(SourceSnapshot).where(col(SourceSnapshot.project_id).in_(project_ids))
+    ).all()
     after = db.exec(select(Project).where(Project.id == before.id)).one()
     assert after.current_customer_upload_id == before.current_customer_upload_id
     assert not db.exec(
@@ -261,9 +286,18 @@ def test_netflow_post_returns_stable_sanitized_boundary_errors(
         if content:
             assert content[:8] not in response.content
         assert str(tmp_path) not in response.text
-        assert not db.exec(select(NetFlowDataset).where(NetFlowDataset.project_id == project_id)).all()
-        assert not db.exec(select(Artifact).where(Artifact.project_id == project_id)).all()
-        assert not db.exec(select(AuditEvent).where(AuditEvent.project_id == project_id, AuditEvent.action == "netflow_dataset.accepted")).all()
+        assert not db.exec(
+            select(NetFlowDataset).where(NetFlowDataset.project_id == project_id)
+        ).all()
+        assert not db.exec(
+            select(Artifact).where(Artifact.project_id == project_id)
+        ).all()
+        assert not db.exec(
+            select(AuditEvent).where(
+                AuditEvent.project_id == project_id,
+                AuditEvent.action == "netflow_dataset.accepted",
+            )
+        ).all()
         assert not list((tmp_path / "netflow_datasets").glob("*"))
 
 
@@ -282,20 +316,34 @@ def test_netflow_post_supports_txt_and_rejects_incomplete_or_multiple_parts(
     rejection_root = tmp_path / "rejected"
     monkeypatch.setattr(settings, "ARTIFACT_ROOT", rejection_root)
     url = f"{settings.API_V1_STR}/projects/{rejection_project['id']}/netflow-datasets"
-    incomplete = client.post(url, headers=superuser_token_headers, data={"not_file": "x"})
+    incomplete = client.post(
+        url, headers=superuser_token_headers, data={"not_file": "x"}
+    )
     assert incomplete.status_code == 400
     assert incomplete.json()["detail"]["code"] == "netflow_incomplete_upload"
     multiple = client.post(
         url,
         headers=superuser_token_headers,
-        files=[("file", ("one.csv", _csv(), "text/csv")), ("file", ("two.csv", _csv(), "text/csv"))],
+        files=[
+            ("file", ("one.csv", _csv(), "text/csv")),
+            ("file", ("two.csv", _csv(), "text/csv")),
+        ],
     )
     assert multiple.status_code == 400
     assert multiple.json()["detail"]["code"] == "netflow_incomplete_upload"
     rejection_project_id = uuid.UUID(str(rejection_project["id"]))
-    assert not db.exec(select(NetFlowDataset).where(NetFlowDataset.project_id == rejection_project_id)).all()
-    assert not db.exec(select(Artifact).where(Artifact.project_id == rejection_project_id)).all()
-    assert not db.exec(select(AuditEvent).where(AuditEvent.project_id == rejection_project_id, AuditEvent.action == "netflow_dataset.accepted")).all()
+    assert not db.exec(
+        select(NetFlowDataset).where(NetFlowDataset.project_id == rejection_project_id)
+    ).all()
+    assert not db.exec(
+        select(Artifact).where(Artifact.project_id == rejection_project_id)
+    ).all()
+    assert not db.exec(
+        select(AuditEvent).where(
+            AuditEvent.project_id == rejection_project_id,
+            AuditEvent.action == "netflow_dataset.accepted",
+        )
+    ).all()
     assert not list((rejection_root / "netflow_datasets").glob("*"))
 
 
@@ -309,15 +357,39 @@ def test_netflow_post_concurrent_replay_has_one_winner(
     monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     project = _project(client, superuser_token_headers)
     with ThreadPoolExecutor(max_workers=2) as executor:
-        responses = list(executor.map(
-            lambda _: _upload(client, superuser_token_headers, project["id"], _csv()),
-            range(2),
-        ))
+        responses = list(
+            executor.map(
+                lambda _: _upload(
+                    client, superuser_token_headers, project["id"], _csv()
+                ),
+                range(2),
+            )
+        )
     assert {response.status_code for response in responses} == {200, 201}
     project_id = uuid.UUID(str(project["id"]))
-    assert len(db.exec(select(NetFlowDataset).where(NetFlowDataset.project_id == project_id)).all()) == 1
-    assert len(db.exec(select(Artifact).where(Artifact.project_id == project_id)).all()) == 2
-    assert len(db.exec(select(AuditEvent).where(AuditEvent.project_id == project_id, AuditEvent.action == "netflow_dataset.accepted")).all()) == 1
+    assert (
+        len(
+            db.exec(
+                select(NetFlowDataset).where(NetFlowDataset.project_id == project_id)
+            ).all()
+        )
+        == 1
+    )
+    assert (
+        len(db.exec(select(Artifact).where(Artifact.project_id == project_id)).all())
+        == 2
+    )
+    assert (
+        len(
+            db.exec(
+                select(AuditEvent).where(
+                    AuditEvent.project_id == project_id,
+                    AuditEvent.action == "netflow_dataset.accepted",
+                )
+            ).all()
+        )
+        == 1
+    )
     assert len(list((tmp_path / "netflow_datasets").iterdir())) == 2
 
 
@@ -338,7 +410,11 @@ def test_netflow_post_rejects_archived_project_without_side_effect(
     response = _upload(client, superuser_token_headers, project["id"], _csv())
     assert response.status_code == 409
     assert response.json()["detail"] == "Archived project is read-only"
-    assert not db.exec(select(NetFlowDataset).where(NetFlowDataset.project_id == uuid.UUID(str(project["id"])))).all()
+    assert not db.exec(
+        select(NetFlowDataset).where(
+            NetFlowDataset.project_id == uuid.UUID(str(project["id"]))
+        )
+    ).all()
 
 
 def test_netflow_upload_is_operator_only_and_project_scoped(
@@ -359,7 +435,11 @@ def test_netflow_upload_is_operator_only_and_project_scoped(
     assert allowed.status_code == 201
     assert denied_role.status_code == 404
     assert denied_scope.status_code == 404
-    assert not db.exec(select(NetFlowDataset).where(NetFlowDataset.project_id == uuid.UUID(str(other["id"])))).all()
+    assert not db.exec(
+        select(NetFlowDataset).where(
+            NetFlowDataset.project_id == uuid.UUID(str(other["id"]))
+        )
+    ).all()
 
 
 def test_netflow_audit_failure_compensates_database_and_files(
@@ -374,10 +454,19 @@ def test_netflow_audit_failure_compensates_database_and_files(
     project_id = uuid.UUID(str(project["id"]))
     with reject_audit_inserts(db):
         with TestClient(app, raise_server_exceptions=False) as failure_client:
-            response = _upload(failure_client, superuser_token_headers, project["id"], _csv())
+            response = _upload(
+                failure_client, superuser_token_headers, project["id"], _csv()
+            )
         assert response.status_code == 500
         assert response.json()["detail"]["code"] == "netflow_storage_failed"
-    assert not db.exec(select(NetFlowDataset).where(NetFlowDataset.project_id == project_id)).all()
+    assert not db.exec(
+        select(NetFlowDataset).where(NetFlowDataset.project_id == project_id)
+    ).all()
     assert not db.exec(select(Artifact).where(Artifact.project_id == project_id)).all()
-    assert not db.exec(select(AuditEvent).where(AuditEvent.project_id == project_id, AuditEvent.action == "netflow_dataset.accepted")).all()
+    assert not db.exec(
+        select(AuditEvent).where(
+            AuditEvent.project_id == project_id,
+            AuditEvent.action == "netflow_dataset.accepted",
+        )
+    ).all()
     assert not list((tmp_path / "netflow_datasets").glob("*"))

@@ -70,7 +70,10 @@ def test_parser_matches_shared_oracle_cases(tmp_path: Path) -> None:
         assert parsed.raw_sha256 == case["input_sha256"]
         assert parsed.schema_fingerprint == expected["schema_fingerprint"]
         assert parsed.raw_record_count == expected["raw_record_count"]
-        assert parsed.activity_valid_record_count == expected["activity_valid_record_count"]
+        assert (
+            parsed.activity_valid_record_count
+            == expected["activity_valid_record_count"]
+        )
         assert parsed.isolated_record_count == expected["isolated_record_count"]
         assert list(parsed.warnings) == expected["warnings"]
         assert parsed.duplicate_group_count == expected["duplicate_group_count"]
@@ -78,25 +81,50 @@ def test_parser_matches_shared_oracle_cases(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("value", [None, "x", "0", str(50 * 1024 * 1024 + 1)])
-def test_netflow_max_bytes_rejects_invalid_configuration(value: str | None) -> None:
+def test_netflow_max_bytes_rejects_invalid_configuration(
+    value: str | None, tmp_path: Path
+) -> None:
     environment = os.environ.copy()
-    environment.update({
-        "PROJECT_NAME": "x", "POSTGRES_SERVER": "x", "POSTGRES_USER": "x",
-        "FIRST_SUPERUSER": "settings@example.com", "FIRST_SUPERUSER_PASSWORD": "long-password",
-    })
+    environment.update(
+        {
+            "PROJECT_NAME": "x",
+            "POSTGRES_SERVER": "x",
+            "POSTGRES_USER": "x",
+            "FIRST_SUPERUSER": "settings@example.com",
+            "FIRST_SUPERUSER_PASSWORD": "long-password",
+        }
+    )
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     if value is None:
         environment.pop("NETFLOW_MAX_BYTES", None)
     else:
         environment["NETFLOW_MAX_BYTES"] = value
-    result = subprocess.run([sys.executable, "-c", "import app.core.config"], env=environment, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.core.config"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert result.returncode != 0
 
 
 @pytest.mark.parametrize("value", [1, 1024 * 1024, 50 * 1024 * 1024])
-def test_netflow_max_bytes_accepts_positive_deployment_limit(value: int) -> None:
+def test_netflow_max_bytes_accepts_positive_deployment_limit(
+    value: int, tmp_path: Path
+) -> None:
     environment = os.environ.copy()
     environment["NETFLOW_MAX_BYTES"] = str(value)
-    result = subprocess.run([sys.executable, "-c", "import app.core.config"], env=environment, capture_output=True, text=True, check=False)
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.core.config"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert result.returncode == 0, result.stderr
 
 
@@ -109,14 +137,25 @@ def test_netflow_parser_accepts_arbitrary_ignored_values_and_gb18030(
     final_prefix = b"198.51.100.20,192.0.2.10,6,53000,443,production-free-form,"
     row_count = (chunk_size - 1 - len(header) - len(final_prefix)) // len(row)
     prefix = header + row * row_count + final_prefix
-    content = prefix + (b"a" * (chunk_size - 1 - len(prefix))) + "中\n".encode("gb18030")
+    content = (
+        prefix + (b"a" * (chunk_size - 1 - len(prefix))) + "中\n".encode("gb18030")
+    )
     assert content[chunk_size - 1 : chunk_size + 1] == "中".encode("gb18030")
     path = tmp_path / "gb.txt"
     path.write_bytes(content)
     parsed = parse_netflow_dataset(path)
     assert parsed.encoding == "gb18030"
-    ignored = next(warning for warning in parsed.warnings if warning["code"] == "netflow_ignored_input_columns")
-    assert ignored == {"code": "netflow_ignored_input_columns", "field": None, "count": 2, "source_record_keys": []}
+    ignored = next(
+        warning
+        for warning in parsed.warnings
+        if warning["code"] == "netflow_ignored_input_columns"
+    )
+    assert ignored == {
+        "code": "netflow_ignored_input_columns",
+        "field": None,
+        "count": 2,
+        "source_record_keys": [],
+    }
 
 
 def test_netflow_parser_rejects_invalid_encoding(tmp_path: Path) -> None:

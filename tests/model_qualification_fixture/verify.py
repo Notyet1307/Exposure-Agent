@@ -17,6 +17,7 @@ os.environ.setdefault("POSTGRES_SERVER", "unused")
 os.environ.setdefault("POSTGRES_USER", "unused")
 os.environ.setdefault("FIRST_SUPERUSER", "fixture@example.com")
 os.environ.setdefault("FIRST_SUPERUSER_PASSWORD", "fixture-password")
+os.environ.setdefault("NETFLOW_MAX_BYTES", str(50 * 1024 * 1024))
 sys.path.insert(0, str(REPOSITORY_ROOT / "backend"))
 
 from sqlalchemy.pool import StaticPool  # noqa: E402
