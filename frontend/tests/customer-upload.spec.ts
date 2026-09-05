@@ -60,7 +60,11 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
   await page.getByRole("option", { name: project.name }).click()
   await expect(projectSelect).toContainText(project.name)
   await page.getByLabel("XLSX file").setInputFiles(validWorkbook)
-  await page.getByRole("button", { name: "Upload", exact: true }).click()
+  await page
+    .locator("form")
+    .filter({ has: page.getByLabel("XLSX file") })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
 
   await expect(page.getByText("Upload accepted successfully.")).toBeVisible()
   const uploadRow = page

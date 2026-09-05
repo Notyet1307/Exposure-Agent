@@ -17,6 +17,8 @@ from sqlmodel import Session, select
 from starlette.requests import Request
 
 from app.core.config import settings
+from app.core.time import get_datetime_utc
+from app.domain.audit import commit_with_audit
 from app.domain.models import Artifact, AuditEvent, NetFlowDataset, Project
 from app.domain.netflow_datasets import NetFlowAcceptanceError, parse_netflow_dataset
 
@@ -427,3 +429,47 @@ def accept_netflow_dataset(
         session.rollback()
         _remove(temporary, normalized_tmp, raw_path, normalized_path)
         raise
+
+
+def set_current_netflow_dataset(
+    *,
+    session: Session,
+    project: Project,
+    dataset: NetFlowDataset | None,
+    actor_subject: str,
+    ip_address: str | None,
+) -> None:
+    previous_dataset_id = project.current_netflow_dataset_id
+    selected_dataset_id = dataset.id if dataset is not None else None
+    if previous_dataset_id == selected_dataset_id:
+        return
+
+    target_id = selected_dataset_id or previous_dataset_id
+    assert target_id is not None
+    project.current_netflow_dataset_id = selected_dataset_id
+    project.updated_at = get_datetime_utc()
+    audit_event = AuditEvent(
+        tenant_id=project.tenant_id,
+        project_id=project.id,
+        actor_subject=actor_subject,
+        actor_type="user",
+        action=(
+            "netflow_dataset.selected"
+            if selected_dataset_id is not None
+            else "netflow_dataset.cleared"
+        ),
+        target_type="netflow_dataset",
+        target_id=target_id,
+        before_data={
+            "current_netflow_dataset_id": (
+                str(previous_dataset_id) if previous_dataset_id is not None else None
+            )
+        },
+        after_data={
+            "current_netflow_dataset_id": (
+                str(selected_dataset_id) if selected_dataset_id is not None else None
+            )
+        },
+        ip_address=ip_address,
+    )
+    commit_with_audit(session=session, record=project, audit_event=audit_event)

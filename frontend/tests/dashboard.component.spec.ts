@@ -125,6 +125,71 @@ const uploads = {
     can_select: false,
   },
 }
+const northNetflowDatasets = [
+  {
+    id: "21000000-0000-0000-0000-000000000001",
+    display_filename: "north-netflow.csv",
+    raw_sha256: "c".repeat(64),
+    normalized_sha256: "d".repeat(64),
+    dataset_contract_version: "netflow-dataset-v1",
+    schema_fingerprint: "e".repeat(64),
+    encoding: "utf-8-sig",
+    byte_size: 2048,
+    raw_record_count: 12,
+    activity_valid_record_count: 9,
+    isolated_record_count: 3,
+    valid_time_start_utc: "2026-08-01T00:00:00Z",
+    valid_time_end_utc: "2026-08-01T12:00:00Z",
+    duplicate_group_count: 2,
+    duplicate_record_count: 3,
+    warnings: [
+      {
+        code: "invalid_timestamp",
+        field: "start_time",
+        count: 2,
+        source_record_keys: ["row:4", "row:8"],
+      },
+    ],
+    created_at: "2026-08-01T13:00:00Z",
+  },
+  {
+    id: "21000000-0000-0000-0000-000000000002",
+    display_filename: "north-netflow-older.txt",
+    raw_sha256: "f".repeat(64),
+    normalized_sha256: "a".repeat(64),
+    dataset_contract_version: "netflow-dataset-v1",
+    schema_fingerprint: "b".repeat(64),
+    encoding: "gb18030",
+    byte_size: 1024,
+    raw_record_count: 4,
+    activity_valid_record_count: 4,
+    isolated_record_count: 0,
+    valid_time_start_utc: null,
+    valid_time_end_utc: null,
+    duplicate_group_count: 0,
+    duplicate_record_count: 0,
+    warnings: [],
+    created_at: "2026-07-31T13:00:00Z",
+  },
+]
+const netflowDatasets = {
+  [projects[0].id]: {
+    data: northNetflowDatasets,
+    count: 2,
+    current_netflow_dataset_id: "21000000-0000-0000-0000-000000000001",
+    current_netflow_dataset: northNetflowDatasets[0],
+    can_upload: true,
+    can_select: true,
+  },
+  [projects[1].id]: {
+    data: [],
+    count: 0,
+    current_netflow_dataset_id: null,
+    current_netflow_dataset: null,
+    can_upload: false,
+    can_select: false,
+  },
+}
 
 async function mockDashboardApi(page: Page) {
   await page.addInitScript(() => {
@@ -180,6 +245,15 @@ async function mockDashboardApi(page: Page) {
     if (uploadsMatch && request.method() === "GET") {
       await route.fulfill({
         json: uploads[uploadsMatch[1] as keyof typeof uploads],
+      })
+      return
+    }
+    const netflowMatch = url.pathname.match(
+      /projects\/([^/]+)\/netflow-datasets$/,
+    )
+    if (netflowMatch && request.method() === "GET") {
+      await route.fulfill({
+        json: netflowDatasets[netflowMatch[1] as keyof typeof netflowDatasets],
       })
       return
     }
@@ -366,7 +440,7 @@ test("selects an accepted upload as the current Project input", async ({
 
   await expect(page.getByText("Current CustomerUpload ID")).toBeVisible()
   await expect(page.getByText(uploads[projects[0].id].data[0].id)).toBeVisible()
-  await expect(page.getByText("Current", { exact: true })).toBeVisible()
+  await expect(page.getByText("Current", { exact: true }).first()).toBeVisible()
   expect(selectionRequests).toBe(1)
 })
 
@@ -379,6 +453,17 @@ test("keeps read-only and Archived Projects visible without input controls", asy
       route.fulfill({
         json: {
           ...uploads[projects[0].id],
+          can_upload: false,
+          can_select: false,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/netflow-datasets*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...netflowDatasets[projects[0].id],
           can_upload: false,
           can_select: false,
         },
@@ -404,6 +489,150 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).toBeVisible()
   await expect(page.getByText("Existing inputs remain visible")).toBeVisible()
   await expect(page.getByLabel("XLSX file")).not.toBeVisible()
+  await expect(page.getByLabel("NetFlow dataset file")).not.toBeVisible()
+  await expect(
+    page.getByRole("button", { name: /Select .*current NetFlowDataset/ }),
+  ).not.toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Clear current" }),
+  ).not.toBeVisible()
+})
+
+test("shows current NetFlowDataset hash, counts, and bounded quality summary", async ({
+  page,
+}) => {
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/netflow-datasets*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...netflowDatasets[projects[0].id],
+          data: [netflowDatasets[projects[0].id].data[1]],
+          count: 11,
+        },
+      }),
+  )
+  await page.goto("/")
+
+  await expect(
+    page.getByText("Current NetFlowDataset", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText(netflowDatasets[projects[0].id].data[0].id).first(),
+  ).toBeVisible()
+  await expect(page.getByText("RAW SHA-256").first()).toBeVisible()
+  await expect(page.getByText("c".repeat(64)).first()).toBeVisible()
+  await expect(page.getByText("Raw records").first()).toBeVisible()
+  await expect(page.getByText("Valid activity records").first()).toBeVisible()
+  await expect(page.getByText("Isolated records").first()).toBeVisible()
+  await expect(page.getByText("12", { exact: true })).toBeVisible()
+  await expect(page.getByText("9", { exact: true })).toBeVisible()
+  await expect(page.getByText("3", { exact: true }).first()).toBeVisible()
+  await expect(page.getByText("invalid_timestamp: 2")).toBeVisible()
+  await expect(page.getByText("Duplicate groups").first()).toBeVisible()
+  await expect(page.getByText("Duplicate records").first()).toBeVisible()
+  await expect(page.getByText(/2026-08-01 00:00:00 UTC/).first()).toBeVisible()
+})
+
+test("uploads a NetFlowDataset and refreshes the list", async ({ page }) => {
+  let uploaded = false
+  const newDataset = {
+    ...netflowDatasets[projects[0].id].data[0],
+    id: "21000000-0000-0000-0000-000000000003",
+    display_filename: "new-netflow.csv",
+    raw_sha256: "1".repeat(64),
+  }
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/netflow-datasets*`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        uploaded = true
+        await route.fulfill({ status: 201, json: newDataset })
+        return
+      }
+      await route.fulfill({
+        json: uploaded
+          ? {
+              ...netflowDatasets[projects[0].id],
+              data: [newDataset, ...netflowDatasets[projects[0].id].data],
+              count: 3,
+            }
+          : netflowDatasets[projects[0].id],
+      })
+    },
+  )
+  await page.goto("/")
+
+  const fileInput = page.getByLabel("NetFlow dataset file")
+  await fileInput.setInputFiles({
+    name: "new-netflow.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("source_record_key,src_ip"),
+  })
+  await page.getByRole("button", { name: "Upload" }).last().click()
+
+  await expect(
+    page.getByText("NetFlowDataset upload accepted successfully."),
+  ).toBeVisible()
+  await expect(fileInput).toHaveValue("")
+  await expect(page.getByText("new-netflow.csv").first()).toBeVisible()
+})
+
+test("selects and clears the current NetFlowDataset", async ({ page }) => {
+  const secondId = netflowDatasets[projects[0].id].data[1].id
+  let currentId: string | null =
+    netflowDatasets[projects[0].id].current_netflow_dataset_id
+  await page.route(
+    new RegExp(
+      `/api/v1/projects/${projects[0].id}/netflow-datasets(?:/.*)?(?:\\?.*)?$`,
+    ),
+    async (route) => {
+      const url = new URL(route.request().url())
+      if (
+        route.request().method() === "POST" &&
+        url.pathname.endsWith(`/${secondId}/select`)
+      ) {
+        currentId = secondId
+        await route.fulfill({ json: netflowDatasets[projects[0].id].data[1] })
+        return
+      }
+      if (
+        route.request().method() === "DELETE" &&
+        url.pathname.endsWith("/current-selection")
+      ) {
+        currentId = null
+        await route.fulfill({ status: 204 })
+        return
+      }
+      await route.fulfill({
+        json: {
+          ...netflowDatasets[projects[0].id],
+          current_netflow_dataset_id: currentId,
+          current_netflow_dataset:
+            currentId === null
+              ? null
+              : (netflowDatasets[projects[0].id].data.find(
+                  (dataset) => dataset.id === currentId,
+                ) ?? null),
+        },
+      })
+    },
+  )
+  await page.goto("/")
+
+  await page
+    .getByRole("button", { name: /Select north-netflow-older\.txt/ })
+    .click()
+  await expect(
+    page.getByText("Current NetFlowDataset updated successfully."),
+  ).toBeVisible()
+  await expect(page.getByText("north-netflow-older.txt").first()).toBeVisible()
+
+  await page.getByRole("button", { name: "Clear current" }).click()
+  await expect(
+    page.getByText("Current NetFlowDataset cleared successfully."),
+  ).toBeVisible()
+  await expect(page.getByText("No current NetFlowDataset")).toBeVisible()
 })
 
 for (const status of [201, 200]) {
@@ -447,7 +676,11 @@ for (const status of [201, 200]) {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       buffer: Buffer.from("mock workbook"),
     })
-    await page.getByRole("button", { name: "Upload" }).click()
+    await page
+      .locator("form")
+      .filter({ has: page.getByLabel("XLSX file") })
+      .getByRole("button", { name: "Upload" })
+      .click()
 
     await expect(page.getByText("Upload accepted successfully.")).toBeVisible()
     await expect(fileInput).toHaveValue("")
@@ -691,7 +924,11 @@ test("shows only the server safe upload explanation", async ({ page }) => {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     buffer: Buffer.from("invalid workbook"),
   })
-  await page.getByRole("button", { name: "Upload" }).click()
+  await page
+    .locator("form")
+    .filter({ has: page.getByLabel("XLSX file") })
+    .getByRole("button", { name: "Upload" })
+    .click()
 
   await expect(
     page.getByText("The workbook contains an invalid required value."),

@@ -75,6 +75,16 @@ class Project(ProjectBase, table=True):
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
+            ["current_netflow_dataset_id", "id", "tenant_id"],
+            [
+                "netflow_datasets.id",
+                "netflow_datasets.project_id",
+                "netflow_datasets.tenant_id",
+            ],
+            name="fk_projects_current_netflow_dataset",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
             ["latest_completed_run_id", "id", "tenant_id"],
             [
                 "governance_runs.id",
@@ -110,6 +120,7 @@ class Project(ProjectBase, table=True):
     )
     current_customer_upload_profile_id: uuid.UUID = Field(index=True)
     current_customer_upload_id: uuid.UUID | None = Field(default=None, index=True)
+    current_netflow_dataset_id: uuid.UUID | None = Field(default=None, index=True)
     latest_completed_run_id: uuid.UUID | None = Field(default=None, index=True)
     governance_launch_trigger_id: str | None = Field(default=None, max_length=255)
     governance_launch_control_run_id: str | None = Field(default=None, max_length=64)
@@ -377,6 +388,15 @@ class NetFlowDatasetPublic(SQLModel):
     duplicate_record_count: int
     warnings: list[dict[str, Any]]
     created_at: datetime
+
+
+class NetFlowDatasetsPublic(SQLModel):
+    data: list[NetFlowDatasetPublic]
+    count: int
+    current_netflow_dataset_id: uuid.UUID | None
+    current_netflow_dataset: NetFlowDatasetPublic | None
+    can_upload: bool
+    can_select: bool
 
 
 class CustomerUploadWarningPublic(SQLModel):

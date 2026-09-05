@@ -32,7 +32,9 @@ from app.domain.models import (
     CustomerUploadProfilePublic,
     CustomerUploadPublic,
     CustomerUploadsPublic,
+    NetFlowDataset,
     NetFlowDatasetPublic,
+    NetFlowDatasetsPublic,
     Project,
     ProjectCreate,
     ProjectPublic,
@@ -255,6 +257,71 @@ def read_current_customer_upload_profile(
     )
 
 
+@router.get(
+    "/{project_id}/netflow-datasets",
+    response_model=NetFlowDatasetsPublic,
+)
+def read_netflow_datasets(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+) -> Any:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=PROJECT_READ_ROLES,
+    )
+    dataset_scope = (
+        NetFlowDataset.project_id == project.id,
+        NetFlowDataset.tenant_id == project.tenant_id,
+    )
+    count = session.exec(
+        select(func.count()).select_from(NetFlowDataset).where(*dataset_scope)
+    ).one()
+    datasets = session.exec(
+        select(NetFlowDataset)
+        .where(*dataset_scope)
+        .order_by(
+            col(NetFlowDataset.created_at).desc(), col(NetFlowDataset.id).desc()
+        )
+        .offset(skip)
+        .limit(limit)
+    ).all()
+    current_dataset = session.exec(
+        select(NetFlowDataset).where(
+            NetFlowDataset.id == project.current_netflow_dataset_id,
+            *dataset_scope,
+        )
+    ).one_or_none()
+    has_operator_access = session.exec(
+        select(func.count())
+        .select_from(Project)
+        .where(
+            Project.id == project.id,
+            project_access_filter(
+                user=current_user, allowed_roles=(ProjectRole.OPERATOR,)
+            ),
+        )
+    ).one()
+    can_change_inputs = project.archived_at is None and has_operator_access > 0
+    return NetFlowDatasetsPublic(
+        data=[NetFlowDatasetPublic.model_validate(dataset) for dataset in datasets],
+        count=count,
+        current_netflow_dataset_id=project.current_netflow_dataset_id,
+        current_netflow_dataset=(
+            NetFlowDatasetPublic.model_validate(current_dataset)
+            if current_dataset is not None
+            else None
+        ),
+        can_upload=can_change_inputs,
+        can_select=can_change_inputs,
+    )
+
+
 @router.post(
     "/{project_id}/netflow-datasets",
     response_model=NetFlowDatasetPublic,
@@ -319,6 +386,72 @@ async def create_netflow_dataset(
         raise HTTPException(status_code=error_status, detail=detail) from error
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return NetFlowDatasetPublic.model_validate(dataset)
+
+
+@router.post(
+    "/{project_id}/netflow-datasets/{dataset_id}/select",
+    response_model=NetFlowDatasetPublic,
+)
+def select_current_netflow_dataset(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    dataset_id: uuid.UUID,
+    current_user: CurrentUser,
+    request: Request,
+) -> Any:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=(ProjectRole.OPERATOR,),
+        writable=True,
+    )
+    dataset = session.exec(
+        select(NetFlowDataset).where(
+            NetFlowDataset.id == dataset_id,
+            NetFlowDataset.project_id == project.id,
+            NetFlowDataset.tenant_id == project.tenant_id,
+        )
+    ).one_or_none()
+    if dataset is None:
+        raise HTTPException(status_code=404, detail="NetFlowDataset not found")
+    netflow_dataset_service.set_current_netflow_dataset(
+        session=session,
+        project=project,
+        dataset=dataset,
+        actor_subject=str(current_user.id),
+        ip_address=get_request_ip_address(request),
+    )
+    return NetFlowDatasetPublic.model_validate(dataset)
+
+
+@router.delete(
+    "/{project_id}/netflow-datasets/current-selection",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def clear_current_netflow_dataset(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    request: Request,
+) -> Response:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=(ProjectRole.OPERATOR,),
+        writable=True,
+    )
+    netflow_dataset_service.set_current_netflow_dataset(
+        session=session,
+        project=project,
+        dataset=None,
+        actor_subject=str(current_user.id),
+        ip_address=get_request_ip_address(request),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
