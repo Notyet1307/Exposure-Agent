@@ -219,7 +219,12 @@ def test_netflow_post_is_idempotent_scoped_and_does_not_select_or_create_run(
         db.commit()
     db.rollback()
     accepted_events = db.exec(
-        select(AuditEvent).where(AuditEvent.action == "netflow_dataset.accepted")
+        select(AuditEvent).where(
+            AuditEvent.action == "netflow_dataset.accepted",
+            col(AuditEvent.project_id).in_(
+                (uuid.UUID(str(first_project["id"])), uuid.UUID(str(second_project["id"])))
+            ),
+        )
     ).all()
     assert len(accepted_events) == 2
     assert set(cast(dict[str, Any], accepted_events[0].after_data)) == {

@@ -8,7 +8,8 @@ def test_netflow_schema_exposes_scoped_immutable_contract(db: Session) -> None:
         for row in db.execute(
             text(
                 "SELECT conname FROM pg_constraint "
-                "WHERE conrelid IN ('netflow_datasets'::regclass, 'projects'::regclass)"
+                "WHERE conrelid IN ('netflow_datasets'::regclass, 'projects'::regclass, "
+                "'governance_runs'::regclass)"
             )
         ).all()
     }
@@ -23,6 +24,8 @@ def test_netflow_schema_exposes_scoped_immutable_contract(db: Session) -> None:
         "ck_netflow_datasets_counts_nonnegative",
         "ck_netflow_datasets_encoding",
         "fk_projects_current_netflow_dataset",
+        "fk_governance_runs_netflow_dataset_scope",
+        "fk_governance_runs_netflow_content_scope",
     } <= constraints
     assert (
         db.execute(

@@ -29,7 +29,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_SCHEMA_REVISION = "e5f6a7b8c9d0"
+CURRENT_SCHEMA_REVISION = "f6a7b8c9d0e1"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -1952,9 +1952,13 @@ def test_netflow_migration_does_not_backfill_existing_run_or_snapshots(
         ).fetchall()
     run_migration(template_baseline_database, "head")
     with connect(template_baseline_database) as connection:
-        assert connection.execute(
+        after_run = connection.execute(
             "SELECT * FROM governance_runs WHERE id = %s", (ids["run_id"],)
-        ).fetchone() == before_run
+        ).fetchone()
+        assert after_run is not None
+        assert before_run is not None
+        assert after_run[: len(before_run)] == before_run
+        assert after_run[len(before_run) :] == (None, None, None, None, None)
         assert connection.execute(
             "SELECT id, source_type, content_sha256, record_count FROM source_snapshots "
             "WHERE governance_run_id = %s ORDER BY id", (ids["run_id"],)

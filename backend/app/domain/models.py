@@ -684,6 +684,22 @@ class GovernanceRun(SQLModel, table=True):
             name="ck_governance_runs_profile_version_positive",
         ),
         CheckConstraint(
+            "input_contract_version IS NULL AND input_hash IS NULL AND "
+            "netflow_dataset_id IS NULL AND netflow_content_sha256 IS NULL AND "
+            "netflow_dataset_contract_version IS NULL OR "
+            "input_contract_version = 'governance-run-input-v1' AND "
+            "input_hash IS NOT NULL AND "
+            "((netflow_dataset_id IS NULL AND netflow_content_sha256 IS NULL AND "
+            "netflow_dataset_contract_version IS NULL) OR "
+            "(netflow_dataset_id IS NOT NULL AND netflow_content_sha256 IS NOT NULL AND "
+            "netflow_dataset_contract_version IS NOT NULL))",
+            name="ck_governance_runs_input_contract",
+        ),
+        CheckConstraint(
+            "input_hash IS NULL OR input_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_governance_runs_input_hash",
+        ),
+        CheckConstraint(
             "processing_contract_version IS NULL OR "
             "btrim(processing_contract_version) <> ''",
             name="ck_governance_runs_processing_contract_version",
@@ -716,6 +732,23 @@ class GovernanceRun(SQLModel, table=True):
                 "source_instances.tenant_id",
             ],
             name="fk_governance_runs_source_instance_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["netflow_dataset_id", "project_id", "tenant_id"],
+            ["netflow_datasets.id", "netflow_datasets.project_id", "netflow_datasets.tenant_id"],
+            name="fk_governance_runs_netflow_dataset_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "project_id",
+                "tenant_id",
+                "netflow_content_sha256",
+                "netflow_dataset_contract_version",
+            ],
+            ["netflow_datasets.project_id", "netflow_datasets.tenant_id", "netflow_datasets.raw_sha256", "netflow_datasets.dataset_contract_version"],
+            name="fk_governance_runs_netflow_content_scope",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
@@ -770,6 +803,13 @@ class GovernanceRun(SQLModel, table=True):
     package_sha256: str = Field(max_length=64)
     descriptor_sha256: str = Field(max_length=64)
     runner_build_version: str = Field(max_length=255)
+    input_contract_version: str | None = Field(default=None, max_length=100)
+    input_hash: str | None = Field(default=None, max_length=64)
+    netflow_dataset_id: uuid.UUID | None = Field(default=None, index=True)
+    netflow_content_sha256: str | None = Field(default=None, max_length=64)
+    netflow_dataset_contract_version: str | None = Field(
+        default=None, max_length=100
+    )
     processing_contract_version: str | None = Field(default=None, max_length=100)
     report_contract_version: str | None = Field(default=None, max_length=100)
     created_at: datetime = Field(
