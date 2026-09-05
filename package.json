@@ -10,12 +10,14 @@
     "test": "bun run --filter exposure-agent-frontend test",
     "test:ui": "bun run --filter exposure-agent-frontend test:ui",
     "test:cloudatlas-fixture": "./scripts/test-cloudatlas-fixture.sh",
+    "test:netflow-fixture": "./scripts/test-netflow-fixture.sh",
     "verify:oracle:rel003-c01": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o01-bounded-generation.json",
     "verify:oracle:rel003-c02": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o02-terminal-review-api.json",
     "verify:oracle:rel003-c03": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o03-operator-terminal-flow.json",
     "verify:oracle:rel003-r1-generation": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o04-qualified-generation.json",
     "verify:oracle:rel003-r2-recovery": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o05-post-failure-server-recovery.json",
     "verify:oracle:rel003-r1-review-ui": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o06-terminal-review-ui.json",
-    "verify:oracle:rel003-r2-recovery-ui": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o07-post-failure-recovery-ui.json"
+    "verify:oracle:rel003-r2-recovery-ui": "node scripts/verify-rel003-oracle.mjs oracles/rel-003/o07-post-failure-recovery-ui.json",
+    "verify:oracle:governance-v1": "./scripts/test-dual-source-golden.sh"
   }
 }
