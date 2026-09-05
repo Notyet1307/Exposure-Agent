@@ -115,6 +115,15 @@ def test_netflow_max_bytes_accepts_positive_deployment_limit(
     value: int, tmp_path: Path
 ) -> None:
     environment = os.environ.copy()
+    environment.update(
+        {
+            "PROJECT_NAME": "x",
+            "POSTGRES_SERVER": "x",
+            "POSTGRES_USER": "x",
+            "FIRST_SUPERUSER": "settings@example.com",
+            "FIRST_SUPERUSER_PASSWORD": "long-password",
+        }
+    )
     environment["NETFLOW_MAX_BYTES"] = str(value)
     environment["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
     result = subprocess.run(
