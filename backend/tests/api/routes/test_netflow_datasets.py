@@ -8,7 +8,8 @@ from typing import Any, cast
 import pytest
 from fastapi.testclient import TestClient
 from pytest import MonkeyPatch
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, col, select
 
 from app.core.config import settings
@@ -56,11 +57,11 @@ def _member(
     return user_authentication_headers(client=client, email=email, password=password)
 
 
-def _csv() -> bytes:
+def _csv(source_ip: str = "198.51.100.20") -> bytes:
     return (
-        b"IP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT\n"
-        b"198.51.100.20,192.0.2.10,6,53000,443\n"
-    )
+        "IP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT\n"
+        f"{source_ip},192.0.2.10,6,53000,443\n"
+    ).encode()
 
 
 def _upload(
@@ -470,3 +471,268 @@ def test_netflow_audit_failure_compensates_database_and_files(
         )
     ).all()
     assert not list((tmp_path / "netflow_datasets").glob("*"))
+
+
+def test_netflow_list_is_scoped_paginated_and_readable_by_all_project_roles(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _project(client, superuser_token_headers)
+    other_project = _project(client, superuser_token_headers)
+    datasets = [
+        _upload(client, superuser_token_headers, project["id"], _csv(source_ip)).json()
+        for source_ip in ("198.51.100.21", "198.51.100.22")
+    ]
+    list_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/netflow-datasets"
+    )
+
+    admin_response = client.get(list_url, headers=superuser_token_headers)
+    assert admin_response.status_code == 200
+    expected = sorted(
+        datasets, key=lambda dataset: (dataset["created_at"], dataset["id"]), reverse=True
+    )
+    assert admin_response.json() == {
+        "data": expected,
+        "count": 2,
+        "current_netflow_dataset_id": None,
+        "current_netflow_dataset": None,
+        "can_upload": True,
+        "can_select": True,
+    }
+    page = client.get(
+        list_url, headers=superuser_token_headers, params={"skip": 1, "limit": 1}
+    )
+    assert page.status_code == 200
+    assert page.json()["data"] == expected[1:]
+    assert page.json()["count"] == 2
+    assert all("artifact" not in key for key in expected[0])
+
+    current = expected[1]
+    assert client.post(
+        f"{list_url}/{current['id']}/select", headers=superuser_token_headers
+    ).status_code == 200
+    off_page = client.get(
+        list_url, headers=superuser_token_headers, params={"limit": 1}
+    )
+    assert off_page.status_code == 200
+    assert off_page.json()["data"] == expected[:1]
+    assert off_page.json()["current_netflow_dataset_id"] == current["id"]
+    assert off_page.json()["current_netflow_dataset"] == current
+
+    role_headers = {
+        role: _member(client, superuser_token_headers, project["id"], [role])
+        for role in ("viewer", "operator", "approver")
+    }
+    for role, headers in role_headers.items():
+        response = client.get(list_url, headers=headers)
+        assert response.status_code == 200
+        assert response.json()["can_upload"] is (role == "operator")
+        assert response.json()["can_select"] is (role == "operator")
+
+    outsider = _member(
+        client, superuser_token_headers, other_project["id"], ["viewer"]
+    )
+    assert client.get(list_url, headers=outsider).status_code == 404
+    assert client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/archive",
+        headers=superuser_token_headers,
+    ).status_code == 200
+    archived = client.get(list_url, headers=role_headers["operator"])
+    assert archived.status_code == 200
+    assert archived.json()["data"] == expected
+    assert archived.json()["can_upload"] is False
+    assert archived.json()["can_select"] is False
+
+
+def test_netflow_selection_is_scoped_operator_only_archived_safe_and_idempotent(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _project(client, superuser_token_headers)
+    other_project = _project(client, superuser_token_headers)
+    dataset = _upload(
+        client, superuser_token_headers, project["id"], _csv("198.51.100.31")
+    ).json()
+    other_dataset = _upload(
+        client, superuser_token_headers, other_project["id"], _csv("198.51.100.32")
+    ).json()
+    operator = _member(client, superuser_token_headers, project["id"], ["operator"])
+    read_only = [
+        _member(client, superuser_token_headers, project["id"], [role])
+        for role in ("viewer", "approver")
+    ]
+    select_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/netflow-datasets/"
+        f"{dataset['id']}/select"
+    )
+
+    selected = client.post(select_url, headers=operator)
+    repeated = client.post(select_url, headers=operator)
+    denied = [client.post(select_url, headers=headers) for headers in read_only]
+    cross_project = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/netflow-datasets/"
+        f"{other_dataset['id']}/select",
+        headers=superuser_token_headers,
+    )
+    missing = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/netflow-datasets/"
+        f"{uuid.uuid4()}/select",
+        headers=superuser_token_headers,
+    )
+
+    assert selected.status_code == 200
+    assert selected.json() == dataset
+    assert repeated.status_code == 200
+    assert [response.status_code for response in denied] == [404, 404]
+    assert cross_project.status_code == 404
+    assert missing.status_code == 404
+    assert client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/archive",
+        headers=superuser_token_headers,
+    ).status_code == 200
+    assert client.post(select_url, headers=superuser_token_headers).status_code == 409
+
+    db.expire_all()
+    stored_project = db.get(Project, uuid.UUID(str(project["id"])))
+    assert stored_project is not None
+    assert stored_project.current_netflow_dataset_id == uuid.UUID(dataset["id"])
+    events = db.exec(
+        select(AuditEvent).where(
+            AuditEvent.project_id == stored_project.id,
+            AuditEvent.action == "netflow_dataset.selected",
+        )
+    ).all()
+    assert len(events) == 1
+    assert events[0].target_type == "netflow_dataset"
+    assert events[0].target_id == uuid.UUID(dataset["id"])
+    assert events[0].before_data == {"current_netflow_dataset_id": None}
+    assert events[0].after_data == {
+        "current_netflow_dataset_id": dataset["id"]
+    }
+
+
+def test_netflow_selection_rolls_back_when_audit_insert_fails(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _project(client, superuser_token_headers)
+    dataset = _upload(
+        client, superuser_token_headers, project["id"], _csv("198.51.100.41")
+    ).json()
+    select_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/netflow-datasets/"
+        f"{dataset['id']}/select"
+    )
+
+    with reject_audit_inserts(db):
+        with TestClient(app, raise_server_exceptions=False) as failure_client:
+            response = failure_client.post(
+                select_url, headers=superuser_token_headers
+            )
+        assert response.status_code == 500
+
+    db.expire_all()
+    stored_project = db.get(Project, uuid.UUID(str(project["id"])))
+    assert stored_project is not None
+    assert stored_project.current_netflow_dataset_id is None
+    assert not db.exec(
+        select(AuditEvent).where(
+            AuditEvent.project_id == stored_project.id,
+            AuditEvent.action == "netflow_dataset.selected",
+        )
+    ).all()
+
+
+def test_netflow_selection_can_be_cleared_without_deleting_dataset_or_duplicate_audit(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _project(client, superuser_token_headers)
+    dataset = _upload(
+        client, superuser_token_headers, project["id"], _csv("198.51.100.51")
+    ).json()
+    operator = _member(client, superuser_token_headers, project["id"], ["operator"])
+    viewer = _member(client, superuser_token_headers, project["id"], ["viewer"])
+    dataset_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/netflow-datasets"
+    )
+    assert client.post(
+        f"{dataset_url}/{dataset['id']}/select", headers=operator
+    ).status_code == 200
+    clear_url = f"{dataset_url}/current-selection"
+
+    assert client.delete(clear_url, headers=viewer).status_code == 404
+    assert client.delete(clear_url, headers=operator).status_code == 204
+    assert client.delete(clear_url, headers=operator).status_code == 204
+
+    db.expire_all()
+    stored_project = db.get(Project, uuid.UUID(str(project["id"])))
+    assert stored_project is not None
+    assert stored_project.current_netflow_dataset_id is None
+    assert db.get(NetFlowDataset, uuid.UUID(dataset["id"])) is not None
+    events = db.exec(
+        select(AuditEvent).where(
+            AuditEvent.project_id == stored_project.id,
+            AuditEvent.action == "netflow_dataset.cleared",
+        )
+    ).all()
+    assert len(events) == 1
+    assert events[0].target_type == "netflow_dataset"
+    assert events[0].target_id == uuid.UUID(dataset["id"])
+    assert events[0].before_data == {
+        "current_netflow_dataset_id": dataset["id"]
+    }
+    assert events[0].after_data == {"current_netflow_dataset_id": None}
+    assert client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/archive",
+        headers=superuser_token_headers,
+    ).status_code == 200
+    assert client.delete(clear_url, headers=superuser_token_headers).status_code == 409
+
+
+def test_project_current_netflow_dataset_fk_rejects_cross_project_selection(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _project(client, superuser_token_headers)
+    other_project = _project(client, superuser_token_headers)
+    other_dataset = _upload(
+        client, superuser_token_headers, other_project["id"], _csv("198.51.100.61")
+    ).json()
+
+    with pytest.raises(IntegrityError):
+        db.execute(
+            text(
+                "UPDATE projects SET current_netflow_dataset_id = :dataset_id "
+                "WHERE id = :project_id"
+            ),
+            {
+                "dataset_id": uuid.UUID(other_dataset["id"]),
+                "project_id": uuid.UUID(str(project["id"])),
+            },
+        )
+        db.commit()
+    db.rollback()
+    stored_project = db.get(Project, uuid.UUID(str(project["id"])))
+    assert stored_project is not None
+    assert stored_project.current_netflow_dataset_id is None

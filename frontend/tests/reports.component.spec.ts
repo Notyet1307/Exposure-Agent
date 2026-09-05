@@ -271,6 +271,19 @@ async function installBaseMocks(page: Page) {
       })
       return
     }
+    if (url.pathname.endsWith("/netflow-datasets")) {
+      await route.fulfill({
+        json: {
+          data: [],
+          count: 0,
+          current_netflow_dataset_id: null,
+          current_netflow_dataset: null,
+          can_upload: false,
+          can_select: false,
+        },
+      })
+      return
+    }
     await route.fallback()
   })
 }

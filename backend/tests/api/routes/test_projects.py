@@ -566,6 +566,14 @@ def test_openapi_exposes_supported_project_and_read_only_audit_contracts(
     assert set(paths[select_upload_path]) == {"post"}
     delete_upload_path = f"{customer_uploads_path}/{{upload_id}}"
     assert set(paths[delete_upload_path]) == {"delete"}
+    netflow_datasets_path = (
+        f"{settings.API_V1_STR}/projects/{{project_id}}/netflow-datasets"
+    )
+    assert set(paths[netflow_datasets_path]) == {"get", "post"}
+    select_netflow_path = f"{netflow_datasets_path}/{{dataset_id}}/select"
+    assert set(paths[select_netflow_path]) == {"post"}
+    clear_netflow_path = f"{netflow_datasets_path}/current-selection"
+    assert set(paths[clear_netflow_path]) == {"delete"}
     assert set(paths[f"{settings.API_V1_STR}/projects/{{project_id}}/archive"]) == {
         "post"
     }

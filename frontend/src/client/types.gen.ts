@@ -368,6 +368,15 @@ export type NetFlowDatasetPublic = {
     created_at: string;
 };
 
+export type NetFlowDatasetsPublic = {
+    data: Array<NetFlowDatasetPublic>;
+    count: number;
+    current_netflow_dataset_id: (string | null);
+    current_netflow_dataset: (NetFlowDatasetPublic | null);
+    can_upload: boolean;
+    can_select: boolean;
+};
+
 export type ProjectCreate = {
     name: string;
 };
@@ -719,6 +728,14 @@ export type ProjectsReadCurrentCustomerUploadProfileData = {
 
 export type ProjectsReadCurrentCustomerUploadProfileResponse = (CustomerUploadProfilePublic);
 
+export type ProjectsReadNetflowDatasetsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+};
+
+export type ProjectsReadNetflowDatasetsResponse = (NetFlowDatasetsPublic);
+
 export type ProjectsCreateNetflowDatasetData = {
     formData: {
         file: (Blob | File);
@@ -727,6 +744,19 @@ export type ProjectsCreateNetflowDatasetData = {
 };
 
 export type ProjectsCreateNetflowDatasetResponse = (NetFlowDatasetPublic);
+
+export type ProjectsSelectCurrentNetflowDatasetData = {
+    datasetId: string;
+    projectId: string;
+};
+
+export type ProjectsSelectCurrentNetflowDatasetResponse = (NetFlowDatasetPublic);
+
+export type ProjectsClearCurrentNetflowDatasetData = {
+    projectId: string;
+};
+
+export type ProjectsClearCurrentNetflowDatasetResponse = (void);
 
 export type ProjectsCreateCustomerUploadData = {
     formData: {

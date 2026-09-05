@@ -123,6 +123,19 @@ async function installBaseMocks(page: import("@playwright/test").Page) {
       })
       return
     }
+    if (url.pathname.endsWith("/netflow-datasets")) {
+      await route.fulfill({
+        json: {
+          data: [],
+          count: 0,
+          current_netflow_dataset_id: null,
+          current_netflow_dataset: null,
+          can_upload: false,
+          can_select: false,
+        },
+      })
+      return
+    }
     if (url.pathname.endsWith("/cloudatlas-source-instances")) {
       await route.fulfill({ json: { data: [], count: 0, can_manage: false } })
       return

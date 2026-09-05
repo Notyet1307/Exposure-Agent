@@ -16,6 +16,7 @@ import Findings from "@/components/Findings"
 import GovernanceReports from "@/components/GovernanceReports"
 import GovernanceRuns from "@/components/GovernanceRuns"
 import IPAssets from "@/components/IPAssets"
+import NetFlowDatasets from "@/components/NetFlowDatasets"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -483,6 +484,10 @@ function ProjectWorkspace({ project }: { project: ProjectPublic }) {
       </TabsList>
       <TabsContent value="inputs">
         <ProjectInputs project={project} />
+        <NetFlowDatasets
+          projectId={project.id}
+          archived={project.archived_at !== null}
+        />
       </TabsContent>
       <TabsContent value="cloudatlas">
         <CloudAtlasSources projectId={project.id} />

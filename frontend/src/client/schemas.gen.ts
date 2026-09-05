@@ -1879,6 +1879,55 @@ export const NetFlowDatasetPublicSchema = {
     title: 'NetFlowDatasetPublic'
 } as const;
 
+export const NetFlowDatasetsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/NetFlowDatasetPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        current_netflow_dataset_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Netflow Dataset Id'
+        },
+        current_netflow_dataset: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/NetFlowDatasetPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        can_upload: {
+            type: 'boolean',
+            title: 'Can Upload'
+        },
+        can_select: {
+            type: 'boolean',
+            title: 'Can Select'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'current_netflow_dataset_id', 'current_netflow_dataset', 'can_upload', 'can_select'],
+    title: 'NetFlowDatasetsPublic'
+} as const;
+
 export const ProjectCreateSchema = {
     properties: {
         name: {
