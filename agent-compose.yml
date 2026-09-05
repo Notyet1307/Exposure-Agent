@@ -24,6 +24,7 @@ agents:
         value: ${POSTGRES_PASSWORD}
         secret: true
       ARTIFACT_ROOT: /app/artifacts
+      NETFLOW_MAX_BYTES: ${NETFLOW_MAX_BYTES}
       OCTOBUS_URL: http://octobus:9000
       CLOUDATLAS_CAPSET_TOKEN:
         value: ${CLOUDATLAS_CAPSET_TOKEN}
@@ -46,6 +47,7 @@ agents:
       POSTGRES_USER: unused
       FIRST_SUPERUSER: fixture@example.com
       FIRST_SUPERUSER_PASSWORD: unused
+      NETFLOW_MAX_BYTES: ${NETFLOW_MAX_BYTES}
       LLM_API_ENDPOINT: ${MODEL_API_ENDPOINT}
       LLM_API_PROTOCOL: ${MODEL_API_PROTOCOL}
       LLM_API_KEY:
