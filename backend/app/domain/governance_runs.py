@@ -67,6 +67,7 @@ from app.domain.models import (
     GovernanceRun,
     GovernanceRunPublic,
     GovernanceRunStatus,
+    NetFlowDataset,
     Observation,
     ObservationResourceLink,
     Project,
@@ -81,6 +82,7 @@ from app.domain.models import (
     SourceSnapshotPublic,
     SourceSnapshotType,
 )
+from app.domain.netflow_datasets import NETFLOW_DATASET_CONTRACT_VERSION
 from app.domain.report_core import (
     REPORT_CONTRACT_VERSION,
     CanonicalReportCore,
@@ -174,19 +176,31 @@ class PinnedTriggerInputs:
     descriptor_sha256: str
     runner_build_version: str
     processing_contract_version: str | None
+    report_contract_version: str | None = None
+    input_contract_version: str | None = None
+    netflow_dataset_id: uuid.UUID | None = None
+    netflow_content_sha256: str | None = None
+    netflow_dataset_contract_version: str | None = None
+
+    def canonical_payload(self) -> dict[str, Any]:
+        if self.input_contract_version is None:
+            return self.runner_environment(trigger_id="-", requested_by="-")
+        return _canonical_input_payload(self)
 
     def input_hash(self) -> str:
-        environment = self.runner_environment(trigger_id="-", requested_by="-")
-        environment.pop("GOVERNANCE_TRIGGER_ID")
-        environment.pop("GOVERNANCE_REQUESTED_BY")
-        return _fingerprint(environment)
+        if self.input_contract_version is None:
+            environment = self.runner_environment(trigger_id="-", requested_by="-")
+            environment.pop("GOVERNANCE_TRIGGER_ID")
+            environment.pop("GOVERNANCE_REQUESTED_BY")
+            return _fingerprint(environment)
+        return _fingerprint(self.canonical_payload())
 
     def runner_environment(
         self,
         *,
         trigger_id: str,
         requested_by: str,
-        report_contract_version: str | None = None,
+        input_hash: str | None = None,
     ) -> dict[str, str]:
         environment = {
             "GOVERNANCE_PROJECT_ID": str(self.project_id),
@@ -195,26 +209,29 @@ class PinnedTriggerInputs:
             "GOVERNANCE_CUSTOMER_UPLOAD_ID": str(self.customer_upload_id),
             "GOVERNANCE_CUSTOMER_UPLOAD_SHA256": self.customer_upload_sha256,
             "GOVERNANCE_CUSTOMER_PROFILE_ID": str(self.customer_upload_profile_id),
-            "GOVERNANCE_CUSTOMER_PROFILE_VERSION": str(
-                self.customer_upload_profile_version
-            ),
+            "GOVERNANCE_CUSTOMER_PROFILE_VERSION": str(self.customer_upload_profile_version),
             "GOVERNANCE_SOURCE_INSTANCE_ID": str(self.source_instance_id),
-            "GOVERNANCE_CLOUDATLAS_FINGERPRINT": (
-                self.cloudatlas_validated_fingerprint
-            ),
+            "GOVERNANCE_CLOUDATLAS_FINGERPRINT": self.cloudatlas_validated_fingerprint,
             "GOVERNANCE_CLOUDATLAS_CAPSET_ID": self.cloudatlas_capset_id,
             "GOVERNANCE_CLOUDATLAS_METHOD": self.cloudatlas_method,
             "GOVERNANCE_PACKAGE_SHA256": self.package_sha256,
             "GOVERNANCE_DESCRIPTOR_SHA256": self.descriptor_sha256,
             "GOVERNANCE_RUNNER_BUILD_VERSION": self.runner_build_version,
-            "GOVERNANCE_PROCESSING_CONTRACT_VERSION": (
-                self.processing_contract_version or ""
-            ),
+            "GOVERNANCE_PROCESSING_CONTRACT_VERSION": self.processing_contract_version or "",
         }
-        if report_contract_version is not None:
-            environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
-                report_contract_version
+        if self.input_contract_version is not None:
+            environment.update(
+                {
+                    "GOVERNANCE_REPORT_CONTRACT_VERSION": self.report_contract_version or "",
+                    "GOVERNANCE_INPUT_CONTRACT_VERSION": self.input_contract_version,
+                    "GOVERNANCE_INPUT_HASH": input_hash or self.input_hash(),
+                    "GOVERNANCE_NETFLOW_DATASET_ID": str(self.netflow_dataset_id or ""),
+                    "GOVERNANCE_NETFLOW_CONTENT_SHA256": self.netflow_content_sha256 or "",
+                    "GOVERNANCE_NETFLOW_DATASET_CONTRACT_VERSION": self.netflow_dataset_contract_version or "",
+                }
             )
+        elif self.report_contract_version is not None:
+            environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = self.report_contract_version
         return environment
 
 
@@ -237,6 +254,17 @@ class RunnerInputs:
     runner_build_version: str
     processing_contract_version: str | None
     report_contract_version: str | None
+    input_contract_version: str | None = None
+    input_hash: str | None = None
+    netflow_dataset_id: uuid.UUID | None = None
+    netflow_content_sha256: str | None = None
+    netflow_dataset_contract_version: str | None = None
+
+    def canonical_payload(self) -> dict[str, Any]:
+        return _canonical_input_payload(self)
+
+    def computed_input_hash(self) -> str:
+        return _fingerprint(self.canonical_payload())
 
     @classmethod
     def from_environment(cls, environment: dict[str, str]) -> RunnerInputs:
@@ -246,6 +274,10 @@ class RunnerInputs:
                 raise GovernanceRunExecutionError("runner_input_invalid")
             return value
 
+        def optional_uuid(name: str) -> uuid.UUID | None:
+            value = environment.get(name, "").strip()
+            return uuid.UUID(value) if value else None
+
         try:
             profile_version = int(required("GOVERNANCE_CUSTOMER_PROFILE_VERSION"))
             raw_processing_contract = environment.get(
@@ -254,6 +286,10 @@ class RunnerInputs:
             raw_report_contract = environment.get(
                 "GOVERNANCE_REPORT_CONTRACT_VERSION", ""
             ).strip()
+            raw_input_contract = environment.get(
+                "GOVERNANCE_INPUT_CONTRACT_VERSION", ""
+            ).strip()
+            raw_input_hash = environment.get("GOVERNANCE_INPUT_HASH", "").strip()
             inputs = cls(
                 project_id=uuid.UUID(required("GOVERNANCE_PROJECT_ID")),
                 trigger_id=required("GOVERNANCE_TRIGGER_ID"),
@@ -276,16 +312,36 @@ class RunnerInputs:
                 runner_build_version=required("GOVERNANCE_RUNNER_BUILD_VERSION"),
                 processing_contract_version=raw_processing_contract or None,
                 report_contract_version=raw_report_contract or None,
+                input_contract_version=raw_input_contract or None,
+                input_hash=raw_input_hash or None,
+                netflow_dataset_id=optional_uuid("GOVERNANCE_NETFLOW_DATASET_ID"),
+                netflow_content_sha256=(
+                    environment.get("GOVERNANCE_NETFLOW_CONTENT_SHA256", "").strip()
+                    or None
+                ),
+                netflow_dataset_contract_version=(
+                    environment.get(
+                        "GOVERNANCE_NETFLOW_DATASET_CONTRACT_VERSION", ""
+                    ).strip()
+                    or None
+                ),
             )
         except ValueError:
             raise GovernanceRunExecutionError("runner_input_invalid")
+        netflow_values = (
+            inputs.netflow_dataset_id,
+            inputs.netflow_content_sha256,
+            inputs.netflow_dataset_contract_version,
+        )
+        legacy_input_fields_present = (
+            inputs.input_hash is not None
+            or any(value is not None for value in netflow_values)
+        )
         if (
             profile_version < 1
             or len(inputs.trigger_id) > 255
             or len(inputs.session_id) != 64
-            or any(
-                character not in "0123456789abcdef" for character in inputs.session_id
-            )
+            or any(character not in "0123456789abcdef" for character in inputs.session_id)
             or (
                 inputs.processing_contract_version is not None
                 and len(inputs.processing_contract_version) > 100
@@ -293,6 +349,17 @@ class RunnerInputs:
             or (
                 inputs.report_contract_version is not None
                 and len(inputs.report_contract_version) > 100
+            )
+            or inputs.input_contract_version not in (None, "governance-run-input-v1")
+            or (inputs.input_contract_version is None and legacy_input_fields_present)
+            or (inputs.input_contract_version is not None and inputs.input_hash is None)
+            or (any(value is None for value in netflow_values) and any(value is not None for value in netflow_values))
+            or (
+                inputs.input_hash is not None
+                and (
+                    len(inputs.input_hash) != 64
+                    or any(character not in "0123456789abcdef" for character in inputs.input_hash)
+                )
             )
         ):
             raise GovernanceRunExecutionError("runner_input_invalid")
@@ -358,6 +425,43 @@ def _fingerprint(value: Any) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
 
 
+def _canonical_input_payload(
+    inputs: PinnedTriggerInputs | RunnerInputs,
+) -> dict[str, Any]:
+    return {
+        "contract_version": inputs.input_contract_version,
+        "project_id": str(inputs.project_id),
+        "customer_upload": {
+            "id": str(inputs.customer_upload_id),
+            "content_sha256": inputs.customer_upload_sha256,
+            "profile_id": str(inputs.customer_upload_profile_id),
+            "profile_version": inputs.customer_upload_profile_version,
+        },
+        "cloudatlas": {
+            "source_instance_id": str(inputs.source_instance_id),
+            "validated_fingerprint": inputs.cloudatlas_validated_fingerprint,
+            "capset_id": inputs.cloudatlas_capset_id,
+            "method": inputs.cloudatlas_method,
+            "package_sha256": inputs.package_sha256,
+            "descriptor_sha256": inputs.descriptor_sha256,
+        },
+        "netflow": (
+            None
+            if inputs.netflow_dataset_id is None
+            else {
+                "dataset_id": str(inputs.netflow_dataset_id),
+                "content_sha256": inputs.netflow_content_sha256,
+                "dataset_contract_version": inputs.netflow_dataset_contract_version,
+            }
+        ),
+        "runner": {
+            "build_version": inputs.runner_build_version,
+            "processing_contract_version": inputs.processing_contract_version,
+            "report_contract_version": inputs.report_contract_version,
+        },
+    }
+
+
 def require_trigger_readiness(
     *,
     session: Session,
@@ -400,6 +504,17 @@ def require_trigger_readiness(
         validated_fingerprint = current.value
     if not settings.CLOUDATLAS_CAPSET_TOKEN.get_secret_value():
         raise GovernanceRunStateError("run_cloudatlas_credential_not_ready")
+    dataset = None
+    if project.current_netflow_dataset_id is not None:
+        dataset = session.exec(
+            select(NetFlowDataset).where(
+                NetFlowDataset.id == project.current_netflow_dataset_id,
+                NetFlowDataset.project_id == project.id,
+                NetFlowDataset.tenant_id == project.tenant_id,
+            )
+        ).one_or_none()
+        if dataset is None:
+            raise GovernanceRunStateError("run_netflow_dataset_not_ready")
     return PinnedTriggerInputs(
         project_id=project.id,
         tenant_id=project.tenant_id,
@@ -415,6 +530,13 @@ def require_trigger_readiness(
         descriptor_sha256=DESCRIPTOR_SHA256,
         runner_build_version=settings.RUNNER_BUILD_VERSION,
         processing_contract_version=IP_PROCESSING_CONTRACT_VERSION,
+        report_contract_version=REPORT_CONTRACT_VERSION,
+        input_contract_version="governance-run-input-v1",
+        netflow_dataset_id=dataset.id if dataset is not None else None,
+        netflow_content_sha256=dataset.raw_sha256 if dataset is not None else None,
+        netflow_dataset_contract_version=(
+            dataset.dataset_contract_version if dataset is not None else None
+        ),
     )
 
 
@@ -448,12 +570,26 @@ def _validate_runner_inputs(
     session: Session,
     inputs: RunnerInputs,
     allow_legacy_processing_contract: bool = False,
+    require_launch_reservation: bool = False,
 ) -> tuple[Project, CustomerUpload, SourceInstance]:
     project = session.exec(
         select(Project).where(Project.id == inputs.project_id).with_for_update()
     ).one_or_none()
     if project is None or project.archived_at is not None:
         _execution_error("runner_project_not_ready")
+    if inputs.input_contract_version is not None:
+        if inputs.input_hash != inputs.computed_input_hash():
+            _execution_error("runner_input_hash_invalid")
+        if require_launch_reservation and (
+            project.governance_launch_trigger_id != inputs.trigger_id
+            or project.governance_launch_input_hash != inputs.input_hash
+        ):
+            _execution_error("runner_launch_reservation_missing")
+        if (
+            project.governance_launch_trigger_id == inputs.trigger_id
+            and project.governance_launch_input_hash != inputs.input_hash
+        ):
+            _execution_error("runner_launch_input_changed")
     if project.governance_launch_trigger_id not in (None, inputs.trigger_id):
         _execution_error("runner_project_has_active_launch")
     if inputs.processing_contract_version is None:
@@ -507,6 +643,27 @@ def _validate_runner_inputs(
         or inputs.runner_build_version != settings.RUNNER_BUILD_VERSION
     ):
         _execution_error("runner_cloudatlas_input_changed")
+    if inputs.input_contract_version is not None:
+        if inputs.netflow_dataset_id is None:
+            if project.current_netflow_dataset_id is not None:
+                _execution_error("runner_netflow_input_changed")
+        else:
+            dataset = session.exec(
+                select(NetFlowDataset).where(
+                    NetFlowDataset.id == inputs.netflow_dataset_id,
+                    NetFlowDataset.project_id == project.id,
+                    NetFlowDataset.tenant_id == project.tenant_id,
+                )
+            ).one_or_none()
+            if (
+                dataset is None
+                or project.current_netflow_dataset_id != inputs.netflow_dataset_id
+                or dataset.raw_sha256 != inputs.netflow_content_sha256
+                or dataset.dataset_contract_version
+                != inputs.netflow_dataset_contract_version
+                or dataset.dataset_contract_version != NETFLOW_DATASET_CONTRACT_VERSION
+            ):
+                _execution_error("runner_netflow_input_changed")
     try:
         current = OctobusCloudAtlasClient().current_fingerprint(source)
     except CloudAtlasBoundaryError:
@@ -532,6 +689,17 @@ def establish_governance_run(
             _execution_error("runner_processing_contract_changed")
         if existing.report_contract_version != inputs.report_contract_version:
             _execution_error("runner_report_contract_changed")
+        if existing.input_contract_version != inputs.input_contract_version:
+            _execution_error("runner_input_contract_changed")
+        if existing.input_hash != inputs.input_hash:
+            _execution_error("runner_input_hash_changed")
+        if (
+            existing.netflow_dataset_id != inputs.netflow_dataset_id
+            or existing.netflow_content_sha256 != inputs.netflow_content_sha256
+            or existing.netflow_dataset_contract_version
+            != inputs.netflow_dataset_contract_version
+        ):
+            _execution_error("runner_netflow_input_changed")
         if (
             existing.status == GovernanceRunStatus.RUNNING.value
             and existing.session_recovery_code == "retry_prepared"
@@ -551,7 +719,9 @@ def establish_governance_run(
             session.refresh(existing)
         return existing
 
-    project, upload, source = _validate_runner_inputs(session=session, inputs=inputs)
+    project, upload, source = _validate_runner_inputs(
+        session=session, inputs=inputs, require_launch_reservation=True
+    )
     latest = session.exec(
         select(GovernanceRun)
         .where(GovernanceRun.project_id == project.id)
@@ -592,6 +762,11 @@ def establish_governance_run(
         package_sha256=inputs.package_sha256,
         descriptor_sha256=inputs.descriptor_sha256,
         runner_build_version=inputs.runner_build_version,
+        input_contract_version=inputs.input_contract_version,
+        input_hash=inputs.input_hash,
+        netflow_dataset_id=inputs.netflow_dataset_id,
+        netflow_content_sha256=inputs.netflow_content_sha256,
+        netflow_dataset_contract_version=inputs.netflow_dataset_contract_version,
         processing_contract_version=inputs.processing_contract_version,
         report_contract_version=inputs.report_contract_version,
     )
@@ -3225,6 +3400,11 @@ def pinned_inputs_for_run(run: GovernanceRun) -> PinnedTriggerInputs:
         descriptor_sha256=run.descriptor_sha256,
         runner_build_version=run.runner_build_version,
         processing_contract_version=run.processing_contract_version,
+        report_contract_version=run.report_contract_version,
+        input_contract_version=run.input_contract_version,
+        netflow_dataset_id=run.netflow_dataset_id,
+        netflow_content_sha256=run.netflow_content_sha256,
+        netflow_dataset_contract_version=run.netflow_dataset_contract_version,
     )
 
 
@@ -3306,6 +3486,29 @@ def require_retry_readiness(
             raise GovernanceRunStateError("run_retry_cloudatlas_input_unavailable")
         if current.value != run.cloudatlas_validated_fingerprint:
             raise GovernanceRunStateError("run_retry_cloudatlas_input_changed")
+    if run.input_contract_version == "governance-run-input-v1":
+        if run.netflow_dataset_id is None:
+            if project.current_netflow_dataset_id is not None:
+                raise GovernanceRunStateError("run_retry_netflow_input_changed")
+        else:
+            dataset = session.exec(
+                select(NetFlowDataset).where(
+                    NetFlowDataset.id == run.netflow_dataset_id,
+                    NetFlowDataset.project_id == run.project_id,
+                    NetFlowDataset.tenant_id == run.tenant_id,
+                )
+            ).one_or_none()
+            if (
+                dataset is None
+                or project.current_netflow_dataset_id != run.netflow_dataset_id
+                or dataset.raw_sha256 != run.netflow_content_sha256
+                or dataset.dataset_contract_version
+                != run.netflow_dataset_contract_version
+            ):
+                raise GovernanceRunStateError("run_retry_netflow_input_changed")
+        pinned = pinned_inputs_for_run(run)
+        if pinned.input_hash() != run.input_hash:
+            raise GovernanceRunStateError("run_retry_netflow_input_changed")
     return pinned_inputs_for_run(run)
 
 

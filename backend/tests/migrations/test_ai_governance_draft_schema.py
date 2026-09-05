@@ -57,6 +57,7 @@ FUNCTION_REPLACEMENT_MARKERS = {
     "d3e4f5a6b7c8": "NEW.processing_contract_version",
     "e4f5a6b7c8d9": "NEW.report_contract_version",
     "a2b3c4d5e6f7": "OLD.status LIKE 'COMPLETED%'",
+    "f6a7b8c9d0e1": "NEW.input_contract_version",
 }
 
 
@@ -540,11 +541,14 @@ def _insert_sealed_draft(
 
 
 def _bind_raw_session(
-    connection: psycopg.Connection, draft_id: uuid.UUID, session_id: str
+    connection: psycopg.Connection,
+    draft_id: uuid.UUID,
+    session_id: str,
+    agent_compose_run_id: str = "f" * 64,
 ) -> None:
     connection.execute(
         "UPDATE ai_governance_drafts SET session_id = %s, agent_compose_run_id = %s WHERE id = %s",
-        (session_id, "f" * 64, draft_id),
+        (session_id, agent_compose_run_id, draft_id),
     )
 
 
@@ -641,9 +645,11 @@ def _assert_surviving_finding_evidence_seals(
         ):
             _assert_trigger_rejects(database, "completed", statement, (evidence_id,))
 
-
 def _assert_head_draft_seals(
-    database: str, ids: dict[str, Any], draft_id: uuid.UUID
+    database: str,
+    ids: dict[str, Any],
+    draft_id: uuid.UUID,
+    agent_compose_run_id: str = "f" * 64,
 ) -> None:
     _assert_trigger_rejects(
         database,
@@ -660,7 +666,7 @@ def _assert_head_draft_seals(
     )
     session_id = draft_id.hex * 2
     with connect(database) as connection:
-        _bind_raw_session(connection, draft_id, session_id)
+        _bind_raw_session(connection, draft_id, session_id, agent_compose_run_id)
     with pytest.raises(psycopg.errors.RaiseException, match="independent"):
         with connect(database) as connection:
             _insert_run(connection, ids, session_id)
@@ -1923,15 +1929,19 @@ def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
             ).fetchone()
         assert row is not None
         return str(row[0])
-
     def assert_legacy_schema_protections() -> None:
         _assert_run_pins_immutable(draft_database, running_ids["run_id"])
         _assert_surviving_finding_evidence_seals(draft_database, ids)
         with connect(draft_database) as connection:
+            expected_ai_tables = (
+                ("ai_governance_drafts", "ai_governance_draft_finding_bindings")
+                if boundary_revision == "f6a7b8c9d0e1"
+                else (None, None)
+            )
             assert connection.execute(
                 "SELECT to_regclass('public.ai_governance_drafts'), "
                 "to_regclass('public.ai_governance_draft_finding_bindings')"
-            ).fetchone() == (None, None)
+            ).fetchone() == expected_ai_tables
 
     _assert_run_pins_immutable(draft_database, running_ids["run_id"])
     _assert_surviving_finding_evidence_seals(draft_database, ids)
@@ -1958,4 +1968,6 @@ def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
     fresh_draft = _create_draft(draft_database, fresh_ids, idempotency_key="fresh-key")
     _assert_run_pins_immutable(draft_database, running_ids["run_id"])
     _assert_surviving_finding_evidence_seals(draft_database, fresh_ids)
-    _assert_head_draft_seals(draft_database, fresh_ids, fresh_draft.id)
+    _assert_head_draft_seals(
+        draft_database, fresh_ids, fresh_draft.id, agent_compose_run_id="e" * 64
+    )

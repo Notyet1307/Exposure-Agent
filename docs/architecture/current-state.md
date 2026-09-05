@@ -22,7 +22,7 @@
 - Project 归档/恢复及受治理操作的追加式 AuditEvent；
 - Project 专属默认 CustomerUploadProfile v1；
 - 受控 `.xlsx` CustomerUpload、不可变内容 Hash、warning 汇总、选择与受限删除；
-- 受控 `.csv` / `.txt` NetFlowDataset 接受：部署必配且最高 50 MiB 的字节上限、确定性全量扫描与规范化、不可变 raw / normalized Artifact、Project 内幂等身份和脱敏审计；当前不提供 Dataset 列表、选择、删除，也不把 Dataset 固定到 GovernanceRun；
+- `NetFlowDataset` 接受与管理：Operator 可在 Project 内列表、上传、选择或清除当前 Dataset，Viewer 只读；新 GovernanceRun 在 Runner 实际建立时使用 `governance-run-input-v1` 固定可选 Dataset ID、raw/content Hash 与 Dataset 合同版本。建立前的选择漂移 fail-closed，已建立 Run 的固定输入不可变；Retry 复用原输入并拒绝选择漂移，Rerun 读取当前选择；explicit absent 保持现有双来源 `deterministic-report-v1` `COMPLETED` 语义；不生成额外 NetFlow 事实。
 - CloudAtlas SourceInstance 的配置、只读验证、指纹固定、启用和停用；
 - 正式 `cloudatlas-read` OctoBus Package，仅允许 `cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets`；
 - GovernanceRun 的 Trigger、Retry、Rerun、RunStep、SourceSnapshot 与 Publish；

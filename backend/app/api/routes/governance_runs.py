@@ -24,7 +24,6 @@ from app.domain.models import (
     RunStep,
     RunStepStatus,
 )
-from app.domain.report_core import REPORT_CONTRACT_VERSION
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
     AgentComposeClient,
@@ -37,6 +36,9 @@ _ERROR_MESSAGES = {
     "run_idempotency_key_required": "Provide a stable Idempotency-Key.",
     "run_customer_upload_not_ready": (
         "Select a validated CustomerUpload before triggering a Run."
+    ),
+    "run_netflow_dataset_not_ready": (
+        "The selected NetFlowDataset is unavailable."
     ),
     "run_cloudatlas_source_not_ready": (
         "Enable and validate a CloudAtlas SourceInstance before triggering a Run."
@@ -65,10 +67,10 @@ _ERROR_MESSAGES = {
     "run_launch_terminal_use_new_trigger": (
         "The previous launch ended before creating a Run; use a new Trigger ID."
     ),
+    "run_retry_netflow_input_changed": "The fixed NetFlowDataset input changed.",
+    "run_netflow_input_unavailable": "The fixed NetFlowDataset input cannot be verified.",
     "run_rerun_newer_run_exists": "Only the latest GovernanceRun can be rerun.",
-    "run_rerun_trigger_conflict": (
-        "This Trigger ID already belongs to another GovernanceRun."
-    ),
+    "run_rerun_trigger_conflict": "This Trigger ID already belongs to another GovernanceRun.",
     "run_retry_in_progress": "Retry recovery is already in progress.",
     "agent_compose_unavailable": "The Governance Runner control plane is unavailable.",
     "agent_compose_start_failed": "The Governance Runner Session could not be started.",
@@ -506,7 +508,7 @@ def trigger_governance_run(
             environment=pinned.runner_environment(
                 trigger_id=trigger_id,
                 requested_by=str(current_user.id),
-                report_contract_version=REPORT_CONTRACT_VERSION,
+                input_hash=pinned.input_hash(),
             ),
         )
     except AgentComposeBoundaryError as error:
@@ -517,8 +519,6 @@ def trigger_governance_run(
         agent_compose_status=started.status,
         governance_run_id=None,
     )
-
-
 @router.post(
     "/{project_id}/governance-runs/{run_id}/retry",
     response_model=GovernanceRunActionPublic,
@@ -751,7 +751,7 @@ def retry_governance_run(
             environment=pinned.runner_environment(
                 trigger_id=run.trigger_id,
                 requested_by=run.requested_by,
-                report_contract_version=run.report_contract_version,
+                input_hash=pinned.input_hash(),
             ),
             session_id=run.session_id,
         )
@@ -996,6 +996,7 @@ def rerun_governance_run(
             if error.code not in {
                 "run_retry_customer_input_changed",
                 "run_retry_cloudatlas_input_changed",
+                "run_retry_netflow_input_changed",
                 "run_processing_not_retryable",
             }:
                 session.rollback()
@@ -1070,7 +1071,7 @@ def rerun_governance_run(
             environment=pinned.runner_environment(
                 trigger_id=trigger_id,
                 requested_by=actor_subject,
-                report_contract_version=REPORT_CONTRACT_VERSION,
+                input_hash=pinned.input_hash(),
             ),
         )
     except AgentComposeBoundaryError as error:
