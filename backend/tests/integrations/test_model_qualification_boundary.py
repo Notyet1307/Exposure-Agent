@@ -20,6 +20,7 @@ def test_qualification_agent_is_pi_only_internal_and_toolless() -> None:
         "      AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION}\n"
         in qualifier
     )
+    assert "      NETFLOW_MAX_BYTES: ${NETFLOW_MAX_BYTES}\n" in qualifier
     assert (
         "      MODEL_QUALIFICATION_TIMEOUT_SECONDS: "
         "${MODEL_QUALIFICATION_TIMEOUT_SECONDS}\n" in qualifier
@@ -80,6 +81,7 @@ def test_renderer_resolves_the_complete_qualification_configuration(
         "MODEL_CONFIG_REVISION": "fixture-v1",
         "MODEL_IDENTITY": "fixture-model",
         "MODEL_QUALIFICATION_TIMEOUT_SECONDS": "17",
+        "NETFLOW_MAX_BYTES": "52428800",
         "POSTGRES_DB": "app",
         "POSTGRES_PASSWORD": "postgres-password",
         "POSTGRES_USER": "postgres",
@@ -108,3 +110,4 @@ def test_renderer_resolves_the_complete_qualification_configuration(
     assert "      LLM_API_ENDPOINT: http://model-fixture:8080/v1\n" in qualifier
     assert "        value: model-secret\n" in qualifier
     assert "      MODEL_QUALIFICATION_TIMEOUT_SECONDS: 17\n" in qualifier
+    assert configuration.count("      NETFLOW_MAX_BYTES: 52428800\n") == 2
