@@ -102,7 +102,11 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   await projectSelect.click()
   await page.getByRole("option", { name: project.name }).click()
   await page.getByLabel("XLSX file").setInputFiles(validWorkbook)
-  await page.getByRole("button", { name: "Upload", exact: true }).click()
+  await page
+    .locator("form")
+    .filter({ has: page.getByLabel("XLSX file") })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
   const uploadRow = page
     .getByRole("row")
     .filter({ hasText: "customer-upload-v1.xlsx" })
@@ -434,7 +438,11 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   OpenAPI.TOKEN = operatorToken.access_token
   await loginInBrowser(credentials.operator)
   await page.getByLabel("XLSX file").setInputFiles(stage4FirstWorkbook)
-  await page.getByRole("button", { name: "Upload", exact: true }).click()
+  await page
+    .locator("form")
+    .filter({ has: page.getByLabel("XLSX file") })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
   const firstUploadRow = page
     .getByRole("row")
     .filter({ hasText: "customer-upload-stage4-first.xlsx" })
@@ -493,7 +501,11 @@ test("Project readers see published IP lifecycle results and safe failure fallba
 
   await page.getByRole("tab", { name: "Inputs", exact: true }).click()
   await page.getByLabel("XLSX file").setInputFiles(stage4SecondWorkbook)
-  await page.getByRole("button", { name: "Upload", exact: true }).click()
+  await page
+    .locator("form")
+    .filter({ has: page.getByLabel("XLSX file") })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
   const secondUploadRow = page
     .getByRole("row")
     .filter({ hasText: "customer-upload-stage4-second.xlsx" })
