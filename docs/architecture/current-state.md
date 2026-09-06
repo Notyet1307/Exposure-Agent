@@ -23,6 +23,7 @@
 - Project 专属默认 CustomerUploadProfile v1；
 - 受控 `.xlsx` CustomerUpload、不可变内容 Hash、warning 汇总、选择与受限删除；
 - `NetFlowDataset` 接受与管理：Operator 可在 Project 内列表、上传、选择或清除当前 Dataset，Viewer 只读；新 GovernanceRun 在 Runner 实际建立时使用 `governance-run-input-v1` 固定可选 Dataset ID、raw/content Hash 与 Dataset 合同版本。建立前的选择漂移 fail-closed，已建立 Run 的固定输入不可变；Retry 复用原输入并拒绝选择漂移，Rerun 读取当前选择。present 在复核 raw Artifact 字节、Hash 与固定合同后产生唯一不可变 `NETFLOW` SourceSnapshot，保存 Dataset、raw Artifact、schema、raw record count 与可证时间极值；零条 raw record 仍产生 `record_count = 0` Snapshot。输入漂移或合同失效进入 `FAILED_DATA` 且不发布部分事实；explicit absent 不创建 NetFlow RunStep 或 Snapshot。两者均保持现有双来源 `ip-v1` / `deterministic-report-v1` 计算与报告语义，不生成 NetFlow Observation、Finding 或 report-v2。
+- NetFlow 正向 IP 活动以 `netflow-ip-activity-v1` 按 Run / 已有受管 Resource 唯一聚合，在原子 Publish 中有界批写到 PostgreSQL；只关联同 Project 的既有 Resource（包括本 Run 双来源 RESOLVE 结果），不由 Peer 创建 Resource。`flow_count` 统计涉及该 IP 的有效源记录（保留重复；双端受管各计一次，自环计一次），并固定排序的 Peer / protocol、独立时间极值和内容 Hash；这些样本不表示会话数、完整覆盖或零活动。来源端口仍保留在不可变 Artifact，不推断服务端口或方向，不扩展报告与 Finding。发布失败回滚活动事实，Retry 使用同 Run 身份重算；absent 或无有效活动不生成活动事实。
 - CloudAtlas SourceInstance 的配置、只读验证、指纹固定、启用和停用；
 - 正式 `cloudatlas-read` OctoBus Package，仅允许 `cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets`；
 - GovernanceRun 的 Trigger、Retry、Rerun、RunStep、SourceSnapshot 与 Publish；

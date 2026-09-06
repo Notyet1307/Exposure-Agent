@@ -68,6 +68,7 @@ from app.domain.models import (
     GovernanceRunPublic,
     GovernanceRunStatus,
     NetFlowDataset,
+    NetFlowIPActivity,
     Observation,
     ObservationResourceLink,
     Project,
@@ -81,6 +82,13 @@ from app.domain.models import (
     SourceSnapshot,
     SourceSnapshotPublic,
     SourceSnapshotType,
+)
+from app.domain.netflow_activity import (
+    NETFLOW_ACTIVITY_CONTRACT_VERSION,
+    NetFlowActivityContractError,
+    NetFlowIPActivityAggregate,
+    NetFlowIPActivityResult,
+    aggregate_netflow_ip_activity,
 )
 from app.domain.netflow_datasets import (
     NETFLOW_DATASET_CONTRACT_VERSION,
@@ -1447,6 +1455,63 @@ def _validate_pinned_netflow_source(
     return dataset, artifact, snapshot
 
 
+def _netflow_activity_source(
+    *, session: Session, run: GovernanceRun
+) -> tuple[SourceSnapshot, Path]:
+    dataset, _, snapshot = _validate_pinned_netflow_source(
+        session=session, run=run, require_snapshot=True
+    )
+    assert snapshot is not None
+    artifact = session.exec(
+        select(Artifact).where(
+            Artifact.id == dataset.normalized_artifact_id,
+            Artifact.project_id == run.project_id,
+            Artifact.tenant_id == run.tenant_id,
+        )
+    ).one_or_none()
+    if artifact is None or artifact.sha256 != dataset.normalized_sha256:
+        _execution_error("netflow_artifact_changed")
+    try:
+        path = _artifact_path(artifact)
+        file_hash, byte_size = _file_sha256(path)
+    except GovernanceRunExecutionError as error:
+        if error.code == "artifact_read_failed":
+            _execution_error("netflow_artifact_unavailable")
+        _execution_error("netflow_artifact_changed")
+    if file_hash != artifact.sha256 or byte_size != artifact.byte_size:
+        _execution_error("netflow_artifact_changed")
+    return snapshot, path
+
+
+def _netflow_activity_result(
+    *, session: Session, run: GovernanceRun
+) -> tuple[NetFlowIPActivityResult, SourceSnapshot, dict[str, Resource]]:
+    snapshot, path = _netflow_activity_source(session=session, run=run)
+    resources = session.exec(
+        select(Resource).where(
+            Resource.project_id == run.project_id,
+            Resource.tenant_id == run.tenant_id,
+            Resource.resource_type == ResourceType.IP.value,
+        )
+    ).all()
+    resources_by_key = {str(resource.canonical_key): resource for resource in resources}
+    try:
+        result = aggregate_netflow_ip_activity(path, resources_by_key)
+    except OSError:
+        _execution_error("netflow_artifact_unavailable")
+    _netflow_activity_source(session=session, run=run)
+    return result, snapshot, resources_by_key
+
+
+def _netflow_activity_content_hash(activity: NetFlowIPActivityAggregate) -> str:
+    return _fingerprint(
+        {
+            "aggregation_contract_version": NETFLOW_ACTIVITY_CONTRACT_VERSION,
+            **activity.as_dict(),
+        }
+    )
+
+
 def _load_netflow_snapshot(
     *, session: Session, run: GovernanceRun, request_ip: str | None
 ) -> None:
@@ -1959,6 +2024,40 @@ def _resolve_ip_observations(
             request_ip=request_ip,
         )
         raise GovernanceRunProcessingError("resolve_unexpected_failure")
+
+
+def _publish_netflow_activity(*, session: Session, run: GovernanceRun) -> None:
+    if run.netflow_dataset_id is None:
+        return
+    try:
+        result, snapshot, resources_by_key = _netflow_activity_result(
+            session=session, run=run
+        )
+    except NetFlowActivityContractError:
+        _execution_error("netflow_contract_changed")
+    for start in range(0, len(result.activities), STAGE4_DB_BATCH_SIZE):
+        facts = [
+            NetFlowIPActivity(
+                id=uuid.uuid5(
+                    run.id,
+                    f"{NETFLOW_ACTIVITY_CONTRACT_VERSION}/{activity.canonical_ip}",
+                ),
+                tenant_id=run.tenant_id,
+                project_id=run.project_id,
+                governance_run_id=run.id,
+                source_snapshot_id=snapshot.id,
+                resource_id=resources_by_key[activity.canonical_ip].id,
+                aggregation_contract_version=result.contract_version,
+                flow_count=activity.flow_count,
+                peer_ips=list(activity.peer_ips),
+                protocols=list(activity.protocols),
+                first_seen_utc=activity.first_seen_utc,
+                last_seen_utc=activity.last_seen_utc,
+                content_sha256=_netflow_activity_content_hash(activity),
+            )
+            for activity in result.activities[start : start + STAGE4_DB_BATCH_SIZE]
+        ]
+        _add_all_in_batches(session, facts)
 
 
 def _check_ip_findings(
@@ -3320,6 +3419,8 @@ def _publish_stage4_run(
                     )
                 )
                 published_transition_count += 1
+
+        _publish_netflow_activity(session=session, run=run)
 
         validated_report_output_hash: str | None = None
         report_artifacts: list[Artifact] = []
