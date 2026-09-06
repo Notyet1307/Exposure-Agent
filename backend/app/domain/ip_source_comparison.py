@@ -76,6 +76,15 @@ class RunIPSourceComparison(BaseModel):
     output_hash: str
 
 
+def comparison_fact_id(governance_run_id: uuid.UUID, canonical_ip: str) -> uuid.UUID:
+    """Stable Run-scoped identity, independent of classification and content."""
+    if normalize_ip(canonical_ip) != canonical_ip:
+        raise ValueError("comparison IP is not canonical")
+    return uuid.uuid5(
+        governance_run_id, f"{COMPARISON_CONTRACT_VERSION}/{canonical_ip}"
+    )
+
+
 def _hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(

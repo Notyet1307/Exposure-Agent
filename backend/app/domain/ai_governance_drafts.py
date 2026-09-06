@@ -575,6 +575,8 @@ def _canonical_evidence_bindings(
 
 
 def _evidence_target(evidence: Evidence) -> tuple[EvidenceFactType, uuid.UUID]:
+    if evidence.ip_source_comparison_fact_id is not None:
+        raise AiGovernanceDraftStateError("evidence_not_bound")
     targets: tuple[tuple[EvidenceFactType, uuid.UUID | None], ...] = (
         ("SOURCE_SNAPSHOT", evidence.source_snapshot_id),
         ("OBSERVATION", evidence.observation_id),

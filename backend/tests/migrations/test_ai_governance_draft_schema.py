@@ -58,6 +58,7 @@ FUNCTION_REPLACEMENT_MARKERS = {
     "e4f5a6b7c8d9": "NEW.report_contract_version",
     "a2b3c4d5e6f7": "OLD.status LIKE 'COMPLETED%'",
     "f6a7b8c9d0e1": "NEW.input_contract_version",
+    "c9d0e1f2a3b4": "selected_evidence.ip_source_comparison_fact_id IS NULL",
 }
 
 
@@ -645,6 +646,7 @@ def _assert_surviving_finding_evidence_seals(
         ):
             _assert_trigger_rejects(database, "completed", statement, (evidence_id,))
 
+
 def _assert_head_draft_seals(
     database: str,
     ids: dict[str, Any],
@@ -977,8 +979,7 @@ def test_draft_reservation_freezes_a_complete_agent_compose_namespace(
     _assert_trigger_rejects(
         draft_database,
         "namespace cannot be replaced",
-        "UPDATE ai_governance_drafts SET agent_compose_agent_name = NULL "
-        "WHERE id = %s",
+        "UPDATE ai_governance_drafts SET agent_compose_agent_name = NULL WHERE id = %s",
         (reserved.id,),
     )
 
@@ -1921,27 +1922,35 @@ def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
                 "SELECT version_num FROM alembic_version"
             ).fetchone() == (revision,)
 
-    def governance_run_protection() -> str:
+    def replaced_function_protection() -> str:
+        function = (
+            "protect_ai_governance_draft_finding_bindings"
+            if boundary_revision == "c9d0e1f2a3b4"
+            else "protect_governance_run_facts"
+        )
         with connect(draft_database) as connection:
             row = connection.execute(
-                "SELECT pg_get_functiondef("
-                "'protect_governance_run_facts()'::regprocedure)"
+                "SELECT pg_get_functiondef(%s::regprocedure)", (f"{function}()",)
             ).fetchone()
         assert row is not None
         return str(row[0])
+
     def assert_legacy_schema_protections() -> None:
         _assert_run_pins_immutable(draft_database, running_ids["run_id"])
         _assert_surviving_finding_evidence_seals(draft_database, ids)
         with connect(draft_database) as connection:
             expected_ai_tables = (
                 ("ai_governance_drafts", "ai_governance_draft_finding_bindings")
-                if boundary_revision == "f6a7b8c9d0e1"
+                if boundary_revision in {"f6a7b8c9d0e1", "c9d0e1f2a3b4"}
                 else (None, None)
             )
-            assert connection.execute(
-                "SELECT to_regclass('public.ai_governance_drafts'), "
-                "to_regclass('public.ai_governance_draft_finding_bindings')"
-            ).fetchone() == expected_ai_tables
+            assert (
+                connection.execute(
+                    "SELECT to_regclass('public.ai_governance_drafts'), "
+                    "to_regclass('public.ai_governance_draft_finding_bindings')"
+                ).fetchone()
+                == expected_ai_tables
+            )
 
     _assert_run_pins_immutable(draft_database, running_ids["run_id"])
     _assert_surviving_finding_evidence_seals(draft_database, ids)
@@ -1949,12 +1958,12 @@ def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
 
     run_downgrade(draft_database, boundary_revision)
     assert_revision(boundary_revision)
-    assert boundary_marker in governance_run_protection()
+    assert boundary_marker in replaced_function_protection()
     assert_legacy_schema_protections()
 
     run_downgrade(draft_database, predecessor_revision)
     assert_revision(predecessor_revision)
-    assert boundary_marker not in governance_run_protection()
+    assert boundary_marker not in replaced_function_protection()
     assert_legacy_schema_protections()
 
     run_migration(draft_database, "head")

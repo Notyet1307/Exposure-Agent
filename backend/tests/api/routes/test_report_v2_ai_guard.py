@@ -117,9 +117,9 @@ def test_v2_refuses_ai_before_evidence_or_model_work_including_replay(
             detail = client.get(
                 request_url.removesuffix("/ai-governance-drafts"), headers=headers
             )
-            assert detail.status_code == 200
-            assert detail.json()["can_request_ai_governance_draft"] is False
-            assert detail.json()["report_contract_version"] == "deterministic-report-v2"
+            # Corrupt v2 content now fails the report integrity boundary; the AI
+            # contract guard must still reject both POST paths before parsing it.
+            assert detail.status_code == 500
             for key in (f"candidate-new-{uuid.uuid4()}", existing_key):
                 response = client.post(
                     request_url,

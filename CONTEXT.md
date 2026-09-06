@@ -92,6 +92,10 @@ _Avoid_: 新 Finding、关闭记录、AuditEvent
 完整 GovernanceRun 对 Finding 执行 `OPENED`、`CLOSED` 或 `REOPENED` 的不可变生命周期事实，关联作出该判断的来源事实；它不是操作者行为审计。
 _Avoid_: FindingOccurrence、AuditEvent、可变状态日志
 
+**IPSourceComparisonFact**:
+GovernanceRun 中每个纳入比较的资产在 CustomerUpload、CloudAtlas 与 NetFlow 之间的固定比较结论，与 Resource 的长期身份和 Finding 的生命周期独立。Evidence 只引用其中的有界样本，未被选为样本不表示没有比较事实。
+_Avoid_: Resource、Finding、原始流量副本、Evidence 样本
+
 **Evidence**:
 某个用户可见治理结论对特定 GovernanceRun 中来源事实和确定性判断依据的结构化引用；用于追溯结论，不复制原始 Artifact，也不记录操作者行为。
 _Avoid_: 原始数据副本、AuditEvent、独立证据平台

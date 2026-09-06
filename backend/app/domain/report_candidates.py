@@ -16,6 +16,11 @@ from typing import Annotated, Literal, Self, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from app.domain.comparison_evidence import (
+    ReportV2EvidenceBundle,
+    select_comparison_evidence,
+    validate_comparison,
+)
 from app.domain.evidence_selector import (
     EvidenceBundle,
     EvidenceSelectorError,
@@ -31,7 +36,6 @@ from app.domain.ip_source_comparison import (
     COMPARISON_CONTRACT_VERSION,
     IPSourceComparisonError,
     RunIPSourceComparison,
-    compile_ip_source_comparison,
 )
 from app.domain.netflow_activity import (
     NETFLOW_ACTIVITY_CONTRACT_VERSION,
@@ -58,6 +62,7 @@ from app.domain.report_renderer import (
     _canonical_json_value,
     _render_html,
     _safe_csv_cell,
+    _validate_evidence,
     _validated_inputs,
     render_report,
 )
@@ -177,39 +182,6 @@ class ComparisonSummary(_FrozenModel):
         )
 
 
-def _validate_comparison(
-    comparison: RunIPSourceComparison, *, netflow_present: bool
-) -> None:
-    rows = comparison.results
-    resources = {row.resource_id: row.canonical_ip for row in rows}
-    if len(resources) != len(rows):
-        raise ValueError("duplicate resource")
-    memberships = {
-        row.resource_id: {
-            source
-            for source, present in (
-                ("CUSTOMER_UPLOAD", row.customer_upload_present),
-                ("CLOUDATLAS", row.cloudatlas_present),
-            )
-            if present
-        }
-        for row in rows
-    }
-    expected = compile_ip_source_comparison(
-        tenant_id=comparison.tenant_id,
-        project_id=comparison.project_id,
-        run_id=comparison.governance_run_id,
-        resources=resources,
-        membership=memberships,
-        active_resources={
-            row.resource_id for row in rows if row.netflow_status == "ACTIVE"
-        },
-        netflow_present=netflow_present,
-    )
-    if expected != comparison:
-        raise ValueError("comparison content, order or hash differs")
-
-
 def _capabilities(
     sources: tuple[CandidateSourceSnapshot, ...],
     comparison: RunIPSourceComparison,
@@ -277,6 +249,7 @@ class ReportV2(_FrozenModel):
     current_run_lifecycle_changes: CurrentRunLifecycleChanges
     open_backlog_as_of_run: OpenBacklogAsOfRun
     bounded_evidence_examples: BoundedEvidenceExamples
+    bounded_comparison_evidence_examples: BoundedEvidenceExamples
     finding_type_directions_and_limitations: FindingTypeDirectionsAndLimitations
     provenance: Provenance
     input_capabilities: InputCapabilities
@@ -317,7 +290,7 @@ class ReportV2(_FrozenModel):
             source.content_sha256 for source in sources
         ):
             raise ValueError("provenance differs")
-        _validate_comparison(comparison, netflow_present=len(sources) == 3)
+        validate_comparison(comparison, netflow_present=len(sources) == 3)
         expected_capabilities = _capabilities(sources, comparison)
         if self.input_capabilities != expected_capabilities:
             raise ValueError("capabilities differ")
@@ -344,7 +317,7 @@ class ReportV2(_FrozenModel):
 class CanonicalReportV2(_FrozenModel):
     schema_version: Literal["deterministic-report-v2"] = "deterministic-report-v2"
     report: ReportV2
-    evidence_plan: EvidenceBundle
+    evidence_plan: ReportV2EvidenceBundle
 
     @model_validator(mode="before")
     @classmethod
@@ -365,6 +338,21 @@ class CanonicalReportV2(_FrozenModel):
             for entry in self.evidence_plan.entries
         ):
             raise ValueError("evidence target scope differs")
+        if self.evidence_plan.comparison_entries != select_comparison_evidence(
+            self.report.ip_source_comparison
+        ):
+            raise ValueError("comparison evidence selection differs")
+        try:
+            _validate_evidence(
+                self.report,
+                EvidenceBundle(
+                    governance_run_id=identity.governance_run_id,
+                    report_contract_version=REPORT_V2_CONTRACT_VERSION,
+                    entries=self.evidence_plan.entries,
+                ),
+            )
+        except ReportRendererError:
+            raise ValueError("governance evidence plan invalid") from None
         return self
 
 
@@ -400,6 +388,7 @@ class FrozenReportCandidateFacts(FrozenGovernanceCandidateFacts):
                 return data
             if version is not None and version != COMPARISON_CONTRACT_VERSION:
                 raise IPSourceComparisonError("comparison_contract_unsupported")
+            _validate_wire_fields(comparison, RunIPSourceComparison)
         return data
 
     @model_validator(mode="after")
@@ -418,7 +407,7 @@ class FrozenReportCandidateFacts(FrozenGovernanceCandidateFacts):
             and self.netflow_snapshot.source_type != "NETFLOW"
         ):
             raise ValueError("netflow snapshot type differs")
-        _validate_comparison(
+        validate_comparison(
             comparison, netflow_present=self.netflow_snapshot is not None
         )
         if self.netflow_snapshot is None:
@@ -498,11 +487,13 @@ class FrozenReportCandidateFacts(FrozenGovernanceCandidateFacts):
 class ReportCandidate(_FrozenModel):
     report_contract_version: str
     report: ReportV2 | CanonicalReportCore
-    evidence_plan: EvidenceBundle
+    evidence_plan: EvidenceBundle | ReportV2EvidenceBundle
     rendered: RenderedReport
 
 
-def _comparison_html(report: ReportV2) -> tuple[str, ...]:
+def _comparison_html(
+    report: ReportV2, evidence: ReportV2EvidenceBundle
+) -> tuple[str, ...]:
     comparison = report.ip_source_comparison
     rows = comparison.results[:COMPARISON_HTML_LIMIT]
     total, shown = len(comparison.results), len(rows)
@@ -559,6 +550,34 @@ def _comparison_html(report: ReportV2) -> tuple[str, ...]:
             sections.append("</tr>")
         sections.append("</tbody></table></div>")
     sections.append("</section>")
+    selected = evidence.comparison_entries
+    rendered = selected[:8]
+    sections.extend(
+        [
+            '<section id="comparison-evidence-examples"><h2>比较 Evidence 示例</h2>',
+            f"<p>总比较数：{total}；入选 Evidence 数：{len(selected)}；实际展示数：{len(rendered)}；选择截断：{'是' if total > len(selected) else '否'}；展示截断：{'是' if len(selected) > len(rendered) else '否'}。</p>",
+            "<p>独立上限：入选 50 条，展示 8 条；样本不保证覆盖每种分类。以下稳定 ID / Hash 为待绑定文字引用，不表示已持久化或已发布。</p>",
+        ]
+    )
+    if not rendered:
+        sections.append("<p>无可展示的比较 Evidence 示例。</p>")
+    for index, (entry, row) in enumerate(
+        zip(rendered, comparison.results[:8], strict=True), start=1
+    ):
+        reference = entry.evidence_reference
+        sections.extend(
+            [
+                f'<article class="comparison-evidence-card" id="comparison-evidence-card-{index}">',
+                f"<h3>比较 Evidence {index}</h3>",
+                f"<p>Canonical IP：<code>{html.escape(entry.canonical_ip)}</code></p>",
+                f"<p>Classification：{html.escape(row.classification)}；Reason：{html.escape(row.classification_reason)}</p>",
+                f"<p>NetFlow：{html.escape(row.netflow_status)}；Reason：{html.escape(row.netflow_reason)}</p>",
+                f"<p>来源事实：{html.escape(reference.fact_type)} / <code>{html.escape(reference.fact_id)}</code></p>",
+                f"<p>内容 SHA-256：<code>{html.escape(reference.content_hash)}</code></p>",
+                "</article>",
+            ]
+        )
+    sections.append("</section>")
     return tuple(sections)
 
 
@@ -591,7 +610,7 @@ def _comparison_csv(comparison: RunIPSourceComparison) -> bytes:
     return stream.getvalue().encode("utf-8")
 
 
-def _render_v2(report: ReportV2, evidence: EvidenceBundle) -> RenderedReport:
+def _render_v2(report: ReportV2, evidence: ReportV2EvidenceBundle) -> RenderedReport:
     envelope = CanonicalReportV2(
         schema_version=REPORT_V2_CONTRACT_VERSION, report=report, evidence_plan=evidence
     )
@@ -606,7 +625,7 @@ def _render_v2(report: ReportV2, evidence: EvidenceBundle) -> RenderedReport:
     html_bytes = _render_html(
         report,
         evidence,
-        extra_sections=_comparison_html(report),
+        extra_sections=_comparison_html(report, evidence),
         internal_candidate=True,
     )
     csv_bytes = _comparison_csv(report.ip_source_comparison)
@@ -722,6 +741,7 @@ def generate_report_candidate(
             source.content_sha256 for source in sources
         )
         report_data.update(
+            bounded_comparison_evidence_examples=BoundedEvidenceExamples(),
             input_capabilities=_capabilities(sources, facts.comparison),
             ip_source_comparison=facts.comparison,
             ip_source_comparison_summary=ComparisonSummary.from_comparison(
@@ -729,17 +749,18 @@ def generate_report_candidate(
             ),
         )
         report = ReportV2.model_validate(report_data)
-        evidence = EvidenceBundle.model_validate(
-            {
-                **evidence.model_dump(),
-                "report_contract_version": REPORT_V2_CONTRACT_VERSION,
-            }
+        v2_evidence = ReportV2EvidenceBundle(
+            governance_run_id=evidence.governance_run_id,
+            report_contract_version=REPORT_V2_CONTRACT_VERSION,
+            max_entries=100,
+            entries=evidence.entries,
+            comparison_entries=select_comparison_evidence(facts.comparison),
         )
         return ReportCandidate(
             report_contract_version=REPORT_V2_CONTRACT_VERSION,
             report=report,
-            evidence_plan=evidence,
-            rendered=_render_v2(report, evidence),
+            evidence_plan=v2_evidence,
+            rendered=_render_v2(report, v2_evidence),
         )
     except IPSourceComparisonError as error:
         code = (

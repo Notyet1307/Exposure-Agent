@@ -248,7 +248,7 @@ def test_evidence_fifty_and_html_eight_are_independent_of_comparison_hundred() -
     candidate = generate_report_candidate(facts, VERSION)
     assert isinstance(candidate.report, ReportV2)
     entries = candidate.evidence_plan.entries
-    assert candidate.evidence_plan.max_entries == 50
+    assert candidate.evidence_plan.max_entries == 100
     assert len(entries) == 50
     assert [entry.finding_id for entry in entries] == [
         str(uuid.UUID(int=2000 + index)) for index in range(1, 51)

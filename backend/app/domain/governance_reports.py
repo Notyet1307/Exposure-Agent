@@ -28,6 +28,11 @@ from app.domain.models import (
     GovernanceRun,
     Project,
 )
+from app.domain.report_candidates import REPORT_V2_CONTRACT_VERSION
+from app.domain.report_comparison_evidence import (
+    ReportComparisonEvidenceError,
+    read_report_comparison_evidence,
+)
 
 REPORT_LIST_DEFAULT_PAGE_SIZE: Final = 20
 REPORT_LIST_MAX_PAGE_SIZE: Final = 50
@@ -238,12 +243,14 @@ def _evidence_reference(evidence: Evidence) -> EvidenceReferencePublic:
         ("OBSERVATION", evidence.observation_id),
         ("FINDING_OCCURRENCE", evidence.finding_occurrence_id),
         ("FINDING_TRANSITION", evidence.finding_transition_id),
+        ("IP_SOURCE_COMPARISON", evidence.ip_source_comparison_fact_id),
     )
-    fact_type, fact_id = next(
-        (target_type, target_id)
-        for target_type, target_id in targets
-        if target_id is not None
-    )
+    present = [
+        (kind, target_id) for kind, target_id in targets if target_id is not None
+    ]
+    if len(present) != 1:
+        raise ReportComparisonEvidenceError("comparison_evidence_invalid")
+    fact_type, fact_id = present[0]
     return EvidenceReferencePublic(
         id=evidence.id,
         governance_run_id=evidence.governance_run_id,
@@ -300,6 +307,15 @@ def get_report(
     report, run_completed_at = row
     if run_completed_at is None:
         return None
+    max_evidence = REPORT_DETAIL_MAX_EVIDENCE
+    if report.report_contract_version == REPORT_V2_CONTRACT_VERSION:
+        read_report_comparison_evidence(
+            session=session,
+            tenant_id=project.tenant_id,
+            project_id=project.id,
+            report_id=report.id,
+        )
+        max_evidence = 100
     evidence_scope = (
         col(Evidence.governance_report_id) == report.id,
         col(Evidence.governance_run_id) == report.governance_run_id,
@@ -315,7 +331,7 @@ def get_report(
         select(Evidence)
         .where(*evidence_scope)
         .order_by(col(Evidence.created_at), col(Evidence.id))
-        .limit(REPORT_DETAIL_MAX_EVIDENCE)
+        .limit(max_evidence)
     ).all()
     drafts = session.exec(
         select(AiGovernanceDraft)
@@ -333,7 +349,7 @@ def get_report(
         canonical_content=report.canonical_content,
         evidence=[_evidence_reference(item) for item in evidence],
         evidence_count=evidence_count,
-        evidence_max_entries=REPORT_DETAIL_MAX_EVIDENCE,
+        evidence_max_entries=max_evidence,
         can_request_ai_governance_draft=(
             can_request_ai_governance_draft
             and supports_ai_governance_draft(report.report_contract_version)

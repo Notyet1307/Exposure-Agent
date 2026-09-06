@@ -96,6 +96,7 @@ from app.domain.netflow_datasets import (
 from app.domain.netflow_datasets import (
     SCHEMA_FINGERPRINT as NETFLOW_SCHEMA_FINGERPRINT,
 )
+from app.domain.report_candidates import REPORT_V2_CONTRACT_VERSION
 from app.domain.report_core import (
     REPORT_CONTRACT_VERSION,
     CanonicalReportCore,
@@ -2205,9 +2206,14 @@ def _report_candidate_uuid(
 def _report_candidate_facts(
     *, session: Session, run: GovernanceRun
 ) -> tuple[FrozenRunReportFacts, FrozenRunEvidenceFacts]:
-    if (
-        run.processing_contract_version is None
-        or run.report_contract_version != REPORT_CONTRACT_VERSION
+    if run.processing_contract_version is None or run.report_contract_version not in {
+        REPORT_CONTRACT_VERSION,
+        REPORT_V2_CONTRACT_VERSION,
+    }:
+        _processing_error("report_contract_invalid")
+    if run.report_contract_version == REPORT_V2_CONTRACT_VERSION and (
+        run.input_contract_version != "governance-run-input-v1"
+        or run.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION
     ):
         _processing_error("report_contract_invalid")
 
@@ -2517,7 +2523,8 @@ def _report_candidate_facts(
         cloudatlas_observed_resource_keys=tuple(sorted(cloudatlas_keys)),
         finding_lifecycles=tuple(lifecycle_by_identity.values()),
     )
-    report_model = compile_report_core(report_facts, run.report_contract_version)
+    # Both report contracts share the unchanged v1 governance projection.
+    report_model = compile_report_core(report_facts, REPORT_CONTRACT_VERSION)
 
     available_references = [
         FrozenEvidenceFactReference(
