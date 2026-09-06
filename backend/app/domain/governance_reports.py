@@ -13,6 +13,7 @@ from sqlalchemy.orm import Bundle
 from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import Select
 
+from app.domain.ai_governance_drafts import supports_ai_governance_draft
 from app.domain.models import (
     AiGovernanceDraft,
     AiGovernanceDraftFindingBinding,
@@ -335,6 +336,7 @@ def get_report(
         evidence_max_entries=REPORT_DETAIL_MAX_EVIDENCE,
         can_request_ai_governance_draft=(
             can_request_ai_governance_draft
+            and supports_ai_governance_draft(report.report_contract_version)
             and not any(
                 draft.status == AiGovernanceDraftStatus.FAILED.value for draft in drafts
             )

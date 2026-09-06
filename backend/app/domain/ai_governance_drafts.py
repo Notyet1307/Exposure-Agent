@@ -30,6 +30,7 @@ from app.domain.models import (
     GovernanceRunStatus,
     Project,
 )
+from app.domain.report_core import REPORT_CONTRACT_VERSION
 
 MAX_SELECTED_FINDINGS = 8
 MAX_CLAIMS_PER_FINDING = 8
@@ -57,6 +58,16 @@ class AiGovernanceDraftStateError(Exception):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
+
+
+def supports_ai_governance_draft(report_contract_version: str | None) -> bool:
+    """Exact allowlist; new report versions require a separately approved contract."""
+    return report_contract_version == REPORT_CONTRACT_VERSION
+
+
+def require_ai_governance_draft_contract(report_contract_version: str | None) -> None:
+    if not supports_ai_governance_draft(report_contract_version):
+        raise AiGovernanceDraftStateError("draft_report_contract_unsupported")
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,21 +312,26 @@ def _require_compatible_persisted_session_identity(
     session_id: str | None = None,
 ) -> None:
     if (
-        agent_compose_run_id is not None
-        and draft.agent_compose_run_id is not None
-        and draft.agent_compose_run_id != agent_compose_run_id
-    ) or (
-        agent_compose_project_id is not None
-        and draft.agent_compose_project_id is not None
-        and draft.agent_compose_project_id != agent_compose_project_id
-    ) or (
-        agent_compose_agent_name is not None
-        and draft.agent_compose_agent_name is not None
-        and draft.agent_compose_agent_name != agent_compose_agent_name
-    ) or (
-        session_id is not None
-        and draft.session_id is not None
-        and draft.session_id != session_id
+        (
+            agent_compose_run_id is not None
+            and draft.agent_compose_run_id is not None
+            and draft.agent_compose_run_id != agent_compose_run_id
+        )
+        or (
+            agent_compose_project_id is not None
+            and draft.agent_compose_project_id is not None
+            and draft.agent_compose_project_id != agent_compose_project_id
+        )
+        or (
+            agent_compose_agent_name is not None
+            and draft.agent_compose_agent_name is not None
+            and draft.agent_compose_agent_name != agent_compose_agent_name
+        )
+        or (
+            session_id is not None
+            and draft.session_id is not None
+            and draft.session_id != session_id
+        )
     ):
         raise AiGovernanceDraftStateError("session_already_bound")
 
@@ -326,9 +342,8 @@ def _require_agent_compose_namespace(
     agent_compose_project_id: str,
     agent_compose_agent_name: str,
 ) -> None:
-    if (
-        not _is_lower_hex_identity(agent_compose_run_id)
-        or not _is_lower_hex_identity(agent_compose_project_id)
+    if not _is_lower_hex_identity(agent_compose_run_id) or not _is_lower_hex_identity(
+        agent_compose_project_id
     ):
         raise AiGovernanceDraftStateError("session_identity_invalid")
     _require_nonblank(
@@ -489,6 +504,7 @@ def require_published_report_for_draft(
         tenant_id=report.tenant_id,
     )
     if scoped_report is not None:
+        require_ai_governance_draft_contract(scoped_report.report_contract_version)
         return scoped_report
     report_exists = session.exec(
         select(GovernanceReport.id).where(
@@ -504,6 +520,7 @@ def require_published_report_for_draft(
 def _canonical_evidence_bindings(
     report: GovernanceReport,
 ) -> dict[uuid.UUID, _CanonicalEvidenceBinding]:
+    require_ai_governance_draft_contract(report.report_contract_version)
     content = report.canonical_content
     try:
         report_content = content["report"]

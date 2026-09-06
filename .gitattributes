@@ -4,3 +4,5 @@
 frontend/src/client/sdk.gen.ts whitespace=-trailing-space
 frontend/src/client/** linguist-generated=true
 frontend/src/routeTree.gen.ts linguist-generated=true
+# CSV byte oracles include contractual CRLF and must not be normalized.
+backend/tests/domain/golden/report_candidates_*.csv -text whitespace=cr-at-eol

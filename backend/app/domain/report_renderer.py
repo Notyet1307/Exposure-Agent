@@ -14,11 +14,12 @@ import html
 import io
 import ipaddress
 import json
+import uuid
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Final
+from typing import TYPE_CHECKING, Final
 from urllib.parse import quote
 
 from app.domain.evidence_selector import EvidenceBundle, EvidencePlanEntry
@@ -30,6 +31,9 @@ from app.domain.report_core import (
     FindingType,
     TransitionType,
 )
+
+if TYPE_CHECKING:
+    from app.domain.report_candidates import ReportV2
 
 CANONICAL_JSON_SCHEMA_VERSION: Final = REPORT_CONTRACT_VERSION
 HTML_EVIDENCE_MAX_ENTRIES: Final = 8
@@ -453,6 +457,8 @@ def _validated_inputs(
 
 
 def _canonical_json_value(value: object) -> object:
+    if isinstance(value, uuid.UUID):
+        return str(value)
     if isinstance(value, datetime):
         return _timestamp(value)
     if isinstance(value, Mapping):
@@ -492,33 +498,55 @@ def _evidence_reference(entry: EvidencePlanEntry) -> str:
     )
 
 
-def _render_html(report: CanonicalReportCore, evidence: EvidenceBundle) -> bytes:
+def _render_html(
+    report: CanonicalReportCore | ReportV2,
+    evidence: EvidenceBundle,
+    *,
+    extra_sections: tuple[str, ...] = (),
+    internal_candidate: bool = False,
+) -> bytes:
     identity = report.report_identity
     summary = report.ip_consistency_summary
     changes = report.current_run_lifecycle_changes
     backlog = report.open_backlog_as_of_run
+    title = "内部未发布候选报告" if internal_candidate else "确定性治理报告"
+    time_label = "固定候选 as-of 时间" if internal_candidate else "完成时间"
     sections: list[str] = [
         "<!doctype html>",
         '<html lang="zh-CN">',
         "<head>",
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width,initial-scale=1">',
-        "<title>确定性治理报告</title>",
+        f"<title>{title}</title>",
         "<style>body{font-family:sans-serif;line-height:1.5;margin:2rem;max-width:72rem}section{margin:2rem 0}table{border-collapse:collapse}th,td{border:1px solid #bbb;padding:.4rem;text-align:left}.evidence-card{border:1px solid #bbb;padding:1rem;margin:.75rem 0}</style>",
+        *(
+            [
+                "<style>#input-completeness table{width:100%;table-layout:fixed;overflow-wrap:anywhere}</style>"
+            ]
+            if internal_candidate
+            else []
+        ),
         "</head>",
         "<body>",
-        "<h1>确定性治理报告</h1>",
+        f"<h1>{title}</h1>",
+        *(
+            ["<p>此报告仅为内部候选，尚未发布；固定时间投影不代表候选已发布。</p>"]
+            if internal_candidate
+            else []
+        ),
         '<section id="report-identity">',
         "<h2>报告身份与生成模式</h2>",
         f"<p>GovernanceRun：<code>{_text(identity.governance_run_id)}</code></p>",
         f"<p>Project：<code>{_text(identity.project_id)}</code></p>",
-        f"<p>完成时间：<time>{_text(_timestamp(identity.run_completed_at))}</time></p>",
+        f"<p>{time_label}：<time>{_text(_timestamp(identity.run_completed_at))}</time></p>",
         f"<p>报告契约：<code>{_text(identity.report_contract_version)}</code></p>",
         f"<p>生成模式：<strong>{_text(identity.generation_mode)}</strong></p>",
         "</section>",
         '<section id="input-completeness">',
         "<h2>输入完整性</h2>",
-        "<p>两个输入 SourceSnapshot 均已完整读取。</p>",
+        "<p>两个输入 SourceSnapshot 均已完整读取。</p>"
+        if len(report.input_completeness.sources) == 2
+        else "<p>三个固定输入 SourceSnapshot 均已完整读取；不表示完整覆盖。</p>",
         "<table><thead><tr><th>来源</th><th>Snapshot ID</th><th>内容 SHA-256</th><th>Schema</th><th>记录数</th></tr></thead><tbody>",
     ]
     sections.extend(
@@ -647,7 +675,9 @@ def _render_html(report: CanonicalReportCore, evidence: EvidenceBundle) -> bytes
             strict=True,
         )
     )
-    sections.extend(["</ul>", "</section>", "</body>", "</html>", ""])
+    sections.extend(["</ul>", "</section>"])
+    sections.extend(extra_sections)
+    sections.extend(["</body>", "</html>", ""])
     return "\n".join(sections).encode("utf-8")
 
 
