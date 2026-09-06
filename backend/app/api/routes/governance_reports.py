@@ -37,6 +37,7 @@ from app.domain.models import (
     Project,
     ProjectRole,
 )
+from app.domain.report_comparison_evidence import ReportComparisonEvidenceError
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
     AgentComposeClient,
@@ -463,12 +464,18 @@ def read_governance_report(
         ).first()
         is not None
     )
-    report = report_service.get_report(
-        session=session,
-        project=project,
-        report_id=report_id,
-        can_request_ai_governance_draft=can_request_ai_governance_draft,
-    )
+    try:
+        report = report_service.get_report(
+            session=session,
+            project=project,
+            report_id=report_id,
+            can_request_ai_governance_draft=can_request_ai_governance_draft,
+        )
+    except ReportComparisonEvidenceError, SQLAlchemyError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Report integrity verification failed",
+        ) from None
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return report

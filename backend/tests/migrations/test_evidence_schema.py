@@ -43,12 +43,13 @@ def _seed_evidence_targets(
     database: str,
     *,
     identity_suffix: str = "",
+    report_contract_version: str = "deterministic-report-v1",
 ) -> tuple[dict[str, uuid.UUID], dict[str, uuid.UUID]]:
     ids = _seed_stage3_run_facts(
         database,
         complete=False,
         processing_contract_version="ip-v1",
-        report_contract_version="deterministic-report-v1",
+        report_contract_version=report_contract_version,
         identity_suffix=identity_suffix,
     )
     html_artifact_id, csv_artifact_id = _insert_scoped_report_artifacts(database, ids)
@@ -57,6 +58,7 @@ def _seed_evidence_targets(
         ids=ids,
         html_artifact_id=html_artifact_id,
         csv_artifact_id=csv_artifact_id,
+        report_contract_version=report_contract_version,
     )
 
     observation_id = uuid.uuid4()
@@ -168,6 +170,7 @@ def _seed_evidence_targets(
         "finding_transition_id": transition_id,
         "html_artifact_id": html_artifact_id,
         "csv_artifact_id": csv_artifact_id,
+        "resource_id": resource_id,
     }
 
 
@@ -290,9 +293,7 @@ def test_evidence_rejects_cross_tenant_project_run_report_and_target_scope(
         {"source_snapshot_id": other_targets["source_snapshot_id"]},
     )
     for overrides in scope_overrides:
-        values: dict[str, Any] = {
-            "source_snapshot_id": targets["source_snapshot_id"]
-        }
+        values: dict[str, Any] = {"source_snapshot_id": targets["source_snapshot_id"]}
         values.update(overrides)
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             _insert_evidence(
@@ -325,7 +326,7 @@ def test_completed_run_rejects_late_evidence_and_report_mutations(
         )
         connection.execute(
             "UPDATE governance_reports SET canonical_content = "
-            "'{\"report_identity\": {\"pre_publish\": true}}'::jsonb, "
+            '\'{"report_identity": {"pre_publish": true}}\'::jsonb, '
             "updated_at = now() WHERE id = %s",
             (targets["report_id"],),
         )

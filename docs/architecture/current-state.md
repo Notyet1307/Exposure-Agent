@@ -33,6 +33,7 @@
 - CustomerUpload 与 CloudAtlas 的 IP Observation、Project 级稳定 IP Resource 和精确解析；
 - “未报备资产”“未观测资产”两类 Finding、Occurrence、Transition 与来源引用；
 - `deterministic-report-v1` 报告：canonical JSON、HTML、CSV 与 Hash；
+- 内部 `deterministic-report-v2` 候选与比较 Evidence：基于固定 Run 事实生成内存 JSON/HTML/CSV；事务内绑定入口为创建时固定 v2 的 Run 持久化完整、不可变的 `IPSourceComparisonFact` 集合，并将比较样本绑定到 Evidence 专用 target。治理与比较各最多 50 条 Evidence、HTML 各展示 8 条，完整比较 JSON/CSV 不截断；发布后解析重新核对完整事实、报告、引用与发布凭据。既有报告详情支持 v2 的最多 100 条有界引用，v1 仍为 50 条；新 target 不进入 AI allowlist。该能力尚未接入生产 Trigger/Runner/Publish，不自动生成或发布生产 v2 报告，也不提供新的 Evidence 详情接口。
 - Assets、Findings、GovernanceRun 和确定性报告的 API 与 Web 读取面。
 
 确定性事实由 Python、SQL 和 PostgreSQL 约束生成。agent-compose 的运行结果不等于 GovernanceRun 完成；业务状态始终以 PostgreSQL 为准。

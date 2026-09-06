@@ -966,7 +966,8 @@ class Evidence(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint(
             "num_nonnulls(source_snapshot_id, observation_id, "
-            "finding_occurrence_id, finding_transition_id) = 1",
+            "finding_occurrence_id, finding_transition_id, "
+            "ip_source_comparison_fact_id) = 1",
             name="ck_evidence_exactly_one_target",
         ),
         ForeignKeyConstraint(
@@ -1044,6 +1045,27 @@ class Evidence(SQLModel, table=True):
             name="fk_evidence_finding_transition_scope",
             ondelete="RESTRICT",
         ),
+        ForeignKeyConstraint(
+            [
+                "ip_source_comparison_fact_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+            ],
+            [
+                "ip_source_comparison_facts.id",
+                "ip_source_comparison_facts.governance_run_id",
+                "ip_source_comparison_facts.project_id",
+                "ip_source_comparison_facts.tenant_id",
+            ],
+            name="fk_evidence_ip_source_comparison_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "governance_report_id",
+            "ip_source_comparison_fact_id",
+            name="uq_evidence_report_ip_source_comparison",
+        ),
         UniqueConstraint(
             "id",
             "governance_run_id",
@@ -1062,6 +1084,7 @@ class Evidence(SQLModel, table=True):
     observation_id: uuid.UUID | None = Field(default=None, index=True)
     finding_occurrence_id: uuid.UUID | None = Field(default=None, index=True)
     finding_transition_id: uuid.UUID | None = Field(default=None, index=True)
+    ip_source_comparison_fact_id: uuid.UUID | None = Field(default=None, index=True)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
@@ -1294,6 +1317,102 @@ class Resource(SQLModel, table=True):
         sa_type=DateTime(timezone=True),  # type: ignore
     )
     updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class IPSourceComparisonFact(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "ip_source_comparison_facts"
+    __table_args__ = (
+        CheckConstraint(
+            "contract_version = 'ip-source-comparison/v1'",
+            name="ck_ip_source_comparison_facts_contract",
+        ),
+        CheckConstraint(
+            "btrim(canonical_ip) <> ''",
+            name="ck_ip_source_comparison_facts_ip_nonblank",
+        ),
+        CheckConstraint(
+            "(customer_upload_present AND cloudatlas_present "
+            "AND classification = 'matched' "
+            "AND classification_reason = 'observed_in_both_sources') OR "
+            "(customer_upload_present AND NOT cloudatlas_present "
+            "AND classification = 'customer_upload_only' "
+            "AND classification_reason = 'observed_in_customer_upload_only') OR "
+            "(NOT customer_upload_present AND cloudatlas_present "
+            "AND classification = 'cloudatlas_only' "
+            "AND classification_reason = 'observed_in_cloudatlas_only') OR "
+            "(NOT customer_upload_present AND NOT cloudatlas_present "
+            "AND classification = 'neither_source_observed' "
+            "AND classification_reason = 'not_observed_in_either_source')",
+            name="ck_ip_source_comparison_facts_classification",
+        ),
+        CheckConstraint(
+            "(netflow_status = 'ACTIVE' "
+            "AND netflow_reason = 'positive_activity_observed') OR "
+            "(netflow_status = 'UNKNOWN' AND netflow_reason IN "
+            "('netflow_input_absent', 'no_positive_activity_evidence'))",
+            name="ck_ip_source_comparison_facts_netflow",
+        ),
+        CheckConstraint(
+            "customer_upload_present OR cloudatlas_present OR netflow_status = 'ACTIVE'",
+            name="ck_ip_source_comparison_facts_observed",
+        ),
+        CheckConstraint(
+            "content_hash ~ '^[0-9a-f]{64}$'",
+            name="ck_ip_source_comparison_facts_hash_format",
+        ),
+        ForeignKeyConstraint(
+            ["governance_run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            name="fk_ip_source_comparison_facts_run_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["resource_id", "project_id", "tenant_id"],
+            ["resources.id", "resources.project_id", "resources.tenant_id"],
+            name="fk_ip_source_comparison_facts_resource_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_ip_source_comparison_facts_scope",
+        ),
+        UniqueConstraint(
+            "governance_run_id",
+            "resource_id",
+            name="uq_ip_source_comparison_facts_run_resource",
+        ),
+        UniqueConstraint(
+            "governance_run_id",
+            "canonical_ip",
+            name="uq_ip_source_comparison_facts_run_ip",
+        ),
+    )
+
+    id: uuid.UUID = Field(primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    resource_id: uuid.UUID = Field(index=True)
+    contract_version: str = Field(max_length=100)
+    canonical_ip: str = Field(max_length=39)
+    customer_upload_present: bool
+    cloudatlas_present: bool
+    netflow_status: str = Field(max_length=30)
+    classification: str = Field(max_length=100)
+    classification_reason: str = Field(max_length=100)
+    netflow_reason: str = Field(max_length=100)
+    content_hash: str = Field(max_length=64)
+    created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )

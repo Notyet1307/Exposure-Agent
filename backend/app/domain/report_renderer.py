@@ -33,6 +33,7 @@ from app.domain.report_core import (
 )
 
 if TYPE_CHECKING:
+    from app.domain.comparison_evidence import ReportV2EvidenceBundle
     from app.domain.report_candidates import ReportV2
 
 CANONICAL_JSON_SCHEMA_VERSION: Final = REPORT_CONTRACT_VERSION
@@ -360,7 +361,9 @@ def _validate_export_rows(report: CanonicalReportCore) -> None:
             raise ReportRendererError("report_schema_invalid")
 
 
-def _validate_evidence(report: CanonicalReportCore, evidence: EvidenceBundle) -> None:
+def _validate_evidence(
+    report: CanonicalReportCore | ReportV2, evidence: EvidenceBundle
+) -> None:
     identity = report.report_identity
     if (
         evidence.governance_run_id != identity.governance_run_id
@@ -500,7 +503,7 @@ def _evidence_reference(entry: EvidencePlanEntry) -> str:
 
 def _render_html(
     report: CanonicalReportCore | ReportV2,
-    evidence: EvidenceBundle,
+    evidence: EvidenceBundle | ReportV2EvidenceBundle,
     *,
     extra_sections: tuple[str, ...] = (),
     internal_candidate: bool = False,
@@ -611,7 +614,9 @@ def _render_html(
             "</ul>",
             "</section>",
             '<section id="evidence-examples">',
-            "<h2>Evidence 示例</h2>",
+            "<h2>治理 Evidence 示例（独立上限：入选 50 条，展示 8 条）</h2>"
+            if internal_candidate
+            else "<h2>Evidence 示例</h2>",
         ]
     )
     rendered_entries = evidence.entries[:HTML_EVIDENCE_MAX_ENTRIES]

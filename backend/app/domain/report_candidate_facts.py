@@ -86,7 +86,8 @@ def _read_ready_run(
     if comparison_required and (
         run.input_contract_version != "governance-run-input-v1"
         or run.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION
-        or run.report_contract_version != REPORT_CONTRACT_VERSION
+        or run.report_contract_version
+        not in {REPORT_CONTRACT_VERSION, REPORT_V2_CONTRACT_VERSION}
     ):
         raise ReportCandidateError("comparison_contract_unsupported")
     _require(
