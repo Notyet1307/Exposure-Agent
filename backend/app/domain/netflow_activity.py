@@ -104,11 +104,7 @@ def _time(value: object) -> datetime | None:
     return parsed
 
 
-def _output_hash(activities: tuple[NetFlowIPActivityAggregate, ...]) -> str:
-    payload = {
-        "contract_version": NETFLOW_ACTIVITY_CONTRACT_VERSION,
-        "activities": [activity.as_dict() for activity in activities],
-    }
+def _fingerprint(payload: dict[str, Any]) -> str:
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -116,6 +112,26 @@ def _output_hash(activities: tuple[NetFlowIPActivityAggregate, ...]) -> str:
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def netflow_activity_output_hash(
+    activities: tuple[NetFlowIPActivityAggregate, ...],
+) -> str:
+    return _fingerprint(
+        {
+            "contract_version": NETFLOW_ACTIVITY_CONTRACT_VERSION,
+            "activities": [activity.as_dict() for activity in activities],
+        }
+    )
+
+
+def netflow_activity_content_hash(activity: NetFlowIPActivityAggregate) -> str:
+    return _fingerprint(
+        {
+            "aggregation_contract_version": NETFLOW_ACTIVITY_CONTRACT_VERSION,
+            **activity.as_dict(),
+        }
+    )
 
 
 def aggregate_netflow_ip_activity(
@@ -191,5 +207,5 @@ def aggregate_netflow_ip_activity(
     return NetFlowIPActivityResult(
         contract_version=NETFLOW_ACTIVITY_CONTRACT_VERSION,
         activities=activities,
-        output_hash=_output_hash(activities),
+        output_hash=netflow_activity_output_hash(activities),
     )

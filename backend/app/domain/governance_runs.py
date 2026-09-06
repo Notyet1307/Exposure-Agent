@@ -86,9 +86,9 @@ from app.domain.models import (
 from app.domain.netflow_activity import (
     NETFLOW_ACTIVITY_CONTRACT_VERSION,
     NetFlowActivityContractError,
-    NetFlowIPActivityAggregate,
     NetFlowIPActivityResult,
     aggregate_netflow_ip_activity,
+    netflow_activity_content_hash,
 )
 from app.domain.netflow_datasets import (
     NETFLOW_DATASET_CONTRACT_VERSION,
@@ -1503,15 +1503,6 @@ def _netflow_activity_result(
     return result, snapshot, resources_by_key
 
 
-def _netflow_activity_content_hash(activity: NetFlowIPActivityAggregate) -> str:
-    return _fingerprint(
-        {
-            "aggregation_contract_version": NETFLOW_ACTIVITY_CONTRACT_VERSION,
-            **activity.as_dict(),
-        }
-    )
-
-
 def _load_netflow_snapshot(
     *, session: Session, run: GovernanceRun, request_ip: str | None
 ) -> None:
@@ -2026,9 +2017,11 @@ def _resolve_ip_observations(
         raise GovernanceRunProcessingError("resolve_unexpected_failure")
 
 
-def _publish_netflow_activity(*, session: Session, run: GovernanceRun) -> None:
+def _publish_netflow_activity(
+    *, session: Session, run: GovernanceRun
+) -> dict[str, Any] | None:
     if run.netflow_dataset_id is None:
-        return
+        return None
     try:
         result, snapshot, resources_by_key = _netflow_activity_result(
             session=session, run=run
@@ -2053,11 +2046,17 @@ def _publish_netflow_activity(*, session: Session, run: GovernanceRun) -> None:
                 protocols=list(activity.protocols),
                 first_seen_utc=activity.first_seen_utc,
                 last_seen_utc=activity.last_seen_utc,
-                content_sha256=_netflow_activity_content_hash(activity),
+                content_sha256=netflow_activity_content_hash(activity),
             )
             for activity in result.activities[start : start + STAGE4_DB_BATCH_SIZE]
         ]
         _add_all_in_batches(session, facts)
+    return {
+        "contract_version": result.contract_version,
+        "source_snapshot_id": str(snapshot.id),
+        "activity_count": len(result.activities),
+        "output_hash": result.output_hash,
+    }
 
 
 def _check_ip_findings(
@@ -3420,7 +3419,7 @@ def _publish_stage4_run(
                 )
                 published_transition_count += 1
 
-        _publish_netflow_activity(session=session, run=run)
+        netflow_activity = _publish_netflow_activity(session=session, run=run)
 
         validated_report_output_hash: str | None = None
         report_artifacts: list[Artifact] = []
@@ -3458,10 +3457,12 @@ def _publish_stage4_run(
             else get_datetime_utc()
         )
         step.status = RunStepStatus.SUCCEEDED.value
-        publish_output = {
+        publish_output: dict[str, Any] = {
             "processing_contract_version": run.processing_contract_version,
             "check_findings_output_hash": check_step.output_hash,
         }
+        if netflow_activity is not None:
+            publish_output["netflow_activity"] = netflow_activity
         if governance_report is not None:
             publish_output.update(
                 {
@@ -3494,6 +3495,8 @@ def _publish_stage4_run(
             "finding_count": published_occurrence_count,
             "transition_count": published_transition_count,
         }
+        if netflow_activity is not None:
+            publication_data["netflow_activity"] = netflow_activity
         if governance_report is not None:
             publication_data.update(
                 {
