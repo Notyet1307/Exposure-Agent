@@ -286,8 +286,13 @@ class NetFlowDataset(SQLModel, table=True):
             name="fk_netflow_datasets_raw_artifact_scope_hash",
             ondelete="RESTRICT",
         ),
-        CheckConstraint("raw_record_count >= 0 AND activity_valid_record_count >= 0 AND isolated_record_count >= 0", name="ck_netflow_datasets_counts_nonnegative"),
-        CheckConstraint("encoding IN ('utf-8-sig', 'gb18030')", name="ck_netflow_datasets_encoding"),
+        CheckConstraint(
+            "raw_record_count >= 0 AND activity_valid_record_count >= 0 AND isolated_record_count >= 0",
+            name="ck_netflow_datasets_counts_nonnegative",
+        ),
+        CheckConstraint(
+            "encoding IN ('utf-8-sig', 'gb18030')", name="ck_netflow_datasets_encoding"
+        ),
         ForeignKeyConstraint(
             ["normalized_artifact_id", "project_id", "tenant_id", "normalized_sha256"],
             [
@@ -619,6 +624,7 @@ class AiGovernanceDraftReviewDecision(StrEnum):
 class RunStepCode(StrEnum):
     LOAD_CUSTOMER = "LOAD_CUSTOMER"
     PULL_CLOUDATLAS = "PULL_CLOUDATLAS"
+    LOAD_NETFLOW = "LOAD_NETFLOW"
     NORMALIZE = "NORMALIZE"
     RESOLVE = "RESOLVE"
     CHECK_FINDINGS = "CHECK_FINDINGS"
@@ -636,6 +642,7 @@ class RunStepStatus(StrEnum):
 class SourceSnapshotType(StrEnum):
     CUSTOMER_UPLOAD = "CUSTOMER_UPLOAD"
     CLOUDATLAS = "CLOUDATLAS"
+    NETFLOW = "NETFLOW"
 
 
 class ResourceType(StrEnum):
@@ -736,7 +743,11 @@ class GovernanceRun(SQLModel, table=True):
         ),
         ForeignKeyConstraint(
             ["netflow_dataset_id", "project_id", "tenant_id"],
-            ["netflow_datasets.id", "netflow_datasets.project_id", "netflow_datasets.tenant_id"],
+            [
+                "netflow_datasets.id",
+                "netflow_datasets.project_id",
+                "netflow_datasets.tenant_id",
+            ],
             name="fk_governance_runs_netflow_dataset_scope",
             ondelete="RESTRICT",
         ),
@@ -747,7 +758,12 @@ class GovernanceRun(SQLModel, table=True):
                 "netflow_content_sha256",
                 "netflow_dataset_contract_version",
             ],
-            ["netflow_datasets.project_id", "netflow_datasets.tenant_id", "netflow_datasets.raw_sha256", "netflow_datasets.dataset_contract_version"],
+            [
+                "netflow_datasets.project_id",
+                "netflow_datasets.tenant_id",
+                "netflow_datasets.raw_sha256",
+                "netflow_datasets.dataset_contract_version",
+            ],
             name="fk_governance_runs_netflow_content_scope",
             ondelete="RESTRICT",
         ),
@@ -807,9 +823,7 @@ class GovernanceRun(SQLModel, table=True):
     input_hash: str | None = Field(default=None, max_length=64)
     netflow_dataset_id: uuid.UUID | None = Field(default=None, index=True)
     netflow_content_sha256: str | None = Field(default=None, max_length=64)
-    netflow_dataset_contract_version: str | None = Field(
-        default=None, max_length=100
-    )
+    netflow_dataset_contract_version: str | None = Field(default=None, max_length=100)
     processing_contract_version: str | None = Field(default=None, max_length=100)
     report_contract_version: str | None = Field(default=None, max_length=100)
     created_at: datetime = Field(
@@ -1061,9 +1075,9 @@ class RunStep(SQLModel, table=True):
     __tablename__: ClassVar[str] = "run_steps"
     __table_args__ = (
         CheckConstraint(
-            "step_code IN ('LOAD_CUSTOMER', 'PULL_CLOUDATLAS', 'NORMALIZE', "
-            "'RESOLVE', 'CHECK_FINDINGS', 'BUILD_REPORT', 'VALIDATE_REPORT', "
-            "'PUBLISH')",
+            "step_code IN ('LOAD_CUSTOMER', 'PULL_CLOUDATLAS', 'LOAD_NETFLOW', "
+            "'NORMALIZE', 'RESOLVE', 'CHECK_FINDINGS', 'BUILD_REPORT', "
+            "'VALIDATE_REPORT', 'PUBLISH')",
             name="ck_run_steps_code",
         ),
         CheckConstraint(
@@ -1126,14 +1140,21 @@ class SourceSnapshot(SQLModel, table=True):
     __tablename__: ClassVar[str] = "source_snapshots"
     __table_args__ = (
         CheckConstraint(
-            "source_type IN ('CUSTOMER_UPLOAD', 'CLOUDATLAS')",
+            "source_type IN ('CUSTOMER_UPLOAD', 'CLOUDATLAS', 'NETFLOW')",
             name="ck_source_snapshots_type",
         ),
         CheckConstraint(
             "(source_type = 'CUSTOMER_UPLOAD' AND customer_upload_id IS NOT NULL "
-            "AND source_instance_id IS NULL AND method_fingerprint IS NULL) OR "
+            "AND source_instance_id IS NULL AND netflow_dataset_id IS NULL "
+            "AND method_fingerprint IS NULL AND valid_time_start_utc IS NULL "
+            "AND valid_time_end_utc IS NULL) OR "
             "(source_type = 'CLOUDATLAS' AND customer_upload_id IS NULL "
-            "AND source_instance_id IS NOT NULL AND method_fingerprint IS NOT NULL)",
+            "AND source_instance_id IS NOT NULL AND netflow_dataset_id IS NULL "
+            "AND method_fingerprint IS NOT NULL AND valid_time_start_utc IS NULL "
+            "AND valid_time_end_utc IS NULL) OR "
+            "(source_type = 'NETFLOW' AND customer_upload_id IS NULL "
+            "AND source_instance_id IS NULL AND netflow_dataset_id IS NOT NULL "
+            "AND method_fingerprint IS NULL)",
             name="ck_source_snapshots_source_reference",
         ),
         CheckConstraint("record_count >= 0", name="ck_source_snapshots_record_count"),
@@ -1174,6 +1195,16 @@ class SourceSnapshot(SQLModel, table=True):
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
+            ["netflow_dataset_id", "project_id", "tenant_id"],
+            [
+                "netflow_datasets.id",
+                "netflow_datasets.project_id",
+                "netflow_datasets.tenant_id",
+            ],
+            name="fk_source_snapshots_netflow_dataset_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
             ["artifact_id", "tenant_id"],
             ["artifacts.id", "artifacts.tenant_id"],
             name="fk_source_snapshots_artifact_tenant",
@@ -1206,11 +1237,18 @@ class SourceSnapshot(SQLModel, table=True):
     source_type: str = Field(max_length=30)
     customer_upload_id: uuid.UUID | None = Field(default=None, index=True)
     source_instance_id: uuid.UUID | None = Field(default=None, index=True)
+    netflow_dataset_id: uuid.UUID | None = Field(default=None, index=True)
     artifact_id: uuid.UUID = Field(index=True)
     content_sha256: str = Field(max_length=64)
     schema_fingerprint: str = Field(max_length=64)
     method_fingerprint: str | None = Field(default=None, max_length=64)
     record_count: int
+    valid_time_start_utc: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    valid_time_end_utc: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore

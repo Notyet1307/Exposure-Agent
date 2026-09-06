@@ -82,7 +82,12 @@ from app.domain.models import (
     SourceSnapshotPublic,
     SourceSnapshotType,
 )
-from app.domain.netflow_datasets import NETFLOW_DATASET_CONTRACT_VERSION
+from app.domain.netflow_datasets import (
+    NETFLOW_DATASET_CONTRACT_VERSION,
+)
+from app.domain.netflow_datasets import (
+    SCHEMA_FINGERPRINT as NETFLOW_SCHEMA_FINGERPRINT,
+)
 from app.domain.report_core import (
     REPORT_CONTRACT_VERSION,
     CanonicalReportCore,
@@ -119,15 +124,20 @@ CLOUDATLAS_SNAPSHOT_MEDIA_TYPE = "application/json"
 CLOUDATLAS_SNAPSHOT_SCHEMA = "exposure-agent.cloudatlas-ip-assets.snapshot.v1"
 CLOUDATLAS_PAGE_SIZE = 200
 STAGE4_DB_BATCH_SIZE = 500
+_IP_SOURCE_SNAPSHOT_TYPES = (
+    SourceSnapshotType.CUSTOMER_UPLOAD.value,
+    SourceSnapshotType.CLOUDATLAS.value,
+)
 _STEP_ORDER = {
     RunStepCode.LOAD_CUSTOMER.value: 0,
     RunStepCode.PULL_CLOUDATLAS.value: 1,
-    RunStepCode.NORMALIZE.value: 2,
-    RunStepCode.RESOLVE.value: 3,
-    RunStepCode.CHECK_FINDINGS.value: 4,
-    RunStepCode.BUILD_REPORT.value: 5,
-    RunStepCode.VALIDATE_REPORT.value: 6,
-    RunStepCode.PUBLISH.value: 7,
+    RunStepCode.LOAD_NETFLOW.value: 2,
+    RunStepCode.NORMALIZE.value: 3,
+    RunStepCode.RESOLVE.value: 4,
+    RunStepCode.CHECK_FINDINGS.value: 5,
+    RunStepCode.BUILD_REPORT.value: 6,
+    RunStepCode.VALIDATE_REPORT.value: 7,
+    RunStepCode.PUBLISH.value: 8,
 }
 COMPLETED_RUN_STATUSES = frozenset({GovernanceRunStatus.COMPLETED.value})
 _NON_RETRYABLE_PREFIX = "non_retryable:"
@@ -140,6 +150,14 @@ _STAGE4_NON_RETRYABLE_ERRORS = frozenset(
         "stage4_snapshots_incomplete",
         "stage4_snapshot_scope_invalid",
         "stage4_snapshot_artifact_missing",
+    }
+)
+_NETFLOW_DATA_ERRORS = frozenset(
+    {
+        "netflow_artifact_unavailable",
+        "netflow_artifact_changed",
+        "netflow_contract_changed",
+        "netflow_snapshot_changed",
     }
 )
 
@@ -209,7 +227,9 @@ class PinnedTriggerInputs:
             "GOVERNANCE_CUSTOMER_UPLOAD_ID": str(self.customer_upload_id),
             "GOVERNANCE_CUSTOMER_UPLOAD_SHA256": self.customer_upload_sha256,
             "GOVERNANCE_CUSTOMER_PROFILE_ID": str(self.customer_upload_profile_id),
-            "GOVERNANCE_CUSTOMER_PROFILE_VERSION": str(self.customer_upload_profile_version),
+            "GOVERNANCE_CUSTOMER_PROFILE_VERSION": str(
+                self.customer_upload_profile_version
+            ),
             "GOVERNANCE_SOURCE_INSTANCE_ID": str(self.source_instance_id),
             "GOVERNANCE_CLOUDATLAS_FINGERPRINT": self.cloudatlas_validated_fingerprint,
             "GOVERNANCE_CLOUDATLAS_CAPSET_ID": self.cloudatlas_capset_id,
@@ -217,21 +237,27 @@ class PinnedTriggerInputs:
             "GOVERNANCE_PACKAGE_SHA256": self.package_sha256,
             "GOVERNANCE_DESCRIPTOR_SHA256": self.descriptor_sha256,
             "GOVERNANCE_RUNNER_BUILD_VERSION": self.runner_build_version,
-            "GOVERNANCE_PROCESSING_CONTRACT_VERSION": self.processing_contract_version or "",
+            "GOVERNANCE_PROCESSING_CONTRACT_VERSION": self.processing_contract_version
+            or "",
         }
         if self.input_contract_version is not None:
             environment.update(
                 {
-                    "GOVERNANCE_REPORT_CONTRACT_VERSION": self.report_contract_version or "",
+                    "GOVERNANCE_REPORT_CONTRACT_VERSION": self.report_contract_version
+                    or "",
                     "GOVERNANCE_INPUT_CONTRACT_VERSION": self.input_contract_version,
                     "GOVERNANCE_INPUT_HASH": input_hash or self.input_hash(),
                     "GOVERNANCE_NETFLOW_DATASET_ID": str(self.netflow_dataset_id or ""),
-                    "GOVERNANCE_NETFLOW_CONTENT_SHA256": self.netflow_content_sha256 or "",
-                    "GOVERNANCE_NETFLOW_DATASET_CONTRACT_VERSION": self.netflow_dataset_contract_version or "",
+                    "GOVERNANCE_NETFLOW_CONTENT_SHA256": self.netflow_content_sha256
+                    or "",
+                    "GOVERNANCE_NETFLOW_DATASET_CONTRACT_VERSION": self.netflow_dataset_contract_version
+                    or "",
                 }
             )
         elif self.report_contract_version is not None:
-            environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = self.report_contract_version
+            environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
+                self.report_contract_version
+            )
         return environment
 
 
@@ -333,15 +359,16 @@ class RunnerInputs:
             inputs.netflow_content_sha256,
             inputs.netflow_dataset_contract_version,
         )
-        legacy_input_fields_present = (
-            inputs.input_hash is not None
-            or any(value is not None for value in netflow_values)
+        legacy_input_fields_present = inputs.input_hash is not None or any(
+            value is not None for value in netflow_values
         )
         if (
             profile_version < 1
             or len(inputs.trigger_id) > 255
             or len(inputs.session_id) != 64
-            or any(character not in "0123456789abcdef" for character in inputs.session_id)
+            or any(
+                character not in "0123456789abcdef" for character in inputs.session_id
+            )
             or (
                 inputs.processing_contract_version is not None
                 and len(inputs.processing_contract_version) > 100
@@ -353,12 +380,18 @@ class RunnerInputs:
             or inputs.input_contract_version not in (None, "governance-run-input-v1")
             or (inputs.input_contract_version is None and legacy_input_fields_present)
             or (inputs.input_contract_version is not None and inputs.input_hash is None)
-            or (any(value is None for value in netflow_values) and any(value is not None for value in netflow_values))
+            or (
+                any(value is None for value in netflow_values)
+                and any(value is not None for value in netflow_values)
+            )
             or (
                 inputs.input_hash is not None
                 and (
                     len(inputs.input_hash) != 64
-                    or any(character not in "0123456789abcdef" for character in inputs.input_hash)
+                    or any(
+                        character not in "0123456789abcdef"
+                        for character in inputs.input_hash
+                    )
                 )
             )
         ):
@@ -1205,7 +1238,7 @@ def _write_cloudatlas_artifact(
             )
             destination.flush()
             os.fsync(destination.fileno())
-    except (OSError, CloudAtlasBoundaryError, GovernanceRunExecutionError):
+    except OSError, CloudAtlasBoundaryError, GovernanceRunExecutionError:
         temporary_path.unlink(missing_ok=True)
         raise
     return CloudAtlasArtifactDraft(
@@ -1329,6 +1362,161 @@ def _pull_cloudatlas_snapshot(
         raise GovernanceRunExecutionError(error_code)
 
 
+def _validate_pinned_netflow_source(
+    *, session: Session, run: GovernanceRun, require_snapshot: bool
+) -> tuple[NetFlowDataset, Artifact, SourceSnapshot | None]:
+    if (
+        run.netflow_dataset_id is None
+        or run.netflow_content_sha256 is None
+        or run.netflow_dataset_contract_version is None
+    ):
+        _execution_error("netflow_contract_changed")
+    dataset = session.exec(
+        select(NetFlowDataset).where(
+            NetFlowDataset.id == run.netflow_dataset_id,
+            NetFlowDataset.project_id == run.project_id,
+            NetFlowDataset.tenant_id == run.tenant_id,
+        )
+    ).one_or_none()
+    if (
+        dataset is None
+        or dataset.raw_sha256 != run.netflow_content_sha256
+        or dataset.dataset_contract_version != run.netflow_dataset_contract_version
+        or dataset.dataset_contract_version != NETFLOW_DATASET_CONTRACT_VERSION
+        or dataset.schema_fingerprint != NETFLOW_SCHEMA_FINGERPRINT
+    ):
+        _execution_error("netflow_contract_changed")
+    artifact = session.exec(
+        select(Artifact).where(
+            Artifact.id == dataset.raw_artifact_id,
+            Artifact.project_id == run.project_id,
+            Artifact.tenant_id == run.tenant_id,
+        )
+    ).one_or_none()
+    if (
+        artifact is None
+        or artifact.sha256 != dataset.raw_sha256
+        or artifact.byte_size != dataset.byte_size
+    ):
+        _execution_error("netflow_artifact_changed")
+    try:
+        file_hash, byte_size = _file_sha256(_artifact_path(artifact))
+    except GovernanceRunExecutionError as error:
+        if error.code == "artifact_read_failed":
+            _execution_error("netflow_artifact_unavailable")
+        _execution_error("netflow_artifact_changed")
+    if file_hash != dataset.raw_sha256 or byte_size != dataset.byte_size:
+        _execution_error("netflow_artifact_changed")
+
+    snapshot = session.exec(
+        select(SourceSnapshot).where(
+            SourceSnapshot.governance_run_id == run.id,
+            SourceSnapshot.project_id == run.project_id,
+            SourceSnapshot.tenant_id == run.tenant_id,
+            SourceSnapshot.source_type == SourceSnapshotType.NETFLOW.value,
+        )
+    ).one_or_none()
+    if require_snapshot and snapshot is None:
+        _execution_error("netflow_snapshot_changed")
+    if snapshot is not None and (
+        snapshot.netflow_dataset_id != dataset.id
+        or snapshot.customer_upload_id is not None
+        or snapshot.source_instance_id is not None
+        or snapshot.method_fingerprint is not None
+        or snapshot.artifact_id != artifact.id
+        or snapshot.content_sha256 != dataset.raw_sha256
+        or snapshot.schema_fingerprint != dataset.schema_fingerprint
+        or snapshot.record_count != dataset.raw_record_count
+        or snapshot.valid_time_start_utc != dataset.valid_time_start_utc
+        or snapshot.valid_time_end_utc != dataset.valid_time_end_utc
+    ):
+        _execution_error("netflow_snapshot_changed")
+    if require_snapshot:
+        load_step = session.exec(
+            select(RunStep).where(
+                RunStep.governance_run_id == run.id,
+                RunStep.step_code == RunStepCode.LOAD_NETFLOW.value,
+            )
+        ).one_or_none()
+        if (
+            load_step is None
+            or load_step.status != RunStepStatus.SUCCEEDED.value
+            or load_step.output_hash != dataset.raw_sha256
+        ):
+            _execution_error("netflow_snapshot_changed")
+    return dataset, artifact, snapshot
+
+
+def _load_netflow_snapshot(
+    *, session: Session, run: GovernanceRun, request_ip: str | None
+) -> None:
+    if run.netflow_dataset_id is None:
+        return
+    assert run.netflow_content_sha256 is not None
+    step, created = _begin_step_or_fail(
+        session=session,
+        run=run,
+        step_code=RunStepCode.LOAD_NETFLOW,
+        input_hash=run.netflow_content_sha256,
+        request_ip=request_ip,
+    )
+    if not created:
+        if step.status == RunStepStatus.SUCCEEDED.value:
+            return
+        _execution_error("runner_step_already_started")
+    try:
+        dataset, artifact, existing = _validate_pinned_netflow_source(
+            session=session, run=run, require_snapshot=False
+        )
+        if existing is not None:
+            _execution_error("netflow_snapshot_changed")
+        snapshot = SourceSnapshot(
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            governance_run_id=run.id,
+            source_type=SourceSnapshotType.NETFLOW.value,
+            netflow_dataset_id=dataset.id,
+            artifact_id=artifact.id,
+            content_sha256=dataset.raw_sha256,
+            schema_fingerprint=dataset.schema_fingerprint,
+            record_count=dataset.raw_record_count,
+            valid_time_start_utc=dataset.valid_time_start_utc,
+            valid_time_end_utc=dataset.valid_time_end_utc,
+        )
+        _complete_snapshot_step(
+            session=session,
+            run=run,
+            step=step,
+            snapshot=snapshot,
+            output_hash=dataset.raw_sha256,
+            request_ip=request_ip,
+        )
+    except GovernanceRunExecutionError as error:
+        logger.error("NetFlow snapshot failed: %s", error.code)
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_DATA,
+            error_code="netflow_snapshot_failed",
+            request_ip=request_ip,
+            retryable=error.code == "netflow_artifact_unavailable",
+        )
+        raise GovernanceRunExecutionError("netflow_snapshot_failed")
+    except SQLAlchemyError:
+        session.rollback()
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="netflow_snapshot_processing_failed",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunExecutionError("netflow_snapshot_processing_failed")
+
+
 def _stage4_snapshots(
     *, session: Session, run: GovernanceRun
 ) -> tuple[SourceSnapshot, SourceSnapshot]:
@@ -1337,6 +1525,7 @@ def _stage4_snapshots(
             SourceSnapshot.governance_run_id == run.id,
             SourceSnapshot.project_id == run.project_id,
             SourceSnapshot.tenant_id == run.tenant_id,
+            col(SourceSnapshot.source_type).in_(_IP_SOURCE_SNAPSHOT_TYPES),
         )
     ).all()
     by_type = {snapshot.source_type: snapshot for snapshot in snapshots}
@@ -1416,7 +1605,8 @@ def _normalize_ip_observations(
 ) -> None:
     snapshot_hashes = session.exec(
         select(SourceSnapshot.content_sha256).where(
-            SourceSnapshot.governance_run_id == run.id
+            SourceSnapshot.governance_run_id == run.id,
+            col(SourceSnapshot.source_type).in_(_IP_SOURCE_SNAPSHOT_TYPES),
         )
     ).all()
     input_hash = _fingerprint(
@@ -1640,10 +1830,7 @@ def _resolve_ip_observations(
         ]
         _add_all_in_batches(session, new_resources)
         resources_by_key.update(
-            {
-                str(resource.canonical_key): resource
-                for resource in new_resources
-            }
+            {str(resource.canonical_key): resource for resource in new_resources}
         )
         existing_link_rows = session.exec(
             select(
@@ -1862,7 +2049,7 @@ def _check_ip_findings(
             )
         )
         session.commit()
-    except (GovernanceRunProcessingError, IPRecordContractError):
+    except GovernanceRunProcessingError, IPRecordContractError:
         session.rollback()
         _fail_run(
             session=session,
@@ -1927,6 +2114,7 @@ def _report_candidate_facts(
             SourceSnapshot.governance_run_id == run.id,
             SourceSnapshot.project_id == run.project_id,
             SourceSnapshot.tenant_id == run.tenant_id,
+            col(SourceSnapshot.source_type).in_(_IP_SOURCE_SNAPSHOT_TYPES),
         )
     ).all()
     snapshots_by_type = {snapshot.source_type: snapshot for snapshot in snapshots}
@@ -1999,9 +2187,9 @@ def _report_candidate_facts(
         if finding_ids
         else []
     )
-    history_run_ids = {
-        occurrence.governance_run_id for occurrence in occurrences
-    } | {transition.governance_run_id for transition in transitions}
+    history_run_ids = {occurrence.governance_run_id for occurrence in occurrences} | {
+        transition.governance_run_id for transition in transitions
+    }
     history_runs = (
         session.exec(
             select(GovernanceRun).where(
@@ -2049,9 +2237,7 @@ def _report_candidate_facts(
             FindingTransitionFact(
                 run_id=str(transition.governance_run_id),
                 run_completed_at=completed_at_by_run[transition.governance_run_id],
-                transition_type=cast(
-                    ReportTransitionType, transition.transition_type
-                ),
+                transition_type=cast(ReportTransitionType, transition.transition_type),
             )
         )
 
@@ -2097,10 +2283,7 @@ def _report_candidate_facts(
                 current_transition_ids[str(finding.id)] = _report_candidate_uuid(
                     run, "transition", *identity
                 )
-        elif (
-            identity[1] in matched_keys
-            and finding.status == FindingStatus.OPEN.value
-        ):
+        elif identity[1] in matched_keys and finding.status == FindingStatus.OPEN.value:
             current_transitions.append(
                 FindingTransitionFact(
                     run_id=str(run.id),
@@ -2363,7 +2546,10 @@ def _validate_prepared_report_candidate(candidate: ReportCandidate) -> str:
         candidate.report_model.report_identity.report_contract_version,
     )
     rendered = render_report(report_model, evidence_plan)
-    if report_model != candidate.report_model or evidence_plan != candidate.evidence_plan:
+    if (
+        report_model != candidate.report_model
+        or evidence_plan != candidate.evidence_plan
+    ):
         raise ReportCandidateValidationError("candidate_contract_changed")
     if rendered != candidate.rendered:
         raise ReportCandidateValidationError("candidate_render_changed")
@@ -2652,7 +2838,7 @@ def _report_publication_records(
     )
     try:
         canonical_content = json.loads(candidate.rendered.canonical_json)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         raise ReportCandidateValidationError(
             "candidate_canonical_json_invalid"
         ) from None
@@ -2697,14 +2883,10 @@ def _report_publication_records(
                     target_id if reference.fact_type == "OBSERVATION" else None
                 ),
                 finding_occurrence_id=(
-                    target_id
-                    if reference.fact_type == "FINDING_OCCURRENCE"
-                    else None
+                    target_id if reference.fact_type == "FINDING_OCCURRENCE" else None
                 ),
                 finding_transition_id=(
-                    target_id
-                    if reference.fact_type == "FINDING_TRANSITION"
-                    else None
+                    target_id if reference.fact_type == "FINDING_TRANSITION" else None
                 ),
             )
         )
@@ -2798,6 +2980,19 @@ def _publish_stage4_run(
         customer_snapshot, cloudatlas_snapshot = _stage4_snapshots(
             session=session, run=run
         )
+        if run.netflow_dataset_id is None:
+            netflow_snapshot = session.exec(
+                select(SourceSnapshot.id).where(
+                    SourceSnapshot.governance_run_id == run.id,
+                    SourceSnapshot.source_type == SourceSnapshotType.NETFLOW.value,
+                )
+            ).one_or_none()
+            if netflow_snapshot is not None:
+                _execution_error("netflow_snapshot_changed")
+        else:
+            _validate_pinned_netflow_source(
+                session=session, run=run, require_snapshot=True
+            )
         _verify_snapshot_artifact(session=session, snapshot=customer_snapshot)
         _verify_snapshot_artifact(session=session, snapshot=cloudatlas_snapshot)
         check_step = session.exec(
@@ -2899,8 +3094,7 @@ def _publish_stage4_run(
                 )
             ).all()
             existing_occurrences_by_finding = {
-                occurrence.finding_id: occurrence
-                for occurrence in existing_occurrences
+                occurrence.finding_id: occurrence for occurrence in existing_occurrences
             }
 
         published_occurrence_count = 0
@@ -3063,9 +3257,10 @@ def _publish_stage4_run(
                 _processing_error("publish_resource_missing")
             assert resource is not None
             matched_observations = observations_by_ip[canonical_ip]
-            if {
-                observation.source_type for observation in matched_observations
-            } != {IP_CUSTOMER_UPLOAD_SOURCE_TYPE, IP_CLOUDATLAS_SOURCE_TYPE}:
+            if {observation.source_type for observation in matched_observations} != {
+                IP_CUSTOMER_UPLOAD_SOURCE_TYPE,
+                IP_CLOUDATLAS_SOURCE_TYPE,
+            }:
                 _processing_error("publish_match_observations_incomplete")
             for finding in sorted(
                 (
@@ -3192,7 +3387,7 @@ def _publish_stage4_run(
         project.updated_at = completed_at
         publication_data: dict[str, Any] = {
             "status": run.status,
-            "source_snapshot_count": 2,
+            "source_snapshot_count": len(snapshots),
             "observation_count": len(observations),
             "resource_count": len(resources_by_key),
             "finding_count": published_occurrence_count,
@@ -3256,17 +3451,29 @@ def _publish_stage4_run(
         raise GovernanceRunProcessingError("publish_contract_failed")
     except GovernanceRunExecutionError as error:
         session.rollback()
-        non_retryable = error.code in _STAGE4_NON_RETRYABLE_ERRORS
+        netflow_data_failure = error.code in _NETFLOW_DATA_ERRORS
+        non_retryable = (
+            error.code in (_STAGE4_NON_RETRYABLE_ERRORS | _NETFLOW_DATA_ERRORS)
+            and error.code != "netflow_artifact_unavailable"
+        )
         _fail_run(
             session=session,
             run=run,
             step=step,
-            run_status=GovernanceRunStatus.FAILED_PROCESSING,
-            error_code="publish_failed",
+            run_status=(
+                GovernanceRunStatus.FAILED_DATA
+                if netflow_data_failure
+                else GovernanceRunStatus.FAILED_PROCESSING
+            ),
+            error_code=(
+                "netflow_snapshot_failed" if netflow_data_failure else "publish_failed"
+            ),
             request_ip=request_ip,
             retryable=not non_retryable,
         )
-        raise GovernanceRunExecutionError("publish_failed")
+        raise GovernanceRunExecutionError(
+            "netflow_snapshot_failed" if netflow_data_failure else "publish_failed"
+        )
     except SQLAlchemyError:
         session.rollback()
         _fail_run(
@@ -3371,7 +3578,7 @@ def _publish_run(
         session.add(step_event)
         session.add(publish_event)
         session.commit()
-    except (GovernanceRunExecutionError, SQLAlchemyError):
+    except GovernanceRunExecutionError, SQLAlchemyError:
         session.rollback()
         _fail_run(
             session=session,
@@ -3596,11 +3803,15 @@ def prepare_retry(
     attempted_at = get_datetime_utc()
     if step is None:
         existing_codes = {item.step_code for item in steps}
+        source_steps: tuple[RunStepCode, ...] = (
+            RunStepCode.LOAD_CUSTOMER,
+            RunStepCode.PULL_CLOUDATLAS,
+        )
+        if run.netflow_dataset_id is not None:
+            source_steps += (RunStepCode.LOAD_NETFLOW,)
         step_order: tuple[RunStepCode, ...]
         if run.report_contract_version is not None:
-            step_order = (
-                RunStepCode.LOAD_CUSTOMER,
-                RunStepCode.PULL_CLOUDATLAS,
+            step_order = source_steps + (
                 RunStepCode.NORMALIZE,
                 RunStepCode.RESOLVE,
                 RunStepCode.CHECK_FINDINGS,
@@ -3609,20 +3820,14 @@ def prepare_retry(
                 RunStepCode.PUBLISH,
             )
         elif run.processing_contract_version is not None:
-            step_order = (
-                RunStepCode.LOAD_CUSTOMER,
-                RunStepCode.PULL_CLOUDATLAS,
+            step_order = source_steps + (
                 RunStepCode.NORMALIZE,
                 RunStepCode.RESOLVE,
                 RunStepCode.CHECK_FINDINGS,
                 RunStepCode.PUBLISH,
             )
         else:
-            step_order = (
-                RunStepCode.LOAD_CUSTOMER,
-                RunStepCode.PULL_CLOUDATLAS,
-                RunStepCode.PUBLISH,
-            )
+            step_order = source_steps + (RunStepCode.PUBLISH,)
         next_code = next(
             (code for code in step_order if code.value not in existing_codes),
             None,
@@ -3633,15 +3838,24 @@ def prepare_retry(
             select(SourceSnapshot).where(SourceSnapshot.governance_run_id == run.id)
         ).all()
         snapshot_hashes = sorted(snapshot.content_sha256 for snapshot in snapshots)
+        stage4_snapshot_hashes = sorted(
+            snapshot.content_sha256
+            for snapshot in snapshots
+            if snapshot.source_type in _IP_SOURCE_SNAPSHOT_TYPES
+        )
         if next_code is RunStepCode.LOAD_CUSTOMER:
             input_hash = run.customer_upload_sha256
         elif next_code is RunStepCode.PULL_CLOUDATLAS:
             input_hash = run.cloudatlas_validated_fingerprint
+        elif next_code is RunStepCode.LOAD_NETFLOW:
+            if run.netflow_content_sha256 is None:
+                raise GovernanceRunStateError("run_retry_no_failed_step")
+            input_hash = run.netflow_content_sha256
         elif next_code is RunStepCode.NORMALIZE:
             input_hash = _fingerprint(
                 {
                     "processing_contract_version": run.processing_contract_version,
-                    "snapshot_hashes": snapshot_hashes,
+                    "snapshot_hashes": stage4_snapshot_hashes,
                 }
             )
         elif next_code is RunStepCode.RESOLVE:
@@ -3985,6 +4199,7 @@ def execute_governance_run(*, session: Session, inputs: RunnerInputs) -> Governa
     report_candidate: ReportCandidate | None = None
     _load_customer_snapshot(session=session, run=run, request_ip=None)
     _pull_cloudatlas_snapshot(session=session, run=run, request_ip=None)
+    _load_netflow_snapshot(session=session, run=run, request_ip=None)
     if run.processing_contract_version is not None:
         _normalize_ip_observations(session=session, run=run, request_ip=None)
         _resolve_ip_observations(session=session, run=run, request_ip=None)
@@ -4027,13 +4242,13 @@ def governance_run_public(
     ).first()
     if retry_started is not None:
         attempts = {step.step_code: step.attempt for step in steps}
+        source_steps = {
+            SourceSnapshotType.CUSTOMER_UPLOAD.value: RunStepCode.LOAD_CUSTOMER.value,
+            SourceSnapshotType.CLOUDATLAS.value: RunStepCode.PULL_CLOUDATLAS.value,
+            SourceSnapshotType.NETFLOW.value: RunStepCode.LOAD_NETFLOW.value,
+        }
         reused_snapshot_count = sum(
-            attempts.get(
-                RunStepCode.LOAD_CUSTOMER.value
-                if snapshot.source_type == SourceSnapshotType.CUSTOMER_UPLOAD.value
-                else RunStepCode.PULL_CLOUDATLAS.value
-            )
-            == 1
+            attempts.get(source_steps[snapshot.source_type]) == 1
             for snapshot in snapshots
         )
     return GovernanceRunPublic(
