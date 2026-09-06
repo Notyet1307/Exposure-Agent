@@ -61,6 +61,9 @@ _DRAFT_ERROR_MESSAGES = {
     "draft_project_archived": "This Project is archived and read-only.",
     "report_not_found": "The governance report was not found.",
     "report_not_published": "The governance report is not published.",
+    "draft_report_contract_unsupported": (
+        "AI governance drafts are not supported for this report contract."
+    ),
     "finding_not_selected": "Every selected Finding must be eligible in this report.",
     "evidence_not_bound": "A selected Finding has no matching persisted Evidence.",
     "invalid_bindings": "Select between one and eight distinct eligible Findings.",
@@ -502,11 +505,26 @@ def request_ai_governance_draft(
             AiGovernanceDraft.idempotency_key == key,
         )
     ).one_or_none()
+    if existing is not None and existing.governance_report_id != report_id:
+        raise _draft_state_error(
+            draft_service.AiGovernanceDraftStateError("draft_idempotency_conflict")
+        )
+    report = session.exec(
+        select(GovernanceReport).where(
+            GovernanceReport.id == report_id,
+            GovernanceReport.project_id == project.id,
+            GovernanceReport.tenant_id == project.tenant_id,
+        )
+    ).one_or_none()
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    try:
+        draft_service.require_ai_governance_draft_contract(
+            report.report_contract_version
+        )
+    except draft_service.AiGovernanceDraftStateError as error:
+        raise _draft_state_error(error) from None
     if existing is not None:
-        if existing.governance_report_id != report_id:
-            raise _draft_state_error(
-                draft_service.AiGovernanceDraftStateError("draft_idempotency_conflict")
-            )
         try:
             existing = _launch_or_reconcile_draft_session(
                 session=session,
@@ -525,15 +543,6 @@ def request_ai_governance_draft(
             session=session, draft=existing
         )
 
-    report = session.exec(
-        select(GovernanceReport).where(
-            GovernanceReport.id == report_id,
-            GovernanceReport.project_id == project.id,
-            GovernanceReport.tenant_id == project.tenant_id,
-        )
-    ).one_or_none()
-    if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     failed_draft = session.exec(
         select(AiGovernanceDraft.id).where(
             AiGovernanceDraft.tenant_id == project.tenant_id,

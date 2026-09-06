@@ -1,0 +1,20 @@
+{
+  "absent": {
+    "resource_count": 3,
+    "classification_counts": {"matched": 1, "customer_upload_only": 1, "cloudatlas_only": 1, "neither_source_observed": 0},
+    "netflow_status_counts": {"ACTIVE": 0, "UNKNOWN": 3},
+    "netflow_reason_counts": {"positive_activity_observed": 0, "netflow_input_absent": 3, "no_positive_activity_evidence": 0}
+  },
+  "present-empty": {
+    "resource_count": 3,
+    "classification_counts": {"matched": 1, "customer_upload_only": 1, "cloudatlas_only": 1, "neither_source_observed": 0},
+    "netflow_status_counts": {"ACTIVE": 0, "UNKNOWN": 3},
+    "netflow_reason_counts": {"positive_activity_observed": 0, "netflow_input_absent": 0, "no_positive_activity_evidence": 3}
+  },
+  "present-active": {
+    "resource_count": 7,
+    "classification_counts": {"matched": 2, "customer_upload_only": 2, "cloudatlas_only": 2, "neither_source_observed": 1},
+    "netflow_status_counts": {"ACTIVE": 4, "UNKNOWN": 3},
+    "netflow_reason_counts": {"positive_activity_observed": 4, "netflow_input_absent": 0, "no_positive_activity_evidence": 3}
+  }
+}

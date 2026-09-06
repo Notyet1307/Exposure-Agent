@@ -8,7 +8,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, NoReturn, cast
 
@@ -1484,16 +1484,20 @@ def _netflow_activity_source(
 
 
 def _netflow_activity_result(
-    *, session: Session, run: GovernanceRun
+    *,
+    session: Session,
+    run: GovernanceRun,
+    resource_as_of: datetime | None = None,
 ) -> tuple[NetFlowIPActivityResult, SourceSnapshot, dict[str, Resource]]:
     snapshot, path = _netflow_activity_source(session=session, run=run)
-    resources = session.exec(
-        select(Resource).where(
-            Resource.project_id == run.project_id,
-            Resource.tenant_id == run.tenant_id,
-            Resource.resource_type == ResourceType.IP.value,
-        )
-    ).all()
+    resource_query = select(Resource).where(
+        Resource.project_id == run.project_id,
+        Resource.tenant_id == run.tenant_id,
+        Resource.resource_type == ResourceType.IP.value,
+    )
+    if resource_as_of is not None:
+        resource_query = resource_query.where(Resource.created_at <= resource_as_of)
+    resources = session.exec(resource_query).all()
     resources_by_key = {str(resource.canonical_key): resource for resource in resources}
     try:
         result = aggregate_netflow_ip_activity(path, resources_by_key)
@@ -2306,7 +2310,32 @@ def _report_candidate_facts(
     }
     if len(completed_at_by_run) != len(history_run_ids):
         _processing_error("report_lifecycle_run_incomplete")
-    latest_history_at = max(completed_at_by_run.values(), default=None)
+    published = run.completed_at is not None
+    if published:
+        assert run.completed_at is not None
+        completed_at_by_run = {
+            history_id: completed_at
+            for history_id, completed_at in completed_at_by_run.items()
+            if completed_at <= run.completed_at
+        }
+        occurrences = [
+            occurrence
+            for occurrence in occurrences
+            if occurrence.governance_run_id in completed_at_by_run
+        ]
+        transitions = [
+            transition
+            for transition in transitions
+            if transition.governance_run_id in completed_at_by_run
+        ]
+    latest_history_at = max(
+        (
+            completed_at
+            for history_id, completed_at in completed_at_by_run.items()
+            if history_id != run.id
+        ),
+        default=None,
+    )
     build_step = session.exec(
         select(RunStep).where(
             RunStep.governance_run_id == run.id,
@@ -2315,8 +2344,12 @@ def _report_candidate_facts(
     ).one_or_none()
     if build_step is None:
         _processing_error("report_build_step_missing")
-    candidate_completed_at = build_step.started_at
-    if latest_history_at is not None and candidate_completed_at <= latest_history_at:
+    candidate_completed_at = run.completed_at or build_step.started_at
+    if (
+        not published
+        and latest_history_at is not None
+        and candidate_completed_at <= latest_history_at
+    ):
         candidate_completed_at = latest_history_at + timedelta(microseconds=1)
 
     occurrence_facts: defaultdict[uuid.UUID, list[FindingRunFact]] = defaultdict(list)
@@ -2349,8 +2382,16 @@ def _report_candidate_facts(
             for canonical_ip in customer_only
         },
     }
-    current_occurrence_ids: dict[str, str] = {}
-    current_transition_ids: dict[str, str] = {}
+    current_occurrence_ids: dict[str, str] = {
+        str(occurrence.finding_id): str(occurrence.id)
+        for occurrence in occurrences
+        if occurrence.governance_run_id == run.id
+    }
+    current_transition_ids: dict[str, str] = {
+        str(transition.finding_id): str(transition.id)
+        for transition in transitions
+        if transition.governance_run_id == run.id
+    }
     lifecycle_by_identity: dict[tuple[str, str], FindingLifecycleFact] = {}
 
     for finding in findings:
@@ -2360,7 +2401,24 @@ def _report_candidate_facts(
         )
         current_occurrences = list(occurrence_facts[finding.id])
         current_transitions = list(transition_facts[finding.id])
-        if identity in current_differences:
+        if published and not current_occurrences and not current_transitions:
+            continue
+        prior_transitions = [
+            transition
+            for transition in current_transitions
+            if transition.run_id != str(run.id)
+        ]
+        status_as_of_run = finding.status
+        if prior_transitions:
+            latest_transition = max(
+                prior_transitions, key=lambda item: item.run_completed_at
+            )
+            status_as_of_run = (
+                FindingStatus.CLOSED.value
+                if latest_transition.transition_type == "CLOSED"
+                else FindingStatus.OPEN.value
+            )
+        if not published and identity in current_differences:
             current_occurrences.append(
                 FindingRunFact(
                     run_id=str(run.id),
@@ -2370,7 +2428,7 @@ def _report_candidate_facts(
             current_occurrence_ids[str(finding.id)] = _report_candidate_uuid(
                 run, "occurrence", *identity
             )
-            if finding.status == FindingStatus.CLOSED.value:
+            if status_as_of_run == FindingStatus.CLOSED.value:
                 current_transitions.append(
                     FindingTransitionFact(
                         run_id=str(run.id),
@@ -2381,7 +2439,11 @@ def _report_candidate_facts(
                 current_transition_ids[str(finding.id)] = _report_candidate_uuid(
                     run, "transition", *identity
                 )
-        elif identity[1] in matched_keys and finding.status == FindingStatus.OPEN.value:
+        elif (
+            not published
+            and identity[1] in matched_keys
+            and status_as_of_run == FindingStatus.OPEN.value
+        ):
             current_transitions.append(
                 FindingTransitionFact(
                     run_id=str(run.id),
@@ -2403,6 +2465,8 @@ def _report_candidate_facts(
     for identity in current_differences:
         if identity in lifecycle_by_identity:
             continue
+        if published:
+            _processing_error("report_published_lifecycle_missing")
         finding_id = _report_candidate_uuid(run, "finding", *identity)
         lifecycle_by_identity[identity] = FindingLifecycleFact(
             finding_id=finding_id,

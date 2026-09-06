@@ -5,6 +5,7 @@ import ipaddress
 import json
 import uuid
 from collections import Counter
+from collections.abc import Mapping, Set
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -180,86 +181,10 @@ def _read_comparison(
     if run.netflow_dataset_id is not None and "netflow_activity" not in publication:
         raise IPSourceComparisonError("comparison_contract_unsupported")
 
-    snapshots = session.exec(
-        select(SourceSnapshot).where(
-            SourceSnapshot.governance_run_id == run_id,
-            SourceSnapshot.project_id == project_id,
-            SourceSnapshot.tenant_id == tenant_id,
-        )
-    ).all()
-    by_source = {snapshot.source_type: snapshot for snapshot in snapshots}
-    expected_sources = {"CUSTOMER_UPLOAD", "CLOUDATLAS"}
-    if run.netflow_dataset_id is not None:
-        expected_sources.add("NETFLOW")
-    _require(
-        set(by_source) == expected_sources and len(snapshots) == len(expected_sources)
+    by_source, observations, links = read_comparison_source_facts(
+        session=session, run=run, steps=steps
     )
-    _require(by_source["CUSTOMER_UPLOAD"].customer_upload_id == run.customer_upload_id)
-    _require(by_source["CUSTOMER_UPLOAD"].content_sha256 == run.customer_upload_sha256)
-    _require(by_source["CLOUDATLAS"].source_instance_id == run.source_instance_id)
-    for source, step_code in (
-        ("CUSTOMER_UPLOAD", "LOAD_CUSTOMER"),
-        ("CLOUDATLAS", "PULL_CLOUDATLAS"),
-    ):
-        _require(
-            step_code in steps
-            and steps[step_code].status == "SUCCEEDED"
-            and steps[step_code].output_hash == by_source[source].content_sha256
-        )
-
-    observations = sorted(
-        session.exec(
-            select(Observation).where(
-                Observation.governance_run_id == run_id,
-                Observation.project_id == project_id,
-                Observation.tenant_id == tenant_id,
-            )
-        ).all(),
-        key=lambda item: ip_observation_sort_key(
-            item.source_type, item.source_record_key, item.id
-        ),
-    )
-    observation_counts = Counter(item.source_type for item in observations)
-    for source in ("CUSTOMER_UPLOAD", "CLOUDATLAS"):
-        _require(observation_counts[source] == by_source[source].record_count)
-    normalized = []
-    for observation in observations:
-        _require(observation.source_type in {"CUSTOMER_UPLOAD", "CLOUDATLAS"})
-        _require(
-            observation.source_snapshot_id == by_source[observation.source_type].id
-        )
-        normalized.append(
-            IPObservation(
-                source_type=observation.source_type,
-                source_record_key=observation.source_record_key,
-                raw_ip=observation.raw_ip,
-                canonical_ip=str(observation.canonical_ip),
-                cloudatlas_asset_id=observation.cloudatlas_asset_id,
-                cloudatlas_status=observation.cloudatlas_status,
-            ).as_dict()
-        )
-    _require(
-        _hash(
-            {
-                "processing_contract_version": run.processing_contract_version,
-                "observations": normalized,
-            }
-        )
-        == steps["NORMALIZE"].output_hash
-    )
-
-    links = session.exec(
-        select(ObservationResourceLink).where(
-            ObservationResourceLink.governance_run_id == run_id,
-            ObservationResourceLink.project_id == project_id,
-            ObservationResourceLink.tenant_id == tenant_id,
-        )
-    ).all()
     links_by_observation = {link.observation_id: link for link in links}
-    _require(
-        len(links) == len(observations)
-        and set(links_by_observation) == {item.id for item in observations}
-    )
     activities = session.exec(
         select(NetFlowIPActivity).where(
             NetFlowIPActivity.governance_run_id == run_id,
@@ -388,7 +313,37 @@ def _read_comparison(
             netflow_activity_output_hash(tuple(aggregates)) == receipt["output_hash"]
         )
 
-    active_resources = {item.resource_id for item in activities}
+    return compile_ip_source_comparison(
+        tenant_id=tenant_id,
+        project_id=project_id,
+        run_id=run_id,
+        resources={item.id: str(item.canonical_key) for item in resources},
+        membership=membership,
+        active_resources={item.resource_id for item in activities},
+        netflow_present=run.netflow_dataset_id is not None,
+    )
+
+
+def compile_ip_source_comparison(
+    *,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    resources: Mapping[uuid.UUID, str],
+    membership: Mapping[uuid.UUID, Set[str]],
+    active_resources: Set[uuid.UUID],
+    netflow_present: bool,
+) -> RunIPSourceComparison:
+    """Project validated scoped facts; callers own their lifecycle proof."""
+    included = set(membership) | set(active_resources)
+    _require(included <= resources.keys())
+    _require(netflow_present or not active_resources)
+    _require(len(set(resources.values())) == len(resources))
+    for resource_id in included:
+        _require(normalize_ip(resources[resource_id]) == resources[resource_id])
+        _require(
+            membership.get(resource_id, set()) <= {"CUSTOMER_UPLOAD", "CLOUDATLAS"}
+        )
     scope = {
         "contract_version": COMPARISON_CONTRACT_VERSION,
         "tenant_id": str(tenant_id),
@@ -396,16 +351,17 @@ def _read_comparison(
         "governance_run_id": str(run_id),
     }
     results = []
-    for resource in sorted(
-        resources, key=lambda item: _ip_order(str(item.canonical_key))
-    ):
-        customer = "CUSTOMER_UPLOAD" in membership[resource.id]
-        cloudatlas = "CLOUDATLAS" in membership[resource.id]
-        active = resource.id in active_resources
+    for resource_id in sorted(included, key=lambda key: _ip_order(resources[key])):
+        sources = membership.get(resource_id, set())
+        customer = "CUSTOMER_UPLOAD" in sources
+        cloudatlas = "CLOUDATLAS" in sources
+        active = resource_id in active_resources
+        if not customer and not cloudatlas and not active:
+            continue
         classification, reason = _CLASSIFICATIONS[customer, cloudatlas]
         row = {
-            "resource_id": str(resource.id),
-            "canonical_ip": str(resource.canonical_key),
+            "resource_id": str(resource_id),
+            "canonical_ip": resources[resource_id],
             "customer_upload_present": customer,
             "cloudatlas_present": cloudatlas,
             "netflow_status": "ACTIVE" if active else "UNKNOWN",
@@ -415,7 +371,7 @@ def _read_comparison(
             if active
             else (
                 "netflow_input_absent"
-                if run.netflow_dataset_id is None
+                if not netflow_present
                 else "no_positive_activity_evidence"
             ),
         }
@@ -428,3 +384,91 @@ def _read_comparison(
             "output_hash": _hash({**scope, "results": results}),
         }
     )
+
+
+def read_comparison_source_facts(
+    *, session: Session, run: GovernanceRun, steps: Mapping[str, RunStep]
+) -> tuple[dict[str, SourceSnapshot], list[Observation], list[ObservationResourceLink]]:
+    """Read fixed source facts shared by pre- and post-publication adapters."""
+    run_id, project_id, tenant_id = run.id, run.project_id, run.tenant_id
+    snapshots = session.exec(
+        select(SourceSnapshot).where(
+            SourceSnapshot.governance_run_id == run_id,
+            SourceSnapshot.project_id == project_id,
+            SourceSnapshot.tenant_id == tenant_id,
+        )
+    ).all()
+    by_source = {snapshot.source_type: snapshot for snapshot in snapshots}
+    expected_sources = {"CUSTOMER_UPLOAD", "CLOUDATLAS"}
+    if run.netflow_dataset_id is not None:
+        expected_sources.add("NETFLOW")
+    _require(
+        set(by_source) == expected_sources and len(snapshots) == len(expected_sources)
+    )
+    _require(by_source["CUSTOMER_UPLOAD"].customer_upload_id == run.customer_upload_id)
+    _require(by_source["CUSTOMER_UPLOAD"].content_sha256 == run.customer_upload_sha256)
+    _require(by_source["CLOUDATLAS"].source_instance_id == run.source_instance_id)
+    for source, step_code in (
+        ("CUSTOMER_UPLOAD", "LOAD_CUSTOMER"),
+        ("CLOUDATLAS", "PULL_CLOUDATLAS"),
+    ):
+        _require(
+            step_code in steps
+            and steps[step_code].status == "SUCCEEDED"
+            and steps[step_code].output_hash == by_source[source].content_sha256
+        )
+
+    observations = sorted(
+        session.exec(
+            select(Observation).where(
+                Observation.governance_run_id == run_id,
+                Observation.project_id == project_id,
+                Observation.tenant_id == tenant_id,
+            )
+        ).all(),
+        key=lambda item: ip_observation_sort_key(
+            item.source_type, item.source_record_key, item.id
+        ),
+    )
+    observation_counts = Counter(item.source_type for item in observations)
+    for source in ("CUSTOMER_UPLOAD", "CLOUDATLAS"):
+        _require(observation_counts[source] == by_source[source].record_count)
+    normalized = []
+    for observation in observations:
+        _require(observation.source_type in {"CUSTOMER_UPLOAD", "CLOUDATLAS"})
+        _require(
+            observation.source_snapshot_id == by_source[observation.source_type].id
+        )
+        normalized.append(
+            IPObservation(
+                source_type=observation.source_type,
+                source_record_key=observation.source_record_key,
+                raw_ip=observation.raw_ip,
+                canonical_ip=str(observation.canonical_ip),
+                cloudatlas_asset_id=observation.cloudatlas_asset_id,
+                cloudatlas_status=observation.cloudatlas_status,
+            ).as_dict()
+        )
+    _require(
+        _hash(
+            {
+                "processing_contract_version": run.processing_contract_version,
+                "observations": normalized,
+            }
+        )
+        == steps["NORMALIZE"].output_hash
+    )
+
+    links = session.exec(
+        select(ObservationResourceLink).where(
+            ObservationResourceLink.governance_run_id == run_id,
+            ObservationResourceLink.project_id == project_id,
+            ObservationResourceLink.tenant_id == tenant_id,
+        )
+    ).all()
+    links_by_observation = {link.observation_id: link for link in links}
+    _require(
+        len(links) == len(observations)
+        and set(links_by_observation) == {item.id for item in observations}
+    )
+    return by_source, observations, list(links)
