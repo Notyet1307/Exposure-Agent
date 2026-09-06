@@ -23,6 +23,7 @@ from app.domain.models import (
     GovernanceReport,
     GovernanceRun,
     NetFlowDataset,
+    NetFlowIPActivity,
     Observation,
     Project,
     RunStep,
@@ -443,6 +444,14 @@ def test_absent_input_keeps_report_v1_completion_without_netflow_facts(
         is None
     )
     assert run.netflow_dataset_id is None
+    assert (
+        db.exec(
+            select(NetFlowIPActivity).where(
+                NetFlowIPActivity.governance_run_id == run.id
+            )
+        ).all()
+        == []
+    )
 
 
 def test_retry_refuses_dataset_drift_and_rerun_uses_new_dataset_hash(
@@ -617,6 +626,14 @@ def test_present_zero_activity_dataset_still_completes_with_snapshot(
     ).one()
     assert snapshot.netflow_dataset_id == uuid.UUID(str(dataset["id"]))
     assert snapshot.record_count == expected_record_count
+    assert (
+        db.exec(
+            select(NetFlowIPActivity).where(
+                NetFlowIPActivity.governance_run_id == run.id
+            )
+        ).all()
+        == []
+    )
 
 
 def test_netflow_artifact_drift_before_load_fails_data_without_publish(

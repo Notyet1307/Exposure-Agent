@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKeyConstraint,
     Index,
+    Integer,
     String,
     UniqueConstraint,
     text,
@@ -1293,6 +1294,95 @@ class Resource(SQLModel, table=True):
         sa_type=DateTime(timezone=True),  # type: ignore
     )
     updated_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class NetFlowIPActivity(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "netflow_ip_activities"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type = 'NETFLOW'", name="ck_netflow_ip_activities_source_type"
+        ),
+        CheckConstraint(
+            "flow_count > 0", name="ck_netflow_ip_activities_flow_count_positive"
+        ),
+        CheckConstraint(
+            "btrim(aggregation_contract_version) <> ''",
+            name="ck_netflow_ip_activities_contract_nonblank",
+        ),
+        CheckConstraint(
+            "content_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_netflow_ip_activities_hash_format",
+        ),
+        ForeignKeyConstraint(
+            ["governance_run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            name="fk_netflow_ip_activities_run_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            [
+                "source_snapshot_id",
+                "governance_run_id",
+                "project_id",
+                "tenant_id",
+                "source_type",
+            ],
+            [
+                "source_snapshots.id",
+                "source_snapshots.governance_run_id",
+                "source_snapshots.project_id",
+                "source_snapshots.tenant_id",
+                "source_snapshots.source_type",
+            ],
+            name="fk_netflow_ip_activities_snapshot_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["resource_id", "project_id", "tenant_id"],
+            ["resources.id", "resources.project_id", "resources.tenant_id"],
+            name="fk_netflow_ip_activities_resource_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "governance_run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_netflow_ip_activities_scope",
+        ),
+        UniqueConstraint(
+            "governance_run_id",
+            "resource_id",
+            name="uq_netflow_ip_activities_run_resource",
+        ),
+    )
+
+    id: uuid.UUID = Field(primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID = Field(index=True)
+    source_snapshot_id: uuid.UUID = Field(index=True)
+    source_type: str = Field(default=SourceSnapshotType.NETFLOW.value, max_length=30)
+    resource_id: uuid.UUID = Field(index=True)
+    aggregation_contract_version: str = Field(max_length=100)
+    flow_count: int
+    peer_ips: list[str] = Field(sa_column=Column(ARRAY(INET), nullable=False))
+    protocols: list[int] = Field(sa_column=Column(ARRAY(Integer), nullable=False))
+    first_seen_utc: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    last_seen_utc: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+    content_sha256: str = Field(max_length=64)
+    created_at: datetime = Field(
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )

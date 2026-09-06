@@ -29,7 +29,7 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_SCHEMA_REVISION = "a7b8c9d0e1f2"
+CURRENT_SCHEMA_REVISION = "b8c9d0e1f2a3"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -1975,6 +1975,9 @@ def test_netflow_migration_does_not_backfill_existing_run_or_snapshots(
         ).fetchall() == [(None, None, None)] * len(before_snapshots)
         assert connection.execute(
             "SELECT count(*) FROM netflow_datasets"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT count(*) FROM netflow_ip_activities"
         ).fetchone() == (0,)
         assert connection.execute(
             "SELECT current_netflow_dataset_id FROM projects WHERE id = %s",
