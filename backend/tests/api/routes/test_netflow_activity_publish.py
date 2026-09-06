@@ -9,8 +9,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from app.domain import governance_runs as service
+from app.domain.ip_source_comparison import (
+    IPSourceComparisonError,
+    read_ip_source_comparison,
+)
 from app.domain.models import (
     Artifact,
+    AuditEvent,
     GovernanceRun,
     NetFlowDataset,
     NetFlowIPActivity,
@@ -100,6 +105,22 @@ def test_activity_publish_is_scoped_batched_atomic_and_retryable(
         )
         db.refresh(stored_project)
         assert stored_project.latest_completed_run_id is None
+        assert (
+            db.exec(
+                select(AuditEvent).where(
+                    AuditEvent.target_id == run.id,
+                    AuditEvent.action == "governance_run.published",
+                )
+            ).all()
+            == []
+        )
+        with pytest.raises(IPSourceComparisonError, match="run_not_published"):
+            read_ip_source_comparison(
+                session=db,
+                tenant_id=run.tenant_id,
+                project_id=project_id,
+                run_id=run.id,
+            )
         assert batches == [500, 5]
         first_hashes = dict(draft_hashes)
         monkeypatch.setattr(service, "_report_publication_records", original)
@@ -129,8 +150,36 @@ def test_activity_publish_is_scoped_batched_atomic_and_retryable(
         assert current.protocols == [1, 6, 17]
         assert "192.0.2.10" not in {str(ip) for ip in current.peer_ips}
         assert "198.51.100.20" in {str(ip) for ip in current.peer_ips}
+        comparison = read_ip_source_comparison(
+            session=db,
+            tenant_id=run.tenant_id,
+            project_id=project_id,
+            run_id=run.id,
+        )
+        assert len(comparison.results) == 505
+        assert all(item.netflow_status == "ACTIVE" for item in comparison.results)
+        publication = db.exec(
+            select(AuditEvent).where(
+                AuditEvent.target_id == run.id,
+                AuditEvent.action == "governance_run.published",
+            )
+        ).one()
+        assert publication.after_data is not None
+        assert publication.after_data["netflow_activity"]["activity_count"] == 505
         assert run_runner() == 0
         assert batches == [500, 5, 500, 5]
+        assert (
+            read_ip_source_comparison(
+                session=db,
+                tenant_id=run.tenant_id,
+                project_id=project_id,
+                run_id=run.id,
+            )
+            == comparison
+        )
+        with pytest.raises(SQLAlchemyError), db.begin_nested():
+            publication.after_data = {}
+            db.flush()
         with pytest.raises(SQLAlchemyError), db.begin_nested():
             current.flow_count += 1
             db.flush()
