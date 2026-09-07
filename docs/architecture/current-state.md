@@ -35,7 +35,7 @@
 - Finding 详情 API 与 Web 在同一只读数据库快照内展示最新兼容已发布 Run 的 NetFlow 活动上下文：仍 OPEN 或本轮有 Occurrence/Transition 的 Finding 可引用同 Run/Resource 的真实活动，早已 CLOSED 且本轮无事件的 Finding 不关联后续活动。此读取独立于报告样本，仅公开采样流记录数、可空时间及 Run/Snapshot/活动身份和 Hash，不公开 Peer、协议或 raw 数据，不新增绑定表或报告 Evidence target。历史未建模、明确无输入、历史未建模活动合同与合法无正向活动分别说明；活动及完整发布凭据损坏不降格为空结果。
 - `deterministic-report-v1`：explicit absent Run 的 canonical JSON、HTML、CSV、Hash 和既有治理 Evidence；历史已发布内容保持不可变。
 - `deterministic-report-v2`：present Run 基于三份固定 SourceSnapshot 生成 canonical JSON、HTML 与完整比较 CSV；同一 Publish 事务先持久化 Artifact metadata、报告、完整且不可变的 `IPSourceComparisonFact` 和比较 Evidence，再写其余治理事实、成功终态、latest 指针与 Audit，提交前通过既有发布 reader 重新核对报告字节 Hash、完整比较事实、引用和发布凭据。治理与比较各最多 50 条 Evidence、HTML 各展示 8 条，完整比较 JSON/CSV 不截断；详情最多返回 100 条有界引用，新 Evidence target 不进入 AI allowlist。报告 list/detail/CSV、latest Assets/Findings 和相关 Evidence 读取统一要求 `COMPLETED` 或 `COMPLETED_WITH_WARNINGS` 且 `completed_at` 非空；v2 读取还 fail-closed 校验完整比较发布。当前 Web 只显示报告版本、三份输入完整性和准确的 AI 禁用说明，不提供比较矩阵、摘要或 Lineage UI，也不新增比较 Evidence 详情接口。
-- Assets、Findings、GovernanceRun 和确定性报告的 API 与 Web 读取面。
+- 已发布且兼容的显式 GovernanceRun 提供只读 `/governance-runs/{run_id}/sources` 来源概览和 `/governance-runs/{run_id}/ip-source-comparisons` 分页比较 API；两者先执行 Project read authorization，再按 tenant、Project、Run 和 published report scope 校验，复用既有比较 reader 与 v2 发布校验，不读 Artifact 文件、不使用 latest 替换显式 Run，也不产生写副作用。v2 发布校验可以读取不可变 Finding 事实验证 Report 完整性，但 API 不暴露或修改 Finding。来源概览固定返回 CustomerUpload、CloudAtlas、NetFlow 三个 slot，optional NetFlow 的 explicit absent 与 present（含零记录/零活动）保持可区分；损坏或不完整发布 fail closed。比较 API 只返回有界比较字段，筛选先于稳定的 canonical IP 排序和分页。
 
 确定性事实由 Python、SQL 和 PostgreSQL 约束生成。agent-compose 的运行结果不等于 GovernanceRun 完成；业务状态始终以 PostgreSQL 为准。
 

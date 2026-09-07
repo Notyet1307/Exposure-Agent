@@ -2089,6 +2089,64 @@ class SourceSnapshotPublic(SQLModel):
     created_at: datetime
 
 
+class GovernanceRunSourcePublic(SQLModel):
+    source_type: Literal["CUSTOMER_UPLOAD", "CLOUDATLAS", "NETFLOW"]
+    state: Literal["ABSENT", "PRESENT"]
+    snapshot_id: uuid.UUID | None
+    input_id: uuid.UUID | None
+    content_sha256: str | None
+    schema_fingerprint: str | None
+    method_fingerprint: str | None
+    record_count: int | None
+    valid_time_start_utc: datetime | None
+    valid_time_end_utc: datetime | None
+
+
+class GovernanceRunSourcesPublic(SQLModel):
+    project_id: uuid.UUID
+    governance_run_id: uuid.UUID
+    governance_report_id: uuid.UUID
+    run_status: Literal["COMPLETED", "COMPLETED_WITH_WARNINGS"]
+    completed_at: datetime
+    input_contract_version: Literal["governance-run-input-v1"]
+    processing_contract_version: Literal["ip-v1"]
+    report_contract_version: Literal[
+        "deterministic-report-v1", "deterministic-report-v2"
+    ]
+    sources: list[GovernanceRunSourcePublic]
+
+
+class IPSourceComparisonPublic(SQLModel):
+    resource_id: uuid.UUID
+    canonical_ip: str
+    customer_upload_present: bool
+    cloudatlas_present: bool
+    netflow_status: Literal["ACTIVE", "UNKNOWN"]
+    classification: Literal[
+        "matched",
+        "customer_upload_only",
+        "cloudatlas_only",
+        "neither_source_observed",
+    ]
+    classification_reason: str
+    netflow_reason: str
+    content_hash: str
+
+
+class IPSourceComparisonsPublic(SQLModel):
+    project_id: uuid.UUID
+    governance_run_id: uuid.UUID
+    governance_report_id: uuid.UUID
+    report_contract_version: Literal[
+        "deterministic-report-v1", "deterministic-report-v2"
+    ]
+    contract_version: Literal["ip-source-comparison/v1"]
+    output_hash: str
+    data: list[IPSourceComparisonPublic]
+    count: int
+    page_size: int
+
+
 class GovernanceRunPublic(SQLModel):
     id: uuid.UUID
     trigger_id: str

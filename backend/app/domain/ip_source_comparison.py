@@ -7,7 +7,7 @@ import uuid
 from collections import Counter
 from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session, col, select
@@ -21,10 +21,18 @@ from app.domain.ip_consistency import (
 )
 from app.domain.models import (
     AuditEvent,
+    Evidence,
+    GovernanceReport,
     GovernanceRun,
+    GovernanceRunSourcePublic,
+    GovernanceRunSourcesPublic,
+    IPSourceComparisonFact,
+    IPSourceComparisonPublic,
+    IPSourceComparisonsPublic,
     NetFlowIPActivity,
     Observation,
     ObservationResourceLink,
+    Project,
     Resource,
     RunStep,
     SourceSnapshot,
@@ -157,6 +165,206 @@ def read_ip_source_comparison(
             active_resources={item.resource_id for item in facts.activities},
             netflow_present=facts.netflow_status != "INPUT_ABSENT",
         )
+
+
+def _published_comparison_context(
+    *, session: Session, project: Project, run_id: uuid.UUID
+) -> tuple[GovernanceRun, GovernanceReport, RunIPSourceComparison]:
+    run = session.exec(
+        select(GovernanceRun).where(
+            GovernanceRun.id == run_id,
+            GovernanceRun.project_id == project.id,
+            GovernanceRun.tenant_id == project.tenant_id,
+        )
+    ).one_or_none()
+    if run is None:
+        raise IPSourceComparisonError("run_not_found")
+    if not is_published_run(run):
+        raise IPSourceComparisonError("run_not_published")
+
+    # Local import keeps the report validator's comparison dependency acyclic.
+    from app.domain.governance_reports import (
+        SUPPORTED_REPORT_CONTRACT_VERSIONS,
+        validate_published_report,
+    )
+    from app.domain.report_core import REPORT_CONTRACT_VERSION
+
+    if run.report_contract_version not in SUPPORTED_REPORT_CONTRACT_VERSIONS:
+        raise IPSourceComparisonError("comparison_contract_unsupported")
+    comparison = read_ip_source_comparison(
+        session=session,
+        tenant_id=project.tenant_id,
+        project_id=project.id,
+        run_id=run_id,
+    )
+    reports = session.exec(
+        select(GovernanceReport).where(
+            GovernanceReport.governance_run_id == run.id,
+            GovernanceReport.project_id == project.id,
+            GovernanceReport.tenant_id == project.tenant_id,
+        )
+    ).all()
+    _require(
+        len(reports) == 1
+        and reports[0].report_contract_version == run.report_contract_version
+    )
+    report = reports[0]
+    publications = session.exec(
+        select(AuditEvent).where(
+            AuditEvent.target_id == run.id,
+            AuditEvent.target_type == "governance_run",
+            AuditEvent.action == "governance_run.published",
+            AuditEvent.project_id == project.id,
+            AuditEvent.tenant_id == project.tenant_id,
+        )
+    ).all()
+    _require(
+        len(publications) == 1
+        and isinstance(publications[0].after_data, dict)
+        and publications[0].after_data.get("governance_report_id") == str(report.id)
+    )
+    validate_published_report(session=session, project=project, report=report)
+    if report.report_contract_version == REPORT_CONTRACT_VERSION:
+        _require(
+            session.exec(
+                select(IPSourceComparisonFact.id)
+                .where(IPSourceComparisonFact.governance_run_id == run.id)
+                .limit(1)
+            ).first()
+            is None
+        )
+        _require(
+            session.exec(
+                select(Evidence.id)
+                .where(
+                    Evidence.governance_run_id == run.id,
+                    col(Evidence.ip_source_comparison_fact_id).is_not(None),
+                )
+                .limit(1)
+            ).first()
+            is None
+        )
+    return run, report, comparison
+
+
+def read_governance_run_sources(
+    *, session: Session, project: Project, run_id: uuid.UUID
+) -> GovernanceRunSourcesPublic:
+    run, report, _comparison = _published_comparison_context(
+        session=session, project=project, run_id=run_id
+    )
+    snapshots = session.exec(
+        select(SourceSnapshot).where(
+            SourceSnapshot.governance_run_id == run.id,
+            SourceSnapshot.project_id == project.id,
+            SourceSnapshot.tenant_id == project.tenant_id,
+        )
+    ).all()
+    by_source = {snapshot.source_type: snapshot for snapshot in snapshots}
+    expected_sources = {"CUSTOMER_UPLOAD", "CLOUDATLAS"}
+    if run.netflow_dataset_id is not None:
+        expected_sources.add("NETFLOW")
+    _require(set(by_source) == expected_sources and len(snapshots) == len(by_source))
+
+    sources: list[GovernanceRunSourcePublic] = []
+    for source_type in ("CUSTOMER_UPLOAD", "CLOUDATLAS", "NETFLOW"):
+        snapshot = by_source.get(source_type)
+        if snapshot is None:
+            _require(source_type == "NETFLOW" and run.netflow_dataset_id is None)
+            sources.append(
+                GovernanceRunSourcePublic(
+                    source_type="NETFLOW",
+                    state="ABSENT",
+                    snapshot_id=None,
+                    input_id=None,
+                    content_sha256=None,
+                    schema_fingerprint=None,
+                    method_fingerprint=None,
+                    record_count=None,
+                    valid_time_start_utc=None,
+                    valid_time_end_utc=None,
+                )
+            )
+            continue
+        input_ids = (
+            snapshot.customer_upload_id,
+            snapshot.source_instance_id,
+            snapshot.netflow_dataset_id,
+        )
+        present_input_ids = [input_id for input_id in input_ids if input_id is not None]
+        _require(len(present_input_ids) == 1)
+        sources.append(
+            GovernanceRunSourcePublic.model_validate(
+                {
+                    "source_type": source_type,
+                    "state": "PRESENT",
+                    "snapshot_id": snapshot.id,
+                    "input_id": present_input_ids[0],
+                    "content_sha256": snapshot.content_sha256,
+                    "schema_fingerprint": snapshot.schema_fingerprint,
+                    "method_fingerprint": snapshot.method_fingerprint,
+                    "record_count": snapshot.record_count,
+                    "valid_time_start_utc": snapshot.valid_time_start_utc,
+                    "valid_time_end_utc": snapshot.valid_time_end_utc,
+                }
+            )
+        )
+    _require(run.completed_at is not None)
+    return GovernanceRunSourcesPublic.model_validate(
+        {
+            "project_id": project.id,
+            "governance_run_id": run.id,
+            "governance_report_id": report.id,
+            "run_status": run.status,
+            "completed_at": run.completed_at,
+            "input_contract_version": run.input_contract_version,
+            "processing_contract_version": run.processing_contract_version,
+            "report_contract_version": report.report_contract_version,
+            "sources": sources,
+        }
+    )
+
+
+def list_governance_run_ip_source_comparisons(
+    *,
+    session: Session,
+    project: Project,
+    run_id: uuid.UUID,
+    classification: str | None,
+    netflow_status: str | None,
+    skip: int,
+    limit: int,
+) -> IPSourceComparisonsPublic:
+    _run, report, comparison = _published_comparison_context(
+        session=session, project=project, run_id=run_id
+    )
+    filtered = (
+        row
+        for row in comparison.results
+        if (classification is None or row.classification == classification)
+        and (netflow_status is None or row.netflow_status == netflow_status)
+    )
+    ordered = sorted(
+        filtered,
+        key=lambda row: (_ip_order(row.canonical_ip), str(row.resource_id)),
+    )
+    page = ordered[skip : skip + limit]
+    return IPSourceComparisonsPublic(
+        project_id=project.id,
+        governance_run_id=run_id,
+        governance_report_id=report.id,
+        report_contract_version=cast(
+            Literal["deterministic-report-v1", "deterministic-report-v2"],
+            report.report_contract_version,
+        ),
+        contract_version=COMPARISON_CONTRACT_VERSION,
+        output_hash=comparison.output_hash,
+        data=[
+            IPSourceComparisonPublic.model_validate(row.model_dump()) for row in page
+        ],
+        count=len(ordered),
+        page_size=len(page),
+    )
 
 
 def _verify_publication(
@@ -317,6 +525,7 @@ def _read_published_facts(
     ).all()
     publication = _verify_publication(run=run, steps=steps, publications=publications)
     receipt = publication.get("netflow_activity")
+    # A missing receipt is a compatibility distinction; malformed receipts fail below.
     if (
         not allow_unmodeled
         and run.netflow_dataset_id is not None
@@ -426,8 +635,7 @@ def _read_published_facts(
             isinstance(receipt["contract_version"], str)
             and bool(receipt["contract_version"].strip())
         )
-        if receipt["contract_version"] != NETFLOW_ACTIVITY_CONTRACT_VERSION:
-            raise IPSourceComparisonError("comparison_contract_unsupported")
+        _require(receipt["contract_version"] == NETFLOW_ACTIVITY_CONTRACT_VERSION)
         _require(receipt["source_snapshot_id"] == str(snapshot.id))
         _require(
             type(receipt["activity_count"]) is int

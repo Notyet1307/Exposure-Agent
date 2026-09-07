@@ -286,6 +286,39 @@ export type GovernanceRunPublic = {
     blocking_code?: (string | null);
 };
 
+export type GovernanceRunSourcePublic = {
+    source_type: 'CUSTOMER_UPLOAD' | 'CLOUDATLAS' | 'NETFLOW';
+    state: 'ABSENT' | 'PRESENT';
+    snapshot_id: (string | null);
+    input_id: (string | null);
+    content_sha256: (string | null);
+    schema_fingerprint: (string | null);
+    method_fingerprint: (string | null);
+    record_count: (number | null);
+    valid_time_start_utc: (string | null);
+    valid_time_end_utc: (string | null);
+};
+
+export type source_type = 'CUSTOMER_UPLOAD' | 'CLOUDATLAS' | 'NETFLOW';
+
+export type state = 'ABSENT' | 'PRESENT';
+
+export type GovernanceRunSourcesPublic = {
+    project_id: string;
+    governance_run_id: string;
+    governance_report_id: string;
+    run_status: 'COMPLETED' | 'COMPLETED_WITH_WARNINGS';
+    completed_at: string;
+    input_contract_version: "governance-run-input-v1";
+    processing_contract_version: "ip-v1";
+    report_contract_version: 'deterministic-report-v1' | 'deterministic-report-v2';
+    sources: Array<GovernanceRunSourcePublic>;
+};
+
+export type run_status = 'COMPLETED' | 'COMPLETED_WITH_WARNINGS';
+
+export type report_contract_version = 'deterministic-report-v1' | 'deterministic-report-v2';
+
 export type GovernanceRunsPublic = {
     data: Array<GovernanceRunPublic>;
     count: number;
@@ -355,6 +388,34 @@ export type IPObservationPublic = {
     cloudatlas_asset_id: (string | null);
     cloudatlas_status: (string | null);
     source_snapshot_id: string;
+};
+
+export type IPSourceComparisonPublic = {
+    resource_id: string;
+    canonical_ip: string;
+    customer_upload_present: boolean;
+    cloudatlas_present: boolean;
+    netflow_status: 'ACTIVE' | 'UNKNOWN';
+    classification: 'matched' | 'customer_upload_only' | 'cloudatlas_only' | 'neither_source_observed';
+    classification_reason: string;
+    netflow_reason: string;
+    content_hash: string;
+};
+
+export type netflow_status = 'ACTIVE' | 'UNKNOWN';
+
+export type classification = 'matched' | 'customer_upload_only' | 'cloudatlas_only' | 'neither_source_observed';
+
+export type IPSourceComparisonsPublic = {
+    project_id: string;
+    governance_run_id: string;
+    governance_report_id: string;
+    report_contract_version: 'deterministic-report-v1' | 'deterministic-report-v2';
+    contract_version: "ip-source-comparison/v1";
+    output_hash: string;
+    data: Array<IPSourceComparisonPublic>;
+    count: number;
+    page_size: number;
 };
 
 export type Message = {
@@ -630,6 +691,24 @@ export type GovernanceRunsRerunGovernanceRunResponse = (GovernanceRunActionPubli
 export type HealthHealthLiveResponse = (boolean);
 
 export type HealthHealthReadyResponse = (boolean);
+
+export type IpResultsReadGovernanceRunSourcesData = {
+    governanceRunId: string;
+    projectId: string;
+};
+
+export type IpResultsReadGovernanceRunSourcesResponse = (GovernanceRunSourcesPublic);
+
+export type IpResultsReadGovernanceRunIpSourceComparisonsData = {
+    classification?: ('matched' | 'customer_upload_only' | 'cloudatlas_only' | 'neither_source_observed' | null);
+    governanceRunId: string;
+    limit?: number;
+    netflowStatus?: ('ACTIVE' | 'UNKNOWN' | null);
+    projectId: string;
+    skip?: number;
+};
+
+export type IpResultsReadGovernanceRunIpSourceComparisonsResponse = (IPSourceComparisonsPublic);
 
 export type IpResultsReadIpAssetsData = {
     limit?: number;
