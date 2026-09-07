@@ -23,7 +23,7 @@
 - Project 专属默认 CustomerUploadProfile v1；
 - 受控 `.xlsx` CustomerUpload、不可变内容 Hash、warning 汇总、选择与受限删除；
 - `NetFlowDataset` 接受与管理：Operator 可在 Project 内列表、上传、选择或清除当前 Dataset，Viewer 只读；新 GovernanceRun 在 Runner 实际建立时使用 `governance-run-input-v1` 固定可选 Dataset ID、raw/content Hash 与 Dataset 合同版本。建立前的选择漂移 fail-closed，已建立 Run 的固定输入不可变；Retry 复用原输入并拒绝选择漂移，Rerun 读取当前选择。present 在复核 raw Artifact 字节、Hash 与固定合同后产生唯一不可变 `NETFLOW` SourceSnapshot，保存 Dataset、raw Artifact、schema、raw record count 与可证时间极值；零条 raw record 仍产生 `record_count = 0` Snapshot。输入漂移或合同失效进入 `FAILED_DATA` 且不发布部分事实；explicit absent 不创建 NetFlow RunStep 或 Snapshot。两者均保持现有双来源 `ip-v1` / `deterministic-report-v1` 计算与报告语义，不生成 NetFlow Observation、Finding 或 report-v2。
-- NetFlow 正向 IP 活动以 `netflow-ip-activity-v1` 按 Run / 已有受管 Resource 唯一聚合，在原子 Publish 中有界批写到 PostgreSQL；只关联同 Project 的既有 Resource（包括本 Run 双来源 RESOLVE 结果），不由 Peer 创建 Resource。`flow_count` 统计涉及该 IP 的有效源记录（保留重复；双端受管各计一次，自环计一次），并固定排序的 Peer / protocol、独立时间极值和内容 Hash；这些样本不表示会话数、完整覆盖或零活动。来源端口仍保留在不可变 Artifact，不推断服务端口或方向，不扩展报告与 Finding。发布失败回滚活动事实，Retry 使用同 Run 身份重算；absent 或无有效活动不生成活动事实。
+- NetFlow 正向 IP 活动以 `netflow-ip-activity-v1` 按 Run / 已有受管 Resource 唯一聚合，在原子 Publish 中有界批写到 PostgreSQL；只关联同 Project 的既有 Resource（包括本 Run 双来源 RESOLVE 结果），不由 Peer 创建 Resource。`flow_count` 统计涉及该 IP 的有效源记录（保留重复；双端受管各计一次，自环计一次），并固定排序的 Peer / protocol、独立时间极值和内容 Hash；这些样本不表示会话数、完整覆盖或零活动。来源端口仍保留在不可变 Artifact，不推断服务端口或方向，不改变报告与 Finding 生命周期。发布失败回滚活动事实，Retry 使用同 Run 身份重算；absent 或无有效活动不生成活动事实。
 - CloudAtlas SourceInstance 的配置、只读验证、指纹固定、启用和停用；
 - 正式 `cloudatlas-read` OctoBus Package，仅允许 `cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets`；
 - GovernanceRun 的 Trigger、Retry、Rerun、RunStep、SourceSnapshot 与 Publish；
@@ -32,6 +32,7 @@
 - Operator 可从已发布报告显式选择一至八个有持久 Evidence 的“未观测资产”并创建 `GENERATING` AI 治理草稿；Controller 先持久保留确定性的 agent-compose Run identity，再启动独立 Pi Session；本阶段 Session 只建立并绑定身份，不接收数据库、应用、模型凭据或草稿输入；
 - CustomerUpload 与 CloudAtlas 的 IP Observation、Project 级稳定 IP Resource 和精确解析；
 - “未报备资产”“未观测资产”两类 Finding、Occurrence、Transition 与来源引用；
+- Finding 详情 API 与 Web 在同一只读数据库快照内展示最新兼容已发布 Run 的 NetFlow 活动上下文：仍 OPEN 或本轮有 Occurrence/Transition 的 Finding 可引用同 Run/Resource 的真实活动，早已 CLOSED 且本轮无事件的 Finding 不关联后续活动。此读取独立于报告样本，仅公开采样流记录数、可空时间及 Run/Snapshot/活动身份和 Hash，不公开 Peer、协议或 raw 数据，不新增绑定表或报告 Evidence target。历史未建模、明确无输入、历史未建模活动合同与合法无正向活动分别说明；活动及完整发布凭据损坏不降格为空结果。当前详情沿用 `COMPLETED` 读取门禁，生产 v2 与其他终态的一致接线仍待后续完成。
 - `deterministic-report-v1` 报告：canonical JSON、HTML、CSV 与 Hash；
 - 内部 `deterministic-report-v2` 候选与比较 Evidence：基于固定 Run 事实生成内存 JSON/HTML/CSV；事务内绑定入口为创建时固定 v2 的 Run 持久化完整、不可变的 `IPSourceComparisonFact` 集合，并将比较样本绑定到 Evidence 专用 target。治理与比较各最多 50 条 Evidence、HTML 各展示 8 条，完整比较 JSON/CSV 不截断；发布后解析重新核对完整事实、报告、引用与发布凭据。既有报告详情支持 v2 的最多 100 条有界引用，v1 仍为 50 条；新 target 不进入 AI allowlist。该能力尚未接入生产 Trigger/Runner/Publish，不自动生成或发布生产 v2 报告，也不提供新的 Evidence 详情接口。
 - Assets、Findings、GovernanceRun 和确定性报告的 API 与 Web 读取面。

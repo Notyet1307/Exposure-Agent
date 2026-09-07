@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
+from typing import cast as typing_cast
 
 from sqlalchemy import Integer, case, cast, distinct, func
 from sqlmodel import Session, col, select
@@ -14,9 +15,12 @@ from app.domain.ip_consistency import (
     IP_PROCESSING_CONTRACT_VERSION,
     ip_observation_sort_key,
 )
+from app.domain.ip_source_comparison import read_published_netflow_activities
 from app.domain.models import (
     Finding,
     FindingDetailPublic,
+    FindingNetFlowActivityPublic,
+    FindingNetFlowContextPublic,
     FindingOccurrence,
     FindingOccurrenceObservation,
     FindingOccurrencePublic,
@@ -688,6 +692,62 @@ def _transition_public(
     )
 
 
+def _finding_netflow_context(
+    *, session: Session, run: GovernanceRun, finding: Finding
+) -> FindingNetFlowContextPublic:
+    eligible = (
+        finding.status == "OPEN"
+        or session.exec(
+            select(FindingOccurrence.id)
+            .where(
+                FindingOccurrence.finding_id == finding.id,
+                FindingOccurrence.governance_run_id == run.id,
+            )
+            .limit(1)
+        ).first()
+        is not None
+        or session.exec(
+            select(FindingTransition.id)
+            .where(
+                FindingTransition.finding_id == finding.id,
+                FindingTransition.governance_run_id == run.id,
+            )
+            .limit(1)
+        ).first()
+        is not None
+    )
+    if not eligible:
+        return FindingNetFlowContextPublic(
+            governance_run_id=run.id, status="NOT_APPLICABLE", activity=None
+        )
+    empty_status, activities = read_published_netflow_activities(
+        session=session, run=run
+    )
+    activity = next(
+        (item for item in activities if item.resource_id == finding.resource_id), None
+    )
+    return FindingNetFlowContextPublic(
+        governance_run_id=run.id,
+        status="POSITIVE_ACTIVITY" if activity is not None else empty_status,
+        activity=(
+            FindingNetFlowActivityPublic(
+                activity_id=activity.id,
+                source_snapshot_id=activity.source_snapshot_id,
+                aggregation_contract_version=typing_cast(
+                    Literal["netflow-ip-activity-v1"],
+                    activity.aggregation_contract_version,
+                ),
+                content_sha256=activity.content_sha256,
+                flow_count=activity.flow_count,
+                first_seen_utc=activity.first_seen_utc,
+                last_seen_utc=activity.last_seen_utc,
+            )
+            if activity is not None
+            else None
+        ),
+    )
+
+
 def get_finding_detail(
     *,
     session: Session,
@@ -754,6 +814,9 @@ def get_finding_detail(
     )
     return FindingDetailPublic(
         **summary.model_dump(),
+        netflow_context=_finding_netflow_context(
+            session=session, run=published.compatible_run, finding=finding
+        ),
         occurrences=[
             _occurrence_public(
                 session=session,

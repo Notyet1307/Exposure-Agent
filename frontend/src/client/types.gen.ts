@@ -136,9 +136,28 @@ export type FindingDetailPublic = {
     latest_transition_at: (string | null);
     occurrence_count: number;
     transition_count: number;
+    netflow_context: FindingNetFlowContextPublic;
     occurrences?: Array<FindingOccurrencePublic>;
     transitions?: Array<FindingTransitionPublic>;
 };
+
+export type FindingNetFlowActivityPublic = {
+    activity_id: string;
+    source_snapshot_id: string;
+    aggregation_contract_version: "netflow-ip-activity-v1";
+    content_sha256: string;
+    flow_count: number;
+    first_seen_utc: (string | null);
+    last_seen_utc: (string | null);
+};
+
+export type FindingNetFlowContextPublic = {
+    governance_run_id: string;
+    status: 'NOT_APPLICABLE' | 'INPUT_UNMODELED' | 'INPUT_ABSENT' | 'ACTIVITY_UNMODELED' | 'NO_POSITIVE_ACTIVITY' | 'POSITIVE_ACTIVITY';
+    activity: (FindingNetFlowActivityPublic | null);
+};
+
+export type status = 'NOT_APPLICABLE' | 'INPUT_UNMODELED' | 'INPUT_ABSENT' | 'ACTIVITY_UNMODELED' | 'NO_POSITIVE_ACTIVITY' | 'POSITIVE_ACTIVITY';
 
 export type FindingOccurrencePublic = {
     id: string;

@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
+  type FindingDetailPublic,
   type FindingOccurrencePublic,
   type FindingPublic,
   type FindingTransitionPublic,
@@ -126,7 +127,7 @@ function SnapshotReferences({
         <div key={snapshot.id} className="rounded-md border p-2 text-xs">
           <div className="font-medium">{snapshot.source_type}</div>
           <div className="break-all font-mono">Snapshot {snapshot.id}</div>
-          <div>
+          <div className="break-all">
             {snapshot.record_count} records · SHA-256 {snapshot.content_sha256}
           </div>
         </div>
@@ -156,7 +157,7 @@ function TraceSection({
     <div className="space-y-3 rounded-md border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-medium">{title}</h3>
-        <span className="text-xs text-muted-foreground">
+        <span className="break-all text-xs text-muted-foreground">
           Run {trace.governance_run_id} · {formatDate(trace.created_at)}
         </span>
       </div>
@@ -174,6 +175,109 @@ function TraceSection({
   )
 }
 
+const NETFLOW_EMPTY_MESSAGES: Record<
+  Exclude<
+    FindingDetailPublic["netflow_context"]["status"],
+    "POSITIVE_ACTIVITY"
+  >,
+  string
+> = {
+  NOT_APPLICABLE:
+    "Not applicable to this Finding in this Run. This does not describe whether the resource has traffic.",
+  INPUT_UNMODELED: "This historical Run did not model NetFlow input.",
+  INPUT_ABSENT: "No NetFlow input was provided for this Run.",
+  ACTIVITY_UNMODELED:
+    "This historical Run did not model the NetFlow activity contract.",
+  NO_POSITIVE_ACTIVITY:
+    "This Run has no positive NetFlow activity evidence for this resource. This does not mean no traffic or zero risk.",
+}
+
+function NetFlowContext({
+  context,
+}: {
+  context: FindingDetailPublic["netflow_context"]
+}) {
+  const activity = context.activity
+  return (
+    <section
+      aria-labelledby="finding-netflow-title"
+      className="min-w-0 space-y-3 rounded-md border p-3 text-sm"
+    >
+      <h3 id="finding-netflow-title" className="font-medium">
+        Latest published Run NetFlow activity
+      </h3>
+      <p className="break-all font-mono text-xs">
+        Run {context.governance_run_id}
+      </p>
+      <p className="text-muted-foreground">
+        Activity is supplementary context only. It does not establish that the
+        Finding still applies or change its status or lifecycle.
+      </p>
+      {activity ? (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Activity times use your local time zone (
+            {Intl.DateTimeFormat().resolvedOptions().timeZone}).
+          </p>
+          <dl className="grid min-w-0 gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="font-medium">Sampled flow records</dt>
+              <dd>{activity.flow_count}</dd>
+              <dd className="text-xs text-muted-foreground">
+                Not distinct connections, sessions, or events.
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">First activity</dt>
+              <dd>
+                {activity.first_seen_utc === null
+                  ? "Not provided"
+                  : formatDate(activity.first_seen_utc)}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">Last activity</dt>
+              <dd>
+                {activity.last_seen_utc === null
+                  ? "Not provided"
+                  : formatDate(activity.last_seen_utc)}
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="font-medium">Activity ID</dt>
+              <dd className="break-all font-mono text-xs">
+                {activity.activity_id}
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="font-medium">NETFLOW Snapshot ID</dt>
+              <dd className="break-all font-mono text-xs">
+                {activity.source_snapshot_id}
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="font-medium">Aggregation contract</dt>
+              <dd className="break-all font-mono text-xs">
+                {activity.aggregation_contract_version}
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="font-medium">Content SHA-256</dt>
+              <dd className="break-all font-mono text-xs">
+                {activity.content_sha256}
+              </dd>
+            </div>
+          </dl>
+        </>
+      ) : context.status !== "POSITIVE_ACTIVITY" ? (
+        <p className="text-muted-foreground">
+          {NETFLOW_EMPTY_MESSAGES[context.status]}
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
 function FindingDetailDialog({
   projectId,
   findingId,
@@ -185,6 +289,7 @@ function FindingDetailDialog({
 }) {
   const [occurrencePage, setOccurrencePage] = useState(0)
   const [transitionPage, setTransitionPage] = useState(0)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     if (findingId === null) {
       setOccurrencePage(0)
@@ -193,14 +298,22 @@ function FindingDetailDialog({
   }, [findingId])
   const detailQuery = useQuery({
     queryKey: ["finding", projectId, findingId, occurrencePage, transitionPage],
-    queryFn: () =>
-      IpResultsService.readFinding({
+    queryFn: async () => {
+      const detail = await IpResultsService.readFinding({
         projectId,
         findingId: findingId as string,
         occurrenceSkip: occurrencePage * TRACE_PAGE_SIZE,
         transitionSkip: transitionPage * TRACE_PAGE_SIZE,
         traceLimit: TRACE_PAGE_SIZE,
-      }),
+      })
+      if (
+        (detail.netflow_context.status === "POSITIVE_ACTIVITY") !==
+        (detail.netflow_context.activity !== null)
+      ) {
+        throw new Error("Invalid Finding NetFlow context")
+      }
+      return detail
+    },
     enabled: findingId !== null,
   })
 
@@ -209,7 +322,19 @@ function FindingDetailDialog({
       open={findingId !== null}
       onOpenChange={(open) => onOpenChange(open)}
     >
-      <DialogContent className="max-h-[90vh] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-6xl">
+      <DialogContent
+        className="max-h-[90vh] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-6xl"
+        onOpenAutoFocus={() => {
+          returnFocusRef.current =
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          returnFocusRef.current?.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Finding details</DialogTitle>
           <DialogDescription>
@@ -225,7 +350,7 @@ function FindingDetailDialog({
           </Alert>
         )}
         {detailQuery.data && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div className="grid gap-3 text-sm md:grid-cols-4">
               <div>
                 <p className="font-medium">Finding ID</p>
@@ -235,7 +360,9 @@ function FindingDetailDialog({
               </div>
               <div>
                 <p className="font-medium">Canonical IP</p>
-                <p className="font-mono">{detailQuery.data.canonical_ip}</p>
+                <p className="break-all font-mono">
+                  {detailQuery.data.canonical_ip}
+                </p>
               </div>
               <div>
                 <p className="font-medium">Status</p>
@@ -251,6 +378,7 @@ function FindingDetailDialog({
                 )}
               </div>
             </div>
+            <NetFlowContext context={detailQuery.data.netflow_context} />
             <div>
               <p className="mb-2 text-sm font-medium">Occurrences</p>
               {(detailQuery.data.occurrences ?? []).length === 0 ? (
