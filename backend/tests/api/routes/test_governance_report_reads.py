@@ -302,9 +302,10 @@ def test_report_list_is_consistent_when_publication_commits_during_the_read(
     )
     assert after_publication.status_code == 200, after_publication.text
     assert after_publication.json()["count"] == 2
-    assert after_publication.json()["latest_completed_run_id"] != baseline_report[
-        "governance_run_id"
-    ]
+    assert (
+        after_publication.json()["latest_completed_run_id"]
+        != baseline_report["governance_run_id"]
+    )
 
 
 def test_report_detail_is_project_scoped_bounded_and_readable_by_all_read_roles(
@@ -322,9 +323,7 @@ def test_report_detail_is_project_scoped_bounded_and_readable_by_all_read_roles(
         OctobusCloudAtlasClient,
         "list_ip_assets_page",
         lambda _client, _source, *, capset_token, page, size: {
-            "items": [
-                {"id": "fixture-other", "ip": "192.0.2.20", "status": "valid"}
-            ],
+            "items": [{"id": "fixture-other", "ip": "192.0.2.20", "status": "valid"}],
             "page": page,
             "size": size,
             "total": 1,
@@ -360,9 +359,7 @@ def test_report_detail_is_project_scoped_bounded_and_readable_by_all_read_roles(
     for headers in (*role_headers, superuser_token_headers):
         list_response = client.get(_reports_url(project["id"]), headers=headers)
         assert list_response.status_code == 200, list_response.text
-        assert [item["id"] for item in list_response.json()["data"]] == [
-            report["id"]
-        ]
+        assert [item["id"] for item in list_response.json()["data"]] == [report["id"]]
         response = client.get(detail_url, headers=headers)
         assert response.status_code == 200, response.text
         payload = response.json()
@@ -399,6 +396,83 @@ def test_report_detail_is_project_scoped_bounded_and_readable_by_all_read_roles(
         headers=superuser_token_headers,
     )
     assert cross_project.status_code == 404
+
+
+def test_report_reads_require_success_status_and_completion_time(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    _configure_runner(tmp_path, monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client, headers=superuser_token_headers, project=project
+    )
+    _trigger_stage5_run(
+        client=client,
+        headers=superuser_token_headers,
+        monkeypatch=monkeypatch,
+        project=project,
+        trigger_id="report-published-gate",
+    )
+    assert run_governance_runner() == 0
+    baseline = client.get(
+        _reports_url(project["id"]), headers=superuser_token_headers
+    ).json()["data"][0]
+    run_id = uuid.UUID(baseline["governance_run_id"])
+    report_url = f"{_reports_url(project['id'])}/{baseline['id']}"
+    csv_url = f"{report_url}/csv"
+    completed_at = datetime.fromisoformat(baseline["run_completed_at"])
+
+    def set_run_state(*, status: str, completed: datetime | None) -> None:
+        with Session(engine) as session:
+            session.connection().exec_driver_sql(
+                "SET LOCAL session_replication_role = replica"
+            )
+            session.exec(
+                update(GovernanceRun)
+                .where(col(GovernanceRun.id) == run_id)
+                .values(status=status, completed_at=completed)
+            )
+            session.commit()
+
+    set_run_state(status="COMPLETED_WITH_WARNINGS", completed=completed_at)
+    assert (
+        client.get(_reports_url(project["id"]), headers=superuser_token_headers).json()[
+            "count"
+        ]
+        == 1
+    )
+    assert client.get(report_url, headers=superuser_token_headers).status_code == 200
+    assert client.get(csv_url, headers=superuser_token_headers).status_code == 200
+
+    set_run_state(status="COMPLETED", completed=None)
+    monkeypatch.setattr(
+        Path,
+        "open",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("unpublished CSV must be rejected before file I/O")
+        ),
+    )
+    assert (
+        client.get(_reports_url(project["id"]), headers=superuser_token_headers).json()[
+            "count"
+        ]
+        == 0
+    )
+    assert client.get(report_url, headers=superuser_token_headers).status_code == 404
+    assert client.get(csv_url, headers=superuser_token_headers).status_code == 404
+
+    set_run_state(status="FAILED_PROCESSING", completed=completed_at)
+    assert (
+        client.get(_reports_url(project["id"]), headers=superuser_token_headers).json()[
+            "count"
+        ]
+        == 0
+    )
+    assert client.get(report_url, headers=superuser_token_headers).status_code == 404
+    assert client.get(csv_url, headers=superuser_token_headers).status_code == 404
 
 
 def test_stage4_only_project_requires_a_new_stage5_rerun(

@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 from sqlmodel import Session, col, select
 
+from app.domain.governance_publication import is_published_run
 from app.domain.ip_consistency import (
     IP_PROCESSING_CONTRACT_VERSION,
     IPObservation,
@@ -215,10 +216,7 @@ def _read_published_facts(
     ).one_or_none()
     if run is None:
         raise IPSourceComparisonError("run_not_found")
-    if (
-        run.status not in {"COMPLETED", "COMPLETED_WITH_WARNINGS"}
-        or run.completed_at is None
-    ):
+    if not is_published_run(run):
         raise IPSourceComparisonError("run_not_published")
     if allow_unmodeled and run.input_contract_version is None:
         _require(

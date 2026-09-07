@@ -635,15 +635,23 @@ def download_governance_report_csv(
         project_id=project_id,
         allowed_roles=(ProjectRole.OPERATOR,),
     )
-    report = session.exec(
-        select(GovernanceReport).where(
-            GovernanceReport.id == report_id,
-            GovernanceReport.project_id == project.id,
-            GovernanceReport.tenant_id == project.tenant_id,
+    try:
+        published = report_service.get_published_report_record(
+            session=session, project=project, report_id=report_id
         )
-    ).one_or_none()
-    if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        if published is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        report, _completed_at = published
+        report_service.validate_published_report(
+            session=session, project=project, report=report
+        )
+    except HTTPException:
+        raise
+    except ReportComparisonEvidenceError, SQLAlchemyError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Report integrity verification failed",
+        ) from None
     artifact = session.exec(
         select(Artifact).where(
             Artifact.id == report.csv_artifact_id,

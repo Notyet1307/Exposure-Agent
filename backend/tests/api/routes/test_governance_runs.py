@@ -204,9 +204,7 @@ def _mock_cloudatlas(monkeypatch: MonkeyPatch) -> None:
         OctobusCloudAtlasClient,
         "list_ip_assets_page",
         lambda _client, _source, *, capset_token, page, size: {
-            "items": [
-                {"id": "fixture-asset-1", "ip": "192.0.2.10", "status": "valid"}
-            ],
+            "items": [{"id": "fixture-asset-1", "ip": "192.0.2.10", "status": "valid"}],
             "page": page,
             "size": size,
             "total": 1,
@@ -328,9 +326,7 @@ def test_public_trigger_atomically_publishes_stage5_report(
         OctobusCloudAtlasClient,
         "list_ip_assets_page",
         lambda _client, _source, *, capset_token, page, size: {
-            "items": [
-                {"id": "fixture-asset-2", "ip": cloud_ip, "status": "valid"}
-            ],
+            "items": [{"id": "fixture-asset-2", "ip": cloud_ip, "status": "valid"}],
             "page": page,
             "size": size,
             "total": 1,
@@ -383,10 +379,7 @@ def test_public_trigger_atomically_publishes_stage5_report(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
         headers=superuser_token_headers,
     ).json()["data"][0]
-    assert [
-        (step["step_code"], step["status"])
-        for step in run_payload["steps"]
-    ] == [
+    assert [(step["step_code"], step["status"]) for step in run_payload["steps"]] == [
         ("LOAD_CUSTOMER", "SUCCEEDED"),
         ("PULL_CLOUDATLAS", "SUCCEEDED"),
         ("NORMALIZE", "SUCCEEDED"),
@@ -407,18 +400,19 @@ def test_public_trigger_atomically_publishes_stage5_report(
         assert stored_run.report_contract_version == REPORT_CONTRACT_VERSION
         assert stored_run.status == GovernanceRunStatus.COMPLETED.value
         report = session.exec(
-            select(GovernanceReport).where(
-                GovernanceReport.governance_run_id == run_id
-            )
+            select(GovernanceReport).where(GovernanceReport.governance_run_id == run_id)
         ).one()
         assert report.generation_mode == "DETERMINISTIC_TEMPLATE"
         assert report.report_contract_version == REPORT_CONTRACT_VERSION
         assert report.canonical_content["report"]["report_identity"][
             "governance_run_id"
         ] == str(run_id)
-        assert report.canonical_content["report"]["ip_consistency_summary"][
-            "current_run_finding_count"
-        ] == finding_count
+        assert (
+            report.canonical_content["report"]["ip_consistency_summary"][
+                "current_run_finding_count"
+            ]
+            == finding_count
+        )
         artifacts = session.exec(
             select(Artifact).where(
                 Artifact.governance_run_id == run_id,
@@ -429,11 +423,14 @@ def test_public_trigger_atomically_publishes_stage5_report(
             report.html_artifact_id,
             report.csv_artifact_id,
         }
-        assert session.exec(
-            select(func.count()).select_from(Evidence).where(
-                Evidence.governance_report_id == report.id
-            )
-        ).one() == evidence_count
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(Evidence)
+                .where(Evidence.governance_report_id == report.id)
+            ).one()
+            == evidence_count
+        )
         build_step = session.exec(
             select(RunStep).where(
                 RunStep.governance_run_id == run_id,
@@ -457,11 +454,13 @@ def test_public_trigger_atomically_publishes_stage5_report(
         assert build_event.after_data is not None
         assert len(build_event.after_data["canonical_json_sha256"]) == 64
         path_by_suffix = {path.suffix: path for path in candidate_paths}
-        assert hashlib.sha256(path_by_suffix[".html"].read_bytes()).hexdigest() == (
-            build_event.after_data["html_sha256"]
+        assert (
+            hashlib.sha256(path_by_suffix[".html"].read_bytes()).hexdigest()
+            == (build_event.after_data["html_sha256"])
         )
-        assert hashlib.sha256(path_by_suffix[".csv"].read_bytes()).hexdigest() == (
-            build_event.after_data["csv_sha256"]
+        assert (
+            hashlib.sha256(path_by_suffix[".csv"].read_bytes()).hexdigest()
+            == (build_event.after_data["csv_sha256"])
         )
         assert report.html_sha256 == build_event.after_data["html_sha256"]
         assert report.csv_sha256 == build_event.after_data["csv_sha256"]
@@ -528,11 +527,14 @@ def test_stage5_build_storage_failure_retries_only_build_attempt(
     )
     run_id = uuid.UUID(str(run_payload["id"]))
     with Session(engine) as session:
-        assert session.exec(
-            select(GovernanceReport).where(
-                GovernanceReport.governance_run_id == run_id
-            )
-        ).all() == []
+        assert (
+            session.exec(
+                select(GovernanceReport).where(
+                    GovernanceReport.governance_run_id == run_id
+                )
+            ).all()
+            == []
+        )
 
     monkeypatch.setattr(
         governance_runs_domain, "_write_report_candidate", write_candidate
@@ -669,9 +671,7 @@ def test_stage5_report_failure_categories_are_stable_and_redacted(
     monkeypatch.setattr(
         governance_runs_domain,
         target_name,
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            error_type(sensitive_detail)
-        ),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(error_type(sensitive_detail)),
     )
 
     assert run_governance_runner() == 1
@@ -699,17 +699,23 @@ def test_stage5_report_failure_categories_are_stable_and_redacted(
     assert sensitive_detail not in response.text
     run_id = uuid.UUID(str(failed["id"]))
     with Session(engine) as session:
-        assert session.exec(
-            select(GovernanceReport).where(
-                GovernanceReport.governance_run_id == run_id
-            )
-        ).all() == []
-        assert session.exec(
-            select(Artifact).where(
-                Artifact.governance_run_id == run_id,
-                col(Artifact.media_type).in_(("text/html", "text/csv")),
-            )
-        ).all() == []
+        assert (
+            session.exec(
+                select(GovernanceReport).where(
+                    GovernanceReport.governance_run_id == run_id
+                )
+            ).all()
+            == []
+        )
+        assert (
+            session.exec(
+                select(Artifact).where(
+                    Artifact.governance_run_id == run_id,
+                    col(Artifact.media_type).in_(("text/html", "text/csv")),
+                )
+            ).all()
+            == []
+        )
 
     if not retryable:
         retry = client.post(
@@ -790,11 +796,14 @@ def test_stage5_validation_artifact_failure_retries_only_validation_attempt(
     assert failed["steps"][-1]["error_code"] == "validate_report_storage_failed"
     run_id = uuid.UUID(str(failed["id"]))
     with Session(engine) as session:
-        assert session.exec(
-            select(GovernanceReport).where(
-                GovernanceReport.governance_run_id == run_id
-            )
-        ).all() == []
+        assert (
+            session.exec(
+                select(GovernanceReport).where(
+                    GovernanceReport.governance_run_id == run_id
+                )
+            ).all()
+            == []
+        )
 
     monkeypatch.setattr(
         AgentComposeClient,
@@ -879,18 +888,23 @@ def test_stage5_validation_reopens_candidate_bytes_and_fails_closed(
         trigger_id="stage5-validation-failure",
         session_seed="stage5-validation-failure-session",
     )
-    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
-        "deterministic-report-v1"
-    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = "deterministic-report-v1"
     for name, value in runner_environment.items():
         monkeypatch.setenv(name, value)
 
     prepare_candidate = governance_runs_domain._prepare_report_candidate
+    candidate_paths: list[Path] = []
 
     def prepare_tampered_candidate(
-        *, session: Session, run: GovernanceRun
+        *, session: Session, run: GovernanceRun, reuse_existing: bool = False
     ) -> governance_runs_domain.ReportCandidate:
-        candidate = prepare_candidate(session=session, run=run)
+        candidate = prepare_candidate(
+            session=session, run=run, reuse_existing=reuse_existing
+        )
+        candidate_paths.extend(
+            settings.ARTIFACT_ROOT / key
+            for key in (candidate.html_storage_key, candidate.csv_storage_key)
+        )
         html_path = settings.ARTIFACT_ROOT / candidate.html_storage_key
         html_path.chmod(0o640)
         html_path.write_bytes(candidate.rendered.html + b"tampered")
@@ -917,16 +931,18 @@ def test_stage5_validation_reopens_candidate_bytes_and_fails_closed(
         ("BUILD_REPORT", "SUCCEEDED", None),
         ("VALIDATE_REPORT", "FAILED", "validate_report_contract_failed"),
     ]
-    assert not any(
-        step["step_code"] == "PUBLISH" for step in run_payload["steps"]
-    )
+    assert not any(step["step_code"] == "PUBLISH" for step in run_payload["steps"])
     run_id = uuid.UUID(str(run_payload["id"]))
     with Session(engine) as session:
-        assert session.exec(
-            select(GovernanceReport).where(
-                GovernanceReport.governance_run_id == run_id
-            )
-        ).all() == []
+        assert (
+            session.exec(
+                select(GovernanceReport).where(
+                    GovernanceReport.governance_run_id == run_id
+                )
+            ).all()
+            == []
+        )
+    assert candidate_paths and all(not path.exists() for path in candidate_paths)
 
 
 @pytest.mark.parametrize(
@@ -1006,17 +1022,23 @@ def test_stage5_validation_contract_failures_require_public_rerun(
     assert sensitive_detail not in response.text
     failed_run_id = uuid.UUID(str(failed["id"]))
     with Session(engine) as session:
-        assert session.exec(
-            select(GovernanceReport).where(
-                GovernanceReport.governance_run_id == failed_run_id
-            )
-        ).all() == []
-        assert session.exec(
-            select(Artifact).where(
-                Artifact.governance_run_id == failed_run_id,
-                col(Artifact.media_type).in_(("text/html", "text/csv")),
-            )
-        ).all() == []
+        assert (
+            session.exec(
+                select(GovernanceReport).where(
+                    GovernanceReport.governance_run_id == failed_run_id
+                )
+            ).all()
+            == []
+        )
+        assert (
+            session.exec(
+                select(Artifact).where(
+                    Artifact.governance_run_id == failed_run_id,
+                    col(Artifact.media_type).in_(("text/html", "text/csv")),
+                )
+            ).all()
+            == []
+        )
 
     retry = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{failed_run_id}/retry",
@@ -1104,13 +1126,12 @@ def test_stage5_publish_reopens_candidate_bytes_and_rolls_back_on_tamper(
         trigger_id="stage5-publish-tamper",
         session_seed="stage5-publish-tamper-session",
     )
-    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
-        REPORT_CONTRACT_VERSION
-    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = REPORT_CONTRACT_VERSION
     for name, value in runner_environment.items():
         monkeypatch.setenv(name, value)
 
     publish_run = governance_runs_domain._publish_run
+    candidate_paths: list[Path] = []
 
     def tamper_before_publish(
         *,
@@ -1120,6 +1141,13 @@ def test_stage5_publish_reopens_candidate_bytes_and_rolls_back_on_tamper(
         report_candidate: governance_runs_domain.ReportCandidate | None = None,
     ) -> None:
         assert report_candidate is not None
+        candidate_paths.extend(
+            settings.ARTIFACT_ROOT / key
+            for key in (
+                report_candidate.html_storage_key,
+                report_candidate.csv_storage_key,
+            )
+        )
         html_path = settings.ARTIFACT_ROOT / report_candidate.html_storage_key
         html_path.chmod(0o640)
         html_path.write_bytes(report_candidate.rendered.html + b"tampered")
@@ -1153,17 +1181,26 @@ def test_stage5_publish_reopens_candidate_bytes_and_rolls_back_on_tamper(
     ]
     run_id = uuid.UUID(str(run_payload["id"]))
     with Session(engine) as session:
-        assert session.exec(
-            select(func.count()).select_from(GovernanceReport).where(
-                GovernanceReport.governance_run_id == run_id
-            )
-        ).one() == 0
-        assert session.exec(
-            select(func.count()).select_from(Artifact).where(
-                Artifact.governance_run_id == run_id,
-                col(Artifact.media_type).in_(("text/html", "text/csv")),
-            )
-        ).one() == 0
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(GovernanceReport)
+                .where(GovernanceReport.governance_run_id == run_id)
+            ).one()
+            == 0
+        )
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(Artifact)
+                .where(
+                    Artifact.governance_run_id == run_id,
+                    col(Artifact.media_type).in_(("text/html", "text/csv")),
+                )
+            ).one()
+            == 0
+        )
+    assert candidate_paths and all(not path.exists() for path in candidate_paths)
 
 
 def test_stage5_deterministic_validation_failure_is_not_retryable(
@@ -1202,10 +1239,12 @@ def test_stage5_deterministic_validation_failure_is_not_retryable(
     candidate_count = 0
 
     def prepare_first_candidate_tampered(
-        *, session: Session, run: GovernanceRun
+        *, session: Session, run: GovernanceRun, reuse_existing: bool = False
     ) -> governance_runs_domain.ReportCandidate:
         nonlocal candidate_count
-        candidate = prepare_candidate(session=session, run=run)
+        candidate = prepare_candidate(
+            session=session, run=run, reuse_existing=reuse_existing
+        )
         candidate_count += 1
         if candidate_count == 1:
             html_path = settings.ARTIFACT_ROOT / candidate.html_storage_key
@@ -1228,9 +1267,7 @@ def test_stage5_deterministic_validation_failure_is_not_retryable(
     assert run_payload["session_recovery_code"] == (
         "non_retryable:validate_report_contract_failed"
     )
-    assert run_payload["steps"][-1]["error_code"] == (
-        "validate_report_contract_failed"
-    )
+    assert run_payload["steps"][-1]["error_code"] == ("validate_report_contract_failed")
 
     retry = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{run_payload['id']}/retry",
@@ -1349,17 +1386,23 @@ def test_stage5_publish_without_validated_candidate_fails_the_publish_step(
                 GovernanceRun.project_id == uuid.UUID(str(project["id"]))
             )
         ).one()
-        assert session.exec(
-            select(GovernanceReport).where(
-                GovernanceReport.governance_run_id == run.id
-            )
-        ).all() == []
-        assert session.exec(
-            select(Artifact).where(
-                Artifact.governance_run_id == run.id,
-                col(Artifact.media_type).in_(("text/html", "text/csv")),
-            )
-        ).all() == []
+        assert (
+            session.exec(
+                select(GovernanceReport).where(
+                    GovernanceReport.governance_run_id == run.id
+                )
+            ).all()
+            == []
+        )
+        assert (
+            session.exec(
+                select(Artifact).where(
+                    Artifact.governance_run_id == run.id,
+                    col(Artifact.media_type).in_(("text/html", "text/csv")),
+                )
+            ).all()
+            == []
+        )
         with pytest.raises(GovernanceRunExecutionError):
             publish_run(
                 session=session,
@@ -1692,9 +1735,7 @@ def test_retry_rejects_incompatible_processing_contract(
     )
     assert view.status_code == 200, view.text
     assert view.json()["data"][0]["can_retry"] is False
-    assert view.json()["data"][0]["blocking_code"] == (
-        "run_processing_not_retryable"
-    )
+    assert view.json()["data"][0]["blocking_code"] == ("run_processing_not_retryable")
 
 
 def test_runner_retries_transient_page_and_atomically_publishes_completed(
@@ -1727,9 +1768,7 @@ def test_runner_retries_transient_page_and_atomically_publishes_completed(
         if calls == 1:
             raise CloudAtlasBoundaryError("cloudatlas_upstream_failed")
         return {
-            "items": [
-                {"id": "fixture-asset-1", "ip": "192.0.2.10", "status": "valid"}
-            ],
+            "items": [{"id": "fixture-asset-1", "ip": "192.0.2.10", "status": "valid"}],
             "page": 1,
             "size": 200,
             "total": 1,
@@ -1901,11 +1940,14 @@ def test_cloudatlas_failure_stops_before_publish_without_a_completed_result(
         new_trigger_response.json()["detail"]["code"],
     } == {"run_session_state_unknown"}
     with Session(engine) as session:
-        assert session.exec(
-            select(func.count())
-            .select_from(GovernanceRun)
-            .where(GovernanceRun.project_id == uuid.UUID(str(project["id"])))
-        ).one() == 1
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(GovernanceRun)
+                .where(GovernanceRun.project_id == uuid.UUID(str(project["id"])))
+            ).one()
+            == 1
+        )
         rejection_events = session.exec(
             select(AuditEvent).where(
                 AuditEvent.project_id == uuid.UUID(str(project["id"])),
@@ -1955,15 +1997,18 @@ def test_cloudatlas_failure_stops_before_publish_without_a_completed_result(
         ),
     )
     assert {response.status_code for response in running_responses} == {409}
-    assert {
-        response.json()["detail"]["code"] for response in running_responses
-    } == {"run_session_still_running"}
+    assert {response.json()["detail"]["code"] for response in running_responses} == {
+        "run_session_still_running"
+    }
     with Session(engine) as session:
-        assert session.exec(
-            select(func.count())
-            .select_from(GovernanceRun)
-            .where(GovernanceRun.project_id == uuid.UUID(str(project["id"])))
-        ).one() == 1
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(GovernanceRun)
+                .where(GovernanceRun.project_id == uuid.UUID(str(project["id"])))
+            ).one()
+            == 1
+        )
         rejection_events = session.exec(
             select(AuditEvent).where(
                 AuditEvent.project_id == uuid.UUID(str(project["id"])),
@@ -2029,9 +2074,7 @@ def test_each_source_boundary_failure_is_failed_data(
     customer_failure = failure_code == "customer_artifact_read_failed"
     if customer_failure:
         with Session(engine) as session:
-            stored_upload = session.get(
-                CustomerUpload, uuid.UUID(str(upload["id"]))
-            )
+            stored_upload = session.get(CustomerUpload, uuid.UUID(str(upload["id"])))
             assert stored_upload is not None
             artifact = session.get(Artifact, stored_upload.artifact_id)
             assert artifact is not None
@@ -2053,8 +2096,7 @@ def test_each_source_boundary_failure_is_failed_data(
     ).json()["data"][0]
     assert run["status"] == "FAILED_DATA"
     assert [
-        (step["step_code"], step["status"], step["error_code"])
-        for step in run["steps"]
+        (step["step_code"], step["status"], step["error_code"]) for step in run["steps"]
     ] == (
         [("LOAD_CUSTOMER", "FAILED", "customer_snapshot_failed")]
         if customer_failure
@@ -2113,11 +2155,8 @@ def test_source_snapshot_persistence_failure_is_failed_processing(
     ).json()["data"][0]
     assert run["status"] == "FAILED_PROCESSING"
     assert [
-        (step["step_code"], step["status"], step["error_code"])
-        for step in run["steps"]
-    ] == [
-        ("LOAD_CUSTOMER", "FAILED", "customer_snapshot_processing_failed")
-    ]
+        (step["step_code"], step["status"], step["error_code"]) for step in run["steps"]
+    ] == [("LOAD_CUSTOMER", "FAILED", "customer_snapshot_processing_failed")]
     assert run["snapshots"] == []
     with Session(engine) as session:
         stored_project = session.get(Project, uuid.UUID(str(project["id"])))
@@ -2170,8 +2209,7 @@ def test_step_start_persistence_failure_is_failed_processing(
     ).json()["data"][0]
     assert run["status"] == "FAILED_PROCESSING"
     assert [
-        (step["step_code"], step["status"], step["error_code"])
-        for step in run["steps"]
+        (step["step_code"], step["status"], step["error_code"]) for step in run["steps"]
     ] == [("LOAD_CUSTOMER", "FAILED", "step_start_failed")]
 
 
@@ -2268,9 +2306,7 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
     session_id = environment["SANDBOX_ID"]
     session_observation = AgentComposeSessionObservation.TERMINAL
 
-    def get_session(
-        _client: object, requested_id: str
-    ) -> AgentComposeSession:
+    def get_session(_client: object, requested_id: str) -> AgentComposeSession:
         return AgentComposeSession(
             session_id=requested_id,
             observation=session_observation,
@@ -2290,9 +2326,7 @@ def test_retry_recovers_when_the_session_stops_before_runner_reentry(
     control_session_id = session_id
     started_requests: list[str] = []
 
-    def get_run(
-        _client: object, requested_id: str
-    ) -> AgentComposeRunStart:
+    def get_run(_client: object, requested_id: str) -> AgentComposeRunStart:
         if control_error is not None:
             raise AgentComposeBoundaryError(control_error)
         return AgentComposeRunStart(
@@ -2489,9 +2523,7 @@ def test_retry_starts_the_first_step_missing_after_session_termination(
                 )
             )
         if next_code == "PUBLISH":
-            stored_upload = session.get(
-                CustomerUpload, uuid.UUID(str(upload["id"]))
-            )
+            stored_upload = session.get(CustomerUpload, uuid.UUID(str(upload["id"])))
             assert stored_upload is not None
             cloudatlas_artifact = Artifact(
                 tenant_id=run.tenant_id,
@@ -2578,9 +2610,7 @@ def test_retry_starts_the_first_step_missing_after_session_termination(
         *((step_code, "SUCCEEDED", 1) for step_code in completed_codes),
         (next_code, "RUNNING", 1),
     ]
-    assert recovered["reused_snapshot_count"] == (
-        2 if next_code == "PUBLISH" else 0
-    )
+    assert recovered["reused_snapshot_count"] == (2 if next_code == "PUBLISH" else 0)
     with Session(engine) as session:
         started = session.exec(
             select(AuditEvent).where(
@@ -2663,9 +2693,7 @@ def test_retry_is_blocked_by_an_outstanding_rerun_launch(
     control_status = "RUN_STATUS_PENDING"
     control_error: str | None = "agent_compose_unavailable"
 
-    def get_run(
-        _client: object, requested_id: str
-    ) -> AgentComposeRunStart:
+    def get_run(_client: object, requested_id: str) -> AgentComposeRunStart:
         if control_error is not None:
             raise AgentComposeBoundaryError(control_error)
         return AgentComposeRunStart(
@@ -2799,17 +2827,13 @@ def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
         if calls == 1:
             raise CloudAtlasBoundaryError("cloudatlas_upstream_failed")
         return {
-            "items": [
-                {"id": "fixture-asset-1", "ip": "192.0.2.10", "status": "valid"}
-            ],
+            "items": [{"id": "fixture-asset-1", "ip": "192.0.2.10", "status": "valid"}],
             "page": page,
             "size": size,
             "total": 1,
         }
 
-    monkeypatch.setattr(
-        OctobusCloudAtlasClient, "list_ip_assets_page", fail_first_page
-    )
+    monkeypatch.setattr(OctobusCloudAtlasClient, "list_ip_assets_page", fail_first_page)
     assert run_governance_runner() == 1
     failed = client.get(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
@@ -2831,9 +2855,7 @@ def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
     resume_entered = Event()
     release_resume = Event()
 
-    def resume_session(
-        _client: object, requested_id: str
-    ) -> AgentComposeSession:
+    def resume_session(_client: object, requested_id: str) -> AgentComposeSession:
         resume_entered.set()
         assert release_resume.wait(timeout=5)
         return AgentComposeSession(
@@ -2874,9 +2896,10 @@ def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
         headers=superuser_token_headers,
     ).json()["data"][0]
     assert rolled_back["status"] == "FAILED_DATA"
-    assert {
-        step["step_code"]: step["attempt"] for step in rolled_back["steps"]
-    } == {"LOAD_CUSTOMER": 1, "PULL_CLOUDATLAS": 1}
+    assert {step["step_code"]: step["attempt"] for step in rolled_back["steps"]} == {
+        "LOAD_CUSTOMER": 1,
+        "PULL_CLOUDATLAS": 1,
+    }
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         retry_future = executor.submit(
@@ -2914,14 +2937,15 @@ def test_retry_resumes_the_same_session_and_reuses_successful_snapshot(
     ).json()["data"][0]
     assert completed["status"] == "COMPLETED"
     assert completed["session_id"] == session_id
-    assert next(
-        snapshot["id"]
-        for snapshot in completed["snapshots"]
-        if snapshot["source_type"] == "CUSTOMER_UPLOAD"
-    ) == customer_snapshot_id
-    assert {
-        step["step_code"]: step["attempt"] for step in completed["steps"]
-    } == {
+    assert (
+        next(
+            snapshot["id"]
+            for snapshot in completed["snapshots"]
+            if snapshot["source_type"] == "CUSTOMER_UPLOAD"
+        )
+        == customer_snapshot_id
+    )
+    assert {step["step_code"]: step["attempt"] for step in completed["steps"]} == {
         "LOAD_CUSTOMER": 1,
         "PULL_CLOUDATLAS": 2,
         "NORMALIZE": 1,
@@ -3162,9 +3186,7 @@ def test_unrecoverable_retry_requires_an_explicit_rerun(
         headers=superuser_token_headers,
     )
     assert repeated_retry.status_code == 409, repeated_retry.text
-    assert repeated_retry.json()["detail"]["code"] == (
-        "run_session_not_recoverable"
-    )
+    assert repeated_retry.json()["detail"]["code"] == ("run_session_not_recoverable")
 
     monkeypatch.setattr(
         AgentComposeClient,
@@ -3212,9 +3234,7 @@ def test_unrecoverable_retry_requires_an_explicit_rerun(
                 AuditEvent.action == "governance_run.rerun_rejected",
             )
         ).one()
-        assert rerun_rejection.after_data == {
-            "reason": "agent_compose_unavailable"
-        }
+        assert rerun_rejection.after_data == {"reason": "agent_compose_unavailable"}
 
     rerun_response = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/rerun",
@@ -3287,9 +3307,7 @@ def test_changed_input_requires_rerun_with_a_new_run_and_session(
         headers=superuser_token_headers,
     ).json()["data"][0]
     with Session(engine) as session:
-        stored_original = session.get(
-            GovernanceRun, uuid.UUID(str(original["id"]))
-        )
+        stored_original = session.get(GovernanceRun, uuid.UUID(str(original["id"])))
         assert stored_original is not None
         stored_original.status = GovernanceRunStatus.RUNNING.value
         session.add(stored_original)
@@ -3308,10 +3326,13 @@ def test_changed_input_requires_rerun_with_a_new_run_and_session(
     )
     assert upload_response.status_code == 201
     new_upload = upload_response.json()
-    assert client.post(
-        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads/{new_upload['id']}/select",
-        headers=superuser_token_headers,
-    ).status_code == 200
+    assert (
+        client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads/{new_upload['id']}/select",
+            headers=superuser_token_headers,
+        ).status_code
+        == 200
+    )
     monkeypatch.setattr(
         "app.api.routes.governance_runs.AgentComposeClient.get_session",
         lambda _client, requested_id: AgentComposeSession(
@@ -3341,9 +3362,7 @@ def test_changed_input_requires_rerun_with_a_new_run_and_session(
         assert client_request_id.endswith(":rerun-new")
         assert session_id is None
         captured_environment.update(environment)
-        return AgentComposeRunStart(
-            run_id="e" * 64, started=True, status="RUNNING"
-        )
+        return AgentComposeRunStart(run_id="e" * 64, started=True, status="RUNNING")
 
     monkeypatch.setattr(
         "app.api.routes.governance_runs.AgentComposeClient.start_governance_run",
@@ -3402,9 +3421,7 @@ def test_changed_input_requires_rerun_with_a_new_run_and_session(
         headers=superuser_token_headers,
     )
     assert historical_retry.status_code == 409
-    assert historical_retry.json()["detail"]["code"] == (
-        "run_retry_newer_run_exists"
-    )
+    assert historical_retry.json()["detail"]["code"] == ("run_retry_newer_run_exists")
     historical_rerun = client.post(
         f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs/{original['id']}/rerun",
         headers={
@@ -3413,9 +3430,7 @@ def test_changed_input_requires_rerun_with_a_new_run_and_session(
         },
     )
     assert historical_rerun.status_code == 409
-    assert historical_rerun.json()["detail"]["code"] == (
-        "run_rerun_newer_run_exists"
-    )
+    assert historical_rerun.json()["detail"]["code"] == ("run_rerun_newer_run_exists")
 
 
 def test_postgresql_serializes_same_trigger_and_rejects_a_second_active_run(
@@ -3459,19 +3474,25 @@ def test_postgresql_serializes_same_trigger_and_rejects_a_second_active_run(
     assert same_results[0] == same_results[1]
     with Session(engine) as session:
         project_id = uuid.UUID(str(project["id"]))
-        assert session.exec(
-            select(func.count())
-            .select_from(GovernanceRun)
-            .where(GovernanceRun.project_id == project_id)
-        ).one() == 1
-        assert session.exec(
-            select(func.count())
-            .select_from(AuditEvent)
-            .where(
-                AuditEvent.project_id == project_id,
-                AuditEvent.action == "governance_run.triggered",
-            )
-        ).one() == 1
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(GovernanceRun)
+                .where(GovernanceRun.project_id == project_id)
+            ).one()
+            == 1
+        )
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(
+                    AuditEvent.project_id == project_id,
+                    AuditEvent.action == "governance_run.triggered",
+                )
+            ).one()
+            == 1
+        )
         active = session.exec(
             select(GovernanceRun).where(GovernanceRun.project_id == project_id)
         ).one()
@@ -3500,9 +3521,9 @@ def test_postgresql_serializes_same_trigger_and_rejects_a_second_active_run(
     with ThreadPoolExecutor(max_workers=2) as executor:
         different_results = list(executor.map(establish, (first, second)))
     assert sorted(result[0] for result in different_results) == ["error", "error"]
-    assert {
-        result[1] for result in different_results if result[0] == "error"
-    } == {"runner_rerun_required"}
+    assert {result[1] for result in different_results if result[0] == "error"} == {
+        "runner_rerun_required"
+    }
 
 
 def test_concurrent_initial_triggers_reserve_only_one_runner_launch(
@@ -3560,14 +3581,17 @@ def test_concurrent_initial_triggers_reserve_only_one_runner_launch(
     assert sorted(statuses) == [202, 409]
     assert len(started) == 1
     with Session(engine) as session:
-        assert session.exec(
-            select(func.count())
-            .select_from(AuditEvent)
-            .where(
-                AuditEvent.project_id == uuid.UUID(str(project["id"])),
-                AuditEvent.action == "governance_run.trigger_requested",
-            )
-        ).one() == 1
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(AuditEvent)
+                .where(
+                    AuditEvent.project_id == uuid.UUID(str(project["id"])),
+                    AuditEvent.action == "governance_run.trigger_requested",
+                )
+            ).one()
+            == 1
+        )
         rejected = session.exec(
             select(AuditEvent).where(
                 AuditEvent.project_id == uuid.UUID(str(project["id"])),
@@ -3585,11 +3609,14 @@ def test_concurrent_initial_triggers_reserve_only_one_runner_launch(
         }
         reserved_trigger = stored_project.governance_launch_trigger_id
         assert reserved_trigger is not None
-        assert session.exec(
-            select(func.count())
-            .select_from(GovernanceRun)
-            .where(GovernanceRun.project_id == stored_project.id)
-        ).one() == 0
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(GovernanceRun)
+                .where(GovernanceRun.project_id == stored_project.id)
+            ).one()
+            == 0
+        )
         control_run_id = stored_project.governance_launch_control_run_id
         assert control_run_id is not None
 
@@ -3656,9 +3683,7 @@ def test_trigger_requires_operator_or_global_admin_but_never_viewer_or_approver(
     superuser_token_headers: dict[str, str],
 ) -> None:
     project = _create_project(client, superuser_token_headers)
-    run_url = (
-        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs"
-    )
+    run_url = f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs"
     for role in ("viewer", "approver"):
         member_headers = _create_member(
             client,
@@ -3903,7 +3928,116 @@ def test_active_run_blocks_project_archive_until_run_finishes(
     assert archive_response.status_code == 200
 
 
-def test_completed_is_immutable_and_not_retryable(
+def test_v1_stale_full_replay_preserves_published_candidate(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    build_version_path = tmp_path / "runner-build-version"
+    build_version_path.write_text("test-runner-v1\n", encoding="utf-8")
+    monkeypatch.setenv("RUNNER_BUILD_VERSION_PATH", str(build_version_path))
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client,
+        headers=superuser_token_headers,
+        project=project,
+    )
+    environment = _trigger_stage5_run(
+        client=client,
+        headers=superuser_token_headers,
+        monkeypatch=monkeypatch,
+        project=project,
+        trigger_id="v1-stale-full-replay",
+    )
+    inputs = RunnerInputs.from_environment(environment)
+    publish_run = governance_runs_domain._publish_run
+    monkeypatch.setattr(
+        governance_runs_domain, "_publish_run", lambda **_kwargs: None
+    )
+    assert run_governance_runner() == 0
+    monkeypatch.setattr(governance_runs_domain, "_publish_run", publish_run)
+    project_id = uuid.UUID(str(project["id"]))
+
+    with Session(engine, expire_on_commit=False) as stale_session:
+        stale_run = stale_session.exec(
+            select(GovernanceRun).where(GovernanceRun.project_id == project_id)
+        ).one()
+        run_id = stale_run.id
+        assert stale_run.status == "RUNNING"
+        candidate_paths = tuple(
+            governance_runs_domain._candidate_storage_path(storage_key)
+            for storage_key in governance_runs_domain._report_candidate_storage_keys(
+                stale_run.id
+            )
+        )
+        original_load = governance_runs_domain._load_customer_snapshot
+        published = False
+
+        def publish_before_replay_load(
+            *, session: Session, run: GovernanceRun, request_ip: str | None
+        ) -> None:
+            nonlocal published
+            if not published:
+                published = True
+                with Session(engine) as publisher:
+                    fresh_run = publisher.get(GovernanceRun, run.id)
+                    assert fresh_run is not None
+                    candidate = governance_runs_domain._prepare_report_candidate(
+                        session=publisher, run=fresh_run, reuse_existing=True
+                    )
+                    governance_runs_domain._publish_run(
+                        session=publisher,
+                        run=fresh_run,
+                        request_ip=None,
+                        report_candidate=candidate,
+                    )
+            original_load(session=session, run=run, request_ip=request_ip)
+
+        monkeypatch.setattr(
+            governance_runs_domain,
+            "_load_customer_snapshot",
+            publish_before_replay_load,
+        )
+        replayed = governance_runs_domain.execute_governance_run(
+            session=stale_session, inputs=inputs
+        )
+        assert replayed.status == "COMPLETED"
+        assert published
+        assert all(path.is_file() for path in candidate_paths)
+
+    with Session(engine) as session:
+        run = session.get(GovernanceRun, run_id)
+        assert run is not None and run.status == "COMPLETED"
+        assert len(
+            session.exec(
+                select(GovernanceReport).where(
+                    GovernanceReport.governance_run_id == run.id
+                )
+            ).all()
+        ) == 1
+        assert len(
+            session.exec(
+                select(AuditEvent).where(
+                    AuditEvent.target_id == run.id,
+                    AuditEvent.action == "governance_run.published",
+                )
+            ).all()
+        ) == 1
+
+
+@pytest.mark.parametrize(
+    "successful_status",
+    (GovernanceRunStatus.COMPLETED, GovernanceRunStatus.COMPLETED_WITH_WARNINGS),
+)
+def test_successful_run_is_immutable_and_not_retryable(
+    successful_status: GovernanceRunStatus,
     client: TestClient,
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
@@ -3926,13 +4060,13 @@ def test_completed_is_immutable_and_not_retryable(
             project=project,
             upload=upload,
             source=source,
-            trigger_id="completed-with-warnings",
-            session_seed="completed-with-warnings-session",
+            trigger_id=f"successful-{successful_status.value.lower()}",
+            session_seed=f"successful-{successful_status.value.lower()}-session",
         )
     )
     with Session(engine) as session:
         run = establish_governance_run(session=session, inputs=inputs)
-        run.status = GovernanceRunStatus.COMPLETED.value
+        run.status = successful_status.value
         run.completed_at = run.updated_at
         run_id = run.id
         session.add(run)
@@ -3951,6 +4085,62 @@ def test_completed_is_immutable_and_not_retryable(
     )
     assert retry_response.status_code == 409
     assert retry_response.json()["detail"]["code"] == "run_retry_completed"
+
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_session",
+        lambda _client, requested_id: AgentComposeSession(
+            session_id=requested_id,
+            observation=AgentComposeSessionObservation.TERMINAL,
+        ),
+    )
+    with Session(engine) as session:
+        session.connection().exec_driver_sql(
+            "SET LOCAL session_replication_role = replica"
+        )
+        stored = session.get(GovernanceRun, run_id)
+        assert stored is not None
+        completed_at = stored.completed_at
+        stored.completed_at = None
+        session.add(stored)
+        session.commit()
+    incomplete = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers=superuser_token_headers,
+    )
+    assert incomplete.status_code == 200
+    assert incomplete.json()["can_trigger"] is False
+    assert incomplete.json()["data"][0]["can_retry"] is False
+    assert incomplete.json()["data"][0]["blocking_code"] == "run_retry_completed"
+
+    def unexpected_agent_compose_client() -> None:
+        raise AssertionError("incomplete published success must fail before AgentCompose")
+
+    monkeypatch.setattr(
+        "app.api.routes.governance_runs.AgentComposeClient",
+        unexpected_agent_compose_client,
+    )
+    trigger_response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs",
+        headers={
+            **superuser_token_headers,
+            "Idempotency-Key": f"incomplete-{successful_status.value.lower()}",
+        },
+    )
+    assert trigger_response.status_code == 409
+    assert trigger_response.json()["detail"]["code"] == "run_publication_incomplete"
+    with Session(engine) as session:
+        session.connection().exec_driver_sql(
+            "SET LOCAL session_replication_role = replica"
+        )
+        stored = session.get(GovernanceRun, run_id)
+        assert stored is not None
+        stored_project = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored_project is not None
+        assert stored_project.governance_launch_trigger_id is None
+        stored.completed_at = completed_at
+        session.add(stored)
+        session.commit()
 
     with Session(engine) as session:
         stored = session.get(GovernanceRun, run_id)
@@ -3992,9 +4182,11 @@ def test_referenced_customer_upload_and_artifact_cannot_be_deleted(
     with Session(engine) as session:
         run = establish_governance_run(session=session, inputs=inputs)
         upload_id = uuid.UUID(str(upload["id"]))
-        artifact_id = session.exec(
-            select(CustomerUpload).where(CustomerUpload.id == upload_id)
-        ).one().artifact_id
+        artifact_id = (
+            session.exec(select(CustomerUpload).where(CustomerUpload.id == upload_id))
+            .one()
+            .artifact_id
+        )
         with pytest.raises(IntegrityError):
             session.delete(session.get(CustomerUpload, upload_id))
             session.commit()
@@ -4049,8 +4241,7 @@ def test_failed_run_history_stays_readable_and_snapshots_unrewritable(
     with Session(engine) as session:
         snapshot = session.exec(
             select(SourceSnapshot).where(
-                SourceSnapshot.governance_run_id
-                == uuid.UUID(str(run["id"]))
+                SourceSnapshot.governance_run_id == uuid.UUID(str(run["id"]))
             )
         ).first()
         assert snapshot is not None
@@ -4090,9 +4281,7 @@ def test_publish_audit_insert_failure_rolls_back_completion(
         trigger_id="audit-atomic",
         session_seed="audit-atomic-session",
     )
-    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = (
-        REPORT_CONTRACT_VERSION
-    )
+    runner_environment["GOVERNANCE_REPORT_CONTRACT_VERSION"] = REPORT_CONTRACT_VERSION
     monkeypatch.setattr(
         OctobusCloudAtlasClient,
         "list_ip_assets_page",
@@ -4128,27 +4317,41 @@ def test_publish_audit_insert_failure_rolls_back_completion(
         assert stored_project is not None
         assert stored_project.latest_completed_run_id is None
         run_id = uuid.UUID(str(run["id"]))
-        assert session.exec(
-            select(func.count()).select_from(Finding).where(
-                Finding.project_id == stored_project.id
-            )
-        ).one() == 0
-        assert session.exec(
-            select(func.count()).select_from(GovernanceReport).where(
-                GovernanceReport.governance_run_id == run_id
-            )
-        ).one() == 0
-        assert session.exec(
-            select(func.count()).select_from(Evidence).where(
-                Evidence.governance_run_id == run_id
-            )
-        ).one() == 0
-        assert session.exec(
-            select(func.count()).select_from(Artifact).where(
-                Artifact.governance_run_id == run_id,
-                col(Artifact.media_type).in_(("text/html", "text/csv")),
-            )
-        ).one() == 0
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(Finding)
+                .where(Finding.project_id == stored_project.id)
+            ).one()
+            == 0
+        )
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(GovernanceReport)
+                .where(GovernanceReport.governance_run_id == run_id)
+            ).one()
+            == 0
+        )
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(Evidence)
+                .where(Evidence.governance_run_id == run_id)
+            ).one()
+            == 0
+        )
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(Artifact)
+                .where(
+                    Artifact.governance_run_id == run_id,
+                    col(Artifact.media_type).in_(("text/html", "text/csv")),
+                )
+            ).one()
+            == 0
+        )
 
     snapshot_ids = {snapshot["id"] for snapshot in run["snapshots"]}
     session_id = runner_environment["SANDBOX_ID"]
@@ -4196,9 +4399,7 @@ def test_publish_audit_insert_failure_rolls_back_completion(
     assert completed["status"] == "COMPLETED"
     assert completed["session_id"] == session_id
     assert {snapshot["id"] for snapshot in completed["snapshots"]} == snapshot_ids
-    assert {
-        step["step_code"]: step["attempt"] for step in completed["steps"]
-    } == {
+    assert {step["step_code"]: step["attempt"] for step in completed["steps"]} == {
         "LOAD_CUSTOMER": 1,
         "PULL_CLOUDATLAS": 1,
         "NORMALIZE": 1,
@@ -4214,16 +4415,18 @@ def test_publish_audit_insert_failure_rolls_back_completion(
         assert str(stored_project.latest_completed_run_id) == completed["id"]
         report = session.exec(
             select(GovernanceReport).where(
-                GovernanceReport.governance_run_id
-                == uuid.UUID(str(completed["id"]))
+                GovernanceReport.governance_run_id == uuid.UUID(str(completed["id"]))
             )
         ).one()
         assert report.generation_mode == "DETERMINISTIC_TEMPLATE"
-        assert session.exec(
-            select(func.count()).select_from(Finding).where(
-                Finding.project_id == stored_project.id
-            )
-        ).one() == 2
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(Finding)
+                .where(Finding.project_id == stored_project.id)
+            ).one()
+            == 2
+        )
 
 
 def test_two_projects_run_independently_in_parallel(
@@ -4430,8 +4633,11 @@ def test_runner_requires_the_cloudatlas_run_credential_before_establishing(
 
     assert run_governance_runner() == 1
     with Session(engine) as session:
-        assert session.exec(
-            select(func.count())
-            .select_from(GovernanceRun)
-            .where(GovernanceRun.project_id == uuid.UUID(str(project["id"])))
-        ).one() == 0
+        assert (
+            session.exec(
+                select(func.count())
+                .select_from(GovernanceRun)
+                .where(GovernanceRun.project_id == uuid.UUID(str(project["id"])))
+            ).one()
+            == 0
+        )

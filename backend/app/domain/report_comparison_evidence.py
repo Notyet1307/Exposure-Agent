@@ -19,6 +19,7 @@ from app.domain.comparison_evidence import (
     ComparisonEvidenceReference,
     comparison_evidence_id,
 )
+from app.domain.governance_publication import is_published_run
 from app.domain.ip_source_comparison import (
     COMPARISON_CONTRACT_VERSION,
     IPSourceComparison,
@@ -386,12 +387,16 @@ def _fresh_facts(
     project_id: uuid.UUID,
     run_id: uuid.UUID,
 ) -> FrozenReportCandidateFacts:
-    # A separate identity map on the SAME transaction prevents cached ORM rows
-    # from being mistaken for a fresh database proof. It never owns commit.
+    # The binder is part of the runner transaction; preserve pinned source
+    # failures so the runner can classify deterministic drift as FAILED_DATA.
+    from app.domain.report_candidate_facts import (
+        _read_report_candidate_facts_for_runner,
+    )
+
     with Session(
         bind=session.connection(), join_transaction_mode="rollback_only"
     ) as reader:
-        return read_report_candidate_facts(
+        return _read_report_candidate_facts_for_runner(
             session=reader,
             tenant_id=tenant_id,
             project_id=project_id,
@@ -520,11 +525,7 @@ def read_report_comparison_evidence(
                 project_id=project_id,
                 report_id=report_id,
             )
-            _require(
-                run.status in {"COMPLETED", "COMPLETED_WITH_WARNINGS"}
-                and run.completed_at is not None,
-                "report_not_ready",
-            )
+            _require(is_published_run(run), "report_not_ready")
             fresh = read_report_candidate_facts(
                 session=reader,
                 tenant_id=tenant_id,

@@ -24,6 +24,7 @@ from app.domain.cloudatlas_sources import (
     CloudAtlasBoundaryError,
     OctobusCloudAtlasClient,
 )
+from app.domain.comparison_evidence import ReportV2EvidenceBundle
 from app.domain.evidence_selector import (
     CurrentRunTransitionEvidenceCandidate,
     EvidenceBundle,
@@ -31,8 +32,8 @@ from app.domain.evidence_selector import (
     FrozenEvidenceFactReference,
     FrozenRunEvidenceFacts,
     OpenBacklogEvidenceCandidate,
-    select_evidence,
 )
+from app.domain.governance_publication import COMPLETED_RUN_STATUSES, is_published_run
 from app.domain.ip_consistency import (
     CLOUDATLAS_SOURCE_TYPE as IP_CLOUDATLAS_SOURCE_TYPE,
 )
@@ -96,7 +97,18 @@ from app.domain.netflow_datasets import (
 from app.domain.netflow_datasets import (
     SCHEMA_FINGERPRINT as NETFLOW_SCHEMA_FINGERPRINT,
 )
-from app.domain.report_candidates import REPORT_V2_CONTRACT_VERSION
+from app.domain.report_candidates import (
+    REPORT_V2_CONTRACT_VERSION,
+    FrozenGovernanceCandidateFacts,
+    FrozenReportCandidateFacts,
+    ReportCandidateError,
+    ReportV2,
+    generate_report_candidate,
+    validate_report_candidate,
+)
+from app.domain.report_candidates import (
+    ReportCandidate as GeneratedReportCandidate,
+)
 from app.domain.report_core import (
     REPORT_CONTRACT_VERSION,
     CanonicalReportCore,
@@ -117,11 +129,7 @@ from app.domain.report_core import (
 from app.domain.report_core import (
     TransitionType as ReportTransitionType,
 )
-from app.domain.report_renderer import (
-    RenderedReport,
-    ReportRendererError,
-    render_report,
-)
+from app.domain.report_renderer import RenderedReport, ReportRendererError
 from app.integrations.agent_compose import (
     AgentComposeClient,
     AgentComposeSessionObservation,
@@ -148,7 +156,6 @@ _STEP_ORDER = {
     RunStepCode.VALIDATE_REPORT.value: 7,
     RunStepCode.PUBLISH.value: 8,
 }
-COMPLETED_RUN_STATUSES = frozenset({GovernanceRunStatus.COMPLETED.value})
 _NON_RETRYABLE_PREFIX = "non_retryable:"
 _STAGE4_NON_RETRYABLE_ERRORS = frozenset(
     {
@@ -418,14 +425,31 @@ class CloudAtlasArtifactDraft:
 
 @dataclass(frozen=True, slots=True)
 class ReportCandidate:
-    report_facts: FrozenRunReportFacts
-    evidence_facts: FrozenRunEvidenceFacts
-    report_model: CanonicalReportCore
-    evidence_plan: EvidenceBundle
-    rendered: RenderedReport
+    frozen_facts: FrozenGovernanceCandidateFacts | FrozenReportCandidateFacts
+    generated: GeneratedReportCandidate
     html_storage_key: str
     csv_storage_key: str
     build_output_hash: str
+
+    @property
+    def report_facts(self) -> FrozenRunReportFacts:
+        return self.frozen_facts.governance
+
+    @property
+    def evidence_facts(self) -> FrozenRunEvidenceFacts:
+        return self.frozen_facts.evidence
+
+    @property
+    def report_model(self) -> CanonicalReportCore | ReportV2:
+        return self.generated.report
+
+    @property
+    def evidence_plan(self) -> EvidenceBundle | ReportV2EvidenceBundle:
+        return self.generated.evidence_plan
+
+    @property
+    def rendered(self) -> RenderedReport:
+        return self.generated.rendered
 
 
 class ReportCandidateValidationError(Exception):
@@ -572,7 +596,11 @@ def require_trigger_readiness(
         descriptor_sha256=DESCRIPTOR_SHA256,
         runner_build_version=settings.RUNNER_BUILD_VERSION,
         processing_contract_version=IP_PROCESSING_CONTRACT_VERSION,
-        report_contract_version=REPORT_CONTRACT_VERSION,
+        report_contract_version=(
+            REPORT_V2_CONTRACT_VERSION
+            if dataset is not None
+            else REPORT_CONTRACT_VERSION
+        ),
         input_contract_version="governance-run-input-v1",
         netflow_dataset_id=dataset.id if dataset is not None else None,
         netflow_content_sha256=dataset.raw_sha256 if dataset is not None else None,
@@ -641,9 +669,18 @@ def _validate_runner_inputs(
         _execution_error("runner_processing_contract_unsupported")
     if (
         inputs.report_contract_version is not None
-        and inputs.report_contract_version != REPORT_CONTRACT_VERSION
+        and inputs.report_contract_version
+        not in {
+            REPORT_CONTRACT_VERSION,
+            REPORT_V2_CONTRACT_VERSION,
+        }
     ):
         _execution_error("runner_report_contract_unsupported")
+    if (
+        inputs.input_contract_version == "governance-run-input-v1"
+        and inputs.report_contract_version is None
+    ):
+        _execution_error("runner_report_contract_changed")
     if (
         inputs.report_contract_version is not None
         and inputs.processing_contract_version is None
@@ -719,10 +756,12 @@ def establish_governance_run(
     *, session: Session, inputs: RunnerInputs
 ) -> GovernanceRun:
     existing = session.exec(
-        select(GovernanceRun).where(
+        select(GovernanceRun)
+        .where(
             GovernanceRun.project_id == inputs.project_id,
             GovernanceRun.trigger_id == inputs.trigger_id,
         )
+        .execution_options(populate_existing=True)
     ).one_or_none()
     if existing is not None:
         if existing.session_id != inputs.session_id:
@@ -848,16 +887,72 @@ def establish_governance_run(
     except IntegrityError:
         session.rollback()
         existing = session.exec(
-            select(GovernanceRun).where(
+            select(GovernanceRun)
+            .where(
                 GovernanceRun.project_id == inputs.project_id,
                 GovernanceRun.trigger_id == inputs.trigger_id,
             )
+            .execution_options(populate_existing=True)
         ).one_or_none()
         if existing is not None and existing.session_id == inputs.session_id:
             return existing
         _execution_error("runner_project_has_active_run")
     session.refresh(run)
     return run
+
+
+def _lock_project_and_run_for_execution(
+    *, session: Session, run: GovernanceRun
+) -> tuple[Project, GovernanceRun]:
+    project = session.exec(
+        select(Project)
+        .where(
+            Project.id == run.project_id,
+            Project.tenant_id == run.tenant_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one()
+    locked_run = session.exec(
+        select(GovernanceRun)
+        .where(
+            GovernanceRun.id == run.id,
+            GovernanceRun.project_id == project.id,
+            GovernanceRun.tenant_id == project.tenant_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one()
+    return project, locked_run
+
+
+def _require_running_run_for_failure(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    step: RunStep,
+    expected_step_attempt: int,
+) -> None:
+    _, run = _lock_project_and_run_for_execution(session=session, run=run)
+    locked_step = session.exec(
+        select(RunStep)
+        .where(
+            RunStep.id == step.id,
+            RunStep.governance_run_id == run.id,
+            RunStep.project_id == run.project_id,
+            RunStep.tenant_id == run.tenant_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one_or_none()
+    if (
+        run.status != GovernanceRunStatus.RUNNING.value
+        or locked_step is None
+        or locked_step.status != RunStepStatus.RUNNING.value
+        or locked_step.attempt != expected_step_attempt
+    ):
+        session.rollback()
+        _execution_error("runner_step_already_started")
 
 
 def _begin_step(
@@ -869,17 +964,17 @@ def _begin_step(
     request_ip: str | None,
 ) -> tuple[RunStep, bool]:
     existing = session.exec(
-        select(RunStep).where(
+        select(RunStep)
+        .where(
             RunStep.governance_run_id == run.id,
+            RunStep.project_id == run.project_id,
+            RunStep.tenant_id == run.tenant_id,
             RunStep.step_code == step_code.value,
         )
+        .execution_options(populate_existing=True)
     ).one_or_none()
     if existing is not None:
-        if existing.status == RunStepStatus.SUCCEEDED.value:
-            return existing, False
-        if existing.status == RunStepStatus.RUNNING.value:
-            return existing, True
-        return existing, False
+        return existing, existing.status == RunStepStatus.RUNNING.value
     step = RunStep(
         tenant_id=run.tenant_id,
         project_id=run.project_id,
@@ -896,10 +991,30 @@ def _begin_step(
         after_data={"step_code": step.step_code, "status": step.status},
         request_ip=request_ip,
     )
+    session.add(step)
     try:
-        session.add(step)
         session.flush()
-        session.add(event)
+    except IntegrityError:
+        session.rollback()
+        if step_code is RunStepCode.PUBLISH:
+            existing = session.exec(
+                select(RunStep)
+                .where(
+                    RunStep.governance_run_id == run.id,
+                    RunStep.project_id == run.project_id,
+                    RunStep.tenant_id == run.tenant_id,
+                    RunStep.step_code == step_code.value,
+                )
+                .execution_options(populate_existing=True)
+            ).one_or_none()
+            if existing is not None:
+                return existing, existing.status == RunStepStatus.RUNNING.value
+        raise
+    except SQLAlchemyError:
+        session.rollback()
+        raise
+    session.add(event)
+    try:
         session.commit()
     except SQLAlchemyError:
         session.rollback()
@@ -2218,12 +2333,14 @@ def _report_candidate_facts(
         _processing_error("report_contract_invalid")
 
     snapshots = session.exec(
-        select(SourceSnapshot).where(
+        select(SourceSnapshot)
+        .where(
             SourceSnapshot.governance_run_id == run.id,
             SourceSnapshot.project_id == run.project_id,
             SourceSnapshot.tenant_id == run.tenant_id,
             col(SourceSnapshot.source_type).in_(_IP_SOURCE_SNAPSHOT_TYPES),
         )
+        .order_by(col(SourceSnapshot.source_type), col(SourceSnapshot.id))
     ).all()
     snapshots_by_type = {snapshot.source_type: snapshot for snapshot in snapshots}
     if set(snapshots_by_type) != {
@@ -2232,13 +2349,20 @@ def _report_candidate_facts(
     }:
         _processing_error("report_snapshots_incomplete")
 
-    observations = session.exec(
-        select(Observation).where(
-            Observation.governance_run_id == run.id,
-            Observation.project_id == run.project_id,
-            Observation.tenant_id == run.tenant_id,
-        )
-    ).all()
+    observations = sorted(
+        session.exec(
+            select(Observation).where(
+                Observation.governance_run_id == run.id,
+                Observation.project_id == run.project_id,
+                Observation.tenant_id == run.tenant_id,
+            )
+        ).all(),
+        key=lambda observation: ip_observation_sort_key(
+            observation.source_type,
+            observation.source_record_key,
+            observation.id,
+        ),
+    )
     customer_keys = {
         str(observation.canonical_ip)
         for observation in observations
@@ -2263,22 +2387,37 @@ def _report_candidate_facts(
     canonical_by_resource = {
         resource.id: str(resource.canonical_key) for resource in resources
     }
-    findings = session.exec(
-        select(Finding).where(
-            Finding.project_id == run.project_id,
-            Finding.tenant_id == run.tenant_id,
-        )
-    ).all()
+    findings = list(
+        session.exec(
+            select(Finding).where(
+                Finding.project_id == run.project_id,
+                Finding.tenant_id == run.tenant_id,
+            )
+        ).all()
+    )
     for finding in findings:
         if finding.resource_id not in canonical_by_resource:
             _processing_error("report_finding_resource_missing")
+    findings.sort(
+        key=lambda finding: (
+            finding.finding_type,
+            canonical_by_resource[finding.resource_id],
+            str(finding.id),
+        )
+    )
     finding_ids = [finding.id for finding in findings]
     occurrences = (
         session.exec(
-            select(FindingOccurrence).where(
+            select(FindingOccurrence)
+            .where(
                 FindingOccurrence.project_id == run.project_id,
                 FindingOccurrence.tenant_id == run.tenant_id,
                 col(FindingOccurrence.finding_id).in_(finding_ids),
+            )
+            .order_by(
+                col(FindingOccurrence.governance_run_id),
+                col(FindingOccurrence.finding_id),
+                col(FindingOccurrence.id),
             )
         ).all()
         if finding_ids
@@ -2286,10 +2425,16 @@ def _report_candidate_facts(
     )
     transitions = (
         session.exec(
-            select(FindingTransition).where(
+            select(FindingTransition)
+            .where(
                 FindingTransition.project_id == run.project_id,
                 FindingTransition.tenant_id == run.tenant_id,
                 col(FindingTransition.finding_id).in_(finding_ids),
+            )
+            .order_by(
+                col(FindingTransition.governance_run_id),
+                col(FindingTransition.finding_id),
+                col(FindingTransition.id),
             )
         ).all()
         if finding_ids
@@ -2334,6 +2479,24 @@ def _report_candidate_facts(
             for transition in transitions
             if transition.governance_run_id in completed_at_by_run
         ]
+    occurrences = sorted(
+        occurrences,
+        key=lambda occurrence: (
+            completed_at_by_run[occurrence.governance_run_id],
+            str(occurrence.governance_run_id),
+            str(occurrence.finding_id),
+            str(occurrence.id),
+        ),
+    )
+    transitions = sorted(
+        transitions,
+        key=lambda transition: (
+            completed_at_by_run[transition.governance_run_id],
+            str(transition.governance_run_id),
+            str(transition.finding_id),
+            str(transition.id),
+        ),
+    )
     latest_history_at = max(
         (
             completed_at
@@ -2381,11 +2544,11 @@ def _report_candidate_facts(
     current_differences = {
         **{
             (FindingType.UNREPORTED_ASSET.value, canonical_ip): None
-            for canonical_ip in cloudatlas_only
+            for canonical_ip in sorted(cloudatlas_only)
         },
         **{
             (FindingType.UNOBSERVED_ASSET.value, canonical_ip): None
-            for canonical_ip in customer_only
+            for canonical_ip in sorted(customer_only)
         },
     }
     current_occurrence_ids: dict[str, str] = {
@@ -2624,21 +2787,55 @@ def _candidate_storage_path(storage_key: str) -> Path:
     return path
 
 
+def _report_candidate_storage_keys(run_id: uuid.UUID) -> tuple[str, str]:
+    return (
+        f"report_candidates/{uuid.uuid5(run_id, 'report-candidate-html')}.html",
+        f"report_candidates/{uuid.uuid5(run_id, 'report-candidate-csv')}.csv",
+    )
+
+
+def _cleanup_report_candidate(run_id: uuid.UUID) -> None:
+    for storage_key in _report_candidate_storage_keys(run_id):
+        try:
+            _candidate_storage_path(storage_key).unlink(missing_ok=True)
+        except OSError:
+            logger.error("Failed to remove an unpublished report candidate")
+
+
 def _write_report_candidate(
-    *, run_id: uuid.UUID, rendered: RenderedReport
+    *,
+    run_id: uuid.UUID,
+    rendered: RenderedReport,
+    reuse_existing: bool,
+    rebuild_missing: bool,
 ) -> tuple[str, str]:
-    candidate_directory = settings.ARTIFACT_ROOT.resolve() / "report_candidates"
-    candidate_directory.mkdir(parents=True, exist_ok=True)
-    html_storage_key = (
-        f"report_candidates/{uuid.uuid5(run_id, 'report-candidate-html')}.html"
-    )
-    csv_storage_key = (
-        f"report_candidates/{uuid.uuid5(run_id, 'report-candidate-csv')}.csv"
-    )
+    html_storage_key, csv_storage_key = _report_candidate_storage_keys(run_id)
     final_outputs = (
         (_candidate_storage_path(html_storage_key), rendered.html),
         (_candidate_storage_path(csv_storage_key), rendered.csv),
     )
+    if reuse_existing:
+        existing: list[bytes | None] = []
+        for path, _content in final_outputs:
+            try:
+                existing.append(path.read_bytes())
+            except FileNotFoundError:
+                existing.append(None)
+            except OSError:
+                raise ReportCandidateStorageError(
+                    "candidate_artifact_unavailable"
+                ) from None
+        if all(content is None for content in existing):
+            if not rebuild_missing:
+                raise ReportCandidateStorageError("candidate_artifact_unavailable")
+            reuse_existing = False
+        elif tuple(existing) != tuple(content for _path, content in final_outputs):
+            raise ReportCandidateValidationError("candidate_artifact_hash_mismatch")
+        else:
+            return html_storage_key, csv_storage_key
+
+    candidate_directory = settings.ARTIFACT_ROOT.resolve() / "report_candidates"
+    candidate_directory.mkdir(parents=True, exist_ok=True)
     temporary_paths: list[Path] = []
     written_paths: list[Path] = []
     try:
@@ -2662,13 +2859,14 @@ def _write_report_candidate(
 
 def _report_build_output_hash(
     *,
+    report_contract_version: str,
     rendered: RenderedReport,
     html_storage_key: str,
     csv_storage_key: str,
 ) -> str:
     return _fingerprint(
         {
-            "report_contract_version": REPORT_CONTRACT_VERSION,
+            "report_contract_version": report_contract_version,
             "canonical_json_sha256": rendered.canonical_json_sha256,
             "html_sha256": rendered.html_sha256,
             "csv_sha256": rendered.csv_sha256,
@@ -2679,26 +2877,52 @@ def _report_build_output_hash(
 
 
 def _prepare_report_candidate(
-    *, session: Session, run: GovernanceRun
+    *, session: Session, run: GovernanceRun, reuse_existing: bool = False
 ) -> ReportCandidate:
-    report_facts, evidence_facts = _report_candidate_facts(session=session, run=run)
+    _, run = _lock_project_and_run_for_execution(session=session, run=run)
+    completed_status = run.status in COMPLETED_RUN_STATUSES
     assert run.report_contract_version is not None
-    report_model = compile_report_core(report_facts, run.report_contract_version)
-    evidence_plan = select_evidence(evidence_facts, run.report_contract_version)
-    rendered = render_report(report_model, evidence_plan)
+    try:
+        if run.report_contract_version == REPORT_CONTRACT_VERSION:
+            report_facts, evidence_facts = _report_candidate_facts(
+                session=session, run=run
+            )
+            frozen_facts: (
+                FrozenGovernanceCandidateFacts | FrozenReportCandidateFacts
+            ) = FrozenGovernanceCandidateFacts(
+                governance=report_facts, evidence=evidence_facts
+            )
+        elif run.report_contract_version == REPORT_V2_CONTRACT_VERSION:
+            # Deferred to keep the DB adapter's existing governance_runs import acyclic.
+            from app.domain.report_candidate_facts import (
+                _read_report_candidate_facts_for_runner,
+            )
+
+            frozen_facts = _read_report_candidate_facts_for_runner(
+                session=session,
+                tenant_id=run.tenant_id,
+                project_id=run.project_id,
+                run_id=run.id,
+            )
+        else:
+            raise ReportCandidateValidationError("report_contract_unsupported")
+        generated = generate_report_candidate(frozen_facts, run.report_contract_version)
+    except ReportCandidateError as error:
+        raise ReportCandidateValidationError(error.code) from None
     html_storage_key, csv_storage_key = _write_report_candidate(
-        run_id=run.id, rendered=rendered
+        run_id=run.id,
+        rendered=generated.rendered,
+        reuse_existing=reuse_existing or completed_status,
+        rebuild_missing=not completed_status,
     )
     return ReportCandidate(
-        report_facts=report_facts,
-        evidence_facts=evidence_facts,
-        report_model=report_model,
-        evidence_plan=evidence_plan,
-        rendered=rendered,
+        frozen_facts=frozen_facts,
+        generated=generated,
         html_storage_key=html_storage_key,
         csv_storage_key=csv_storage_key,
         build_output_hash=_report_build_output_hash(
-            rendered=rendered,
+            report_contract_version=generated.report_contract_version,
+            rendered=generated.rendered,
             html_storage_key=html_storage_key,
             csv_storage_key=csv_storage_key,
         ),
@@ -2706,23 +2930,13 @@ def _prepare_report_candidate(
 
 
 def _validate_prepared_report_candidate(candidate: ReportCandidate) -> str:
-    report_model = compile_report_core(
-        candidate.report_facts,
-        candidate.report_model.report_identity.report_contract_version,
-    )
-    evidence_plan = select_evidence(
-        candidate.evidence_facts,
-        candidate.report_model.report_identity.report_contract_version,
-    )
-    rendered = render_report(report_model, evidence_plan)
-    if (
-        report_model != candidate.report_model
-        or evidence_plan != candidate.evidence_plan
-    ):
-        raise ReportCandidateValidationError("candidate_contract_changed")
-    if rendered != candidate.rendered:
-        raise ReportCandidateValidationError("candidate_render_changed")
+    try:
+        validate_report_candidate(candidate.frozen_facts, candidate.generated)
+    except ReportCandidateError as error:
+        raise ReportCandidateValidationError(error.code) from None
+    rendered = candidate.rendered
     expected_build_hash = _report_build_output_hash(
+        report_contract_version=candidate.generated.report_contract_version,
         rendered=rendered,
         html_storage_key=candidate.html_storage_key,
         csv_storage_key=candidate.csv_storage_key,
@@ -2817,16 +3031,21 @@ def _build_report_candidate(
         input_hash=input_hash,
         request_ip=request_ip,
     )
+    step_attempt = step.attempt
     if not created and step.status != RunStepStatus.SUCCEEDED.value:
         _execution_error("runner_step_already_started")
     candidate: ReportCandidate | None = None
     error_code = "build_report_processing_failed"
     retryable = True
+    run_status = GovernanceRunStatus.FAILED_PROCESSING
     try:
-        candidate = _prepare_report_candidate(session=session, run=run)
+        candidate = _prepare_report_candidate(
+            session=session, run=run, reuse_existing=not created
+        )
         if not created:
             if candidate.build_output_hash != step.output_hash:
                 raise ReportCandidateValidationError("candidate_build_hash_changed")
+            session.rollback()
             return candidate
         _complete_report_step(
             session=session,
@@ -2837,6 +3056,9 @@ def _build_report_candidate(
             hashes=candidate.rendered,
         )
         return candidate
+    except ReportCandidateStorageError:
+        error_code = "build_report_storage_failed"
+        session.rollback()
     except (
         ReportCoreError,
         EvidenceSelectorError,
@@ -2850,6 +3072,15 @@ def _build_report_candidate(
     except OSError:
         error_code = "build_report_storage_failed"
         session.rollback()
+    except GovernanceRunExecutionError as error:
+        error_code = "build_report_input_failed"
+        retryable = error.code == "netflow_artifact_unavailable"
+        run_status = (
+            GovernanceRunStatus.FAILED_DATA
+            if error.code in _NETFLOW_DATA_ERRORS
+            else GovernanceRunStatus.FAILED_PROCESSING
+        )
+        session.rollback()
     except SQLAlchemyError:
         error_code = "build_report_persistence_failed"
         session.rollback()
@@ -2859,20 +3090,19 @@ def _build_report_candidate(
             type(unexpected_error).__name__,
         )
         session.rollback()
-    if candidate is not None:
-        for storage_key in (
-            candidate.html_storage_key,
-            candidate.csv_storage_key,
-        ):
-            try:
-                _candidate_storage_path(storage_key).unlink(missing_ok=True)
-            except OSError:
-                logger.error("Failed to remove an unpublished report candidate")
+    _require_running_run_for_failure(
+        session=session,
+        run=run,
+        step=step,
+        expected_step_attempt=step_attempt,
+    )
+    if not retryable:
+        _cleanup_report_candidate(run.id)
     _fail_run(
         session=session,
         run=run,
         step=step,
-        run_status=GovernanceRunStatus.FAILED_PROCESSING,
+        run_status=run_status,
         error_code=error_code,
         request_ip=request_ip,
         retryable=retryable,
@@ -2894,7 +3124,15 @@ def _validate_report_candidate(
         input_hash=candidate.build_output_hash,
         request_ip=request_ip,
     )
+    step_attempt = step.attempt
     if not created and step.status != RunStepStatus.SUCCEEDED.value:
+        _execution_error("runner_step_already_started")
+    _, run = _lock_project_and_run_for_execution(session=session, run=run)
+    if is_published_run(run):
+        session.rollback()
+        return
+    if run.status != GovernanceRunStatus.RUNNING.value:
+        session.rollback()
         _execution_error("runner_step_already_started")
     error_code = "validate_report_processing_failed"
     retryable = True
@@ -2905,6 +3143,7 @@ def _validate_report_candidate(
                 raise ReportCandidateValidationError(
                     "candidate_validation_hash_changed"
                 )
+            session.rollback()
             return
         _complete_report_step(
             session=session,
@@ -2915,7 +3154,7 @@ def _validate_report_candidate(
             hashes=candidate.rendered,
         )
         return
-    except ReportCandidateStorageError:
+    except ReportCandidateStorageError, OSError:
         error_code = "validate_report_storage_failed"
         session.rollback()
     except (
@@ -2936,6 +3175,14 @@ def _validate_report_candidate(
             type(unexpected_error).__name__,
         )
         session.rollback()
+    _require_running_run_for_failure(
+        session=session,
+        run=run,
+        step=step,
+        expected_step_attempt=step_attempt,
+    )
+    if not retryable:
+        _cleanup_report_candidate(run.id)
     _fail_run(
         session=session,
         run=run,
@@ -3062,6 +3309,59 @@ def _report_publication_records(
     return [html_artifact, csv_artifact], report, evidence
 
 
+def _bind_report_comparison(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    report: GovernanceReport,
+    candidate: ReportCandidate,
+) -> int:
+    if candidate.generated.report_contract_version != REPORT_V2_CONTRACT_VERSION:
+        return 0
+    if not isinstance(candidate.frozen_facts, FrozenReportCandidateFacts):
+        raise ReportCandidateValidationError("comparison_evidence_invalid")
+    # Deferred because the binder's DB adapter imports governance_runs helpers.
+    from app.domain.report_comparison_evidence import (
+        ReportComparisonEvidenceError,
+        bind_report_comparison_evidence,
+    )
+
+    try:
+        bindings = bind_report_comparison_evidence(
+            session=session,
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            run_id=run.id,
+            report_id=report.id,
+            frozen_facts=candidate.frozen_facts,
+            candidate=candidate.generated,
+        )
+    except ReportComparisonEvidenceError as error:
+        raise ReportCandidateValidationError(error.code) from None
+    return len(bindings)
+
+
+def _validate_published_report(
+    *, session: Session, run: GovernanceRun, report: GovernanceReport
+) -> None:
+    if report.report_contract_version != REPORT_V2_CONTRACT_VERSION:
+        return
+    from app.domain.report_comparison_evidence import (
+        ReportComparisonEvidenceError,
+        read_report_comparison_evidence,
+    )
+
+    try:
+        read_report_comparison_evidence(
+            session=session,
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            report_id=report.id,
+        )
+    except ReportComparisonEvidenceError as error:
+        raise ReportCandidateValidationError(error.code) from None
+
+
 def _verify_snapshot_artifact(*, session: Session, snapshot: SourceSnapshot) -> None:
     artifact = session.exec(
         select(Artifact).where(
@@ -3094,19 +3394,17 @@ def _stage4_check_payload(
     return differences, payload
 
 
-def _publish_stage4_run(
-    *,
-    session: Session,
-    run: GovernanceRun,
-    request_ip: str | None,
-    report_candidate: ReportCandidate | None,
-) -> None:
+def _stage4_publish_input(
+    *, session: Session, run: GovernanceRun
+) -> tuple[Sequence[SourceSnapshot], str]:
     snapshots = session.exec(
-        select(SourceSnapshot).where(
+        select(SourceSnapshot)
+        .where(
             SourceSnapshot.governance_run_id == run.id,
             SourceSnapshot.project_id == run.project_id,
             SourceSnapshot.tenant_id == run.tenant_id,
         )
+        .execution_options(populate_existing=True)
     ).all()
     publish_inputs: dict[str, Any] = {
         "processing_contract_version": run.processing_contract_version,
@@ -3114,10 +3412,14 @@ def _publish_stage4_run(
     }
     if run.report_contract_version is not None:
         validate_step = session.exec(
-            select(RunStep).where(
+            select(RunStep)
+            .where(
                 RunStep.governance_run_id == run.id,
+                RunStep.project_id == run.project_id,
+                RunStep.tenant_id == run.tenant_id,
                 RunStep.step_code == RunStepCode.VALIDATE_REPORT.value,
             )
+            .execution_options(populate_existing=True)
         ).one_or_none()
         if (
             validate_step is None
@@ -3131,7 +3433,17 @@ def _publish_stage4_run(
                 "validated_report_output_hash": validate_step.output_hash,
             }
         )
-    publish_input_hash = _fingerprint(publish_inputs)
+    return snapshots, _fingerprint(publish_inputs)
+
+
+def _publish_stage4_run(
+    *,
+    session: Session,
+    run: GovernanceRun,
+    request_ip: str | None,
+    report_candidate: ReportCandidate | None,
+) -> None:
+    _, publish_input_hash = _stage4_publish_input(session=session, run=run)
     step, created = _begin_step_or_fail(
         session=session,
         run=run,
@@ -3139,11 +3451,68 @@ def _publish_stage4_run(
         input_hash=publish_input_hash,
         request_ip=request_ip,
     )
-    if not created:
-        if step.status == RunStepStatus.SUCCEEDED.value:
-            return
+    step_attempt = step.attempt
+    if not created and step.status != RunStepStatus.SUCCEEDED.value:
         _execution_error("runner_step_already_started")
     try:
+        project, run = _lock_project_and_run_for_execution(session=session, run=run)
+        step = session.exec(
+            select(RunStep)
+            .where(
+                RunStep.governance_run_id == run.id,
+                RunStep.project_id == run.project_id,
+                RunStep.tenant_id == run.tenant_id,
+                RunStep.step_code == RunStepCode.PUBLISH.value,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).one()
+        if is_published_run(run):
+            try:
+                if (
+                    step.status != RunStepStatus.SUCCEEDED.value
+                    or step.input_hash != publish_input_hash
+                ):
+                    raise ReportCandidateValidationError("published_run_incomplete")
+                if run.report_contract_version is not None:
+                    published_report = session.exec(
+                        select(GovernanceReport).where(
+                            GovernanceReport.governance_run_id == run.id,
+                            GovernanceReport.project_id == run.project_id,
+                            GovernanceReport.tenant_id == run.tenant_id,
+                            GovernanceReport.report_contract_version
+                            == run.report_contract_version,
+                        )
+                    ).one_or_none()
+                    if published_report is None:
+                        raise ReportCandidateValidationError("published_run_incomplete")
+                    _validate_published_report(
+                        session=session, run=run, report=published_report
+                    )
+            except ReportCandidateValidationError, SQLAlchemyError:
+                session.rollback()
+                raise GovernanceRunExecutionError("published_run_invalid") from None
+            session.rollback()
+            return
+        if (
+            run.status != GovernanceRunStatus.RUNNING.value
+            or run.completed_at is not None
+            or step.status != RunStepStatus.RUNNING.value
+        ):
+            _execution_error("runner_step_already_started")
+        locked_snapshots, locked_input_hash = _stage4_publish_input(
+            session=session, run=run
+        )
+        if (
+            locked_input_hash != publish_input_hash
+            or step.input_hash != locked_input_hash
+            or (
+                run.input_contract_version == "governance-run-input-v1"
+                and pinned_inputs_for_run(run).input_hash() != run.input_hash
+            )
+        ):
+            _execution_error("runner_step_already_started")
+        snapshots = locked_snapshots
         if run.report_contract_version is not None and report_candidate is None:
             _processing_error("validated_report_candidate_missing")
         customer_snapshot, cloudatlas_snapshot = _stage4_snapshots(
@@ -3265,6 +3634,36 @@ def _publish_stage4_run(
             existing_occurrences_by_finding = {
                 occurrence.finding_id: occurrence for occurrence in existing_occurrences
             }
+        validated_report_output_hash: str | None = None
+        report_artifacts: list[Artifact] = []
+        governance_report: GovernanceReport | None = None
+        evidence_records: list[Evidence] = []
+        comparison_evidence_count = 0
+        if report_candidate is not None:
+            if (
+                report_candidate.generated.report_contract_version
+                != run.report_contract_version
+            ):
+                raise ReportCandidateValidationError("candidate_contract_changed")
+            validated_report_output_hash = _verify_report_candidate_for_publish(
+                session=session,
+                run=run,
+                candidate=report_candidate,
+            )
+            (
+                report_artifacts,
+                governance_report,
+                evidence_records,
+            ) = _report_publication_records(run=run, candidate=report_candidate)
+            _add_all_in_batches(session, report_artifacts)
+            session.add(governance_report)
+            session.flush()
+            comparison_evidence_count = _bind_report_comparison(
+                session=session,
+                run=run,
+                report=governance_report,
+                candidate=report_candidate,
+            )
 
         published_occurrence_count = 0
         published_transition_count = 0
@@ -3492,17 +3891,6 @@ def _publish_stage4_run(
 
         netflow_activity = _publish_netflow_activity(session=session, run=run)
 
-        validated_report_output_hash: str | None = None
-        report_artifacts: list[Artifact] = []
-        governance_report: GovernanceReport | None = None
-        evidence_records: list[Evidence] = []
-        if report_candidate is not None:
-            (
-                report_artifacts,
-                governance_report,
-                evidence_records,
-            ) = _report_publication_records(run=run, candidate=report_candidate)
-
         _add_all_in_batches(session, changed_findings)
         _add_all_in_batches(session, new_findings)
         _add_all_in_batches(session, occurrences)
@@ -3511,17 +3899,7 @@ def _publish_stage4_run(
         _add_all_in_batches(session, occurrence_snapshots)
         _add_all_in_batches(session, transition_observations)
         _add_all_in_batches(session, transition_snapshots)
-        _add_all_in_batches(session, report_artifacts)
-        if governance_report is not None:
-            session.add(governance_report)
-            session.flush()
         _add_all_in_batches(session, evidence_records)
-        if report_candidate is not None:
-            validated_report_output_hash = _verify_report_candidate_for_publish(
-                session=session,
-                run=run,
-                candidate=report_candidate,
-            )
         completed_at = (
             report_candidate.report_model.report_identity.run_completed_at
             if report_candidate is not None
@@ -3548,18 +3926,10 @@ def _publish_stage4_run(
         run.completed_at = completed_at
         run.session_recovery_code = None
         run.updated_at = completed_at
-        project = session.exec(
-            select(Project)
-            .where(
-                Project.id == run.project_id,
-                Project.tenant_id == run.tenant_id,
-            )
-            .with_for_update()
-        ).one()
         project.latest_completed_run_id = run.id
         project.updated_at = completed_at
         publication_data: dict[str, Any] = {
-            "status": run.status,
+            "status": GovernanceRunStatus.COMPLETED.value,
             "source_snapshot_count": len(snapshots),
             "observation_count": len(observations),
             "resource_count": len(resources_by_key),
@@ -3575,6 +3945,10 @@ def _publish_stage4_run(
                     "report_generation_mode": governance_report.generation_mode,
                 }
             )
+        if governance_report is not None and (
+            governance_report.report_contract_version == REPORT_V2_CONTRACT_VERSION
+        ):
+            publication_data["comparison_evidence_count"] = comparison_evidence_count
         session.add(step)
         session.add(run)
         session.add(project)
@@ -3604,7 +3978,29 @@ def _publish_stage4_run(
                 request_ip=request_ip,
             )
         )
+        session.flush()
+        if governance_report is not None:
+            _validate_published_report(
+                session=session, run=run, report=governance_report
+            )
         session.commit()
+    except ReportCandidateStorageError:
+        session.rollback()
+        _require_running_run_for_failure(
+            session=session,
+            run=run,
+            step=step,
+            expected_step_attempt=step_attempt,
+        )
+        _fail_run(
+            session=session,
+            run=run,
+            step=step,
+            run_status=GovernanceRunStatus.FAILED_PROCESSING,
+            error_code="publish_storage_failed",
+            request_ip=request_ip,
+        )
+        raise GovernanceRunProcessingError("publish_storage_failed")
     except (
         GovernanceRunProcessingError,
         IPRecordContractError,
@@ -3614,6 +4010,14 @@ def _publish_stage4_run(
         ReportRendererError,
     ):
         session.rollback()
+        _require_running_run_for_failure(
+            session=session,
+            run=run,
+            step=step,
+            expected_step_attempt=step_attempt,
+        )
+        if report_candidate is not None:
+            _cleanup_report_candidate(run.id)
         _fail_run(
             session=session,
             run=run,
@@ -3626,11 +4030,21 @@ def _publish_stage4_run(
         raise GovernanceRunProcessingError("publish_contract_failed")
     except GovernanceRunExecutionError as error:
         session.rollback()
+        if error.code in {"published_run_invalid", "runner_step_already_started"}:
+            raise
+        _require_running_run_for_failure(
+            session=session,
+            run=run,
+            step=step,
+            expected_step_attempt=step_attempt,
+        )
         netflow_data_failure = error.code in _NETFLOW_DATA_ERRORS
         non_retryable = (
             error.code in (_STAGE4_NON_RETRYABLE_ERRORS | _NETFLOW_DATA_ERRORS)
             and error.code != "netflow_artifact_unavailable"
         )
+        if non_retryable and report_candidate is not None:
+            _cleanup_report_candidate(run.id)
         _fail_run(
             session=session,
             run=run,
@@ -3651,6 +4065,12 @@ def _publish_stage4_run(
         )
     except SQLAlchemyError:
         session.rollback()
+        _require_running_run_for_failure(
+            session=session,
+            run=run,
+            step=step,
+            expected_step_attempt=step_attempt,
+        )
         _fail_run(
             session=session,
             run=run,
@@ -3813,10 +4233,10 @@ def require_retry_readiness(
         raise GovernanceRunStateError("run_retry_completed")
     if run.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION:
         raise GovernanceRunStateError("run_processing_not_retryable")
-    if (
-        run.report_contract_version is not None
-        and run.report_contract_version != REPORT_CONTRACT_VERSION
-    ):
+    if run.report_contract_version is not None and run.report_contract_version not in {
+        REPORT_CONTRACT_VERSION,
+        REPORT_V2_CONTRACT_VERSION,
+    }:
         raise GovernanceRunStateError("run_processing_not_retryable")
     if run.session_recovery_code is not None and run.session_recovery_code.startswith(
         _NON_RETRYABLE_PREFIX

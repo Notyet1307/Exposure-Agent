@@ -186,8 +186,8 @@ function InputCompleteness({ section }: { section: JsonObject }) {
     <div className="space-y-3">
       <p className="text-sm">
         {section.complete === true
-          ? "Both bounded input summaries are marked complete."
-          : "The published report does not mark both inputs complete."}
+          ? "All bounded input summaries are marked complete."
+          : "The published report does not mark all inputs complete."}
       </p>
       <Table>
         <TableHeader>
@@ -355,6 +355,8 @@ function DraftGeneration({
       readDraftRequestRecovery(storageKey),
     )
   const eligibleFindings = eligibleDraftFindings(detail)
+  const supportsAiDraft =
+    detail.report_contract_version === "deterministic-report-v1"
   const clearPendingRequest = () => {
     clearDraftIdempotencyKey(storageKey)
     setPendingRequest(null)
@@ -463,10 +465,11 @@ function DraftGeneration({
   return (
     <ReportSection id="ai-governance-draft" title="AI governance draft">
       <p className="text-sm text-muted-foreground">
-        Select one to eight eligible unobserved assets. Nothing is selected
-        automatically, and the deterministic report remains unchanged.
+        {supportsAiDraft
+          ? "Select one to eight eligible unobserved assets. Nothing is selected automatically, and the deterministic report remains unchanged."
+          : `AI governance drafts are not supported for ${detail.report_contract_version}.`}
       </p>
-      {generationAfterFailureBlocked ? (
+      {!supportsAiDraft ? null : generationAfterFailureBlocked ? (
         <p className="text-sm text-muted-foreground">
           A new draft attempt after failure is not available in this release.
         </p>
@@ -732,7 +735,7 @@ function PublishedReport({
             <Alert>
               <AlertTitle>Complete-input IP match</AlertTitle>
               <AlertDescription>
-                With both inputs complete, all observed IP identities matched;
+                With all inputs complete, all observed IP identities matched;
                 this Run produced zero Findings.
               </AlertDescription>
             </Alert>

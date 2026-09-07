@@ -8,6 +8,7 @@ from sqlalchemy import event
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
+from app.core.db import engine
 from app.domain import governance_runs as service
 from app.domain.ip_source_comparison import (
     IPSourceComparisonError,
@@ -16,15 +17,18 @@ from app.domain.ip_source_comparison import (
 from app.domain.models import (
     Artifact,
     AuditEvent,
+    GovernanceReport,
     GovernanceRun,
     NetFlowDataset,
     NetFlowIPActivity,
     Project,
     Resource,
+    RunStep,
 )
 from app.governance_runner import main as run_runner
 from tests.api.routes.test_governance_run_netflow import _prepare_present_run
 from tests.api.routes.test_governance_runs import _create_project
+from tests.api.routes.test_netflow_datasets import _csv
 
 
 def test_activity_publish_is_scoped_batched_atomic_and_retryable(
@@ -82,14 +86,15 @@ def test_activity_publish_is_scoped_batched_atomic_and_retryable(
             batches.append(len(facts))
             draft_hashes.update({item.id: item.content_sha256 for item in facts})
 
-    original = service._report_publication_records
+    original = service._publish_netflow_activity
 
-    def fail_after_activity(**_kwargs: object) -> None:
+    def fail_after_activity(**kwargs: object) -> None:
+        original(**kwargs)  # type: ignore[arg-type]
         raise SQLAlchemyError("injected publish failure")
 
     event.listen(Session, "before_flush", trace_flush)
     try:
-        monkeypatch.setattr(service, "_report_publication_records", fail_after_activity)
+        monkeypatch.setattr(service, "_publish_netflow_activity", fail_after_activity)
         assert run_runner() == 1
         run = db.exec(
             select(GovernanceRun).where(GovernanceRun.project_id == project_id)
@@ -123,7 +128,7 @@ def test_activity_publish_is_scoped_batched_atomic_and_retryable(
             )
         assert batches == [500, 5]
         first_hashes = dict(draft_hashes)
-        monkeypatch.setattr(service, "_report_publication_records", original)
+        monkeypatch.setattr(service, "_publish_netflow_activity", original)
         service.prepare_retry(
             session=db, run=run, actor_subject="test-admin", request_ip=None
         )
@@ -185,6 +190,116 @@ def test_activity_publish_is_scoped_batched_atomic_and_retryable(
             db.flush()
     finally:
         event.remove(Session, "before_flush", trace_flush)
+
+
+def test_losing_publish_failure_cannot_delete_winner_candidate(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    publish_run = service._publish_run
+    monkeypatch.setattr(service, "_publish_run", lambda **_kwargs: None)
+    project, _, _ = _prepare_present_run(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        content=_csv(),
+        trigger_id="publish-failure-loses-race",
+    )
+    assert run_runner() == 0
+    monkeypatch.setattr(service, "_publish_run", publish_run)
+    project_id = uuid.UUID(str(project["id"]))
+    original_activity = service._publish_netflow_activity
+    original_guard = service._require_running_run_for_failure
+    winner_published = False
+
+    def fail_activity(**_kwargs: object) -> None:
+        raise SQLAlchemyError("losing publisher failure")
+
+    def publish_winner_before_failure_guard(
+        *,
+        session: Session,
+        run: GovernanceRun,
+        step: RunStep,
+        expected_step_attempt: int,
+    ) -> None:
+        nonlocal winner_published
+        assert not winner_published
+        monkeypatch.setattr(service, "_publish_netflow_activity", original_activity)
+        monkeypatch.setattr(service, "_require_running_run_for_failure", original_guard)
+        with Session(engine) as winner:
+            fresh_run = winner.get(GovernanceRun, run.id)
+            assert fresh_run is not None
+            candidate = service._prepare_report_candidate(
+                session=winner, run=fresh_run, reuse_existing=True
+            )
+            service._publish_run(
+                session=winner,
+                run=fresh_run,
+                request_ip=None,
+                report_candidate=candidate,
+            )
+        winner_published = True
+        original_guard(
+            session=session,
+            run=run,
+            step=step,
+            expected_step_attempt=expected_step_attempt,
+        )
+
+    monkeypatch.setattr(service, "_publish_netflow_activity", fail_activity)
+    monkeypatch.setattr(
+        service,
+        "_require_running_run_for_failure",
+        publish_winner_before_failure_guard,
+    )
+    with Session(engine) as loser:
+        stale_run = loser.exec(
+            select(GovernanceRun).where(GovernanceRun.project_id == project_id)
+        ).one()
+        candidate = service._prepare_report_candidate(
+            session=loser, run=stale_run, reuse_existing=True
+        )
+        with pytest.raises(
+            service.GovernanceRunExecutionError, match="runner_step_already_started"
+        ):
+            service._publish_run(
+                session=loser,
+                run=stale_run,
+                request_ip=None,
+                report_candidate=candidate,
+            )
+
+    assert winner_published
+    with Session(engine) as session:
+        run = session.exec(
+            select(GovernanceRun).where(GovernanceRun.project_id == project_id)
+        ).one()
+        assert run.status == "COMPLETED"
+        report = session.exec(
+            select(GovernanceReport).where(GovernanceReport.governance_run_id == run.id)
+        ).one()
+        artifacts = [
+            session.get(Artifact, report.html_artifact_id),
+            session.get(Artifact, report.csv_artifact_id),
+        ]
+        assert all(
+            artifact is not None and service._artifact_path(artifact).is_file()
+            for artifact in artifacts
+        )
+        assert (
+            len(
+                session.exec(
+                    select(AuditEvent).where(
+                        AuditEvent.target_id == run.id,
+                        AuditEvent.action == "governance_run.published",
+                    )
+                ).all()
+            )
+            == 1
+        )
 
 
 @pytest.mark.parametrize("timing", ["before_publish", "after_resolution"])

@@ -92,7 +92,7 @@ def _prepare_v2_run(
     report_contract_version: str = REPORT_V2_CONTRACT_VERSION,
     cloudatlas_ips: tuple[str, ...] | None = None,
 ) -> GovernanceRun:
-    """Real fixed inputs through CHECK_FINDINGS; no production v2 dispatch."""
+    """Real fixed facts through CHECK_FINDINGS with a test-only direct Run insert."""
     _configure_runner(tmp_path, monkeypatch)
     if cloudatlas_ips is not None:
         items = [

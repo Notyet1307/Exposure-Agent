@@ -9,6 +9,7 @@ from typing import cast as typing_cast
 from sqlalchemy import Integer, case, cast, distinct, func
 from sqlmodel import Session, col, select
 
+from app.domain.governance_publication import is_published_run
 from app.domain.ip_consistency import (
     CLOUDATLAS_SOURCE_TYPE,
     CUSTOMER_UPLOAD_SOURCE_TYPE,
@@ -32,7 +33,6 @@ from app.domain.models import (
     FindingTransitionPublic,
     FindingTransitionSnapshot,
     GovernanceRun,
-    GovernanceRunStatus,
     IPAssetDetailPublic,
     IPAssetPublic,
     IPAssetsPublic,
@@ -59,7 +59,7 @@ class PublishedRunView:
 
 def _is_compatible_run(session: Session, run: GovernanceRun) -> bool:
     if (
-        run.status != GovernanceRunStatus.COMPLETED.value
+        not is_published_run(run)
         or run.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION
     ):
         return False
