@@ -733,10 +733,11 @@ function PublishedReport({
           </p>
           {isZeroFindingMatch ? (
             <Alert>
-              <AlertTitle>Complete-input IP match</AlertTitle>
+              <AlertTitle>Complete dual-source IP match</AlertTitle>
               <AlertDescription>
-                With all inputs complete, all observed IP identities matched;
-                this Run produced zero Findings.
+                With CustomerUpload and CloudAtlas inputs complete, all IP
+                identities observed by those sources matched; this Run produced
+                zero Findings.
               </AlertDescription>
             </Alert>
           ) : (

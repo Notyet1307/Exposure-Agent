@@ -1386,6 +1386,13 @@ def test_stage5_publish_without_validated_candidate_fails_the_publish_step(
                 GovernanceRun.project_id == uuid.UUID(str(project["id"]))
             )
         ).one()
+        candidate_paths = tuple(
+            governance_runs_domain._candidate_storage_path(storage_key)
+            for storage_key in governance_runs_domain._report_candidate_storage_keys(
+                run.id
+            )
+        )
+        assert all(path.is_file() for path in candidate_paths)
         assert (
             session.exec(
                 select(GovernanceReport).where(
@@ -1412,6 +1419,7 @@ def test_stage5_publish_without_validated_candidate_fails_the_publish_step(
             )
         session.refresh(run)
         assert run.status == GovernanceRunStatus.FAILED_PROCESSING.value
+        assert all(not path.exists() for path in candidate_paths)
         publish_step = session.exec(
             select(RunStep).where(
                 RunStep.governance_run_id == run.id,
@@ -4112,6 +4120,12 @@ def test_successful_run_is_immutable_and_not_retryable(
     assert incomplete.json()["can_trigger"] is False
     assert incomplete.json()["data"][0]["can_retry"] is False
     assert incomplete.json()["data"][0]["blocking_code"] == "run_retry_completed"
+    with Session(engine) as session:
+        with pytest.raises(GovernanceRunExecutionError) as execution_error:
+            governance_runs_domain.execute_governance_run(
+                session=session, inputs=inputs
+            )
+        assert execution_error.value.code == "published_run_invalid"
 
     def unexpected_agent_compose_client() -> None:
         raise AssertionError("incomplete published success must fail before AgentCompose")

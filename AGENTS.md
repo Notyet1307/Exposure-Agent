@@ -25,7 +25,7 @@
 
 `frontend/src/client/**` 和 `frontend/src/routeTree.gen.ts` 是生成文件，仅在 API Contract 或路由生成相关任务中按需读取，禁止手工编辑。API 变更后使用 `bash scripts/generate-client.sh` 更新客户端。
 
-任务规划、实现、审阅和发布只使用当前 OMP 的原生工具与 GitHub 原生能力。仓库内遗留的 pi-ticket-planning、HerdrHarness、Wayfinder、Admission、Delivery Graph、Frontier 和 Controller 材料仅视为历史文档，不作为当前流程入口。
+通用 Wayfinder、Admission、Delivery Graph 和 Frontier 算法属于 pi-ticket-planning / HerdrHarness 外部能力，本仓库只保留接入规则，不重复维护算法说明。
 
 文档事实源索引见 `docs/README.md`。
 
@@ -38,14 +38,14 @@
 - 未经新 ADR 明确批准，不引入 Redis、Celery、Kafka、Temporal、第二套调度器、通用规则 DSL 或默认多 Agent 路径。
 - 只实现当前已确认任务，不提前推进目标状态中的能力。
 
-## OMP 原生工作流
+## Harness 工作流
 
-- 只实现当前对话已确认的 GitHub Issue；该 Issue 是本轮唯一 Spec/AC。
-- 当前 OMP 会话负责修改、验证和提交；用户明确要求远端操作后，同一会话可继续 push、创建 PR、观察 CI、merge，并按验收状态更新或关闭 Issue。
-- 实现完成后使用 OMP 原生 reviewer，分别按仓库 Standards 与当前 Issue Spec/AC 独立审阅；发现 blocker 时修复并重新审阅。
-- 远端生命周期逐项验收：push 前确认本地提交和验证结果，merge 前确认所需 CI/Review，关闭 Issue 前确认 PR 已合并且任务要求的部署验收已完成或明确不适用。
-- GitHub 分支保护、必需 CI 和 Review 门禁始终有效。
-- 不设置独立 Controller、Admission 或外部 planning handoff。
+- 只实现当前被 Harness 领取的 GitHub Issue；父 Map 仅提供上下文，不是实现范围。
+- Implementer 负责修改、验证并提交当前分支；不得 push、创建 PR、merge、修改标签或关闭 Issue。
+- 独立 Auditor 根据仓库 Standards 和当前 Issue 的 Spec/AC 审阅；审计不通过时由 Harness 驱动受控返工。
+- Controller 仅在审计通过后发布 PR；默认 wait 模式下最终合并仍由人工控制。
+- 可选 auto 模式仅在独立审计通过后运行，并使用 GitHub 原生的 `gh pr merge --auto --match-head-commit <audited-sha>`。
+- 所需 CI 与 Review 门禁仍由 GitHub 分支规则负责。
 
 ## Fresh worktree 初始化与验证
 
@@ -78,3 +78,4 @@
 - Issue tracker：`docs/agents/issue-tracker.md`
 - Triage labels：`docs/agents/triage-labels.md`
 - Domain docs：`docs/agents/domain.md`
+- Delivery gate：`docs/agents/delivery-gate.md`

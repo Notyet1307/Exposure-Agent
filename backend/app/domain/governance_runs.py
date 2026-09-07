@@ -4009,8 +4009,7 @@ def _publish_stage4_run(
             step=step,
             expected_step_attempt=step_attempt,
         )
-        if report_candidate is not None:
-            _cleanup_report_candidate(run.id)
+        _cleanup_report_candidate(run.id)
         _fail_run(
             session=session,
             run=run,
@@ -4036,7 +4035,7 @@ def _publish_stage4_run(
             error.code in (_STAGE4_NON_RETRYABLE_ERRORS | _NETFLOW_DATA_ERRORS)
             and error.code != "netflow_artifact_unavailable"
         )
-        if non_retryable and report_candidate is not None:
+        if non_retryable:
             _cleanup_report_candidate(run.id)
         _fail_run(
             session=session,
@@ -4783,6 +4782,8 @@ def record_project_action(
 def execute_governance_run(*, session: Session, inputs: RunnerInputs) -> GovernanceRun:
     run = establish_governance_run(session=session, inputs=inputs)
     if run.status != GovernanceRunStatus.RUNNING.value:
+        if run.status in COMPLETED_RUN_STATUSES and not is_published_run(run):
+            raise GovernanceRunExecutionError("published_run_invalid")
         return run
     report_candidate: ReportCandidate | None = None
     _load_customer_snapshot(session=session, run=run, request_ip=None)

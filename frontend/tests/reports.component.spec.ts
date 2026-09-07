@@ -509,7 +509,7 @@ test.describe("Project Reports", () => {
       page
         .getByRole("dialog")
         .getByText(
-          "With all inputs complete, all observed IP identities matched; this Run produced zero Findings.",
+          "With CustomerUpload and CloudAtlas inputs complete, all IP identities observed by those sources matched; this Run produced zero Findings.",
         ),
     ).toBeVisible()
   })
@@ -553,6 +553,11 @@ test.describe("Project Reports", () => {
     await expect(
       report.getByText(
         "AI governance drafts are not supported for deterministic-report-v2.",
+      ),
+    ).toBeVisible()
+    await expect(
+      report.getByText(
+        "With CustomerUpload and CloudAtlas inputs complete, all IP identities observed by those sources matched; this Run produced zero Findings.",
       ),
     ).toBeVisible()
     await expect(
