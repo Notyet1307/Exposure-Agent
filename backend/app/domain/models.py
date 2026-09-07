@@ -1,9 +1,10 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import Annotated, Any, ClassVar, Literal, Self
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field as PydanticField
+from pydantic import SecretStr, field_validator, model_validator
 from sqlalchemy import (
     CheckConstraint,
     Column,
@@ -2201,7 +2202,50 @@ class FindingPublic(SQLModel):
     transition_count: int
 
 
+class FindingNetFlowActivityPublic(SQLModel):
+    model_config = SQLModel.model_config | {"extra": "forbid"}
+
+    activity_id: uuid.UUID
+    source_snapshot_id: uuid.UUID
+    aggregation_contract_version: Literal["netflow-ip-activity-v1"]
+    content_sha256: Annotated[str, PydanticField(pattern=r"^[0-9a-f]{64}$")]
+    flow_count: Annotated[int, PydanticField(strict=True, ge=1, le=2147483647)]
+    first_seen_utc: datetime | None
+    last_seen_utc: datetime | None
+
+    @field_validator("first_seen_utc", "last_seen_utc")
+    @classmethod
+    def require_utc_timestamp(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("timezone required")
+        return value.astimezone(UTC)
+
+
+class FindingNetFlowContextPublic(SQLModel):
+    model_config = SQLModel.model_config | {"extra": "forbid"}
+
+    governance_run_id: uuid.UUID
+    status: Literal[
+        "NOT_APPLICABLE",
+        "INPUT_UNMODELED",
+        "INPUT_ABSENT",
+        "ACTIVITY_UNMODELED",
+        "NO_POSITIVE_ACTIVITY",
+        "POSITIVE_ACTIVITY",
+    ]
+    activity: FindingNetFlowActivityPublic | None
+
+    @model_validator(mode="after")
+    def require_positive_activity(self) -> Self:
+        if (self.status == "POSITIVE_ACTIVITY") != (self.activity is not None):
+            raise ValueError("positive activity and status must agree")
+        return self
+
+
 class FindingDetailPublic(FindingPublic):
+    netflow_context: FindingNetFlowContextPublic
     occurrences: list[FindingOccurrencePublic] = Field(default_factory=list)
     transitions: list[FindingTransitionPublic] = Field(default_factory=list)
 

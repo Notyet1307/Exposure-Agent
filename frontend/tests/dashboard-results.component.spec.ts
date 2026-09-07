@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test"
+import type { FindingDetailPublic } from "../src/client"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
 const resourceId = "80000000-0000-0000-0000-000000000001"
@@ -63,6 +64,58 @@ const findingSummary = {
   occurrence_count: 1,
   transition_count: 1,
 }
+
+// Controlled detail responses exercise presentation only; published-fact
+// integrity and real API-backed scenarios are covered separately.
+const findingDetail = {
+  ...findingSummary,
+  occurrences: [
+    {
+      id: "b0000000-0000-0000-0000-000000000001",
+      governance_run_id: "60000000-0000-0000-0000-000000000001",
+      created_at: "2026-07-30T12:00:00Z",
+      observation_ids: [observation.id],
+      source_snapshot_ids: [customerSnapshotId, cloudatlasSnapshotId],
+      source_snapshots: sourceSnapshots,
+      observations: [observation],
+    },
+  ],
+  transitions: [
+    {
+      id: "c0000000-0000-0000-0000-000000000001",
+      governance_run_id: "60000000-0000-0000-0000-000000000001",
+      transition_type: "OPENED",
+      created_at: "2026-07-30T12:00:00Z",
+      observation_ids: [observation.id],
+      source_snapshot_ids: [customerSnapshotId, cloudatlasSnapshotId],
+      source_snapshots: sourceSnapshots,
+      observations: [observation],
+    },
+  ],
+  netflow_context: {
+    governance_run_id: "60000000-0000-0000-0000-000000000001",
+    status: "INPUT_UNMODELED",
+    activity: null,
+  } satisfies FindingDetailPublic["netflow_context"],
+}
+
+const positiveNetflowContext = {
+  governance_run_id: "60000000-0000-0000-0000-000000000002",
+  status: "POSITIVE_ACTIVITY",
+  activity: {
+    activity_id: "d0000000-0000-0000-0000-000000000001",
+    source_snapshot_id: "70000000-0000-0000-0000-000000000003",
+    aggregation_contract_version: "netflow-ip-activity-v1",
+    content_sha256: "abcdef0123456789".repeat(4),
+    flow_count: 1,
+    first_seen_utc: "2026-07-31T01:02:03Z",
+    last_seen_utc: "2026-07-31T04:05:06Z",
+  },
+} satisfies FindingDetailPublic["netflow_context"]
+
+const findingDetailUrl = new RegExp(
+  `/api/v1/projects/${projectId}/findings/${findingId}(?:\\?.*)?$`,
+)
 
 async function installBaseMocks(page: import("@playwright/test").Page) {
   await page.addInitScript(() => {
@@ -245,39 +298,10 @@ async function installResultMocks(page: import("@playwright/test").Page) {
         },
       }),
   )
-  await page.route(
-    new RegExp(
-      `/api/v1/projects/${projectId}/findings/${findingId}(?:\\?.*)?$`,
-    ),
-    (route) =>
-      route.fulfill({
-        json: {
-          ...findingSummary,
-          occurrences: [
-            {
-              id: "b0000000-0000-0000-0000-000000000001",
-              governance_run_id: "60000000-0000-0000-0000-000000000001",
-              created_at: "2026-07-30T12:00:00Z",
-              observation_ids: [observation.id],
-              source_snapshot_ids: [customerSnapshotId, cloudatlasSnapshotId],
-              source_snapshots: sourceSnapshots,
-              observations: [observation],
-            },
-          ],
-          transitions: [
-            {
-              id: "c0000000-0000-0000-0000-000000000001",
-              governance_run_id: "60000000-0000-0000-0000-000000000001",
-              transition_type: "OPENED",
-              created_at: "2026-07-30T12:00:00Z",
-              observation_ids: [observation.id],
-              source_snapshot_ids: [customerSnapshotId, cloudatlasSnapshotId],
-              source_snapshots: sourceSnapshots,
-              observations: [observation],
-            },
-          ],
-        },
-      }),
+  await page.route(findingDetailUrl, (route) =>
+    route.fulfill({
+      json: findingDetail,
+    }),
   )
 }
 
@@ -343,5 +367,347 @@ test.describe("Project result tabs", () => {
         "The latest completed Run contains only Stage 3 results. Create a new Run",
       ),
     ).toBeVisible()
+  })
+})
+
+test.describe("Finding NetFlow context presentation", () => {
+  test.use({ timezoneId: "Asia/Shanghai", locale: "en-US" })
+
+  test.beforeEach(async ({ page }) => {
+    await installBaseMocks(page)
+    await installResultMocks(page)
+    await page.goto("/")
+    await page.getByRole("tab", { name: "Findings", exact: true }).click()
+  })
+
+  for (const scenario of [
+    {
+      name: "complete times and minimum count",
+      count: 1,
+      first: "2026-07-31T01:02:03Z",
+      last: "2026-07-31T04:05:06Z",
+      firstText: "7/31/2026, 9:02:03 AM",
+      lastText: "7/31/2026, 12:05:06 PM",
+    },
+    {
+      name: "missing first time and maximum count",
+      count: 2147483647,
+      first: null,
+      last: "2026-07-31T04:05:06Z",
+      firstText: "Not provided",
+      lastText: "7/31/2026, 12:05:06 PM",
+    },
+    {
+      name: "missing last time",
+      count: 1,
+      first: "2026-07-31T01:02:03Z",
+      last: null,
+      firstText: "7/31/2026, 9:02:03 AM",
+      lastText: "Not provided",
+    },
+    {
+      name: "both times missing",
+      count: 1,
+      first: null,
+      last: null,
+      firstText: "Not provided",
+      lastText: "Not provided",
+    },
+  ]) {
+    test(`shows sampled flow records with ${scenario.name}`, async ({
+      page,
+    }) => {
+      await page.route(findingDetailUrl, (route) =>
+        route.fulfill({
+          json: {
+            ...findingDetail,
+            status: "CLOSED",
+            netflow_context: {
+              ...positiveNetflowContext,
+              activity: {
+                ...positiveNetflowContext.activity,
+                flow_count: scenario.count,
+                first_seen_utc: scenario.first,
+                last_seen_utc: scenario.last,
+              },
+            },
+          },
+        }),
+      )
+      const opener = page.getByRole("button", { name: "View details" })
+      await opener.click()
+      const dialog = page.getByRole("dialog", { name: "Finding details" })
+      const context = dialog.getByRole("region", {
+        name: "Latest published Run NetFlow activity",
+      })
+      await expect(context).toBeVisible()
+      await expect(dialog.getByText("CLOSED", { exact: true })).toBeVisible()
+      await expect(context).toContainText(
+        positiveNetflowContext.governance_run_id,
+      )
+      await expect(context).toContainText("Asia/Shanghai")
+      await expect(
+        context
+          .locator("div")
+          .filter({
+            has: page
+              .locator("dt")
+              .getByText("Sampled flow records", { exact: true }),
+          })
+          .locator("dd")
+          .first(),
+      ).toHaveText(String(scenario.count))
+      for (const [label, value] of [
+        ["First activity", scenario.firstText],
+        ["Last activity", scenario.lastText],
+        ["Activity ID", positiveNetflowContext.activity.activity_id],
+        [
+          "NETFLOW Snapshot ID",
+          positiveNetflowContext.activity.source_snapshot_id,
+        ],
+        ["Aggregation contract", "netflow-ip-activity-v1"],
+        ["Content SHA-256", positiveNetflowContext.activity.content_sha256],
+      ]) {
+        await expect(
+          context
+            .locator("div")
+            .filter({
+              has: page.locator("dt").getByText(label, { exact: true }),
+            })
+            .locator("dd"),
+        ).toHaveText(value)
+      }
+      await expect(context.getByRole("link")).toHaveCount(0)
+      await expect(context).toContainText("does not establish")
+      await expect(
+        dialog.getByRole("heading", { name: "Occurrence", exact: true }),
+      ).toBeVisible()
+      await expect(
+        dialog.getByRole("heading", { name: "Transition · OPENED" }),
+      ).toBeVisible()
+      expect(
+        await context.evaluate((element) => {
+          const dialogElement = element.closest('[role="dialog"]')
+          const occurrence = Array.from(
+            dialogElement?.querySelectorAll("h3") ?? [],
+          ).find((heading) => heading.textContent === "Occurrence")
+          return (
+            !!occurrence &&
+            !!(
+              element.compareDocumentPosition(occurrence) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+            )
+          )
+        }),
+      ).toBe(true)
+      await page.keyboard.press("Tab")
+      await expect(dialog).toContainText(
+        "Latest published Run NetFlow activity",
+      )
+      expect(
+        await dialog.evaluate((element) =>
+          element.contains(document.activeElement),
+        ),
+      ).toBe(true)
+      await page.keyboard.press("Escape")
+      await expect(dialog).toHaveCount(0)
+      await expect(opener).toBeFocused()
+    })
+  }
+
+  for (const [status, message] of [
+    ["NOT_APPLICABLE", "Not applicable to this Finding in this Run."],
+    ["INPUT_UNMODELED", "This historical Run did not model NetFlow input."],
+    ["INPUT_ABSENT", "No NetFlow input was provided for this Run."],
+    [
+      "ACTIVITY_UNMODELED",
+      "This historical Run did not model the NetFlow activity contract.",
+    ],
+    [
+      "NO_POSITIVE_ACTIVITY",
+      "This Run has no positive NetFlow activity evidence for this resource.",
+    ],
+  ] as const) {
+    test(`distinguishes ${status} without a zero placeholder`, async ({
+      page,
+    }) => {
+      await page.route(findingDetailUrl, (route) =>
+        route.fulfill({
+          json: {
+            ...findingDetail,
+            netflow_context: {
+              governance_run_id: positiveNetflowContext.governance_run_id,
+              status,
+              activity: null,
+            } satisfies FindingDetailPublic["netflow_context"],
+          },
+        }),
+      )
+      await page.getByRole("button", { name: "View details" }).click()
+      const context = page.getByRole("region", {
+        name: "Latest published Run NetFlow activity",
+      })
+      await expect(context).toContainText(message)
+      await expect(context).toContainText(
+        positiveNetflowContext.governance_run_id,
+      )
+      await expect(context.locator("dl")).toHaveCount(0)
+      await expect(context.getByText("0", { exact: true })).toHaveCount(0)
+      await expect(context.getByRole("link")).toHaveCount(0)
+      await expect(
+        page.getByRole("dialog").getByText("OPEN", { exact: true }),
+      ).toBeVisible()
+    })
+  }
+
+  test("keeps a long hash inside the narrow dialog", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 800 })
+    await page.route(findingDetailUrl, (route) =>
+      route.fulfill({
+        json: { ...findingDetail, netflow_context: positiveNetflowContext },
+      }),
+    )
+    await page.getByRole("button", { name: "View details" }).click()
+    const dialog = page.getByRole("dialog")
+    const context = dialog.getByRole("region", {
+      name: "Latest published Run NetFlow activity",
+    })
+    await expect(context).toContainText(
+      positiveNetflowContext.activity.content_sha256,
+    )
+    expect(
+      await context.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true)
+    expect(
+      await dialog.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true)
+    await page.keyboard.press("Escape")
+    await expect(dialog).toHaveCount(0)
+  })
+
+  for (const failure of ["server error", "invalid positive context"] as const) {
+    test(`uses the existing loading error for ${failure}`, async ({ page }) => {
+      let releaseResponse: () => void = () => {}
+      const responseReady = new Promise<void>((resolve) => {
+        releaseResponse = resolve
+      })
+      await page.route(findingDetailUrl, async (route) => {
+        await responseReady
+        await route.fulfill(
+          failure === "server error"
+            ? { status: 500, json: { detail: "Internal Server Error" } }
+            : {
+                json: {
+                  ...findingDetail,
+                  netflow_context: {
+                    ...positiveNetflowContext,
+                    activity: null,
+                  },
+                },
+              },
+        )
+      })
+      await page.getByRole("button", { name: "View details" }).click()
+      await expect(page.getByRole("status")).toHaveText(
+        "Loading Finding details…",
+      )
+      releaseResponse()
+      const dialog = page.getByRole("dialog")
+      await expect(dialog.getByRole("alert")).toContainText(
+        "Finding details could not be loaded",
+        { timeout: 15000 },
+      )
+      await expect(
+        dialog.getByRole("region", {
+          name: "Latest published Run NetFlow activity",
+        }),
+      ).toHaveCount(0)
+      await expect(dialog).not.toContainText("no positive NetFlow activity")
+    })
+  }
+
+  test("keeps latest Run context separate while both histories paginate", async ({
+    page,
+  }) => {
+    const requests: URL[] = []
+    await page.route(findingDetailUrl, (route) => {
+      const url = new URL(route.request().url())
+      requests.push(url)
+      return route.fulfill({
+        json: {
+          ...findingDetail,
+          occurrence_count: 21,
+          transition_count: 21,
+          netflow_context: positiveNetflowContext,
+          occurrences: [
+            {
+              ...findingDetail.occurrences[0],
+              created_at:
+                url.searchParams.get("occurrence_skip") === "20"
+                  ? "2026-07-29T12:00:00Z"
+                  : findingDetail.occurrences[0].created_at,
+            },
+          ],
+          transitions: [
+            {
+              ...findingDetail.transitions[0],
+              transition_type:
+                url.searchParams.get("transition_skip") === "20"
+                  ? "REOPENED"
+                  : "OPENED",
+            },
+          ],
+        },
+      })
+    })
+    await page.getByRole("button", { name: "View details" }).click()
+    const dialog = page.getByRole("dialog")
+    await dialog
+      .getByRole("navigation", { name: "Finding occurrences pagination" })
+      .getByRole("button", { name: "Next" })
+      .click()
+    await expect(
+      dialog.getByRole("navigation", {
+        name: "Finding occurrences pagination",
+      }),
+    ).toContainText("Page 2 of 2")
+    await expect(dialog).toContainText("7/29/2026, 8:00:00 PM")
+    await dialog
+      .getByRole("navigation", { name: "Finding transitions pagination" })
+      .getByRole("button", { name: "Next" })
+      .click()
+    await expect(
+      dialog.getByRole("heading", { name: "Transition · REOPENED" }),
+    ).toBeVisible()
+    const context = dialog.getByRole("region", {
+      name: "Latest published Run NetFlow activity",
+    })
+    await expect(context).toHaveCount(1)
+    await expect(context).toContainText(
+      positiveNetflowContext.governance_run_id,
+    )
+    await expect(context).not.toContainText(
+      findingSummary.latest_occurrence_run_id,
+    )
+    expect(
+      requests.map((url) => [
+        url.searchParams.get("occurrence_skip"),
+        url.searchParams.get("transition_skip"),
+        url.searchParams.get("trace_limit"),
+      ]),
+    ).toEqual([
+      ["0", "0", "20"],
+      ["20", "0", "20"],
+      ["20", "20", "20"],
+    ])
   })
 })

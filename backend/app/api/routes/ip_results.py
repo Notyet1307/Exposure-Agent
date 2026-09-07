@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Generator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlmodel import Session
 
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentUser, SessionDep, TokenDep, get_current_user
 from app.api.project_authorization import PROJECT_READ_ROLES, get_authorized_project
+from app.core.db import engine
 from app.domain import ip_results as ip_result_service
+from app.domain.ip_consistency import IPRecordContractError
+from app.domain.ip_source_comparison import IPSourceComparisonError
 from app.domain.models import (
     FindingDetailPublic,
     FindingsPublic,
@@ -129,33 +134,52 @@ def read_findings(
     )
 
 
+def _finding_read_session() -> Generator[Session]:
+    # Authentication and every detail query share a fresh identity map and snapshot.
+    with Session(engine) as session:
+        session.connection(
+            execution_options={
+                "isolation_level": "REPEATABLE READ",
+                "postgresql_readonly": True,
+            }
+        )
+        yield session
+
+
 @router.get(
     "/{project_id}/findings/{finding_id}",
     response_model=FindingDetailPublic,
 )
 def read_finding(
     *,
-    session: SessionDep,
+    session: Annotated[Session, Depends(_finding_read_session)],
     project_id: uuid.UUID,
     finding_id: uuid.UUID,
-    current_user: CurrentUser,
+    token: TokenDep,
     occurrence_skip: Annotated[int, Query(ge=0)] = 0,
     transition_skip: Annotated[int, Query(ge=0)] = 0,
     trace_limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> Any:
+    current_user = get_current_user(session=session, token=token)
     project = _read_project(
         session=session,
         project_id=project_id,
         current_user=current_user,
     )
-    finding = ip_result_service.get_finding_detail(
-        session=session,
-        project=project,
-        finding_id=finding_id,
-        occurrence_skip=occurrence_skip,
-        transition_skip=transition_skip,
-        trace_limit=trace_limit,
-    )
+    try:
+        finding = ip_result_service.get_finding_detail(
+            session=session,
+            project=project,
+            finding_id=finding_id,
+            occurrence_skip=occurrence_skip,
+            transition_skip=transition_skip,
+            trace_limit=trace_limit,
+        )
+    except IPSourceComparisonError, IPRecordContractError, ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal Server Error",
+        ) from None
     if finding is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return finding

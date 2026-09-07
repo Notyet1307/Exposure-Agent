@@ -5,7 +5,8 @@ import ipaddress
 import json
 import uuid
 from collections import Counter
-from collections.abc import Mapping, Set
+from collections.abc import Mapping, Sequence, Set
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -33,6 +34,7 @@ from app.domain.netflow_activity import (
     netflow_activity_content_hash,
     netflow_activity_output_hash,
 )
+from app.domain.netflow_datasets import NETFLOW_DATASET_CONTRACT_VERSION
 
 COMPARISON_CONTRACT_VERSION: Literal["ip-source-comparison/v1"] = (
     "ip-source-comparison/v1"
@@ -103,6 +105,36 @@ def _ip_order(value: str) -> tuple[int, int]:
     return address.version, int(address)
 
 
+@dataclass(frozen=True)
+class _PublishedIPSourceFacts:
+    resources: dict[uuid.UUID, str]
+    membership: dict[uuid.UUID, set[str]]
+    activities: list[NetFlowIPActivity]
+    netflow_status: Literal[
+        "INPUT_UNMODELED", "INPUT_ABSENT", "ACTIVITY_UNMODELED", "NO_POSITIVE_ACTIVITY"
+    ]
+
+
+def read_published_netflow_activities(
+    *, session: Session, run: GovernanceRun
+) -> tuple[
+    Literal[
+        "INPUT_UNMODELED", "INPUT_ABSENT", "ACTIVITY_UNMODELED", "NO_POSITIVE_ACTIVITY"
+    ],
+    list[NetFlowIPActivity],
+]:
+    """Return the complete, verified immutable collection, without Artifact I/O."""
+    with session.no_autoflush:
+        facts = _read_published_facts(
+            session=session,
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            run_id=run.id,
+            allow_unmodeled=True,
+        )
+        return facts.netflow_status, facts.activities
+
+
 def read_ip_source_comparison(
     *, session: Session, tenant_id: uuid.UUID, project_id: uuid.UUID, run_id: uuid.UUID
 ) -> RunIPSourceComparison:
@@ -112,60 +144,37 @@ def read_ip_source_comparison(
     publication audit carries the atomic aggregation receipt, including zero rows.
     """
     with session.no_autoflush:
-        return _read_comparison(
+        facts = _read_published_facts(
             session=session, tenant_id=tenant_id, project_id=project_id, run_id=run_id
         )
-
-
-def _read_comparison(
-    *, session: Session, tenant_id: uuid.UUID, project_id: uuid.UUID, run_id: uuid.UUID
-) -> RunIPSourceComparison:
-    run = session.exec(
-        select(GovernanceRun).where(
-            GovernanceRun.id == run_id,
-            GovernanceRun.project_id == project_id,
-            GovernanceRun.tenant_id == tenant_id,
+        return compile_ip_source_comparison(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            run_id=run_id,
+            resources=facts.resources,
+            membership=facts.membership,
+            active_resources={item.resource_id for item in facts.activities},
+            netflow_present=facts.netflow_status != "INPUT_ABSENT",
         )
-    ).one_or_none()
-    if run is None:
-        raise IPSourceComparisonError("run_not_found")
-    if (
-        run.status not in {"COMPLETED", "COMPLETED_WITH_WARNINGS"}
-        or run.completed_at is None
-    ):
-        raise IPSourceComparisonError("run_not_published")
-    if (
-        run.input_contract_version != "governance-run-input-v1"
-        or run.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION
-    ):
-        raise IPSourceComparisonError("comparison_contract_unsupported")
 
-    steps = {
-        step.step_code: step
-        for step in session.exec(
-            select(RunStep).where(
-                RunStep.governance_run_id == run_id,
-                RunStep.project_id == project_id,
-                RunStep.tenant_id == tenant_id,
-            )
-        ).all()
-    }
+
+def _verify_publication(
+    *,
+    run: GovernanceRun,
+    steps: Mapping[str, RunStep],
+    publications: Sequence[AuditEvent],
+) -> dict[str, Any]:
     for code in ("NORMALIZE", "RESOLVE", "CHECK_FINDINGS", "PUBLISH"):
         _require(
             code in steps
             and steps[code].status == "SUCCEEDED"
             and steps[code].output_hash is not None
         )
-    publications = session.exec(
-        select(AuditEvent).where(
-            AuditEvent.tenant_id == tenant_id,
-            AuditEvent.project_id == project_id,
-            AuditEvent.target_id == run_id,
-            AuditEvent.target_type == "governance_run",
-            AuditEvent.action == "governance_run.published",
-        )
-    ).all()
     _require(len(publications) == 1 and isinstance(publications[0].after_data, dict))
+    _require(
+        publications[0].tenant_id == run.tenant_id
+        and publications[0].project_id == run.project_id
+    )
     publication = publications[0].after_data
     assert publication is not None
     publish_output: dict[str, Any] = {
@@ -186,8 +195,135 @@ def _read_comparison(
             governance_report_id=publication["governance_report_id"],
         )
     _require(_hash(publish_output) == steps["PUBLISH"].output_hash)
+    return publication
+
+
+def _read_published_facts(
+    *,
+    session: Session,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    allow_unmodeled: bool = False,
+) -> _PublishedIPSourceFacts:
+    run = session.exec(
+        select(GovernanceRun).where(
+            GovernanceRun.id == run_id,
+            GovernanceRun.project_id == project_id,
+            GovernanceRun.tenant_id == tenant_id,
+        )
+    ).one_or_none()
+    if run is None:
+        raise IPSourceComparisonError("run_not_found")
+    if (
+        run.status not in {"COMPLETED", "COMPLETED_WITH_WARNINGS"}
+        or run.completed_at is None
+    ):
+        raise IPSourceComparisonError("run_not_published")
+    if allow_unmodeled and run.input_contract_version is None:
+        _require(
+            all(
+                value is None
+                for value in (
+                    run.input_hash,
+                    run.netflow_dataset_id,
+                    run.netflow_content_sha256,
+                    run.netflow_dataset_contract_version,
+                )
+            )
+        )
+        _require(
+            session.exec(
+                select(SourceSnapshot.id)
+                .where(
+                    SourceSnapshot.governance_run_id == run_id,
+                    SourceSnapshot.source_type == "NETFLOW",
+                )
+                .limit(1)
+            ).first()
+            is None
+        )
+        _require(
+            session.exec(
+                select(NetFlowIPActivity.id)
+                .where(NetFlowIPActivity.governance_run_id == run_id)
+                .limit(1)
+            ).first()
+            is None
+        )
+        publications = session.exec(
+            select(AuditEvent).where(
+                AuditEvent.target_id == run_id,
+                AuditEvent.target_type == "governance_run",
+                AuditEvent.action == "governance_run.published",
+            )
+        ).all()
+        _require(
+            all(
+                isinstance(item.after_data, dict)
+                and "netflow_activity" not in item.after_data
+                for item in publications
+            )
+        )
+        if publications:
+            steps = {
+                step.step_code: step
+                for step in session.exec(
+                    select(RunStep).where(
+                        RunStep.governance_run_id == run_id,
+                        RunStep.project_id == project_id,
+                        RunStep.tenant_id == tenant_id,
+                    )
+                ).all()
+            }
+            _verify_publication(run=run, steps=steps, publications=publications)
+        return _PublishedIPSourceFacts({}, {}, [], "INPUT_UNMODELED")
+    if (
+        run.input_contract_version != "governance-run-input-v1"
+        or run.processing_contract_version != IP_PROCESSING_CONTRACT_VERSION
+    ):
+        raise IPSourceComparisonError("comparison_contract_unsupported")
+    # The runner also consumes comparison DTOs; defer this canonical pin helper.
+    from app.domain.governance_runs import pinned_inputs_for_run
+
+    netflow_pins = (
+        run.netflow_dataset_id,
+        run.netflow_content_sha256,
+        run.netflow_dataset_contract_version,
+    )
+    _require(
+        all(value is None for value in netflow_pins)
+        or all(value is not None for value in netflow_pins)
+    )
+    _require(
+        run.netflow_dataset_contract_version in (None, NETFLOW_DATASET_CONTRACT_VERSION)
+        and run.input_hash == pinned_inputs_for_run(run).input_hash()
+    )
+
+    steps = {
+        step.step_code: step
+        for step in session.exec(
+            select(RunStep).where(
+                RunStep.governance_run_id == run_id,
+                RunStep.project_id == project_id,
+                RunStep.tenant_id == tenant_id,
+            )
+        ).all()
+    }
+    publications = session.exec(
+        select(AuditEvent).where(
+            AuditEvent.target_id == run_id,
+            AuditEvent.target_type == "governance_run",
+            AuditEvent.action == "governance_run.published",
+        )
+    ).all()
+    publication = _verify_publication(run=run, steps=steps, publications=publications)
     receipt = publication.get("netflow_activity")
-    if run.netflow_dataset_id is not None and "netflow_activity" not in publication:
+    if (
+        not allow_unmodeled
+        and run.netflow_dataset_id is not None
+        and "netflow_activity" not in publication
+    ):
         raise IPSourceComparisonError("comparison_contract_unsupported")
 
     by_source, observations, links = read_comparison_source_facts(
@@ -197,10 +333,14 @@ def _read_comparison(
     activities = session.exec(
         select(NetFlowIPActivity).where(
             NetFlowIPActivity.governance_run_id == run_id,
-            NetFlowIPActivity.project_id == project_id,
-            NetFlowIPActivity.tenant_id == tenant_id,
         )
     ).all()
+    _require(
+        all(
+            item.project_id == project_id and item.tenant_id == tenant_id
+            for item in activities
+        )
+    )
     resource_ids = {link.resource_id for link in links} | {
         item.resource_id for item in activities
     }
@@ -241,7 +381,12 @@ def _read_comparison(
         )
         membership[link.resource_id].add(observation.source_type)
 
+    netflow_status: Literal[
+        "INPUT_UNMODELED", "INPUT_ABSENT", "ACTIVITY_UNMODELED", "NO_POSITIVE_ACTIVITY"
+    ] = "NO_POSITIVE_ACTIVITY"
     if run.netflow_dataset_id is None:
+        netflow_status = "INPUT_ABSENT"
+        _require("LOAD_NETFLOW" not in steps)
         _require(
             receipt is None and "netflow_activity" not in publication and not activities
         )
@@ -255,6 +400,19 @@ def _read_comparison(
             snapshot.netflow_dataset_id == run.netflow_dataset_id
             and snapshot.content_sha256 == run.netflow_content_sha256
         )
+        _require(
+            "LOAD_NETFLOW" in steps
+            and steps["LOAD_NETFLOW"].status == "SUCCEEDED"
+            and steps["LOAD_NETFLOW"].output_hash == run.netflow_content_sha256
+        )
+        if "netflow_activity" not in publication:
+            _require(not activities)
+            return _PublishedIPSourceFacts(
+                resources={item.id: str(item.canonical_key) for item in resources},
+                membership=membership,
+                activities=[],
+                netflow_status="ACTIVITY_UNMODELED",
+            )
         _require(isinstance(receipt, dict))
         assert isinstance(receipt, dict)
         _require(
@@ -272,11 +430,6 @@ def _read_comparison(
         )
         if receipt["contract_version"] != NETFLOW_ACTIVITY_CONTRACT_VERSION:
             raise IPSourceComparisonError("comparison_contract_unsupported")
-        _require(
-            "LOAD_NETFLOW" in steps
-            and steps["LOAD_NETFLOW"].status == "SUCCEEDED"
-            and steps["LOAD_NETFLOW"].output_hash == run.netflow_content_sha256
-        )
         _require(receipt["source_snapshot_id"] == str(snapshot.id))
         _require(
             type(receipt["activity_count"]) is int
@@ -297,7 +450,8 @@ def _read_comparison(
             _require(
                 activity.aggregation_contract_version
                 == NETFLOW_ACTIVITY_CONTRACT_VERSION
-                and activity.flow_count > 0
+                and type(activity.flow_count) is int
+                and 1 <= activity.flow_count <= 2147483647
             )
             _require(
                 activity.id
@@ -322,14 +476,11 @@ def _read_comparison(
             netflow_activity_output_hash(tuple(aggregates)) == receipt["output_hash"]
         )
 
-    return compile_ip_source_comparison(
-        tenant_id=tenant_id,
-        project_id=project_id,
-        run_id=run_id,
+    return _PublishedIPSourceFacts(
         resources={item.id: str(item.canonical_key) for item in resources},
         membership=membership,
-        active_resources={item.resource_id for item in activities},
-        netflow_present=run.netflow_dataset_id is not None,
+        activities=list(activities),
+        netflow_status=netflow_status,
     )
 
 
@@ -403,10 +554,14 @@ def read_comparison_source_facts(
     snapshots = session.exec(
         select(SourceSnapshot).where(
             SourceSnapshot.governance_run_id == run_id,
-            SourceSnapshot.project_id == project_id,
-            SourceSnapshot.tenant_id == tenant_id,
         )
     ).all()
+    _require(
+        all(
+            item.project_id == project_id and item.tenant_id == tenant_id
+            for item in snapshots
+        )
+    )
     by_source = {snapshot.source_type: snapshot for snapshot in snapshots}
     expected_sources = {"CUSTOMER_UPLOAD", "CLOUDATLAS"}
     if run.netflow_dataset_id is not None:
@@ -431,8 +586,6 @@ def read_comparison_source_facts(
         session.exec(
             select(Observation).where(
                 Observation.governance_run_id == run_id,
-                Observation.project_id == project_id,
-                Observation.tenant_id == tenant_id,
             )
         ).all(),
         key=lambda item: ip_observation_sort_key(
@@ -444,6 +597,9 @@ def read_comparison_source_facts(
         _require(observation_counts[source] == by_source[source].record_count)
     normalized = []
     for observation in observations:
+        _require(
+            observation.project_id == project_id and observation.tenant_id == tenant_id
+        )
         _require(observation.source_type in {"CUSTOMER_UPLOAD", "CLOUDATLAS"})
         _require(
             observation.source_snapshot_id == by_source[observation.source_type].id
@@ -471,10 +627,14 @@ def read_comparison_source_facts(
     links = session.exec(
         select(ObservationResourceLink).where(
             ObservationResourceLink.governance_run_id == run_id,
-            ObservationResourceLink.project_id == project_id,
-            ObservationResourceLink.tenant_id == tenant_id,
         )
     ).all()
+    _require(
+        all(
+            item.project_id == project_id and item.tenant_id == tenant_id
+            for item in links
+        )
+    )
     links_by_observation = {link.observation_id: link for link in links}
     _require(
         len(links) == len(observations)

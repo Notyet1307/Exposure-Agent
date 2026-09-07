@@ -673,6 +673,9 @@ export const FindingDetailPublicSchema = {
             type: 'integer',
             title: 'Transition Count'
         },
+        netflow_context: {
+            '$ref': '#/components/schemas/FindingNetFlowContextPublic'
+        },
         occurrences: {
             items: {
                 '$ref': '#/components/schemas/FindingOccurrencePublic'
@@ -689,8 +692,96 @@ export const FindingDetailPublicSchema = {
         }
     },
     type: 'object',
-    required: ['id', 'resource_id', 'finding_type', 'status', 'canonical_ip', 'first_detected_at', 'last_detected_at', 'latest_occurrence_at', 'latest_occurrence_run_id', 'latest_transition_at', 'occurrence_count', 'transition_count'],
+    required: ['id', 'resource_id', 'finding_type', 'status', 'canonical_ip', 'first_detected_at', 'last_detected_at', 'latest_occurrence_at', 'latest_occurrence_run_id', 'latest_transition_at', 'occurrence_count', 'transition_count', 'netflow_context'],
     title: 'FindingDetailPublic'
+} as const;
+
+export const FindingNetFlowActivityPublicSchema = {
+    properties: {
+        activity_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Activity Id'
+        },
+        source_snapshot_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Snapshot Id'
+        },
+        aggregation_contract_version: {
+            type: 'string',
+            const: 'netflow-ip-activity-v1',
+            title: 'Aggregation Contract Version'
+        },
+        content_sha256: {
+            type: 'string',
+            pattern: '^[0-9a-f]{64}$',
+            title: 'Content Sha256'
+        },
+        flow_count: {
+            type: 'integer',
+            maximum: 2147483647,
+            minimum: 1,
+            title: 'Flow Count'
+        },
+        first_seen_utc: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'First Seen Utc'
+        },
+        last_seen_utc: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Seen Utc'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['activity_id', 'source_snapshot_id', 'aggregation_contract_version', 'content_sha256', 'flow_count', 'first_seen_utc', 'last_seen_utc'],
+    title: 'FindingNetFlowActivityPublic'
+} as const;
+
+export const FindingNetFlowContextPublicSchema = {
+    properties: {
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['NOT_APPLICABLE', 'INPUT_UNMODELED', 'INPUT_ABSENT', 'ACTIVITY_UNMODELED', 'NO_POSITIVE_ACTIVITY', 'POSITIVE_ACTIVITY'],
+            title: 'Status'
+        },
+        activity: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/FindingNetFlowActivityPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['governance_run_id', 'status', 'activity'],
+    title: 'FindingNetFlowContextPublic'
 } as const;
 
 export const FindingOccurrencePublicSchema = {
