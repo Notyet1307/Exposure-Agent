@@ -70,6 +70,33 @@ state, apply the new project, then rerun any unfinished business operation as a
 new Governance Run. This bounded cutover preserves PostgreSQL business facts
 while avoiding lookup or deduplication against the legacy ID space.
 
+### `deterministic-report-v2` production cutover
+
+[ADR-0013](docs/adr/0013-select-report-contract-by-pinned-netflow-presence.md)
+changes new `governance-run-input-v1` dispatch in one step: no selected NetFlow
+Dataset remains `deterministic-report-v1`; a selected Dataset becomes
+`deterministic-report-v2`. There is no feature flag or dual-dispatch period.
+
+Before deploying this change:
+
+1. block new Governance Run Trigger, Retry and Rerun requests;
+2. wait until every Project has no launch reservation (`governance_launch_*` is
+   null) and PostgreSQL has no `RUNNING` GovernanceRun;
+3. verify that every corresponding agent-compose Session is terminal and that
+   no temporary Governance Runner remains active; an unreachable, unknown or
+   unrecognized Session state blocks the cutover;
+4. take the coordinated backup, then deploy the backend, Governance Runner
+   image and frontend from the same release. Do not run an old API with the new
+   Runner or the new API with an old Runner.
+
+After health and readiness checks pass, re-enable Governance Run operations.
+The next new absent-input Run must retain v1 and the next new present-input Run
+must pin v2 in its fixed input Hash; a present Dataset with zero records or zero
+positive activity still completes on v2. Existing Run pins and published v1
+bytes are not migrated or backfilled, and Retry preserves the stored historical
+contract. Rollback requires the same trigger block and drain; never rewrite or
+delete a published v2 fact, report or Artifact.
+
 ## Start and verify
 
 Use the base Compose file so development overrides are excluded:

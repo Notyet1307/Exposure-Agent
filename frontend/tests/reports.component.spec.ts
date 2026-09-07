@@ -154,6 +154,56 @@ function canonicalContent({ zeroFindings = false } = {}) {
     },
   }
 }
+function v2ReportDetail() {
+  const canonical = canonicalContent({ zeroFindings: true })
+  return {
+    ...reportSummary(0),
+    report_contract_version: "deterministic-report-v2",
+    canonical_content: {
+      ...canonical,
+      schema_version: "deterministic-report-v2",
+      report: {
+        ...canonical.report,
+        report_identity: {
+          ...canonical.report.report_identity,
+          report_contract_version: "deterministic-report-v2",
+        },
+        input_completeness: {
+          ...canonical.report.input_completeness,
+          sources: [
+            ...canonical.report.input_completeness.sources,
+            {
+              source_type: "NETFLOW",
+              source_snapshot_id: "snapshot-netflow",
+              content_sha256: "c".repeat(64),
+              schema_version: "netflow-ip-activity-v1",
+              record_count: 1,
+            },
+          ],
+        },
+        ip_source_comparison: {
+          results: [
+            {
+              canonical_ip: "198.51.100.1",
+              classification: "OBSERVED_IN_ALL_SOURCES",
+              classification_reason: "comparison-only-marker",
+            },
+          ],
+        },
+      },
+      evidence_plan: {
+        ...canonical.evidence_plan,
+        report_contract_version: "deterministic-report-v2",
+        comparison_entries: [],
+      },
+    },
+    evidence: [],
+    evidence_count: 0,
+    evidence_max_entries: 50,
+    can_request_ai_governance_draft: false,
+    ai_governance_drafts: [],
+  }
+}
 
 function draftReportDetail(status?: "GENERATING" | "REVIEWABLE" | "FAILED") {
   const canonical = canonicalContent()
@@ -459,9 +509,64 @@ test.describe("Project Reports", () => {
       page
         .getByRole("dialog")
         .getByText(
-          "With both inputs complete, all observed IP identities matched; this Run produced zero Findings.",
+          "With CustomerUpload and CloudAtlas inputs complete, all IP identities observed by those sources matched; this Run produced zero Findings.",
         ),
     ).toBeVisible()
+  })
+
+  test("renders v2 source completeness without inventing a comparison matrix", async ({
+    page,
+  }) => {
+    await page.route(governanceReportsPath, (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname.endsWith(`/${reportIds[0]}`)) {
+        return route.fulfill({ json: v2ReportDetail() })
+      }
+      return route.fulfill({
+        json: {
+          ...reportListResponse(),
+          data: [
+            {
+              ...reportSummary(0),
+              report_contract_version: "deterministic-report-v2",
+            },
+          ],
+        },
+      })
+    })
+
+    const report = await openReport(page)
+    const completeness = report.locator("#report-input-completeness")
+    await expect(
+      report.getByText("deterministic-report-v2").first(),
+    ).toBeVisible()
+    await expect(
+      completeness.getByText(
+        "All bounded input summaries are marked complete.",
+      ),
+    ).toBeVisible()
+    for (const source of ["CUSTOMER_UPLOAD", "CLOUDATLAS", "NETFLOW"]) {
+      await expect(
+        completeness.getByText(source, { exact: true }),
+      ).toBeVisible()
+    }
+    await expect(
+      report.getByText(
+        "AI governance drafts are not supported for deterministic-report-v2.",
+      ),
+    ).toBeVisible()
+    await expect(
+      report.getByText(
+        "With CustomerUpload and CloudAtlas inputs complete, all IP identities observed by those sources matched; this Run produced zero Findings.",
+      ),
+    ).toBeVisible()
+    await expect(
+      report.getByRole("heading", { name: "IP source comparison" }),
+    ).toHaveCount(0)
+    await expect(report.getByText("comparison-only-marker")).toHaveCount(0)
+    await expect(
+      report.getByRole("button", { name: "Request AI draft" }),
+    ).toHaveCount(0)
   })
 
   test("stops polling after the draft Session is bound", async ({ page }) => {

@@ -975,9 +975,7 @@ def test_roles_archive_revocation_and_cross_project_do_not_leak_context(
         assert _detail(client, headers, project["id"], finding.id) == expected
 
 
-@pytest.mark.parametrize(
-    "status", ["RUNNING", "FAILED_DATA", "FAILED_PROCESSING", "COMPLETED_WITH_WARNINGS"]
-)
+@pytest.mark.parametrize("status", ["RUNNING", "FAILED_DATA", "FAILED_PROCESSING"])
 def test_detail_preserves_latest_compatible_read_gate(
     status: str,
     finding_run: tuple[dict[str, object], Finding],
@@ -998,6 +996,28 @@ def test_detail_preserves_latest_compatible_read_gate(
             headers=superuser_token_headers,
         )
         assert response.status_code == 404
+
+
+def test_detail_accepts_completed_with_warnings(
+    finding_run: tuple[dict[str, object], Finding],
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    project, finding = finding_run
+    before = _detail(client, superuser_token_headers, project["id"], finding.id)
+    run_id = uuid.UUID(before["netflow_context"]["governance_run_id"])
+    with _damaged_publication() as session:
+        session.exec(
+            update(GovernanceRun)
+            .where(col(GovernanceRun.id) == run_id)
+            .values(status="COMPLETED_WITH_WARNINGS")
+        )
+        response = client.get(
+            f"{settings.API_V1_STR}/projects/{project['id']}/findings/{finding.id}",
+            headers=superuser_token_headers,
+        )
+        assert response.status_code == 200
+        assert response.json() == before
 
 
 def test_running_and_failed_new_run_leave_previous_activity_visible(

@@ -7,6 +7,7 @@ import uuid
 from pydantic import ValidationError
 from sqlmodel import Session, col, select
 
+from app.domain.governance_publication import COMPLETED_RUN_STATUSES, is_published_run
 from app.domain.governance_runs import (
     GovernanceRunExecutionError,
     _netflow_activity_result,
@@ -75,11 +76,13 @@ def _read_ready_run(
     comparison_required: bool = False,
 ) -> tuple[GovernanceRun, dict[str, RunStep]]:
     run = session.exec(
-        select(GovernanceRun).where(
+        select(GovernanceRun)
+        .where(
             GovernanceRun.id == run_id,
             GovernanceRun.tenant_id == tenant_id,
             GovernanceRun.project_id == project_id,
         )
+        .execution_options(populate_existing=True)
     ).one_or_none()
     _require(run is not None)
     assert run is not None
@@ -95,12 +98,11 @@ def _read_ready_run(
         in {
             "RUNNING",
             "FAILED_PROCESSING",
-            "COMPLETED",
-            "COMPLETED_WITH_WARNINGS",
+            *COMPLETED_RUN_STATUSES,
         }
     )
-    if run.status in {"COMPLETED", "COMPLETED_WITH_WARNINGS"}:
-        _require(run.completed_at is not None)
+    if run.status in COMPLETED_RUN_STATUSES:
+        _require(is_published_run(run))
     else:
         _require(run.completed_at is None)
     steps = {
@@ -137,7 +139,7 @@ def _read_facts(
     snapshots, observations, links = read_comparison_source_facts(
         session=session, run=run, steps=steps
     )
-    published = run.completed_at is not None
+    published = is_published_run(run)
     activity_result: NetFlowIPActivityResult | None = None
     if (
         run.netflow_dataset_id is not None
@@ -302,15 +304,14 @@ def _read_facts(
     )
 
 
-def read_report_candidate_facts(
-    *, session: Session, tenant_id: uuid.UUID, project_id: uuid.UUID, run_id: uuid.UUID
+def _read_report_candidate_facts(
+    *,
+    session: Session,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    run_id: uuid.UUID,
+    preserve_netflow_errors: bool,
 ) -> FrozenReportCandidateFacts:
-    """Capture a detached immutable input bundle; do not flush caller changes.
-
-    Before Publish, the existing aggregator executes over validated normalized
-    input. After Publish, only persisted immutable activity/receipt facts count.
-    Captured inputs can be rebuilt independently of subsequent database changes.
-    """
     try:
         with session.no_autoflush:
             return _read_facts(
@@ -327,7 +328,9 @@ def read_report_candidate_facts(
         )
         raise ReportCandidateError(code) from None
     except GovernanceRunExecutionError as error:
-        if error.code in {"artifact_read_failed", "netflow_artifact_unavailable"}:
+        if error.code in {"artifact_read_failed", "netflow_artifact_unavailable"} or (
+            preserve_netflow_errors and error.code.startswith("netflow_")
+        ):
             raise
         raise ReportCandidateError("report_facts_invalid") from None
     except (
@@ -339,6 +342,36 @@ def read_report_candidate_facts(
         NetFlowActivityContractError,
     ):
         raise ReportCandidateError("report_facts_invalid") from None
+
+
+def read_report_candidate_facts(
+    *, session: Session, tenant_id: uuid.UUID, project_id: uuid.UUID, run_id: uuid.UUID
+) -> FrozenReportCandidateFacts:
+    """Capture a detached immutable input bundle; do not flush caller changes.
+
+    Before Publish, the existing aggregator executes over validated normalized
+    input. After Publish, only persisted immutable activity/receipt facts count.
+    Captured inputs can be rebuilt independently of subsequent database changes.
+    """
+    return _read_report_candidate_facts(
+        session=session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        run_id=run_id,
+        preserve_netflow_errors=False,
+    )
+
+
+def _read_report_candidate_facts_for_runner(
+    *, session: Session, tenant_id: uuid.UUID, project_id: uuid.UUID, run_id: uuid.UUID
+) -> FrozenReportCandidateFacts:
+    return _read_report_candidate_facts(
+        session=session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        run_id=run_id,
+        preserve_netflow_errors=True,
+    )
 
 
 def generate_run_report_candidate(
@@ -370,7 +403,9 @@ def generate_run_report_candidate(
                 )
                 return generate_report_candidate(facts, report_contract_version)
         except GovernanceRunExecutionError as error:
-            if error.code in {"artifact_read_failed", "netflow_artifact_unavailable"}:
+            if error.code == "artifact_read_failed" or error.code.startswith(
+                "netflow_"
+            ):
                 raise
             raise ReportCandidateError("report_facts_invalid") from None
         except (
@@ -381,7 +416,7 @@ def generate_run_report_candidate(
             IPRecordContractError,
         ):
             raise ReportCandidateError("report_facts_invalid") from None
-    comparison_facts = read_report_candidate_facts(
+    comparison_facts = _read_report_candidate_facts_for_runner(
         session=session, tenant_id=tenant_id, project_id=project_id, run_id=run_id
     )
     return generate_report_candidate(comparison_facts, report_contract_version)

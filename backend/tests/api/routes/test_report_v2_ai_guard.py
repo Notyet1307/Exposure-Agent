@@ -78,8 +78,8 @@ def test_v2_refuses_ai_before_evidence_or_model_work_including_replay(
     monkeypatch.setattr(draft_service, "create_ai_governance_draft", forbidden)
     monkeypatch.setattr(report_routes, "_require_current_model_binding", forbidden)
     monkeypatch.setattr(report_routes, "_launch_or_reconcile_draft_session", forbidden)
-    # Future-version fixture is transaction-local, never a production v2 publish.
-    # Existing migration tests use the same trigger bypass for corrupt-fact cases.
+    # The corruption fixture is transaction-local; production v2 denial is
+    # exercised by the NetFlow Runner integration tests.
     with Session(
         isolated_connection, join_transaction_mode="create_savepoint"
     ) as isolated:

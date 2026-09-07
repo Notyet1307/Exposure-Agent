@@ -5,6 +5,7 @@ import pytest
 from sqlmodel import Session, col, delete, select, update
 
 from app.core.db import engine
+from app.domain import governance_runs as governance_run_service
 from app.domain.models import (
     AuditEvent,
     GovernanceRun,
@@ -70,6 +71,32 @@ def test_damaged_database_facts_never_produce_successful_candidate(
                 run_id=run.id,
                 report_contract_version="deterministic-report-v2",
             )
+        session.rollback()
+
+
+def test_published_candidate_is_never_recreated_when_both_files_are_missing(
+    comparison_run: GovernanceRun,
+) -> None:
+    with Session(engine) as session:
+        run = session.get(GovernanceRun, comparison_run.id)
+        assert run is not None and run.status == "COMPLETED"
+        paths = tuple(
+            governance_run_service._candidate_storage_path(storage_key)
+            for storage_key in governance_run_service._report_candidate_storage_keys(
+                run.id
+            )
+        )
+        for path in paths:
+            path.unlink()
+
+        with pytest.raises(
+            governance_run_service.ReportCandidateStorageError,
+            match="candidate_artifact_unavailable",
+        ):
+            governance_run_service._prepare_report_candidate(
+                session=session, run=run, reuse_existing=True
+            )
+        assert not any(path.exists() for path in paths)
         session.rollback()
 
 

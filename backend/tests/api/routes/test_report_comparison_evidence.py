@@ -1,4 +1,4 @@
-"""Isolated v2 publication fixtures exercise the seam, not production dispatch."""
+"""Isolated fixtures cover v2 publication binding and integrity edge cases."""
 
 import hashlib
 import json

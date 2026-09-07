@@ -9,7 +9,9 @@ from pytest import MonkeyPatch
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
+from app.api.routes import governance_reports as report_routes
 from app.core.config import settings
+from app.core.db import engine
 from app.domain import governance_runs as governance_run_service
 from app.domain.cloudatlas_sources import (
     CloudAtlasBoundaryError,
@@ -18,15 +20,18 @@ from app.domain.cloudatlas_sources import (
 from app.domain.governance_runs import RunnerInputs
 from app.domain.models import (
     Artifact,
+    AuditEvent,
     Evidence,
     Finding,
     GovernanceReport,
     GovernanceRun,
+    IPSourceComparisonFact,
     NetFlowDataset,
     NetFlowIPActivity,
     Observation,
     Project,
     RunStep,
+    RunStepCode,
     SourceSnapshot,
 )
 from app.governance_runner import main as run_governance_runner
@@ -194,7 +199,7 @@ def test_present_dataset_is_reserved_then_pinned_at_runner_start(
     for name, value in captured.items():
         monkeypatch.setenv(name, value)
     runtime_inputs = RunnerInputs.from_environment(captured)
-    assert runtime_inputs.report_contract_version == "deterministic-report-v1"
+    assert runtime_inputs.report_contract_version == "deterministic-report-v2"
     assert runtime_inputs.computed_input_hash() == captured["GOVERNANCE_INPUT_HASH"]
     assert run_governance_runner() == 0
     run = db.exec(
@@ -211,6 +216,7 @@ def test_present_dataset_is_reserved_then_pinned_at_runner_start(
     assert run.status == "COMPLETED"
     stored_dataset = db.get(NetFlowDataset, uuid.UUID(dataset["id"]))
     assert stored_dataset is not None
+    assert stored_dataset.warnings
     assert stored_dataset.valid_time_start_utc is not None
     assert stored_dataset.valid_time_end_utc is not None
     assert stored_dataset.valid_time_end_utc < stored_dataset.valid_time_start_utc
@@ -256,12 +262,53 @@ def test_present_dataset_is_reserved_then_pinned_at_runner_start(
     report = db.exec(
         select(GovernanceReport).where(GovernanceReport.governance_run_id == run.id)
     ).one()
+    assert report.report_contract_version == "deterministic-report-v2"
     assert [
         source["source_type"]
         for source in report.canonical_content["report"]["input_completeness"][
             "sources"
         ]
-    ] == ["CUSTOMER_UPLOAD", "CLOUDATLAS"]
+    ] == ["CUSTOMER_UPLOAD", "CLOUDATLAS", "NETFLOW"]
+    comparison_rows = report.canonical_content["report"]["ip_source_comparison"][
+        "results"
+    ]
+    comparison_facts = db.exec(
+        select(IPSourceComparisonFact).where(
+            IPSourceComparisonFact.governance_run_id == run.id
+        )
+    ).all()
+    assert len(comparison_facts) == len(comparison_rows)
+    comparison_evidence = [
+        item
+        for item in db.exec(
+            select(Evidence).where(Evidence.governance_run_id == run.id)
+        ).all()
+        if item.ip_source_comparison_fact_id is not None
+    ]
+    assert len(comparison_evidence) == len(
+        report.canonical_content["evidence_plan"]["comparison_entries"]
+    )
+    report_url = (
+        f"{settings.API_V1_STR}/projects/{project['id']}/governance-reports/{report.id}"
+    )
+    detail = client.get(report_url, headers=superuser_token_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["can_request_ai_governance_draft"] is False
+    finding_id = uuid.uuid4()
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("v2 must be rejected before model or Session launch")
+
+    monkeypatch.setattr(report_routes, "_require_current_model_binding", forbidden)
+    monkeypatch.setattr(report_routes, "_launch_or_reconcile_draft_session", forbidden)
+    draft = client.post(
+        f"{report_url}/ai-governance-drafts",
+        headers={**superuser_token_headers, "Idempotency-Key": "production-v2-deny"},
+        json={"finding_ids": [str(finding_id)]},
+    )
+    assert draft.status_code == 409, draft.text
+    assert draft.json()["detail"]["code"] == "draft_report_contract_unsupported"
+
     original = (
         run.netflow_dataset_id,
         run.netflow_content_sha256,
@@ -452,6 +499,24 @@ def test_absent_input_keeps_report_v1_completion_without_netflow_facts(
         ).all()
         == []
     )
+    report = db.exec(
+        select(GovernanceReport).where(GovernanceReport.governance_run_id == run.id)
+    ).one()
+    assert report.report_contract_version == "deterministic-report-v1"
+    assert (
+        db.exec(
+            select(IPSourceComparisonFact).where(
+                IPSourceComparisonFact.governance_run_id == run.id
+            )
+        ).all()
+        == []
+    )
+    assert all(
+        item.ip_source_comparison_fact_id is None
+        for item in db.exec(
+            select(Evidence).where(Evidence.governance_run_id == run.id)
+        ).all()
+    )
 
 
 def test_retry_refuses_dataset_drift_and_rerun_uses_new_dataset_hash(
@@ -634,6 +699,22 @@ def test_present_zero_activity_dataset_still_completes_with_snapshot(
         ).all()
         == []
     )
+    report = db.exec(
+        select(GovernanceReport).where(GovernanceReport.governance_run_id == run.id)
+    ).one()
+    assert report.report_contract_version == "deterministic-report-v2"
+    rows = report.canonical_content["report"]["ip_source_comparison"]["results"]
+    assert rows
+    assert {(row["netflow_status"], row["netflow_reason"]) for row in rows} == {
+        ("UNKNOWN", "no_positive_activity_evidence")
+    }
+    assert len(
+        db.exec(
+            select(IPSourceComparisonFact).where(
+                IPSourceComparisonFact.governance_run_id == run.id
+            )
+        ).all()
+    ) == len(rows)
 
 
 def test_netflow_artifact_drift_before_load_fails_data_without_publish(
@@ -775,6 +856,151 @@ def test_netflow_artifact_drift_before_publish_fails_data_without_partial_publis
     assert stored_project.latest_completed_run_id is None
 
 
+def test_stale_publish_reentry_converges_after_other_session_commits(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    publish_run = governance_run_service._publish_run
+    validate_report = governance_run_service._validate_report_candidate
+    monkeypatch.setattr(
+        governance_run_service,
+        "_validate_report_candidate",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        governance_run_service,
+        "_publish_run",
+        lambda **_kwargs: None,
+    )
+    project, _, captured = _prepare_present_run(
+        client=client,
+        headers=superuser_token_headers,
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        content=_csv("198.51.100.43"),
+        trigger_id="stale-publish-reentry",
+    )
+    assert run_governance_runner() == 0
+    monkeypatch.setattr(
+        governance_run_service, "_validate_report_candidate", validate_report
+    )
+    monkeypatch.setattr(governance_run_service, "_publish_run", publish_run)
+    project_id = uuid.UUID(str(project["id"]))
+    runner_inputs = RunnerInputs.from_environment(captured)
+
+    with (
+        Session(engine) as orchestration_session,
+        Session(engine, expire_on_commit=False) as stale_session,
+    ):
+        orchestration_run = orchestration_session.exec(
+            select(GovernanceRun).where(GovernanceRun.project_id == project_id)
+        ).one()
+        assert orchestration_run.status == "RUNNING"
+        stale_run = stale_session.exec(
+            select(GovernanceRun).where(GovernanceRun.project_id == project_id)
+        ).one()
+        run_id = stale_run.id
+        stale_candidate = governance_run_service._prepare_report_candidate(
+            session=stale_session, run=stale_run, reuse_existing=True
+        )
+        stale_validate, created = governance_run_service._begin_step(
+            session=stale_session,
+            run=stale_run,
+            step_code=RunStepCode.VALIDATE_REPORT,
+            input_hash=stale_candidate.build_output_hash,
+            request_ip=None,
+        )
+        assert created and stale_validate.status == "RUNNING"
+        stale_session.commit()
+        stale_session.refresh(stale_run)
+
+        with Session(engine) as publisher:
+            fresh_run = publisher.get(GovernanceRun, run_id)
+            assert fresh_run is not None
+            fresh_candidate = governance_run_service._prepare_report_candidate(
+                session=publisher, run=fresh_run, reuse_existing=True
+            )
+            governance_run_service._validate_report_candidate(
+                session=publisher,
+                run=fresh_run,
+                candidate=fresh_candidate,
+                request_ip=None,
+            )
+            _, publish_input_hash = governance_run_service._stage4_publish_input(
+                session=publisher, run=fresh_run
+            )
+            _, created = governance_run_service._begin_step(
+                session=publisher,
+                run=fresh_run,
+                step_code=RunStepCode.PUBLISH,
+                input_hash=publish_input_hash,
+                request_ip=None,
+            )
+            assert created
+            stale_publish = stale_session.exec(
+                select(RunStep).where(
+                    RunStep.governance_run_id == run_id,
+                    RunStep.step_code == RunStepCode.PUBLISH.value,
+                )
+            ).one()
+            assert stale_publish.status == "RUNNING"
+            governance_run_service._publish_run(
+                session=publisher,
+                run=fresh_run,
+                request_ip=None,
+                report_candidate=fresh_candidate,
+            )
+
+        assert stale_run.status == "RUNNING"
+        assert stale_validate.status == "RUNNING"
+        assert stale_publish.status == "RUNNING"
+        governance_run_service._publish_run(
+            session=stale_session,
+            run=stale_run,
+            request_ip=None,
+            report_candidate=stale_candidate,
+        )
+        assert orchestration_run.status == "RUNNING"
+        replayed = governance_run_service.execute_governance_run(
+            session=orchestration_session, inputs=runner_inputs
+        )
+        assert replayed.status == "COMPLETED"
+
+    with Session(engine) as session:
+        run = session.get(GovernanceRun, run_id)
+        assert run is not None and run.status == "COMPLETED"
+        assert (
+            len(
+                session.exec(
+                    select(GovernanceReport).where(
+                        GovernanceReport.governance_run_id == run.id
+                    )
+                ).all()
+            )
+            == 1
+        )
+        assert (
+            len(
+                session.exec(
+                    select(AuditEvent).where(
+                        AuditEvent.target_id == run.id,
+                        AuditEvent.action == "governance_run.published",
+                    )
+                ).all()
+            )
+            == 1
+        )
+        publish_step = session.exec(
+            select(RunStep).where(
+                RunStep.governance_run_id == run.id,
+                RunStep.step_code == "PUBLISH",
+            )
+        ).one()
+        assert (publish_step.status, publish_step.attempt) == ("SUCCEEDED", 1)
+
+
 def test_retry_reuses_all_three_source_snapshots(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -790,14 +1016,13 @@ def test_retry_reuses_all_three_source_snapshots(
         content=_csv("198.51.100.42"),
         trigger_id="netflow-publish-retry",
     )
-    report_publication_records = governance_run_service._report_publication_records
+    bind_comparison = governance_run_service._bind_report_comparison
 
-    def fail_publish(*_args: object, **_kwargs: object) -> None:
+    def fail_publish(*args: object, **kwargs: object) -> None:
+        bind_comparison(*args, **kwargs)  # type: ignore[arg-type]
         raise SQLAlchemyError()
 
-    monkeypatch.setattr(
-        governance_run_service, "_report_publication_records", fail_publish
-    )
+    monkeypatch.setattr(governance_run_service, "_bind_report_comparison", fail_publish)
     assert run_governance_runner() == 1
     run = db.exec(
         select(GovernanceRun).where(
@@ -812,10 +1037,57 @@ def test_retry_reuses_all_three_source_snapshots(
         )
     ).one()
     failed_input_hash = failed_publish.input_hash
+    candidate_paths = [
+        settings.ARTIFACT_ROOT / storage_key
+        for storage_key in governance_run_service._report_candidate_storage_keys(run.id)
+    ]
+    retained_candidates = [
+        (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+        for path in candidate_paths
+    ]
+    assert (
+        db.exec(
+            select(IPSourceComparisonFact).where(
+                IPSourceComparisonFact.governance_run_id == run.id
+            )
+        ).all()
+        == []
+    )
+    assert (
+        db.exec(
+            select(GovernanceReport).where(GovernanceReport.governance_run_id == run.id)
+        ).all()
+        == []
+    )
+    assert [
+        artifact
+        for artifact in db.exec(
+            select(Artifact).where(Artifact.governance_run_id == run.id)
+        ).all()
+        if artifact.media_type in {"text/html", "text/csv"}
+    ] == []
+    assert (
+        db.exec(select(Evidence).where(Evidence.governance_run_id == run.id)).all()
+        == []
+    )
+    assert (
+        db.exec(
+            select(NetFlowIPActivity).where(
+                NetFlowIPActivity.governance_run_id == run.id
+            )
+        ).all()
+        == []
+    )
+    assert (
+        db.exec(select(Finding).where(Finding.project_id == run.project_id)).all() == []
+    )
+    failed_project = db.get(Project, run.project_id)
+    assert failed_project is not None
+    assert failed_project.latest_completed_run_id is None
     monkeypatch.setattr(
         governance_run_service,
-        "_report_publication_records",
-        report_publication_records,
+        "_bind_report_comparison",
+        bind_comparison,
     )
 
     retried_step = governance_run_service.prepare_retry(
@@ -836,6 +1108,15 @@ def test_retry_reuses_all_three_source_snapshots(
     assert run_governance_runner() == 0
     db.refresh(run)
     assert run.status == "COMPLETED"
+    assert [
+        (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+        for path in candidate_paths
+    ] == retained_candidates
+    assert db.exec(
+        select(IPSourceComparisonFact).where(
+            IPSourceComparisonFact.governance_run_id == run.id
+        )
+    ).all()
     assert (
         governance_run_service.governance_run_public(
             session=db, run=run

@@ -275,6 +275,46 @@ def test_stage4_run_publishes_ip_results_and_is_reentrant(
         ).one()
         assert stored_run.processing_contract_version == "ip-v1"
         assert stored_run.report_contract_version is None
+        assets_url = f"{settings.API_V1_STR}/projects/{project['id']}/ip-assets"
+        completed_at = stored_run.completed_at
+        assert completed_at is not None
+        for status_value, compatible in (
+            ("COMPLETED_WITH_WARNINGS", True),
+            ("RUNNING", False),
+            ("FAILED_DATA", False),
+            ("FAILED_PROCESSING", False),
+        ):
+            session.connection().exec_driver_sql(
+                "SET LOCAL session_replication_role = replica"
+            )
+            stored_run.status = status_value
+            session.add(stored_run)
+            session.commit()
+            response = client.get(assets_url, headers=superuser_token_headers)
+            assert response.status_code == 200
+            assert response.json()["compatible"] is compatible
+            assert bool(response.json()["data"]) is compatible
+            detail_response = client.get(
+                f"{assets_url}/{asset_id}", headers=superuser_token_headers
+            )
+            assert detail_response.status_code == (200 if compatible else 404)
+        session.connection().exec_driver_sql(
+            "SET LOCAL session_replication_role = replica"
+        )
+        stored_run.status = "COMPLETED"
+        stored_run.completed_at = None
+        session.add(stored_run)
+        session.commit()
+        response = client.get(assets_url, headers=superuser_token_headers)
+        assert response.status_code == 200
+        assert response.json()["compatible"] is False
+        assert response.json()["data"] == []
+        session.connection().exec_driver_sql(
+            "SET LOCAL session_replication_role = replica"
+        )
+        stored_run.completed_at = completed_at
+        session.add(stored_run)
+        session.commit()
 
 
 def test_stage4_publish_pointer_failure_rolls_back_and_retries_once(

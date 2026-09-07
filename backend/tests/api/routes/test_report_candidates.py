@@ -52,7 +52,7 @@ def _scope(run: GovernanceRun) -> dict[str, uuid.UUID]:
 
 
 @pytest.mark.parametrize("comparison_run", ["absent", "empty", "active"], indirect=True)
-def test_published_candidate_is_read_only_rebuildable_and_keeps_v1_files(
+def test_published_candidate_is_read_only_rebuildable_and_matches_pinned_version(
     comparison_run: GovernanceRun,
     db: Session,
 ) -> None:
@@ -60,7 +60,7 @@ def test_published_candidate_is_read_only_rebuildable_and_keeps_v1_files(
     report = db.exec(
         select(GovernanceReport).where(GovernanceReport.governance_run_id == run.id)
     ).one()
-    v1_content = report.canonical_content
+    published_content = report.canonical_content
     snapshots = db.exec(
         select(SourceSnapshot).where(SourceSnapshot.governance_run_id == run.id)
     ).all()
@@ -104,8 +104,16 @@ def test_published_candidate_is_read_only_rebuildable_and_keeps_v1_files(
             == int(expected[0] == "ACTIVE")
         )
     assert candidate.report.input_capabilities.netflow.coverage == "UNKNOWN"
-    assert run.report_contract_version == "deterministic-report-v1"
-    assert report.canonical_content == v1_content
+    expected_version = (
+        "deterministic-report-v1"
+        if run.netflow_dataset_id is None
+        else "deterministic-report-v2"
+    )
+    assert run.report_contract_version == expected_version
+    published_candidate = generate_report_candidate(facts, expected_version)
+    assert json.loads(published_candidate.rendered.canonical_json) == published_content
+    assert published_candidate.rendered.html_sha256 == report.html_sha256
+    assert published_candidate.rendered.csv_sha256 == report.csv_sha256
     for artifact in artifacts:
         path = runner._artifact_path(artifact)
         assert (path.read_bytes(), path.stat().st_mode) == artifact_before[artifact.id]
@@ -125,10 +133,10 @@ def test_published_candidate_is_read_only_rebuildable_and_keeps_v1_files(
     event.listen(engine, "before_cursor_execute", reject_writes)
     try:
         assert read_report_candidate_facts(session=db, **_scope(run)) == facts
-        rebuilt_v1 = generate_report_candidate(facts, "deterministic-report-v1")
-        assert json.loads(rebuilt_v1.rendered.canonical_json) == v1_content
-        assert rebuilt_v1.rendered.html_sha256 == report.html_sha256
-        assert rebuilt_v1.rendered.csv_sha256 == report.csv_sha256
+        rebuilt = generate_report_candidate(facts, expected_version)
+        assert json.loads(rebuilt.rendered.canonical_json) == published_content
+        assert rebuilt.rendered.html_sha256 == report.html_sha256
+        assert rebuilt.rendered.csv_sha256 == report.csv_sha256
         # Explicit scoped failures do not leak a different Project or tenant.
         for scope in (
             {**_scope(run), "tenant_id": uuid.uuid4()},
@@ -199,10 +207,10 @@ def test_prepublication_candidate_matches_published_reader_and_never_touches_fil
         },
     )
     captured: list[FrozenReportCandidateFacts] = []
-    prepare_v1 = runner._prepare_report_candidate
+    prepare_candidate = runner._prepare_report_candidate
 
     def prepare_and_capture(
-        *, session: Session, run: GovernanceRun
+        *, session: Session, run: GovernanceRun, reuse_existing: bool = False
     ) -> runner.ReportCandidate:
         assert run.completed_at is None
         assert (
@@ -213,13 +221,18 @@ def test_prepublication_candidate_matches_published_reader_and_never_touches_fil
             ).first()
             is None
         )
-        v1_candidate = prepare_v1(session=session, run=run)
+        production_candidate = prepare_candidate(
+            session=session, run=run, reuse_existing=reuse_existing
+        )
         before = {
             key: (
                 (settings.ARTIFACT_ROOT / key).read_bytes(),
                 (settings.ARTIFACT_ROOT / key).stat().st_mode,
             )
-            for key in (v1_candidate.html_storage_key, v1_candidate.csv_storage_key)
+            for key in (
+                production_candidate.html_storage_key,
+                production_candidate.csv_storage_key,
+            )
         }
         facts = read_report_candidate_facts(session=session, **_scope(run))
         if mode == "active":
@@ -239,6 +252,9 @@ def test_prepublication_candidate_matches_published_reader_and_never_touches_fil
                 later_resource.rollback()
         candidate = generate_report_candidate(facts, "deterministic-report-v2")
         validate_report_candidate(facts, candidate)
+        assert production_candidate.generated == generate_report_candidate(
+            facts, run.report_contract_version
+        )
         assert candidate.report.ip_consistency_summary.current_run_finding_count == 2
         assert len(candidate.evidence_plan.entries) == 2
         assert candidate.report.current_run_lifecycle_changes.total == 2
@@ -250,18 +266,20 @@ def test_prepublication_candidate_matches_published_reader_and_never_touches_fil
             path = settings.ARTIFACT_ROOT / key
             assert (path.read_bytes(), path.stat().st_mode) == value
         captured.append(facts)
-        return v1_candidate
+        return production_candidate
 
     monkeypatch.setattr(runner, "_prepare_report_candidate", prepare_and_capture)
     assert run_runner() == 0
-    monkeypatch.setattr(runner, "_prepare_report_candidate", prepare_v1)
+    monkeypatch.setattr(runner, "_prepare_report_candidate", prepare_candidate)
     run = db.exec(
         select(GovernanceRun).where(
             GovernanceRun.project_id == uuid.UUID(str(project["id"]))
         )
     ).one()
     assert run.status == "COMPLETED"
-    assert run.report_contract_version == "deterministic-report-v1"
+    assert run.report_contract_version == (
+        "deterministic-report-v1" if mode == "absent" else "deterministic-report-v2"
+    )
     facts = captured[0]
     assert facts.comparison == read_ip_source_comparison(session=db, **_scope(run))
     candidate = generate_report_candidate(facts, "deterministic-report-v2")
@@ -275,6 +293,14 @@ def test_prepublication_candidate_matches_published_reader_and_never_touches_fil
     ).one()
     old_content = old_report.canonical_content
     old_artifact_hashes = (old_report.html_sha256, old_report.csv_sha256)
+    assert (
+        json.loads(
+            generate_report_candidate(
+                facts, run.report_contract_version
+            ).rendered.canonical_json
+        )
+        == old_content
+    )
     assert candidate.evidence_plan.entries
     assert all(
         entry.evidence_reference.fact_type

@@ -16,6 +16,7 @@ from sqlmodel import Session, col, select
 
 from app.core.time import get_datetime_utc
 from app.domain.evidence_selector import EvidenceBundle, EvidenceFactType
+from app.domain.governance_publication import published_run_predicate
 from app.domain.ip_consistency import IPRecordContractError, normalize_ip
 from app.domain.models import (
     AiGovernanceDraft,
@@ -27,7 +28,6 @@ from app.domain.models import (
     Finding,
     GovernanceReport,
     GovernanceRun,
-    GovernanceRunStatus,
     Project,
 )
 from app.domain.report_core import REPORT_CONTRACT_VERSION
@@ -483,13 +483,7 @@ def _published_report(
             GovernanceReport.id == report_id,
             GovernanceReport.project_id == project_id,
             GovernanceReport.tenant_id == tenant_id,
-            col(GovernanceRun.status).in_(
-                (
-                    GovernanceRunStatus.COMPLETED.value,
-                    GovernanceRunStatus.COMPLETED_WITH_WARNINGS.value,
-                )
-            ),
-            col(GovernanceRun.completed_at).is_not(None),
+            published_run_predicate(),
         )
     ).one_or_none()
 

@@ -12,6 +12,7 @@ from app.api.project_authorization import (
 )
 from app.api.request import get_request_ip_address
 from app.domain import governance_runs as governance_run_service
+from app.domain.governance_publication import COMPLETED_RUN_STATUSES, is_published_run
 from app.domain.models import (
     AuditEvent,
     GovernanceRun,
@@ -37,9 +38,7 @@ _ERROR_MESSAGES = {
     "run_customer_upload_not_ready": (
         "Select a validated CustomerUpload before triggering a Run."
     ),
-    "run_netflow_dataset_not_ready": (
-        "The selected NetFlowDataset is unavailable."
-    ),
+    "run_netflow_dataset_not_ready": ("The selected NetFlowDataset is unavailable."),
     "run_cloudatlas_source_not_ready": (
         "Enable and validate a CloudAtlas SourceInstance before triggering a Run."
     ),
@@ -47,6 +46,9 @@ _ERROR_MESSAGES = {
         "Configure the CloudAtlas Run credential before triggering a Run."
     ),
     "run_project_archived": "This Project is archived and read-only.",
+    "run_publication_incomplete": (
+        "The latest GovernanceRun has an incomplete published-success state."
+    ),
     "run_already_active": "This Project already has an active GovernanceRun.",
     "run_retry_newer_run_exists": "A newer GovernanceRun makes this Run historical.",
     "run_retry_completed": "A completed GovernanceRun cannot be retried.",
@@ -83,7 +85,9 @@ _ERROR_MESSAGES = {
 }
 
 
-def _state_http_error(error: governance_run_service.GovernanceRunStateError) -> HTTPException:
+def _state_http_error(
+    error: governance_run_service.GovernanceRunStateError,
+) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={"code": error.code, "message": _ERROR_MESSAGES[error.code]},
@@ -201,16 +205,14 @@ def read_governance_runs(
         session=session, project_id=project.id
     )
     run_views = [
-        governance_run_service.governance_run_public(
-            session=session, run=run
-        )
+        governance_run_service.governance_run_public(session=session, run=run)
         for run in runs
     ]
     if (
         run_views
         and has_operator_access > 0
         and project.archived_at is None
-        and runs[0].status not in governance_run_service.COMPLETED_RUN_STATUSES
+        and not is_published_run(runs[0])
     ):
         latest = runs[0]
         blocking_code: str | None = None
@@ -284,10 +286,7 @@ def read_governance_runs(
         project.archived_at is None
         and project.governance_launch_trigger_id is None
         and has_operator_access > 0
-        and (
-            not runs
-            or runs[0].status in governance_run_service.COMPLETED_RUN_STATUSES
-        )
+        and (not runs or is_published_run(runs[0]))
     )
     return GovernanceRunsPublic(
         data=run_views,
@@ -322,6 +321,31 @@ def trigger_governance_run(
         writable=True,
         lock=True,
     )
+    latest_run = session.exec(
+        select(GovernanceRun)
+        .where(
+            GovernanceRun.project_id == project.id,
+            GovernanceRun.tenant_id == project.tenant_id,
+        )
+        .order_by(
+            col(GovernanceRun.created_at).desc(),
+            col(GovernanceRun.id).desc(),
+        )
+    ).first()
+    if (
+        latest_run is not None
+        and latest_run.status in COMPLETED_RUN_STATUSES
+        and not is_published_run(latest_run)
+    ):
+        session.rollback()
+        _reject_run_action(
+            session=session,
+            run=latest_run,
+            action="governance_run.new_trigger_rejected",
+            code="run_publication_incomplete",
+            actor_subject=str(current_user.id),
+            request_ip=get_request_ip_address(request),
+        )
     existing = session.exec(
         select(GovernanceRun).where(
             GovernanceRun.project_id == project.id,
@@ -383,14 +407,6 @@ def trigger_governance_run(
             after_data={"reason": code},
         )
         raise _run_action_error(code)
-    latest_run = session.exec(
-        select(GovernanceRun)
-        .where(GovernanceRun.project_id == project.id)
-        .order_by(
-            col(GovernanceRun.created_at).desc(),
-            col(GovernanceRun.id).desc(),
-        )
-    ).first()
     if latest_run is not None and latest_run.status in {
         GovernanceRunStatus.FAILED_DATA.value,
         GovernanceRunStatus.FAILED_PROCESSING.value,
@@ -519,6 +535,8 @@ def trigger_governance_run(
         agent_compose_status=started.status,
         governance_run_id=None,
     )
+
+
 @router.post(
     "/{project_id}/governance-runs/{run_id}/retry",
     response_model=GovernanceRunActionPublic,
@@ -542,11 +560,13 @@ def retry_governance_run(
         lock=True,
     )
     run = session.exec(
-        select(GovernanceRun).where(
+        select(GovernanceRun)
+        .where(
             GovernanceRun.id == run_id,
             GovernanceRun.project_id == project.id,
             GovernanceRun.tenant_id == project.tenant_id,
-        ).with_for_update()
+        )
+        .with_for_update()
     ).one_or_none()
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -756,9 +776,7 @@ def retry_governance_run(
             session_id=run.session_id,
         )
         if started.session_id != run.session_id:
-            raise AgentComposeBoundaryError(
-                "agent_compose_response_contract_failed"
-            )
+            raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
     except AgentComposeBoundaryError as error:
         if error.code == "agent_compose_session_not_recoverable":
             governance_run_service.fail_retry_start(
@@ -813,11 +831,13 @@ def rerun_governance_run(
         lock=True,
     )
     source_run = session.exec(
-        select(GovernanceRun).where(
+        select(GovernanceRun)
+        .where(
             GovernanceRun.id == run_id,
             GovernanceRun.project_id == project.id,
             GovernanceRun.tenant_id == project.tenant_id,
-        ).with_for_update()
+        )
+        .with_for_update()
     ).one_or_none()
     if source_run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -958,10 +978,7 @@ def rerun_governance_run(
                 after_data={"reason": error.code},
             )
             raise _agent_compose_http_error(error)
-    if (
-        control_session is None
-        and not known_unrecoverable
-    ) or (
+    if (control_session is None and not known_unrecoverable) or (
         control_session is not None
         and control_session.observation is AgentComposeSessionObservation.UNKNOWN
     ):

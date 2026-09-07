@@ -14,6 +14,7 @@ from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import Select
 
 from app.domain.ai_governance_drafts import supports_ai_governance_draft
+from app.domain.governance_publication import published_run_predicate
 from app.domain.models import (
     AiGovernanceDraft,
     AiGovernanceDraftFindingBinding,
@@ -33,10 +34,15 @@ from app.domain.report_comparison_evidence import (
     ReportComparisonEvidenceError,
     read_report_comparison_evidence,
 )
+from app.domain.report_core import REPORT_CONTRACT_VERSION
 
 REPORT_LIST_DEFAULT_PAGE_SIZE: Final = 20
 REPORT_LIST_MAX_PAGE_SIZE: Final = 50
 REPORT_DETAIL_MAX_EVIDENCE: Final = 50
+SUPPORTED_REPORT_CONTRACT_VERSIONS: Final = (
+    REPORT_CONTRACT_VERSION,
+    REPORT_V2_CONTRACT_VERSION,
+)
 
 
 class ReportCursorError(ValueError):
@@ -116,7 +122,10 @@ def list_reports(
             col(GovernanceReport.tenant_id) == project.tenant_id,
             col(GovernanceRun.project_id) == project.id,
             col(GovernanceRun.tenant_id) == project.tenant_id,
-            col(GovernanceRun.completed_at).is_not(None),
+            published_run_predicate(),
+            col(GovernanceReport.report_contract_version).in_(
+                SUPPORTED_REPORT_CONTRACT_VERSIONS
+            ),
         )
         .cte("report_scope")
     )
@@ -145,6 +154,7 @@ def list_reports(
             col(GovernanceRun.id) == col(Project.latest_completed_run_id),
             col(GovernanceRun.project_id) == col(Project.id),
             col(GovernanceRun.tenant_id) == col(Project.tenant_id),
+            published_run_predicate(),
         )
         .scalar_subquery()
     )
@@ -280,13 +290,9 @@ def ai_governance_draft_public(
     )
 
 
-def get_report(
-    *,
-    session: Session,
-    project: Project,
-    report_id: uuid.UUID,
-    can_request_ai_governance_draft: bool,
-) -> GovernanceReportDetailPublic | None:
+def get_published_report_record(
+    *, session: Session, project: Project, report_id: uuid.UUID
+) -> tuple[GovernanceReport, datetime] | None:
     row = session.exec(
         select(GovernanceReport, col(GovernanceRun.completed_at))
         .join(
@@ -299,15 +305,20 @@ def get_report(
             GovernanceReport.tenant_id == project.tenant_id,
             GovernanceRun.project_id == project.id,
             GovernanceRun.tenant_id == project.tenant_id,
-            col(GovernanceRun.completed_at).is_not(None),
+            published_run_predicate(),
+            col(GovernanceReport.report_contract_version).in_(
+                SUPPORTED_REPORT_CONTRACT_VERSIONS
+            ),
         )
     ).one_or_none()
-    if row is None:
+    if row is None or row[1] is None:
         return None
-    report, run_completed_at = row
-    if run_completed_at is None:
-        return None
-    max_evidence = REPORT_DETAIL_MAX_EVIDENCE
+    return row[0], row[1]
+
+
+def validate_published_report(
+    *, session: Session, project: Project, report: GovernanceReport
+) -> None:
     if report.report_contract_version == REPORT_V2_CONTRACT_VERSION:
         read_report_comparison_evidence(
             session=session,
@@ -315,6 +326,24 @@ def get_report(
             project_id=project.id,
             report_id=report.id,
         )
+
+
+def get_report(
+    *,
+    session: Session,
+    project: Project,
+    report_id: uuid.UUID,
+    can_request_ai_governance_draft: bool,
+) -> GovernanceReportDetailPublic | None:
+    row = get_published_report_record(
+        session=session, project=project, report_id=report_id
+    )
+    if row is None:
+        return None
+    report, run_completed_at = row
+    max_evidence = REPORT_DETAIL_MAX_EVIDENCE
+    if report.report_contract_version == REPORT_V2_CONTRACT_VERSION:
+        validate_published_report(session=session, project=project, report=report)
         max_evidence = 100
     evidence_scope = (
         col(Evidence.governance_report_id) == report.id,
