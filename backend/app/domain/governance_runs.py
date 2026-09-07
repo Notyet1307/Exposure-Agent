@@ -431,13 +431,6 @@ class ReportCandidate:
     csv_storage_key: str
     build_output_hash: str
 
-    @property
-    def report_facts(self) -> FrozenRunReportFacts:
-        return self.frozen_facts.governance
-
-    @property
-    def evidence_facts(self) -> FrozenRunEvidenceFacts:
-        return self.frozen_facts.evidence
 
     @property
     def report_model(self) -> CanonicalReportCore | ReportV2:
