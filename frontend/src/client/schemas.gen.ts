@@ -1486,6 +1486,171 @@ export const GovernanceRunPublicSchema = {
     title: 'GovernanceRunPublic'
 } as const;
 
+export const GovernanceRunSourcePublicSchema = {
+    properties: {
+        source_type: {
+            type: 'string',
+            enum: ['CUSTOMER_UPLOAD', 'CLOUDATLAS', 'NETFLOW'],
+            title: 'Source Type'
+        },
+        state: {
+            type: 'string',
+            enum: ['ABSENT', 'PRESENT'],
+            title: 'State'
+        },
+        snapshot_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Snapshot Id'
+        },
+        input_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Input Id'
+        },
+        content_sha256: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Content Sha256'
+        },
+        schema_fingerprint: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Schema Fingerprint'
+        },
+        method_fingerprint: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Method Fingerprint'
+        },
+        record_count: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Record Count'
+        },
+        valid_time_start_utc: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Valid Time Start Utc'
+        },
+        valid_time_end_utc: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Valid Time End Utc'
+        }
+    },
+    type: 'object',
+    required: ['source_type', 'state', 'snapshot_id', 'input_id', 'content_sha256', 'schema_fingerprint', 'method_fingerprint', 'record_count', 'valid_time_start_utc', 'valid_time_end_utc'],
+    title: 'GovernanceRunSourcePublic'
+} as const;
+
+export const GovernanceRunSourcesPublicSchema = {
+    properties: {
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        governance_report_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Report Id'
+        },
+        run_status: {
+            type: 'string',
+            enum: ['COMPLETED', 'COMPLETED_WITH_WARNINGS'],
+            title: 'Run Status'
+        },
+        completed_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Completed At'
+        },
+        input_contract_version: {
+            type: 'string',
+            const: 'governance-run-input-v1',
+            title: 'Input Contract Version'
+        },
+        processing_contract_version: {
+            type: 'string',
+            const: 'ip-v1',
+            title: 'Processing Contract Version'
+        },
+        report_contract_version: {
+            type: 'string',
+            enum: ['deterministic-report-v1', 'deterministic-report-v2'],
+            title: 'Report Contract Version'
+        },
+        sources: {
+            items: {
+                '$ref': '#/components/schemas/GovernanceRunSourcePublic'
+            },
+            type: 'array',
+            title: 'Sources'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'governance_run_id', 'governance_report_id', 'run_status', 'completed_at', 'input_contract_version', 'processing_contract_version', 'report_contract_version', 'sources'],
+    title: 'GovernanceRunSourcesPublic'
+} as const;
+
 export const GovernanceRunTriggerPublicSchema = {
     properties: {
         accepted: {
@@ -1846,6 +2011,105 @@ export const IPObservationPublicSchema = {
     type: 'object',
     required: ['id', 'source_type', 'source_record_key', 'raw_ip', 'canonical_ip', 'cloudatlas_asset_id', 'cloudatlas_status', 'source_snapshot_id'],
     title: 'IPObservationPublic'
+} as const;
+
+export const IPSourceComparisonPublicSchema = {
+    properties: {
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        customer_upload_present: {
+            type: 'boolean',
+            title: 'Customer Upload Present'
+        },
+        cloudatlas_present: {
+            type: 'boolean',
+            title: 'Cloudatlas Present'
+        },
+        netflow_status: {
+            type: 'string',
+            enum: ['ACTIVE', 'UNKNOWN'],
+            title: 'Netflow Status'
+        },
+        classification: {
+            type: 'string',
+            enum: ['matched', 'customer_upload_only', 'cloudatlas_only', 'neither_source_observed'],
+            title: 'Classification'
+        },
+        classification_reason: {
+            type: 'string',
+            title: 'Classification Reason'
+        },
+        netflow_reason: {
+            type: 'string',
+            title: 'Netflow Reason'
+        },
+        content_hash: {
+            type: 'string',
+            title: 'Content Hash'
+        }
+    },
+    type: 'object',
+    required: ['resource_id', 'canonical_ip', 'customer_upload_present', 'cloudatlas_present', 'netflow_status', 'classification', 'classification_reason', 'netflow_reason', 'content_hash'],
+    title: 'IPSourceComparisonPublic'
+} as const;
+
+export const IPSourceComparisonsPublicSchema = {
+    properties: {
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        governance_report_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Report Id'
+        },
+        report_contract_version: {
+            type: 'string',
+            enum: ['deterministic-report-v1', 'deterministic-report-v2'],
+            title: 'Report Contract Version'
+        },
+        contract_version: {
+            type: 'string',
+            const: 'ip-source-comparison/v1',
+            title: 'Contract Version'
+        },
+        output_hash: {
+            type: 'string',
+            title: 'Output Hash'
+        },
+        data: {
+            items: {
+                '$ref': '#/components/schemas/IPSourceComparisonPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        page_size: {
+            type: 'integer',
+            title: 'Page Size'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'governance_run_id', 'governance_report_id', 'report_contract_version', 'contract_version', 'output_hash', 'data', 'count', 'page_size'],
+    title: 'IPSourceComparisonsPublic'
 } as const;
 
 export const MessageSchema = {

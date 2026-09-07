@@ -2,24 +2,42 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Generator
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlmodel import Session
+from sqlalchemy.exc import SQLAlchemyError
+from sqlmodel import Session, select
 
 from app.api.deps import CurrentUser, SessionDep, TokenDep, get_current_user
 from app.api.project_authorization import PROJECT_READ_ROLES, get_authorized_project
 from app.core.db import engine
 from app.domain import ip_results as ip_result_service
-from app.domain.ip_consistency import IPRecordContractError
-from app.domain.ip_source_comparison import IPSourceComparisonError
+from app.domain.governance_publication import is_published_run
+from app.domain.ip_consistency import (
+    IP_PROCESSING_CONTRACT_VERSION,
+    IPRecordContractError,
+)
+from app.domain.ip_source_comparison import (
+    IPSourceComparisonError,
+)
+from app.domain.ip_source_comparison import (
+    list_governance_run_ip_source_comparisons as list_published_run_comparisons,
+)
+from app.domain.ip_source_comparison import (
+    read_governance_run_sources as read_published_run_sources,
+)
 from app.domain.models import (
     FindingDetailPublic,
     FindingsPublic,
+    GovernanceRun,
+    GovernanceRunSourcesPublic,
     IPAssetDetailPublic,
     IPAssetsPublic,
+    IPSourceComparisonsPublic,
     Project,
 )
+from app.domain.report_candidates import REPORT_V2_CONTRACT_VERSION
+from app.domain.report_comparison_evidence import ReportComparisonEvidenceError
 
 router = APIRouter(prefix="/projects", tags=["ip-results"])
 
@@ -48,6 +66,144 @@ def _validate_status(value: str) -> str:
             },
         )
     return normalized
+
+
+def _run_result_error(
+    *,
+    error: IPSourceComparisonError,
+    session: Session,
+    project: Project,
+    run_id: uuid.UUID,
+) -> HTTPException:
+    if error.code == "comparison_contract_unsupported":
+        with session.no_autoflush:
+            run = session.exec(
+                select(GovernanceRun).where(
+                    GovernanceRun.id == run_id,
+                    GovernanceRun.project_id == project.id,
+                    GovernanceRun.tenant_id == project.tenant_id,
+                )
+            ).one_or_none()
+        # Only v2 requires this receipt; pre-cutover v1 may lack it by design.
+        if (
+            run is not None
+            and is_published_run(run)
+            and run.input_contract_version == "governance-run-input-v1"
+            and run.processing_contract_version == IP_PROCESSING_CONTRACT_VERSION
+            and run.report_contract_version == REPORT_V2_CONTRACT_VERSION
+        ):
+            return HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Run result integrity verification failed",
+            )
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if error.code in {"run_not_found", "run_not_published"}:
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Run result integrity verification failed",
+    )
+
+
+@router.get(
+    "/{project_id}/governance-runs/{governance_run_id}/sources",
+    response_model=GovernanceRunSourcesPublic,
+)
+def read_governance_run_sources(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    governance_run_id: uuid.UUID,
+    current_user: CurrentUser,
+) -> GovernanceRunSourcesPublic:
+    project = _read_project(
+        session=session,
+        project_id=project_id,
+        current_user=current_user,
+    )
+    try:
+        return read_published_run_sources(
+            session=session, project=project, run_id=governance_run_id
+        )
+    except IPSourceComparisonError as error:
+        raise _run_result_error(
+            error=error,
+            session=session,
+            project=project,
+            run_id=governance_run_id,
+        ) from None
+    except (
+        ReportComparisonEvidenceError,
+        IPRecordContractError,
+        SQLAlchemyError,
+        ValueError,
+        TypeError,
+        KeyError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Run result integrity verification failed",
+        ) from None
+
+
+@router.get(
+    "/{project_id}/governance-runs/{governance_run_id}/ip-source-comparisons",
+    response_model=IPSourceComparisonsPublic,
+)
+def read_governance_run_ip_source_comparisons(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    governance_run_id: uuid.UUID,
+    current_user: CurrentUser,
+    classification: Annotated[
+        Literal[
+            "matched",
+            "customer_upload_only",
+            "cloudatlas_only",
+            "neither_source_observed",
+        ]
+        | None,
+        Query(),
+    ] = None,
+    netflow_status: Annotated[Literal["ACTIVE", "UNKNOWN"] | None, Query()] = None,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 100,
+) -> IPSourceComparisonsPublic:
+    project = _read_project(
+        session=session,
+        project_id=project_id,
+        current_user=current_user,
+    )
+    try:
+        return list_published_run_comparisons(
+            session=session,
+            project=project,
+            run_id=governance_run_id,
+            classification=classification,
+            netflow_status=netflow_status,
+            skip=skip,
+            limit=limit,
+        )
+    except IPSourceComparisonError as error:
+        raise _run_result_error(
+            error=error,
+            session=session,
+            project=project,
+            run_id=governance_run_id,
+        ) from None
+    except (
+        ReportComparisonEvidenceError,
+        IPRecordContractError,
+        SQLAlchemyError,
+        ValueError,
+        TypeError,
+        KeyError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Run result integrity verification failed",
+        ) from None
 
 
 @router.get(
