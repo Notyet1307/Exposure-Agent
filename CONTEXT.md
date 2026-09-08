@@ -100,6 +100,10 @@ _Avoid_: Resource、Finding、原始流量副本、Evidence 样本
 某个用户可见治理结论对特定 GovernanceRun 中来源事实和确定性判断依据的结构化引用；用于追溯结论，不复制原始 Artifact，也不记录操作者行为。
 _Avoid_: 原始数据副本、AuditEvent、独立证据平台
 
+**Lineage**:
+一个明确已发布 GovernanceRun 的有界追溯视图，将本次固定来源、来源批次、处理合同、比较结论、本轮治理事件与报告关联起来。它表达已有事实的依据引用与上下文，不创造新的业务事实，也不把上下文关联解释为 Comparison 导致 Finding。
+_Avoid_: 全量实体图、RunStep 执行图、第二事实源、当前 Finding 状态快照
+
 **AI Governance Draft**:
 Project Operator 针对一份已发布 GovernanceReport 明确选择 `1–8` 个未观测资产及其 canonical Evidence 后发起的一次独立、不可重试的非权威模型草稿；报告 Hash、选择绑定、模型配置和 Session 在生成前固定，原始模型输出不可变。生成失败或单次 Operator 的 `ACCEPTED | EDITED | REJECTED` 审核均为终态；`EDITED` 只另存 Operator 文字，不改变 GovernanceReport、GovernanceRun、Finding 或 Evidence 事实。
 _Avoid_: 权威报告、GovernanceRun、可变模型结果、自动 Retry、Finding 修改

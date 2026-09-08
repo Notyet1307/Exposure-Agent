@@ -253,6 +253,15 @@ def read_governance_run_sources(
     run, report, _comparison = _published_comparison_context(
         session=session, project=project, run_id=run_id
     )
+    return _project_governance_run_sources(
+        session=session, project=project, run=run, report=report
+    )
+
+
+def _project_governance_run_sources(
+    *, session: Session, project: Project, run: GovernanceRun, report: GovernanceReport
+) -> GovernanceRunSourcesPublic:
+    """Project slots only after the shared published context has been verified."""
     snapshots = session.exec(
         select(SourceSnapshot).where(
             SourceSnapshot.governance_run_id == run.id,

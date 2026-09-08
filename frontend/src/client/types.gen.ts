@@ -205,6 +205,10 @@ export type FindingTransitionPublic = {
     observations?: Array<IPObservationPublic>;
 };
 
+export type FindingTransitionType = 'OPENED' | 'CLOSED' | 'REOPENED';
+
+export type FindingType = 'UNREPORTED_ASSET' | 'UNOBSERVED_ASSET';
+
 export type GovernanceReportDetailPublic = {
     id: string;
     governance_run_id: string;
@@ -256,6 +260,36 @@ export type GovernanceRunActionPublic = {
     agent_compose_status: string;
     code?: (string | null);
 };
+
+export type GovernanceRunLineagePublic = {
+    projection_version: "published-lineage/v1";
+    project_id: string;
+    governance_run_id: string;
+    governance_report_id: string;
+    run_status: 'COMPLETED' | 'COMPLETED_WITH_WARNINGS';
+    completed_at: string;
+    input_contract_version: "governance-run-input-v1";
+    processing_contract_version: "ip-v1";
+    report_contract_version: 'deterministic-report-v1' | 'deterministic-report-v2';
+    view: 'OVERVIEW' | 'RESOURCE';
+    resource_id: (string | null);
+    comparison_output_hash: string;
+    status: 'COMPLETE' | 'EMPTY' | 'PARTIAL';
+    truncated: boolean;
+    truncation_reasons: Array<('comparison_limit' | 'finding_limit' | 'observation_reference_limit' | 'evidence_reference_limit')>;
+    totals: LineageTotalsPublic;
+    coverage: LineageCoveragePublic;
+    nodes: Array<(LineageSourceNodePublic | LineageSnapshotNodePublic | LineageProcessNodePublic | LineageComparisonNodePublic | LineageFindingNodePublic | LineageReportNodePublic)>;
+    edges: Array<LineageEdgePublic>;
+};
+
+export type run_status = 'COMPLETED' | 'COMPLETED_WITH_WARNINGS';
+
+export type report_contract_version = 'deterministic-report-v1' | 'deterministic-report-v2';
+
+export type view = 'OVERVIEW' | 'RESOURCE';
+
+export type status2 = 'COMPLETE' | 'EMPTY' | 'PARTIAL';
 
 export type GovernanceRunPublic = {
     id: string;
@@ -314,10 +348,6 @@ export type GovernanceRunSourcesPublic = {
     report_contract_version: 'deterministic-report-v1' | 'deterministic-report-v2';
     sources: Array<GovernanceRunSourcePublic>;
 };
-
-export type run_status = 'COMPLETED' | 'COMPLETED_WITH_WARNINGS';
-
-export type report_contract_version = 'deterministic-report-v1' | 'deterministic-report-v2';
 
 export type GovernanceRunsPublic = {
     data: Array<GovernanceRunPublic>;
@@ -416,6 +446,136 @@ export type IPSourceComparisonsPublic = {
     data: Array<IPSourceComparisonPublic>;
     count: number;
     page_size: number;
+};
+
+export type LineageComparisonNodePublic = {
+    resource_id: string;
+    canonical_ip: string;
+    customer_upload_present: boolean;
+    cloudatlas_present: boolean;
+    netflow_status: 'ACTIVE' | 'UNKNOWN';
+    classification: 'matched' | 'customer_upload_only' | 'cloudatlas_only' | 'neither_source_observed';
+    classification_reason: string;
+    netflow_reason: string;
+    content_hash: string;
+    key: string;
+    kind: "COMPARISON";
+    comparison_fact_id: (string | null);
+    observations: LineageObservationReferencesPublic;
+    evidence: LineageEvidenceReferencesPublic;
+};
+
+export type LineageCoveragePublic = {
+    comparison_count: number;
+    finding_event_count: number;
+    comparison_returned: number;
+    finding_returned: number;
+};
+
+export type LineageEdgePublic = {
+    key: string;
+    kind: 'SOURCE_SNAPSHOT' | 'SNAPSHOT_PROCESS' | 'ABSENT_SOURCE_PROCESS' | 'PROCESS_COMPARISON' | 'PROCESS_FINDING' | 'PROCESS_REPORT' | 'COMPARISON_REPORT_CONTEXT' | 'FINDING_REPORT_CONTEXT';
+    from: string;
+    to: string;
+};
+
+export type kind = 'SOURCE_SNAPSHOT' | 'SNAPSHOT_PROCESS' | 'ABSENT_SOURCE_PROCESS' | 'PROCESS_COMPARISON' | 'PROCESS_FINDING' | 'PROCESS_REPORT' | 'COMPARISON_REPORT_CONTEXT' | 'FINDING_REPORT_CONTEXT';
+
+export type LineageEvidenceReferencePublic = {
+    id: string;
+    governance_run_id: string;
+    fact_type: 'SOURCE_SNAPSHOT' | 'OBSERVATION' | 'FINDING_OCCURRENCE' | 'FINDING_TRANSITION' | 'IP_SOURCE_COMPARISON';
+    fact_id: string;
+};
+
+export type fact_type = 'SOURCE_SNAPSHOT' | 'OBSERVATION' | 'FINDING_OCCURRENCE' | 'FINDING_TRANSITION' | 'IP_SOURCE_COMPARISON';
+
+export type LineageEvidenceReferencesPublic = {
+    count: number;
+    data: Array<LineageEvidenceReferencePublic>;
+    truncated: boolean;
+};
+
+export type LineageFindingNodePublic = {
+    key: string;
+    kind: "FINDING";
+    finding_id: string;
+    resource_id: string;
+    canonical_ip: string;
+    finding_type: FindingType;
+    occurrence_id: (string | null);
+    transition_id: (string | null);
+    transition_type: (FindingTransitionType | null);
+    source_snapshot_ids: Array<(string)>;
+    observations: LineageObservationReferencesPublic;
+    evidence: LineageEvidenceReferencesPublic;
+};
+
+export type LineageObservationReferencePublic = {
+    observation_id: string;
+    source_snapshot_id: string;
+};
+
+export type LineageObservationReferencesPublic = {
+    count: number;
+    data: Array<LineageObservationReferencePublic>;
+    truncated: boolean;
+};
+
+export type LineageProcessNodePublic = {
+    key: string;
+    kind: "PROCESS";
+    governance_run_id: string;
+    processing_contract_version: "ip-v1";
+    comparison_contract_version: "ip-source-comparison/v1";
+    report_contract_version: 'deterministic-report-v1' | 'deterministic-report-v2';
+};
+
+export type LineageReportNodePublic = {
+    key: string;
+    kind: "REPORT";
+    governance_report_id: string;
+    report_contract_version: 'deterministic-report-v1' | 'deterministic-report-v2';
+    generation_mode: "DETERMINISTIC_TEMPLATE";
+    html_sha256: string;
+    csv_sha256: string;
+    summary: LineageReportSummaryPublic;
+    evidence: LineageEvidenceReferencesPublic;
+};
+
+export type LineageReportSummaryPublic = {
+    customer_observed_asset_count: number;
+    cloudatlas_observed_asset_count: number;
+    matched_asset_count: number;
+    current_run_finding_count: number;
+    current_run_transition_count: number;
+    open_backlog_count: number;
+};
+
+export type LineageSnapshotNodePublic = {
+    key: string;
+    kind: "SNAPSHOT";
+    snapshot_id: string;
+    source_type: 'CUSTOMER_UPLOAD' | 'CLOUDATLAS' | 'NETFLOW';
+    content_sha256: string;
+    schema_fingerprint: string;
+    method_fingerprint: (string | null);
+    record_count: number;
+    valid_time_start_utc: (string | null);
+    valid_time_end_utc: (string | null);
+};
+
+export type LineageSourceNodePublic = {
+    key: string;
+    kind: "SOURCE";
+    source_type: 'CUSTOMER_UPLOAD' | 'CLOUDATLAS' | 'NETFLOW';
+    state: 'ABSENT' | 'PRESENT';
+    input_id: (string | null);
+};
+
+export type LineageTotalsPublic = {
+    comparison_count: number;
+    finding_event_count: number;
 };
 
 export type Message = {
@@ -735,6 +895,14 @@ export type IpResultsReadFindingsData = {
 };
 
 export type IpResultsReadFindingsResponse = (FindingsPublic);
+
+export type IpResultsReadGovernanceRunLineageData = {
+    governanceRunId: string;
+    projectId: string;
+    resourceId?: (string | null);
+};
+
+export type IpResultsReadGovernanceRunLineageResponse = (GovernanceRunLineagePublic);
 
 export type IpResultsReadFindingData = {
     findingId: string;
