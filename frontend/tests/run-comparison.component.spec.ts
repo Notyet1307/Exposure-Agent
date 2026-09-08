@@ -1,5 +1,3 @@
-import { expect, type Page, type Route, test } from "@playwright/test"
-
 import type {
   GovernanceRunPublic,
   GovernanceRunSourcePublic,
@@ -8,6 +6,7 @@ import type {
   IPSourceComparisonPublic,
   IPSourceComparisonsPublic,
 } from "../src/client"
+import { expect, type Page, type Route, test } from "./fixtures"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
 const otherProjectId = "00000000-0000-0000-0000-000000000002"
@@ -453,6 +452,25 @@ test("preserves URL filters across reload and history and resets pagination on e
   await expect(netflow).toHaveValue("UNKNOWN")
   await expect(pagination).toContainText("Page 2 of 2")
   await expect(tableRow(page, "192.0.2.51")).toBeVisible()
+  const selectedScope = page.url()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(
+    page.getByRole("combobox", { name: "NetFlow 状态", exact: true }),
+  ).toHaveValue("UNKNOWN")
+  await expect(
+    page.getByRole("navigation", { name: "比较分页" }),
+  ).toContainText("第 2 页")
+  await expect(
+    page.getByRole("cell", { name: "192.0.2.51", exact: true }),
+  ).toBeVisible()
+  await expect(page).toHaveURL(selectedScope)
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("en")
+  await expect(netflow).toHaveValue("UNKNOWN")
+  await expect(pagination).toContainText("Page 2 of 2")
   expect(comparisonRequests(requests).at(-1)?.searchParams.get("skip")).toBe(
     "25",
   )

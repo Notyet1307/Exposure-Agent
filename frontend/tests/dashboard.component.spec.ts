@@ -1,6 +1,5 @@
-import { expect, type Page, type Route, test } from "@playwright/test"
-
 import type { CloudAtlasSourcePublic } from "../src/client"
+import { expect, type Page, type Route, test } from "./fixtures"
 
 const projects = [
   {
@@ -269,6 +268,149 @@ test.beforeEach(async ({ page }) => {
   await mockDashboardApi(page)
 })
 
+test("explains a known unavailable Run input without enabling its trigger", async ({
+  page,
+}) => {
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/governance-runs`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [],
+          count: 0,
+          can_trigger: true,
+          ready: false,
+          readiness_code: "run_netflow_dataset_not_ready",
+        },
+      }),
+  )
+  await page.goto("/")
+  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await expect(
+    page.getByRole("button", { name: "Trigger Run", exact: true }),
+  ).toBeDisabled()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(
+    page.getByText(
+      "run_netflow_dataset_not_ready（选中的 NetFlow 数据集不可用）",
+      { exact: false },
+    ),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "触发运行", exact: true }),
+  ).toBeDisabled()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("en")
+  await expect(
+    page.getByText("Run inputs are not ready.", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Trigger Run", exact: true }),
+  ).toBeDisabled()
+})
+
+test("preserves an unknown source validation status across language changes", async ({
+  page,
+}) => {
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/cloudatlas-source-instances`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [
+            {
+              ...cloudatlasSources[projects[0].id].data[0],
+              validation_status: "constructor",
+            },
+          ],
+          count: 1,
+          can_manage: false,
+        },
+      }),
+  )
+  await page.goto("/")
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
+  await expect(
+    page.getByRole("cell", { name: "constructor", exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(
+    page.getByRole("cell", { name: "constructor", exact: true }),
+  ).toBeVisible()
+})
+
+test("keeps the selected upload and project while translating an existing rejection", async ({
+  page,
+}) => {
+  let rejectionMessage = "The workbook is malformed."
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback()
+      return route.fulfill({
+        status: 422,
+        json: {
+          detail: {
+            code: "malformed_workbook",
+            message: rejectionMessage,
+          },
+        },
+      })
+    },
+  )
+  await page.goto("/")
+  const input = page.getByLabel("XLSX file", { exact: true })
+  await input.setInputFiles({
+    name: "Customer-English-原始文件.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("invalid workbook"),
+  })
+  await page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
+  await expect(
+    page.getByText("The workbook is malformed.", { exact: false }),
+  ).toBeVisible()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(
+    page.getByText("工作簿格式损坏。", { exact: false }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("combobox", { name: "项目", exact: true }),
+  ).toContainText(projects[0].name)
+  await expect(page.locator('input[type="file"]').first()).toHaveValue(
+    /Customer-English-原始文件\.xlsx$/,
+  )
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("en")
+  await expect(
+    page.getByText("The workbook is malformed.", { exact: false }),
+  ).toBeVisible()
+  await expect(input).toHaveValue(/Customer-English-原始文件\.xlsx$/)
+  rejectionMessage = "__proto__"
+  await page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
+  await expect(page.getByText("__proto__", { exact: true })).toBeVisible()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(page.getByText("__proto__", { exact: true })).toBeVisible()
+})
+
 test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
   page,
 }) => {
@@ -436,7 +578,7 @@ test("selects an accepted upload as the current Project input", async ({
   await page.goto("/")
 
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
-  await page.getByRole("button", { name: "设为当前输入" }).click()
+  await page.getByRole("button", { name: "Set as current input" }).click()
 
   await expect(page.getByText("Current CustomerUpload ID")).toBeVisible()
   await expect(page.getByText(uploads[projects[0].id].data[0].id)).toBeVisible()
@@ -478,7 +620,7 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).toBeVisible()
   await expect(page.getByLabel("XLSX file")).not.toBeVisible()
   await expect(
-    page.getByRole("button", { name: "设为当前输入" }),
+    page.getByRole("button", { name: "Set as current input" }),
   ).not.toBeVisible()
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })
@@ -1179,6 +1321,17 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
       .getByRole("cell", { name: "2", exact: true }),
   ).toBeVisible()
   await page.getByRole("button", { name: "Retry same Session" }).click()
+  await expect(
+    page.getByText("Retry accepted for the same Governance Run and Session."),
+  ).toBeVisible()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(page.getByRole("status")).toContainText("重试")
+  await expect(page.getByRole("button", { name: /重试/ })).toBeVisible()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("en")
   await expect(
     page.getByText("Retry accepted for the same Governance Run and Session."),
   ).toBeVisible()

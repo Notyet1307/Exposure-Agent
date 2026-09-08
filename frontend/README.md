@@ -19,6 +19,14 @@ API_PROXY_TARGET=http://localhost:8000
 
 The deployed browser should leave `VITE_API_URL` empty so API calls remain same-origin.
 
+## Interface language
+
+The application defaults to Simplified Chinese (`zh-CN`). The global language selector and the selector inside dialogs share one persisted preference (`exposure:language`); switching to English does not reload routes or reset forms, filters or report selections.
+
+Use `useI18n` from `src/lib/i18n.tsx` for interface text and dates. Keep error keys untranslated in state and translate at render time so existing errors update when the language changes. Dates retain local-time behavior unless a field explicitly requests UTC. Protocol values, customer data and immutable report content are not rewritten.
+
+Existing Playwright regressions import `tests/fixtures.ts` to select English at the actual test origin. The language-specific suite uses the product default directly; tests must not change that default or introduce a fixed origin.
+
 ## Generated client
 
 When the FastAPI contract changes, run from the repository root:

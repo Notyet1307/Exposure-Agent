@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { useI18n } from "@/lib/i18n"
 
 const PAGE_SIZE = 25
 const CLASSIFICATIONS = [
@@ -67,6 +68,13 @@ export const Route = createFileRoute(
 })
 
 function RunSourceComparison() {
+  const { t, formatDate, translateValue } = useI18n()
+  useEffect(() => {
+    document.title = t(
+      "Run source comparison - Exposure Agent",
+      "运行来源比较 - Exposure Agent",
+    )
+  }, [t])
   const { projectId, runId } = Route.useParams()
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
@@ -139,36 +147,41 @@ function RunSourceComparison() {
     <div className="min-w-0 max-w-full space-y-6 overflow-hidden">
       <header className="space-y-2">
         <Link to="/" className="text-sm underline underline-offset-4">
-          Back to dashboard
+          {t("Back to dashboard", "返回仪表盘")}
         </Link>
         <h1 className="text-2xl font-bold tracking-tight">
-          Run source comparison
+          {t("Run source comparison", "运行来源比较")}
         </h1>
-        <p className="break-all text-sm">Run ID: {runId}</p>
+        <p className="break-all text-sm">
+          {t("Run ID", "运行 ID")}: {runId}
+        </p>
         <p className="break-all text-sm text-muted-foreground">
-          Project ID: {projectId}
+          {t("Project ID", "项目 ID")}: {projectId}
         </p>
         {ready && (
           <>
             <p className="break-all text-sm">
-              Report ID: {sources.governance_report_id}
+              {t("Report ID", "报告 ID")}: {sources.governance_report_id}
             </p>
             <Link
               to="/projects/$projectId/runs/$runId/lineage"
               params={{ projectId, runId }}
               className="inline-block text-sm underline underline-offset-4"
             >
-              Lineage
+              {t("Lineage", "血缘追溯")}
             </Link>
             <p className="break-all text-sm text-muted-foreground">
-              {sources.run_status} · Completed {sources.completed_at} ·{" "}
+              {translateValue(sources.run_status)} · {t("Completed", "完成于")}{" "}
+              {formatDate(sources.completed_at)} ·{" "}
               {sources.report_contract_version}
             </p>
           </>
         )}
         <p className="text-sm text-muted-foreground">
-          Published facts for this explicit historical Run, not the latest Run
-          or current inputs.
+          {t(
+            "Published facts for this explicit historical Run, not the latest Run or current inputs.",
+            "此处展示所选历史运行的已发布事实，而非最新运行或当前输入。",
+          )}
         </p>
       </header>
 
@@ -176,22 +189,36 @@ function RunSourceComparison() {
         <Alert variant="destructive">
           <AlertTitle className="line-clamp-none">
             {identityMismatch
-              ? "Run comparison identity mismatch"
+              ? t("Run comparison identity mismatch", "运行比较身份不匹配")
               : unavailable
-                ? "Run comparison unavailable or incompatible"
-                : "Run comparison request failed"}
+                ? t(
+                    "Run comparison unavailable or incompatible",
+                    "运行比较不可用或不兼容",
+                  )
+                : t("Run comparison request failed", "运行比较请求失败")}
           </AlertTitle>
           <AlertDescription>
             <p>
               {identityMismatch
-                ? "The responses do not identify the requested Run and the same Report version. No source or comparison facts are displayed."
+                ? t(
+                    "The responses do not identify the requested Run and the same Report version. No source or comparison facts are displayed.",
+                    "响应未指向所请求的运行和同一报告版本。不展示任何来源或比较事实。",
+                  )
                 : unavailable
-                  ? "This explicit Run is unavailable or incompatible with source comparison. No other Run has been substituted."
-                  : "The published facts could not be loaded. Please try again."}
+                  ? t(
+                      "This explicit Run is unavailable or incompatible with source comparison. No other Run has been substituted.",
+                      "所选运行不可用或不支持来源比较。未替换为其他运行。",
+                    )
+                  : t(
+                      "The published facts could not be loaded. Please try again.",
+                      "无法加载已发布事实，请重试。",
+                    )}
             </p>
             <p>
-              A failed request does not mean a source is ABSENT or an IP has
-              UNKNOWN status.
+              {t(
+                "A failed request does not mean a source is ABSENT or an IP has UNKNOWN status.",
+                "请求失败不代表来源未提供（ABSENT），也不代表 IP 状态未知（UNKNOWN）。",
+              )}
             </p>
             <Button
               type="button"
@@ -201,21 +228,28 @@ function RunSourceComparison() {
                 void comparisonQuery.refetch()
               }}
             >
-              Try again
+              {t("Try again", "重试")}
             </Button>
           </AlertDescription>
         </Alert>
       ) : !ready ? (
-        <p role="status">Loading Run source comparison…</p>
+        <p role="status">
+          {t("Loading Run source comparison…", "正在加载运行来源比较…")}
+        </p>
       ) : null}
 
-      <section aria-label="Source overview" className="min-w-0 space-y-3">
-        <h2 className="text-xl font-semibold">Source overview</h2>
+      <section
+        aria-label={t("Source overview", "来源概览")}
+        className="min-w-0 space-y-3"
+      >
+        <h2 className="text-xl font-semibold">
+          {t("Source overview", "来源概览")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          PRESENT means a source snapshot was published, including a snapshot
-          with 0 raw records. ABSENT means no snapshot was published for this
-          source in this Run; it is not a request failure. Raw record counts do
-          not measure positive activity or traffic volume.
+          {t(
+            "PRESENT means a source snapshot was published, including a snapshot with 0 raw records. ABSENT means no snapshot was published for this source in this Run; it is not a request failure. Raw record counts do not measure positive activity or traffic volume.",
+            "PRESENT 表示已发布来源快照，包括原始记录数为 0 的快照。ABSENT 表示本次运行未发布该来源的快照，并非请求失败。原始记录数不衡量有效活动或流量大小。",
+          )}
         </p>
         {ready && (
           <div className="grid min-w-0 gap-4 lg:grid-cols-3">
@@ -223,60 +257,85 @@ function RunSourceComparison() {
               <Card
                 key={source.source_type}
                 role="region"
-                aria-label={SOURCE_NAMES[source.source_type]}
+                aria-label={translateValue(SOURCE_NAMES[source.source_type])}
                 className="min-w-0"
               >
                 <CardHeader>
                   <CardTitle>
-                    <h3>{SOURCE_NAMES[source.source_type]}</h3>
+                    <h3>{translateValue(SOURCE_NAMES[source.source_type])}</h3>
                   </CardTitle>
                   <Badge
                     variant={
                       source.state === "PRESENT" ? "default" : "secondary"
                     }
                   >
-                    {source.state}
+                    {translateValue(source.state)}
                   </Badge>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
                   <dl className="space-y-2 [&_dd]:break-all [&_dt]:font-medium">
                     <div>
-                      <dt>Raw records</dt>
-                      <dd>{source.record_count ?? "Not available"}</dd>
+                      <dt>{t("Raw records", "原始记录数")}</dt>
+                      <dd>
+                        {source.record_count ?? t("Not available", "不可用")}
+                      </dd>
                     </div>
                     <div>
-                      <dt>Snapshot ID</dt>
-                      <dd>{source.snapshot_id ?? "Not available"}</dd>
+                      <dt>{t("Snapshot ID", "快照 ID")}</dt>
+                      <dd>
+                        {source.snapshot_id ?? t("Not available", "不可用")}
+                      </dd>
                     </div>
                     <div>
-                      <dt>Input ID</dt>
-                      <dd>{source.input_id ?? "Not available"}</dd>
+                      <dt>{t("Input ID", "输入 ID")}</dt>
+                      <dd>{source.input_id ?? t("Not available", "不可用")}</dd>
                     </div>
                     <div>
-                      <dt>Valid time start (UTC)</dt>
-                      <dd>{source.valid_time_start_utc ?? "Not available"}</dd>
+                      <dt>
+                        {t("Valid time start (UTC)", "有效时间起点（UTC）")}
+                      </dt>
+                      <dd>
+                        {source.valid_time_start_utc
+                          ? formatDate(source.valid_time_start_utc, "UTC")
+                          : t("Not available", "不可用")}
+                      </dd>
                     </div>
                     <div>
-                      <dt>Valid time end (UTC)</dt>
-                      <dd>{source.valid_time_end_utc ?? "Not available"}</dd>
+                      <dt>
+                        {t("Valid time end (UTC)", "有效时间终点（UTC）")}
+                      </dt>
+                      <dd>
+                        {source.valid_time_end_utc
+                          ? formatDate(source.valid_time_end_utc, "UTC")
+                          : t("Not available", "不可用")}
+                      </dd>
                     </div>
                   </dl>
                   <details>
                     <summary className="cursor-pointer">
-                      Hashes and fingerprints
+                      {t("Hashes and fingerprints", "哈希与指纹")}
                     </summary>
                     <dl className="mt-2 space-y-2 [&_dd]:break-all [&_dd]:font-mono [&_dd]:text-xs [&_dt]:font-medium">
                       <div>
-                        <dt>Content SHA-256</dt>
-                        <dd>{source.content_sha256 ?? "Not available"}</dd>
+                        <dt>{t("Content SHA-256", "内容 SHA-256")}</dt>
+                        <dd>
+                          {source.content_sha256 ??
+                            t("Not available", "不可用")}
+                        </dd>
                       </div>
                       <div>
-                        <dt>Schema fingerprint</dt>
-                        <dd>{source.schema_fingerprint ?? "Not available"}</dd>
+                        <dt>{t("Schema fingerprint", "结构指纹")}</dt>
+                        <dd>
+                          {source.schema_fingerprint ??
+                            t("Not available", "不可用")}
+                        </dd>
                       </div>
                       <div>
-                        <dt>Method fingerprint</dt>
-                        <dd>{source.method_fingerprint ?? "Not available"}</dd>
+                        <dt>{t("Method fingerprint", "方法指纹")}</dt>
+                        <dd>
+                          {source.method_fingerprint ??
+                            t("Not available", "不可用")}
+                        </dd>
                       </div>
                     </dl>
                   </details>
@@ -287,19 +346,24 @@ function RunSourceComparison() {
         )}
       </section>
 
-      <section aria-label="IP source comparison" className="min-w-0 space-y-4">
-        <h2 className="text-xl font-semibold">IP source comparison</h2>
+      <section
+        aria-label={t("IP source comparison", "IP 来源比较")}
+        className="min-w-0 space-y-4"
+      >
+        <h2 className="text-xl font-semibold">
+          {t("IP source comparison", "IP 来源比较")}
+        </h2>
         <p className="text-sm text-muted-foreground">
-          Observed / Not observed describes evidence in the CustomerUpload and
-          CloudAtlas snapshots. NetFlow ACTIVE means positive activity was
-          observed. UNKNOWN means no positive activity evidence; it does not
-          mean the IP is nonexistent, has zero traffic, or has zero risk.
+          {t(
+            "Observed / Not observed describes evidence in the CustomerUpload and CloudAtlas snapshots. NetFlow ACTIVE means positive activity was observed. UNKNOWN means no positive activity evidence; it does not mean the IP is nonexistent, has zero traffic, or has zero risk.",
+            "已观测 / 未观测描述客户上传和 CloudAtlas 快照中的证据。NetFlow ACTIVE 表示观测到有效活动。UNKNOWN 表示没有有效活动证据，不代表 IP 不存在、流量为零或风险为零。",
+          )}
         </p>
         <div className="flex flex-wrap gap-3">
           <label className="grid min-w-0 max-w-full gap-1 text-sm">
-            Classification
+            {t("Classification", "分类")}
             <select
-              aria-label="Classification"
+              aria-label={t("Classification", "分类")}
               className="h-9 min-w-0 max-w-full rounded-md border bg-background px-3"
               value={search.classification ?? ""}
               onChange={(event) => {
@@ -311,18 +375,18 @@ function RunSourceComparison() {
                 })
               }}
             >
-              <option value="">All classifications</option>
+              <option value="">{t("All classifications", "全部分类")}</option>
               {CLASSIFICATIONS.map((value) => (
                 <option key={value} value={value}>
-                  {value}
+                  {translateValue(value)}
                 </option>
               ))}
             </select>
           </label>
           <label className="grid min-w-0 max-w-full gap-1 text-sm">
-            NetFlow status
+            {t("NetFlow status", "NetFlow 状态")}
             <select
-              aria-label="NetFlow status"
+              aria-label={t("NetFlow status", "NetFlow 状态")}
               className="h-9 min-w-0 max-w-full rounded-md border bg-background px-3"
               value={search.netflow_status ?? ""}
               onChange={(event) => {
@@ -334,10 +398,12 @@ function RunSourceComparison() {
                 })
               }}
             >
-              <option value="">All NetFlow statuses</option>
+              <option value="">
+                {t("All NetFlow statuses", "全部 NetFlow 状态")}
+              </option>
               {NETFLOW_STATUSES.map((value) => (
                 <option key={value} value={value}>
-                  {value}
+                  {translateValue(value)}
                 </option>
               ))}
             </select>
@@ -347,12 +413,14 @@ function RunSourceComparison() {
           <>
             {comparison.data.length === 0 ? (
               <p role="status" className="text-sm text-muted-foreground">
-                No IP source comparisons match this Run and filters. This does
-                not establish zero traffic or zero risk.
+                {t(
+                  "No IP source comparisons match this Run and filters. This does not establish zero traffic or zero risk.",
+                  "没有符合此运行和筛选条件的 IP 来源比较结果。这不代表流量为零或风险为零。",
+                )}
               </p>
             ) : (
               <section
-                aria-label="IP source comparison table"
+                aria-label={t("IP source comparison table", "IP 来源比较表")}
                 // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users must be able to scroll the matrix horizontally.
                 tabIndex={0}
                 className="max-w-full overflow-x-auto rounded-lg focus-visible:outline-2 focus-visible:outline-ring [&>[data-slot=table-container]]:overflow-visible"
@@ -360,12 +428,20 @@ function RunSourceComparison() {
                 <Table className="min-w-[700px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead scope="col">Canonical IP</TableHead>
-                      <TableHead scope="col">CustomerUpload</TableHead>
+                      <TableHead scope="col">
+                        {t("Canonical IP", "规范化 IP")}
+                      </TableHead>
+                      <TableHead scope="col">
+                        {translateValue("CustomerUpload")}
+                      </TableHead>
                       <TableHead scope="col">CloudAtlas</TableHead>
                       <TableHead scope="col">NetFlow</TableHead>
-                      <TableHead scope="col">Classification</TableHead>
-                      <TableHead scope="col">Lineage</TableHead>
+                      <TableHead scope="col">
+                        {t("Classification", "分类")}
+                      </TableHead>
+                      <TableHead scope="col">
+                        {t("Lineage", "血缘追溯")}
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -376,28 +452,35 @@ function RunSourceComparison() {
                         </TableCell>
                         <TableCell>
                           {row.customer_upload_present
-                            ? "Observed"
-                            : "Not observed"}
+                            ? t("Observed", "已观测")
+                            : t("Not observed", "未观测")}
                         </TableCell>
                         <TableCell>
-                          {row.cloudatlas_present ? "Observed" : "Not observed"}
+                          {row.cloudatlas_present
+                            ? t("Observed", "已观测")
+                            : t("Not observed", "未观测")}
                         </TableCell>
                         <TableCell>
-                          {row.netflow_status}
+                          {translateValue(row.netflow_status)}
                           <p className="max-w-64 whitespace-normal text-xs text-muted-foreground">
-                            {row.netflow_reason}
+                            {translateValue(row.netflow_reason)}
                           </p>
                         </TableCell>
-                        <TableCell>{row.classification}</TableCell>
+                        <TableCell>
+                          {translateValue(row.classification)}
+                        </TableCell>
                         <TableCell>
                           <Link
                             to="/projects/$projectId/runs/$runId/lineage"
                             params={{ projectId, runId }}
                             search={{ resource_id: row.resource_id }}
-                            aria-label={`Trace asset ${row.canonical_ip}`}
+                            aria-label={t(
+                              `Trace asset ${row.canonical_ip}`,
+                              `追溯资产 ${row.canonical_ip}`,
+                            )}
                             className="underline underline-offset-4"
                           >
-                            Trace asset
+                            {t("Trace asset", "追溯资产")}
                           </Link>
                         </TableCell>
                       </TableRow>

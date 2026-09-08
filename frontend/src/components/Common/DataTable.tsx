@@ -28,6 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { useI18n } from "@/lib/i18n"
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
@@ -38,6 +39,7 @@ export function DataTable<TData, TValue>({
   columns,
   data,
 }: DataTableProps<TData, TValue>) {
+  const { t } = useI18n()
   const table = useReactTable({
     data,
     columns,
@@ -83,7 +85,7 @@ export function DataTable<TData, TValue>({
                 colSpan={columns.length}
                 className="h-32 text-center text-muted-foreground"
               >
-                No results found.
+                {t("No results found.", "未找到结果。")}
               </TableCell>
             </TableRow>
           )}
@@ -94,29 +96,25 @@ export function DataTable<TData, TValue>({
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 border-t bg-muted/20">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="text-sm text-muted-foreground">
-              Showing{" "}
-              {table.getState().pagination.pageIndex *
-                table.getState().pagination.pageSize +
-                1}{" "}
-              to{" "}
-              {Math.min(
-                (table.getState().pagination.pageIndex + 1) *
-                  table.getState().pagination.pageSize,
-                data.length,
-              )}{" "}
-              of{" "}
-              <span className="font-medium text-foreground">{data.length}</span>{" "}
-              entries
+              {t(
+                `Showing ${table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1} to ${Math.min((table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize, data.length)} of ${data.length} entries`,
+                `显示第 ${table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}–${Math.min((table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize, data.length)} 条，共 ${data.length} 条`,
+              )}
             </div>
             <div className="flex items-center gap-x-2">
-              <p className="text-sm text-muted-foreground">Rows per page</p>
+              <p className="text-sm text-muted-foreground">
+                {t("Rows per page", "每页条数")}
+              </p>
               <Select
                 value={`${table.getState().pagination.pageSize}`}
                 onValueChange={(value) => {
                   table.setPageSize(Number(value))
                 }}
               >
-                <SelectTrigger className="h-8 w-[70px]">
+                <SelectTrigger
+                  className="h-8 w-[70px]"
+                  aria-label={t("Rows per page", "每页条数")}
+                >
                   <SelectValue
                     placeholder={table.getState().pagination.pageSize}
                   />
@@ -134,14 +132,10 @@ export function DataTable<TData, TValue>({
 
           <div className="flex items-center gap-x-6">
             <div className="flex items-center gap-x-1 text-sm text-muted-foreground">
-              <span>Page</span>
-              <span className="font-medium text-foreground">
-                {table.getState().pagination.pageIndex + 1}
-              </span>
-              <span>of</span>
-              <span className="font-medium text-foreground">
-                {table.getPageCount()}
-              </span>
+              {t(
+                `Page ${table.getState().pagination.pageIndex + 1} of ${table.getPageCount()}`,
+                `第 ${table.getState().pagination.pageIndex + 1} 页，共 ${table.getPageCount()} 页`,
+              )}
             </div>
 
             <div className="flex items-center gap-x-1">
@@ -152,7 +146,9 @@ export function DataTable<TData, TValue>({
                 onClick={() => table.setPageIndex(0)}
                 disabled={!table.getCanPreviousPage()}
               >
-                <span className="sr-only">Go to first page</span>
+                <span className="sr-only">
+                  {t("Go to first page", "转到第一页")}
+                </span>
                 <ChevronsLeft className="h-4 w-4" />
               </Button>
               <Button
@@ -162,7 +158,9 @@ export function DataTable<TData, TValue>({
                 onClick={() => table.previousPage()}
                 disabled={!table.getCanPreviousPage()}
               >
-                <span className="sr-only">Go to previous page</span>
+                <span className="sr-only">
+                  {t("Go to previous page", "转到上一页")}
+                </span>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Button
@@ -172,7 +170,9 @@ export function DataTable<TData, TValue>({
                 onClick={() => table.nextPage()}
                 disabled={!table.getCanNextPage()}
               >
-                <span className="sr-only">Go to next page</span>
+                <span className="sr-only">
+                  {t("Go to next page", "转到下一页")}
+                </span>
                 <ChevronRight className="h-4 w-4" />
               </Button>
               <Button
@@ -182,7 +182,9 @@ export function DataTable<TData, TValue>({
                 onClick={() => table.setPageIndex(table.getPageCount() - 1)}
                 disabled={!table.getCanNextPage()}
               >
-                <span className="sr-only">Go to last page</span>
+                <span className="sr-only">
+                  {t("Go to last page", "转到最后一页")}
+                </span>
                 <ChevronsRight className="h-4 w-4" />
               </Button>
             </div>

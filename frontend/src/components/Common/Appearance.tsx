@@ -13,6 +13,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useI18n } from "@/lib/i18n"
 
 type LucideIcon = React.FC<React.SVGProps<SVGSVGElement>>
 
@@ -23,6 +24,7 @@ const ICON_MAP: Record<Theme, LucideIcon> = {
 }
 
 export const SidebarAppearance = () => {
+  const { t } = useI18n()
   const { isMobile } = useSidebar()
   const { setTheme, theme } = useTheme()
   const Icon = ICON_MAP[theme]
@@ -31,10 +33,13 @@ export const SidebarAppearance = () => {
     <SidebarMenuItem>
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <SidebarMenuButton tooltip="Appearance" data-testid="theme-button">
+          <SidebarMenuButton
+            tooltip={t("Appearance", "外观")}
+            data-testid="theme-button"
+          >
             <Icon className="size-4 text-muted-foreground" />
-            <span>Appearance</span>
-            <span className="sr-only">Toggle theme</span>
+            <span>{t("Appearance", "外观")}</span>
+            <span className="sr-only">{t("Toggle theme", "切换主题")}</span>
           </SidebarMenuButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -47,18 +52,18 @@ export const SidebarAppearance = () => {
             onClick={() => setTheme("light")}
           >
             <Sun className="mr-2 h-4 w-4" />
-            Light
+            {t("Light", "浅色")}
           </DropdownMenuItem>
           <DropdownMenuItem
             data-testid="dark-mode"
             onClick={() => setTheme("dark")}
           >
             <Moon className="mr-2 h-4 w-4" />
-            Dark
+            {t("Dark", "深色")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setTheme("system")}>
             <Monitor className="mr-2 h-4 w-4" />
-            System
+            {t("System", "跟随系统")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -67,6 +72,7 @@ export const SidebarAppearance = () => {
 }
 
 export const Appearance = () => {
+  const { t } = useI18n()
   const { setTheme } = useTheme()
 
   return (
@@ -76,7 +82,7 @@ export const Appearance = () => {
           <Button data-testid="theme-button" variant="outline" size="icon">
             <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
             <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-            <span className="sr-only">Toggle theme</span>
+            <span className="sr-only">{t("Toggle theme", "切换主题")}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -85,18 +91,18 @@ export const Appearance = () => {
             onClick={() => setTheme("light")}
           >
             <Sun className="mr-2 h-4 w-4" />
-            Light
+            {t("Light", "浅色")}
           </DropdownMenuItem>
           <DropdownMenuItem
             data-testid="dark-mode"
             onClick={() => setTheme("dark")}
           >
             <Moon className="mr-2 h-4 w-4" />
-            Dark
+            {t("Dark", "深色")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setTheme("system")}>
             <Monitor className="mr-2 h-4 w-4" />
-            System
+            {t("System", "跟随系统")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

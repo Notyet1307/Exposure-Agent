@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import useAuth from "@/hooks/useAuth"
+import { useI18n } from "@/lib/i18n"
 
 const UPLOAD_PAGE_SIZE = 10
 const PROJECT_PAGE_SIZE = 100
@@ -116,13 +117,14 @@ function WarningSummary({
 }: {
   warnings: CustomerUploadWarningPublic[]
 }) {
+  const { t, translateValue } = useI18n()
   if (warnings.length === 0)
-    return <span className="text-muted-foreground">None</span>
+    return <span className="text-muted-foreground">{t("None", "无")}</span>
   return (
     <ul className="space-y-1">
       {warnings.map((warning) => (
         <li key={`${warning.code}-${warning.field ?? "none"}`}>
-          {warning.code}
+          {translateValue(warning.code)}
           {warning.field ? ` (${warning.field})` : ""}: {warning.count}
         </li>
       ))}
@@ -143,23 +145,26 @@ function UploadRows({
   selectingUploadId: string | null
   onSelect: (uploadId: string) => void
 }) {
+  const { t, formatDate } = useI18n()
   if (uploads.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">No accepted uploads yet.</p>
+      <p className="text-sm text-muted-foreground">
+        {t("No accepted uploads yet.", "尚无已接受的上传。")}
+      </p>
     )
   }
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>File</TableHead>
+          <TableHead>{t("File", "文件")}</TableHead>
           <TableHead>SHA-256</TableHead>
-          <TableHead>Records</TableHead>
-          <TableHead>Profile</TableHead>
-          <TableHead>Warnings</TableHead>
-          <TableHead>Accepted</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Action</TableHead>
+          <TableHead>{t("Records", "记录数")}</TableHead>
+          <TableHead>{t("Profile", "配置")}</TableHead>
+          <TableHead>{t("Warnings", "警告")}</TableHead>
+          <TableHead>{t("Accepted", "接受时间")}</TableHead>
+          <TableHead>{t("Status", "状态")}</TableHead>
+          <TableHead>{t("Action", "操作")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -183,14 +188,14 @@ function UploadRows({
               <TableCell className="whitespace-normal">
                 <WarningSummary warnings={upload.warnings} />
               </TableCell>
-              <TableCell>
-                {new Date(upload.created_at).toLocaleString()}
-              </TableCell>
+              <TableCell>{formatDate(upload.created_at)}</TableCell>
               <TableCell>
                 {isCurrent ? (
-                  <Badge>Current</Badge>
+                  <Badge>{t("Current", "当前")}</Badge>
                 ) : (
-                  <span className="text-muted-foreground">Available</span>
+                  <span className="text-muted-foreground">
+                    {t("Available", "可用")}
+                  </span>
                 )}
               </TableCell>
               <TableCell>
@@ -203,7 +208,7 @@ function UploadRows({
                     disabled={selectingUploadId !== null}
                     onClick={() => onSelect(upload.id)}
                   >
-                    设为当前输入
+                    {t("Set as current input", "设为当前输入")}
                   </LoadingButton>
                 )}
               </TableCell>
@@ -216,8 +221,10 @@ function UploadRows({
 }
 
 function ProjectInputs({ project }: { project: ProjectPublic }) {
+  const { t, message } = useI18n()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const [fileMessage, setFileMessage] = useState<string | null>(null)
   const [selectionMessage, setSelectionMessage] = useState<string | null>(null)
@@ -253,6 +260,7 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
     onSuccess: async () => {
       setFileMessage("Upload accepted successfully.")
       if (fileInputRef.current) fileInputRef.current.value = ""
+      setSelectedFilename(null)
       setPage(0)
       await queryClient.invalidateQueries({
         queryKey: ["customer-uploads", project.id],
@@ -282,14 +290,20 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
   })
 
   if (profileQuery.isPending || uploadsQuery.isPending) {
-    return <p role="status">Loading Project inputs…</p>
+    return (
+      <p role="status">{t("Loading Project inputs…", "正在加载项目输入…")}</p>
+    )
   }
   if (profileQuery.isError || uploadsQuery.isError) {
     return (
       <Alert variant="destructive">
         <AlertCircle />
-        <AlertTitle>Project inputs could not be loaded</AlertTitle>
-        <AlertDescription>Please try again later.</AlertDescription>
+        <AlertTitle>
+          {t("Project inputs could not be loaded", "无法加载项目输入")}
+        </AlertTitle>
+        <AlertDescription>
+          {t("Please try again later.", "请稍后重试。")}
+        </AlertDescription>
       </Alert>
     )
   }
@@ -315,33 +329,38 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       {project.archived_at && (
         <Alert>
           <Archive />
-          <AlertTitle>Archived Project</AlertTitle>
+          <AlertTitle>{t("Archived Project", "已归档项目")}</AlertTitle>
           <AlertDescription>
-            Existing inputs remain visible, but this Project cannot accept
-            uploads.
+            {t(
+              "Existing inputs remain visible, but this Project cannot accept uploads.",
+              "现有输入仍可查看，但此项目不再接受上传。",
+            )}
           </AlertDescription>
         </Alert>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Current CustomerUpload Profile</CardTitle>
+          <CardTitle>
+            {t("Current CustomerUpload Profile", "当前客户上传配置")}
+          </CardTitle>
           <CardDescription>
-            Profile ID <span className="font-mono">{profile.id}</span> · Version{" "}
-            {profile.version}
+            {t("Profile ID", "配置 ID")}{" "}
+            <span className="font-mono">{profile.id}</span> ·{" "}
+            {t("Version", "版本")} {profile.version}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 md:grid-cols-3">
           <HeaderList
-            title="Required headers"
+            title={t("Required headers", "必需表头")}
             headers={profile.required_headers}
           />
           <HeaderList
-            title="Warning headers"
+            title={t("Warning headers", "警告表头")}
             headers={profile.warning_headers}
           />
           <HeaderList
-            title="Optional headers"
+            title={t("Optional headers", "可选表头")}
             headers={profile.optional_headers}
           />
         </CardContent>
@@ -349,15 +368,18 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Current Project input</CardTitle>
+          <CardTitle>{t("Current Project input", "项目当前输入")}</CardTitle>
           <CardDescription>
-            Governance uses one explicitly selected accepted CustomerUpload.
+            {t(
+              "Governance uses one explicitly selected accepted CustomerUpload.",
+              "治理使用一个明确选定且已接受的客户上传。",
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {uploads.current_customer_upload_id ? (
             <p>
-              Current CustomerUpload ID{" "}
+              {t("Current CustomerUpload ID", "当前客户上传 ID")}{" "}
               <span className="break-all font-mono text-sm">
                 {uploads.current_customer_upload_id}
               </span>
@@ -365,15 +387,18 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
           ) : (
             <Alert>
               <AlertCircle />
-              <AlertTitle>Not ready</AlertTitle>
+              <AlertTitle>{t("Not ready", "尚未就绪")}</AlertTitle>
               <AlertDescription>
-                Project input is not ready. Select one accepted CustomerUpload.
+                {t(
+                  "Project input is not ready. Select one accepted CustomerUpload.",
+                  "项目输入尚未就绪。请选择一个已接受的客户上传。",
+                )}
               </AlertDescription>
             </Alert>
           )}
           {selectionMessage && (
             <p className="text-sm" role="status">
-              {selectionMessage}
+              {message(selectionMessage)}
             </p>
           )}
         </CardContent>
@@ -382,10 +407,12 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       {uploads.can_upload ? (
         <Card>
           <CardHeader>
-            <CardTitle>Upload XLSX</CardTitle>
+            <CardTitle>{t("Upload XLSX", "上传 XLSX")}</CardTitle>
             <CardDescription>
-              Choose one .xlsx file. The server performs all authoritative
-              validation.
+              {t(
+                "Choose one .xlsx file. The server performs all authoritative validation.",
+                "请选择一个 .xlsx 文件。服务器执行所有权威校验。",
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -394,24 +421,44 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
               onSubmit={submitUpload}
             >
               <div className="flex-1 space-y-2">
-                <Label htmlFor="customer-upload">XLSX file</Label>
-                <Input
-                  ref={fileInputRef}
-                  id="customer-upload"
-                  name="file"
-                  type="file"
-                  accept=".xlsx"
-                  disabled={uploadMutation.isPending}
-                />
+                <Label htmlFor="customer-upload">
+                  {t("XLSX file", "XLSX 文件")}
+                </Label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    ref={fileInputRef}
+                    id="customer-upload"
+                    name="file"
+                    type="file"
+                    accept=".xlsx"
+                    className="sr-only"
+                    tabIndex={-1}
+                    disabled={uploadMutation.isPending}
+                    onChange={(event) =>
+                      setSelectedFilename(event.target.files?.[0]?.name ?? null)
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={uploadMutation.isPending}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {t("Choose file", "选择文件")}
+                  </Button>
+                  <span className="min-w-0 break-all text-sm">
+                    {selectedFilename ?? t("No file chosen", "未选择文件")}
+                  </span>
+                </div>
               </div>
               <LoadingButton type="submit" loading={uploadMutation.isPending}>
                 <Upload />
-                Upload
+                {t("Upload", "上传")}
               </LoadingButton>
             </form>
             {fileMessage && (
               <p className="mt-3 text-sm" role="status">
-                {fileMessage}
+                {message(fileMessage)}
               </p>
             )}
           </CardContent>
@@ -419,15 +466,20 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       ) : (
         !project.archived_at && (
           <p className="text-sm text-muted-foreground">
-            You have read-only access to CustomerUpload inputs for this Project.
+            {t(
+              "You have read-only access to CustomerUpload inputs for this Project.",
+              "您对此项目的客户上传输入仅有只读权限。",
+            )}
           </p>
         )
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Accepted uploads</CardTitle>
-          <CardDescription>{uploads.count} total</CardDescription>
+          <CardTitle>{t("Accepted uploads", "已接受的上传")}</CardTitle>
+          <CardDescription>
+            {t(`${uploads.count} total`, `共 ${uploads.count} 项`)}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <UploadRows
@@ -452,16 +504,18 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
                 disabled={!canGoBack}
                 onClick={() => setPage((current) => current - 1)}
               >
-                Previous
+                {t("Previous", "上一页")}
               </Button>
-              <span className="text-sm">Page {page + 1}</span>
+              <span className="text-sm">
+                {t(`Page ${page + 1}`, `第 ${page + 1} 页`)}
+              </span>
               <Button
                 type="button"
                 variant="outline"
                 disabled={!canGoForward}
                 onClick={() => setPage((current) => current + 1)}
               >
-                Next
+                {t("Next", "下一页")}
               </Button>
             </div>
           )}
@@ -472,15 +526,16 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
 }
 
 function ProjectWorkspace({ project }: { project: ProjectPublic }) {
+  const { t } = useI18n()
   return (
     <Tabs defaultValue="inputs" className="space-y-4">
       <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 md:w-fit">
-        <TabsTrigger value="inputs">Inputs</TabsTrigger>
+        <TabsTrigger value="inputs">{t("Inputs", "输入")}</TabsTrigger>
         <TabsTrigger value="cloudatlas">CloudAtlas</TabsTrigger>
-        <TabsTrigger value="runs">Runs</TabsTrigger>
-        <TabsTrigger value="assets">Assets</TabsTrigger>
-        <TabsTrigger value="findings">Findings</TabsTrigger>
-        <TabsTrigger value="reports">Reports</TabsTrigger>
+        <TabsTrigger value="runs">{t("Runs", "运行")}</TabsTrigger>
+        <TabsTrigger value="assets">{t("Assets", "资产")}</TabsTrigger>
+        <TabsTrigger value="findings">{t("Findings", "发现项")}</TabsTrigger>
+        <TabsTrigger value="reports">{t("Reports", "报告")}</TabsTrigger>
       </TabsList>
       <TabsContent value="inputs">
         <ProjectInputs project={project} />
@@ -509,6 +564,13 @@ function ProjectWorkspace({ project }: { project: ProjectPublic }) {
 }
 
 function Dashboard() {
+  const { t } = useI18n()
+  useEffect(() => {
+    document.title = t(
+      "Project inputs - Exposure Agent",
+      "项目输入 - Exposure Agent",
+    )
+  }, [t])
   const { user: currentUser } = useAuth()
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null,
@@ -530,25 +592,35 @@ function Dashboard() {
     }
   }, [projectsQuery.data, selectedProjectId])
 
-  if (projectsQuery.isPending) return <p role="status">Loading Projects…</p>
+  if (projectsQuery.isPending)
+    return <p role="status">{t("Loading Projects…", "正在加载项目…")}</p>
   if (projectsQuery.isError) {
     return (
       <Alert variant="destructive">
         <AlertCircle />
-        <AlertTitle>Projects could not be loaded</AlertTitle>
-        <AlertDescription>Please try again later.</AlertDescription>
+        <AlertTitle>
+          {t("Projects could not be loaded", "无法加载项目")}
+        </AlertTitle>
+        <AlertDescription>
+          {t("Please try again later.", "请稍后重试。")}
+        </AlertDescription>
       </Alert>
     )
   }
   if (projectsQuery.data.data.length === 0) {
     return (
       <div className="space-y-2">
-        <h1 className="text-2xl font-bold tracking-tight">Project inputs</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          {t("Project inputs", "项目输入")}
+        </h1>
         <p className="text-muted-foreground">
-          Welcome back, nice to see you again!
+          {t(
+            "Welcome back, nice to see you again!",
+            "欢迎回来，很高兴再次见到您！",
+          )}
         </p>
         <p className="text-muted-foreground">
-          No accessible Projects are available.
+          {t("No accessible Projects are available.", "暂无可访问的项目。")}
         </p>
       </div>
     )
@@ -562,17 +634,24 @@ function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Project workspace</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          {t("Project workspace", "项目工作区")}
+        </h1>
         <p className="text-muted-foreground">
-          Welcome back, nice to see you again! Select a Project to manage its
-          inputs, sources, Runs, Assets, Findings, and Reports.
+          {t(
+            "Welcome back, nice to see you again! Select a Project to manage its inputs, sources, Runs, Assets, Findings, and Reports.",
+            "欢迎回来，很高兴再次见到您！选择项目以管理其输入、来源、运行、资产、发现项和报告。",
+          )}
           {currentUser?.full_name
-            ? ` Signed in as ${currentUser.full_name}.`
+            ? t(
+                ` Signed in as ${currentUser.full_name}.`,
+                ` 当前登录：${currentUser.full_name}。`,
+              )
             : ""}
         </p>
       </div>
       <div className="max-w-md space-y-2">
-        <Label id="project-label">Project</Label>
+        <Label id="project-label">{t("Project", "项目")}</Label>
         <Select value={selectedProject.id} onValueChange={setSelectedProjectId}>
           <SelectTrigger className="w-full" aria-labelledby="project-label">
             <SelectValue />
@@ -581,7 +660,7 @@ function Dashboard() {
             {projectsQuery.data.data.map((project) => (
               <SelectItem key={project.id} value={project.id}>
                 {project.name}
-                {project.archived_at ? " (Archived)" : ""}
+                {project.archived_at ? t(" (Archived)", "（已归档）") : ""}
               </SelectItem>
             ))}
           </SelectContent>

@@ -17,6 +17,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import useAuth from "@/hooks/useAuth"
+import { useI18n } from "@/lib/i18n"
 import { getInitials } from "@/utils"
 
 interface UserInfoProps {
@@ -25,11 +26,12 @@ interface UserInfoProps {
 }
 
 function UserInfo({ fullName, email }: UserInfoProps) {
+  const { t } = useI18n()
   return (
     <div className="flex items-center gap-2.5 w-full min-w-0">
       <Avatar className="size-8">
         <AvatarFallback className="bg-zinc-600 text-white">
-          {getInitials(fullName || "User")}
+          {fullName ? getInitials(fullName) : t("U", "用")}
         </AvatarFallback>
       </Avatar>
       <div className="flex flex-col items-start min-w-0">
@@ -41,6 +43,7 @@ function UserInfo({ fullName, email }: UserInfoProps) {
 }
 
 export function User({ user }: { user: any }) {
+  const { t } = useI18n()
   const { logout } = useAuth()
   const { isMobile, setOpenMobile } = useSidebar()
 
@@ -64,6 +67,7 @@ export function User({ user }: { user: any }) {
               size="lg"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
               data-testid="user-menu"
+              aria-label={t("User menu", "用户菜单")}
             >
               <UserInfo fullName={user?.full_name} email={user?.email} />
               <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
@@ -82,12 +86,12 @@ export function User({ user }: { user: any }) {
             <RouterLink to="/settings" onClick={handleMenuClick}>
               <DropdownMenuItem>
                 <Settings />
-                User Settings
+                {t("User Settings", "用户设置")}
               </DropdownMenuItem>
             </RouterLink>
             <DropdownMenuItem onClick={handleLogout}>
               <LogOut />
-              Log Out
+              {t("Log Out", "退出登录")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
