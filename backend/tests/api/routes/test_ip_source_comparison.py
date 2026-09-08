@@ -14,6 +14,7 @@ from sqlalchemy import event
 from sqlmodel import Session, col, delete, select, update
 
 from app.api.deps import get_db
+from app.api.routes.ip_results import _finding_read_session
 from app.core.db import engine
 from app.domain.cloudatlas_sources import OctobusCloudAtlasClient
 from app.domain.governance_runs import pinned_inputs_for_run
@@ -223,9 +224,7 @@ def test_all_combinations_are_scoped_ordered_read_only_and_historically_stable(
     assert result.output_hash == _hash(
         result.model_dump(mode="json", exclude={"output_hash"})
     )
-    run_result_url = (
-        f"/api/v1/projects/{project_id}/governance-runs/{run.id}"
-    )
+    run_result_url = f"/api/v1/projects/{project_id}/governance-runs/{run.id}"
     baseline_comparison_response = client.get(
         f"{run_result_url}/ip-source-comparisons", headers=superuser_token_headers
     )
@@ -351,7 +350,9 @@ def test_supported_input_states_and_rerun_identity(
         )
     ).one_or_none()
     assert netflow["state"] == ("ABSENT" if snapshot is None else "PRESENT")
-    assert netflow["record_count"] == (None if snapshot is None else snapshot.record_count)
+    assert netflow["record_count"] == (
+        None if snapshot is None else snapshot.record_count
+    )
     original_comparison_response = comparison_response.json()
     original_sources_response = sources_response.json()
     _start_rerun(
@@ -382,9 +383,7 @@ def test_supported_input_states_and_rerun_identity(
         == original_comparison_response
     )
     assert (
-        client.get(
-            f"{run_result_url}/sources", headers=superuser_token_headers
-        ).json()
+        client.get(f"{run_result_url}/sources", headers=superuser_token_headers).json()
         == original_sources_response
     )
 
@@ -611,9 +610,7 @@ def test_scope_isolation_and_warning_success(
         app.dependency_overrides[get_db] = override_db
         try:
             url = f"/api/v1/projects/{run.project_id}/governance-runs/{run.id}"
-            sources = client.get(
-                f"{url}/sources", headers=superuser_token_headers
-            )
+            sources = client.get(f"{url}/sources", headers=superuser_token_headers)
             comparisons = client.get(
                 f"{url}/ip-source-comparisons", headers=superuser_token_headers
             )
@@ -798,9 +795,7 @@ def test_ip_source_comparison_filters_before_stable_pagination(
         "192.0.2.2",
         "2001:db8::1",
     ]
-    assert [item["canonical_ip"] for item in second.json()["data"]] == [
-        "2001:db8::2"
-    ]
+    assert [item["canonical_ip"] for item in second.json()["data"]] == ["2001:db8::2"]
     matched = client.get(
         url,
         headers=superuser_token_headers,
@@ -812,16 +807,22 @@ def test_ip_source_comparison_filters_before_stable_pagination(
         "192.0.2.2",
         "192.0.2.10",
     ]
-    assert client.get(
-        url,
-        headers=superuser_token_headers,
-        params={"classification": "invalid"},
-    ).status_code == 422
-    assert client.get(
-        url,
-        headers=superuser_token_headers,
-        params={"netflow_status": "active"},
-    ).status_code == 422
+    assert (
+        client.get(
+            url,
+            headers=superuser_token_headers,
+            params={"classification": "invalid"},
+        ).status_code
+        == 422
+    )
+    assert (
+        client.get(
+            url,
+            headers=superuser_token_headers,
+            params={"netflow_status": "active"},
+        ).status_code
+        == 422
+    )
 
 
 @pytest.mark.parametrize("comparison_run", ["empty"], indirect=True)
@@ -985,9 +986,11 @@ def test_run_result_reads_fail_closed(
             yield session
 
         previous = app.dependency_overrides.get(get_db)
+        previous_lineage = app.dependency_overrides.get(_finding_read_session)
+        app.dependency_overrides[_finding_read_session] = override_db
         app.dependency_overrides[get_db] = override_db
         try:
-            for suffix in ("sources", "ip-source-comparisons"):
+            for suffix in ("sources", "ip-source-comparisons", "lineage"):
                 response = client.get(
                     f"/api/v1/projects/{run.project_id}/governance-runs/{run.id}/{suffix}",
                     headers=superuser_token_headers,
@@ -1002,6 +1005,10 @@ def test_run_result_reads_fail_closed(
                 app.dependency_overrides.pop(get_db, None)
             else:
                 app.dependency_overrides[get_db] = previous
+            if previous_lineage is None:
+                app.dependency_overrides.pop(_finding_read_session, None)
+            else:
+                app.dependency_overrides[_finding_read_session] = previous_lineage
             session.rollback()
 
 
@@ -1019,9 +1026,7 @@ def test_historical_v1_without_activity_receipt_is_incompatible(
         stored_run = session.get(GovernanceRun, run.id)
         assert stored_run is not None
         report = session.exec(
-            select(GovernanceReport).where(
-                GovernanceReport.governance_run_id == run.id
-            )
+            select(GovernanceReport).where(GovernanceReport.governance_run_id == run.id)
         ).one()
         audit = session.exec(
             select(AuditEvent).where(
@@ -1087,9 +1092,11 @@ def test_historical_v1_without_activity_receipt_is_incompatible(
             yield session
 
         previous = app.dependency_overrides.get(get_db)
+        previous_lineage = app.dependency_overrides.get(_finding_read_session)
+        app.dependency_overrides[_finding_read_session] = override_db
         app.dependency_overrides[get_db] = override_db
         try:
-            for suffix in ("sources", "ip-source-comparisons"):
+            for suffix in ("sources", "ip-source-comparisons", "lineage"):
                 response = client.get(
                     f"/api/v1/projects/{run.project_id}/governance-runs/{run.id}/{suffix}",
                     headers=superuser_token_headers,
@@ -1100,6 +1107,10 @@ def test_historical_v1_without_activity_receipt_is_incompatible(
                 app.dependency_overrides.pop(get_db, None)
             else:
                 app.dependency_overrides[get_db] = previous
+            if previous_lineage is None:
+                app.dependency_overrides.pop(_finding_read_session, None)
+            else:
+                app.dependency_overrides[_finding_read_session] = previous_lineage
             session.rollback()
 
 
@@ -1109,23 +1120,17 @@ def test_openapi_exposes_explicit_run_result_contracts(client: TestClient) -> No
     document = response.json()
     run_path = "/api/v1/projects/{project_id}/governance-runs/{governance_run_id}"
     assert set(document["paths"][f"{run_path}/sources"]) == {"get"}
-    comparison_operation = document["paths"][
-        f"{run_path}/ip-source-comparisons"
-    ]["get"]
-    assert comparison_operation["responses"]["200"]["content"][
-        "application/json"
-    ]["schema"] == {
-        "$ref": "#/components/schemas/IPSourceComparisonsPublic"
-    }
+    comparison_operation = document["paths"][f"{run_path}/ip-source-comparisons"]["get"]
+    assert comparison_operation["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/IPSourceComparisonsPublic"}
     parameters = {
         parameter["name"]: parameter for parameter in comparison_operation["parameters"]
     }
     assert parameters["skip"]["schema"]["minimum"] == 0
     assert parameters["limit"]["schema"]["minimum"] == 1
     assert parameters["limit"]["schema"]["maximum"] == 100
-    assert set(
-        parameters["classification"]["schema"]["anyOf"][0]["enum"]
-    ) == {
+    assert set(parameters["classification"]["schema"]["anyOf"][0]["enum"]) == {
         "matched",
         "customer_upload_only",
         "cloudatlas_only",

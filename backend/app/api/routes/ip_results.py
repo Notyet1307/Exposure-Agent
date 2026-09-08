@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Generator
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
@@ -26,10 +26,14 @@ from app.domain.ip_source_comparison import (
 from app.domain.ip_source_comparison import (
     read_governance_run_sources as read_published_run_sources,
 )
+from app.domain.lineage import (
+    read_governance_run_lineage as read_published_run_lineage,
+)
 from app.domain.models import (
     FindingDetailPublic,
     FindingsPublic,
     GovernanceRun,
+    GovernanceRunLineagePublic,
     GovernanceRunSourcesPublic,
     IPAssetDetailPublic,
     IPAssetsPublic,
@@ -300,6 +304,58 @@ def _finding_read_session() -> Generator[Session]:
             }
         )
         yield session
+
+
+@router.get(
+    "/{project_id}/governance-runs/{governance_run_id}/lineage",
+    response_model=GovernanceRunLineagePublic,
+    response_model_by_alias=True,
+)
+def read_governance_run_lineage(
+    *,
+    session: Annotated[Session, Depends(_finding_read_session)],
+    project_id: uuid.UUID,
+    governance_run_id: uuid.UUID,
+    token: TokenDep,
+    response: Response,
+    resource_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> GovernanceRunLineagePublic:
+    current_user = get_current_user(session=session, token=token)
+    project = _read_project(
+        session=session,
+        project_id=project_id,
+        current_user=current_user,
+    )
+    try:
+        lineage = read_published_run_lineage(
+            session=session,
+            project=project,
+            run_id=governance_run_id,
+            resource_id=resource_id,
+        )
+    except IPSourceComparisonError as error:
+        if error.code == "lineage_resource_not_found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from None
+        raise _run_result_error(
+            error=error,
+            session=session,
+            project=project,
+            run_id=governance_run_id,
+        ) from None
+    except (
+        ReportComparisonEvidenceError,
+        IPRecordContractError,
+        SQLAlchemyError,
+        ValueError,
+        TypeError,
+        KeyError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Run result integrity verification failed",
+        ) from None
+    response.headers["Cache-Control"] = "private, no-store"
+    return lineage
 
 
 @router.get(

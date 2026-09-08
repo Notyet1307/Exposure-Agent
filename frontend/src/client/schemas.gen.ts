@@ -992,6 +992,18 @@ export const FindingTransitionPublicSchema = {
     title: 'FindingTransitionPublic'
 } as const;
 
+export const FindingTransitionTypeSchema = {
+    type: 'string',
+    enum: ['OPENED', 'CLOSED', 'REOPENED'],
+    title: 'FindingTransitionType'
+} as const;
+
+export const FindingTypeSchema = {
+    type: 'string',
+    enum: ['UNREPORTED_ASSET', 'UNOBSERVED_ASSET'],
+    title: 'FindingType'
+} as const;
+
 export const FindingsPublicSchema = {
     properties: {
         data: {
@@ -1321,6 +1333,149 @@ export const GovernanceRunActionPublicSchema = {
     type: 'object',
     required: ['accepted', 'action', 'governance_run_id', 'session_id', 'agent_compose_run_id', 'agent_compose_status'],
     title: 'GovernanceRunActionPublic'
+} as const;
+
+export const GovernanceRunLineagePublicSchema = {
+    properties: {
+        projection_version: {
+            type: 'string',
+            const: 'published-lineage/v1',
+            title: 'Projection Version'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        governance_report_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Report Id'
+        },
+        run_status: {
+            type: 'string',
+            enum: ['COMPLETED', 'COMPLETED_WITH_WARNINGS'],
+            title: 'Run Status'
+        },
+        completed_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Completed At'
+        },
+        input_contract_version: {
+            type: 'string',
+            const: 'governance-run-input-v1',
+            title: 'Input Contract Version'
+        },
+        processing_contract_version: {
+            type: 'string',
+            const: 'ip-v1',
+            title: 'Processing Contract Version'
+        },
+        report_contract_version: {
+            type: 'string',
+            enum: ['deterministic-report-v1', 'deterministic-report-v2'],
+            title: 'Report Contract Version'
+        },
+        view: {
+            type: 'string',
+            enum: ['OVERVIEW', 'RESOURCE'],
+            title: 'View'
+        },
+        resource_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Resource Id'
+        },
+        comparison_output_hash: {
+            type: 'string',
+            title: 'Comparison Output Hash'
+        },
+        status: {
+            type: 'string',
+            enum: ['COMPLETE', 'EMPTY', 'PARTIAL'],
+            title: 'Status'
+        },
+        truncated: {
+            type: 'boolean',
+            title: 'Truncated'
+        },
+        truncation_reasons: {
+            items: {
+                type: 'string',
+                enum: ['comparison_limit', 'finding_limit', 'observation_reference_limit', 'evidence_reference_limit']
+            },
+            type: 'array',
+            title: 'Truncation Reasons'
+        },
+        totals: {
+            '$ref': '#/components/schemas/LineageTotalsPublic'
+        },
+        coverage: {
+            '$ref': '#/components/schemas/LineageCoveragePublic'
+        },
+        nodes: {
+            items: {
+                oneOf: [
+                    {
+                        '$ref': '#/components/schemas/LineageSourceNodePublic'
+                    },
+                    {
+                        '$ref': '#/components/schemas/LineageSnapshotNodePublic'
+                    },
+                    {
+                        '$ref': '#/components/schemas/LineageProcessNodePublic'
+                    },
+                    {
+                        '$ref': '#/components/schemas/LineageComparisonNodePublic'
+                    },
+                    {
+                        '$ref': '#/components/schemas/LineageFindingNodePublic'
+                    },
+                    {
+                        '$ref': '#/components/schemas/LineageReportNodePublic'
+                    }
+                ],
+                discriminator: {
+                    propertyName: 'kind',
+                    mapping: {
+                        COMPARISON: '#/components/schemas/LineageComparisonNodePublic',
+                        FINDING: '#/components/schemas/LineageFindingNodePublic',
+                        PROCESS: '#/components/schemas/LineageProcessNodePublic',
+                        REPORT: '#/components/schemas/LineageReportNodePublic',
+                        SNAPSHOT: '#/components/schemas/LineageSnapshotNodePublic',
+                        SOURCE: '#/components/schemas/LineageSourceNodePublic'
+                    }
+                }
+            },
+            type: 'array',
+            maxItems: 64,
+            title: 'Nodes'
+        },
+        edges: {
+            items: {
+                '$ref': '#/components/schemas/LineageEdgePublic'
+            },
+            type: 'array',
+            maxItems: 128,
+            title: 'Edges'
+        }
+    },
+    type: 'object',
+    required: ['projection_version', 'project_id', 'governance_run_id', 'governance_report_id', 'run_status', 'completed_at', 'input_contract_version', 'processing_contract_version', 'report_contract_version', 'view', 'resource_id', 'comparison_output_hash', 'status', 'truncated', 'truncation_reasons', 'totals', 'coverage', 'nodes', 'edges'],
+    title: 'GovernanceRunLineagePublic'
 } as const;
 
 export const GovernanceRunPublicSchema = {
@@ -2110,6 +2265,565 @@ export const IPSourceComparisonsPublicSchema = {
     type: 'object',
     required: ['project_id', 'governance_run_id', 'governance_report_id', 'report_contract_version', 'contract_version', 'output_hash', 'data', 'count', 'page_size'],
     title: 'IPSourceComparisonsPublic'
+} as const;
+
+export const LineageComparisonNodePublicSchema = {
+    properties: {
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        customer_upload_present: {
+            type: 'boolean',
+            title: 'Customer Upload Present'
+        },
+        cloudatlas_present: {
+            type: 'boolean',
+            title: 'Cloudatlas Present'
+        },
+        netflow_status: {
+            type: 'string',
+            enum: ['ACTIVE', 'UNKNOWN'],
+            title: 'Netflow Status'
+        },
+        classification: {
+            type: 'string',
+            enum: ['matched', 'customer_upload_only', 'cloudatlas_only', 'neither_source_observed'],
+            title: 'Classification'
+        },
+        classification_reason: {
+            type: 'string',
+            title: 'Classification Reason'
+        },
+        netflow_reason: {
+            type: 'string',
+            title: 'Netflow Reason'
+        },
+        content_hash: {
+            type: 'string',
+            title: 'Content Hash'
+        },
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        kind: {
+            type: 'string',
+            const: 'COMPARISON',
+            title: 'Kind'
+        },
+        comparison_fact_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Comparison Fact Id'
+        },
+        observations: {
+            '$ref': '#/components/schemas/LineageObservationReferencesPublic'
+        },
+        evidence: {
+            '$ref': '#/components/schemas/LineageEvidenceReferencesPublic'
+        }
+    },
+    type: 'object',
+    required: ['resource_id', 'canonical_ip', 'customer_upload_present', 'cloudatlas_present', 'netflow_status', 'classification', 'classification_reason', 'netflow_reason', 'content_hash', 'key', 'kind', 'comparison_fact_id', 'observations', 'evidence'],
+    title: 'LineageComparisonNodePublic'
+} as const;
+
+export const LineageCoveragePublicSchema = {
+    properties: {
+        comparison_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Comparison Count'
+        },
+        finding_event_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Finding Event Count'
+        },
+        comparison_returned: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Comparison Returned'
+        },
+        finding_returned: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Finding Returned'
+        }
+    },
+    type: 'object',
+    required: ['comparison_count', 'finding_event_count', 'comparison_returned', 'finding_returned'],
+    title: 'LineageCoveragePublic'
+} as const;
+
+export const LineageEdgePublicSchema = {
+    properties: {
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        kind: {
+            type: 'string',
+            enum: ['SOURCE_SNAPSHOT', 'SNAPSHOT_PROCESS', 'ABSENT_SOURCE_PROCESS', 'PROCESS_COMPARISON', 'PROCESS_FINDING', 'PROCESS_REPORT', 'COMPARISON_REPORT_CONTEXT', 'FINDING_REPORT_CONTEXT'],
+            title: 'Kind'
+        },
+        from: {
+            type: 'string',
+            title: 'From'
+        },
+        to: {
+            type: 'string',
+            title: 'To'
+        }
+    },
+    type: 'object',
+    required: ['key', 'kind', 'from', 'to'],
+    title: 'LineageEdgePublic'
+} as const;
+
+export const LineageEvidenceReferencePublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        fact_type: {
+            type: 'string',
+            enum: ['SOURCE_SNAPSHOT', 'OBSERVATION', 'FINDING_OCCURRENCE', 'FINDING_TRANSITION', 'IP_SOURCE_COMPARISON'],
+            title: 'Fact Type'
+        },
+        fact_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Fact Id'
+        }
+    },
+    type: 'object',
+    required: ['id', 'governance_run_id', 'fact_type', 'fact_id'],
+    title: 'LineageEvidenceReferencePublic'
+} as const;
+
+export const LineageEvidenceReferencesPublicSchema = {
+    properties: {
+        count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Count'
+        },
+        data: {
+            items: {
+                '$ref': '#/components/schemas/LineageEvidenceReferencePublic'
+            },
+            type: 'array',
+            maxItems: 20,
+            title: 'Data'
+        },
+        truncated: {
+            type: 'boolean',
+            title: 'Truncated'
+        }
+    },
+    type: 'object',
+    required: ['count', 'data', 'truncated'],
+    title: 'LineageEvidenceReferencesPublic'
+} as const;
+
+export const LineageFindingNodePublicSchema = {
+    properties: {
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        kind: {
+            type: 'string',
+            const: 'FINDING',
+            title: 'Kind'
+        },
+        finding_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Finding Id'
+        },
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        finding_type: {
+            '$ref': '#/components/schemas/FindingType'
+        },
+        occurrence_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Occurrence Id'
+        },
+        transition_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Transition Id'
+        },
+        transition_type: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/FindingTransitionType'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        source_snapshot_ids: {
+            items: {
+                type: 'string',
+                format: 'uuid'
+            },
+            type: 'array',
+            maxItems: 3,
+            title: 'Source Snapshot Ids'
+        },
+        observations: {
+            '$ref': '#/components/schemas/LineageObservationReferencesPublic'
+        },
+        evidence: {
+            '$ref': '#/components/schemas/LineageEvidenceReferencesPublic'
+        }
+    },
+    type: 'object',
+    required: ['key', 'kind', 'finding_id', 'resource_id', 'canonical_ip', 'finding_type', 'occurrence_id', 'transition_id', 'transition_type', 'source_snapshot_ids', 'observations', 'evidence'],
+    title: 'LineageFindingNodePublic'
+} as const;
+
+export const LineageObservationReferencePublicSchema = {
+    properties: {
+        observation_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Observation Id'
+        },
+        source_snapshot_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Snapshot Id'
+        }
+    },
+    type: 'object',
+    required: ['observation_id', 'source_snapshot_id'],
+    title: 'LineageObservationReferencePublic'
+} as const;
+
+export const LineageObservationReferencesPublicSchema = {
+    properties: {
+        count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Count'
+        },
+        data: {
+            items: {
+                '$ref': '#/components/schemas/LineageObservationReferencePublic'
+            },
+            type: 'array',
+            maxItems: 20,
+            title: 'Data'
+        },
+        truncated: {
+            type: 'boolean',
+            title: 'Truncated'
+        }
+    },
+    type: 'object',
+    required: ['count', 'data', 'truncated'],
+    title: 'LineageObservationReferencesPublic'
+} as const;
+
+export const LineageProcessNodePublicSchema = {
+    properties: {
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        kind: {
+            type: 'string',
+            const: 'PROCESS',
+            title: 'Kind'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        processing_contract_version: {
+            type: 'string',
+            const: 'ip-v1',
+            title: 'Processing Contract Version'
+        },
+        comparison_contract_version: {
+            type: 'string',
+            const: 'ip-source-comparison/v1',
+            title: 'Comparison Contract Version'
+        },
+        report_contract_version: {
+            type: 'string',
+            enum: ['deterministic-report-v1', 'deterministic-report-v2'],
+            title: 'Report Contract Version'
+        }
+    },
+    type: 'object',
+    required: ['key', 'kind', 'governance_run_id', 'processing_contract_version', 'comparison_contract_version', 'report_contract_version'],
+    title: 'LineageProcessNodePublic'
+} as const;
+
+export const LineageReportNodePublicSchema = {
+    properties: {
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        kind: {
+            type: 'string',
+            const: 'REPORT',
+            title: 'Kind'
+        },
+        governance_report_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Report Id'
+        },
+        report_contract_version: {
+            type: 'string',
+            enum: ['deterministic-report-v1', 'deterministic-report-v2'],
+            title: 'Report Contract Version'
+        },
+        generation_mode: {
+            type: 'string',
+            const: 'DETERMINISTIC_TEMPLATE',
+            title: 'Generation Mode'
+        },
+        html_sha256: {
+            type: 'string',
+            title: 'Html Sha256'
+        },
+        csv_sha256: {
+            type: 'string',
+            title: 'Csv Sha256'
+        },
+        summary: {
+            '$ref': '#/components/schemas/LineageReportSummaryPublic'
+        },
+        evidence: {
+            '$ref': '#/components/schemas/LineageEvidenceReferencesPublic'
+        }
+    },
+    type: 'object',
+    required: ['key', 'kind', 'governance_report_id', 'report_contract_version', 'generation_mode', 'html_sha256', 'csv_sha256', 'summary', 'evidence'],
+    title: 'LineageReportNodePublic'
+} as const;
+
+export const LineageReportSummaryPublicSchema = {
+    properties: {
+        customer_observed_asset_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Customer Observed Asset Count'
+        },
+        cloudatlas_observed_asset_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Cloudatlas Observed Asset Count'
+        },
+        matched_asset_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Matched Asset Count'
+        },
+        current_run_finding_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Current Run Finding Count'
+        },
+        current_run_transition_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Current Run Transition Count'
+        },
+        open_backlog_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Open Backlog Count'
+        }
+    },
+    type: 'object',
+    required: ['customer_observed_asset_count', 'cloudatlas_observed_asset_count', 'matched_asset_count', 'current_run_finding_count', 'current_run_transition_count', 'open_backlog_count'],
+    title: 'LineageReportSummaryPublic'
+} as const;
+
+export const LineageSnapshotNodePublicSchema = {
+    properties: {
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        kind: {
+            type: 'string',
+            const: 'SNAPSHOT',
+            title: 'Kind'
+        },
+        snapshot_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Snapshot Id'
+        },
+        source_type: {
+            type: 'string',
+            enum: ['CUSTOMER_UPLOAD', 'CLOUDATLAS', 'NETFLOW'],
+            title: 'Source Type'
+        },
+        content_sha256: {
+            type: 'string',
+            title: 'Content Sha256'
+        },
+        schema_fingerprint: {
+            type: 'string',
+            title: 'Schema Fingerprint'
+        },
+        method_fingerprint: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Method Fingerprint'
+        },
+        record_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Record Count'
+        },
+        valid_time_start_utc: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Valid Time Start Utc'
+        },
+        valid_time_end_utc: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Valid Time End Utc'
+        }
+    },
+    type: 'object',
+    required: ['key', 'kind', 'snapshot_id', 'source_type', 'content_sha256', 'schema_fingerprint', 'method_fingerprint', 'record_count', 'valid_time_start_utc', 'valid_time_end_utc'],
+    title: 'LineageSnapshotNodePublic'
+} as const;
+
+export const LineageSourceNodePublicSchema = {
+    properties: {
+        key: {
+            type: 'string',
+            title: 'Key'
+        },
+        kind: {
+            type: 'string',
+            const: 'SOURCE',
+            title: 'Kind'
+        },
+        source_type: {
+            type: 'string',
+            enum: ['CUSTOMER_UPLOAD', 'CLOUDATLAS', 'NETFLOW'],
+            title: 'Source Type'
+        },
+        state: {
+            type: 'string',
+            enum: ['ABSENT', 'PRESENT'],
+            title: 'State'
+        },
+        input_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Input Id'
+        }
+    },
+    type: 'object',
+    required: ['key', 'kind', 'source_type', 'state', 'input_id'],
+    title: 'LineageSourceNodePublic'
+} as const;
+
+export const LineageTotalsPublicSchema = {
+    properties: {
+        comparison_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Comparison Count'
+        },
+        finding_event_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Finding Event Count'
+        }
+    },
+    type: 'object',
+    required: ['comparison_count', 'finding_event_count'],
+    title: 'LineageTotalsPublic'
 } as const;
 
 export const MessageSchema = {

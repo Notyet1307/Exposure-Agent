@@ -2147,6 +2147,181 @@ class IPSourceComparisonsPublic(SQLModel):
     page_size: int
 
 
+class LineageObservationReferencePublic(SQLModel):
+    observation_id: uuid.UUID
+    source_snapshot_id: uuid.UUID
+
+
+class LineageObservationReferencesPublic(SQLModel):
+    count: Annotated[int, PydanticField(strict=True, ge=0)]
+    data: list[LineageObservationReferencePublic] = Field(max_length=20)
+    truncated: bool
+
+
+class LineageEvidenceReferencePublic(EvidenceReferencePublic):
+    fact_type: Literal[
+        "SOURCE_SNAPSHOT",
+        "OBSERVATION",
+        "FINDING_OCCURRENCE",
+        "FINDING_TRANSITION",
+        "IP_SOURCE_COMPARISON",
+    ]
+
+
+class LineageEvidenceReferencesPublic(SQLModel):
+    count: Annotated[int, PydanticField(strict=True, ge=0)]
+    data: list[LineageEvidenceReferencePublic] = Field(max_length=20)
+    truncated: bool
+
+
+class LineageSourceNodePublic(SQLModel):
+    key: str
+    kind: Literal["SOURCE"]
+    source_type: Literal["CUSTOMER_UPLOAD", "CLOUDATLAS", "NETFLOW"]
+    state: Literal["ABSENT", "PRESENT"]
+    input_id: uuid.UUID | None
+
+
+class LineageSnapshotNodePublic(SQLModel):
+    key: str
+    kind: Literal["SNAPSHOT"]
+    snapshot_id: uuid.UUID
+    source_type: Literal["CUSTOMER_UPLOAD", "CLOUDATLAS", "NETFLOW"]
+    content_sha256: str
+    schema_fingerprint: str
+    method_fingerprint: str | None
+    record_count: Annotated[int, PydanticField(strict=True, ge=0)]
+    valid_time_start_utc: datetime | None
+    valid_time_end_utc: datetime | None
+
+
+class LineageProcessNodePublic(SQLModel):
+    key: str
+    kind: Literal["PROCESS"]
+    governance_run_id: uuid.UUID
+    processing_contract_version: Literal["ip-v1"]
+    comparison_contract_version: Literal["ip-source-comparison/v1"]
+    report_contract_version: Literal[
+        "deterministic-report-v1", "deterministic-report-v2"
+    ]
+
+
+class LineageComparisonNodePublic(IPSourceComparisonPublic):
+    key: str
+    kind: Literal["COMPARISON"]
+    comparison_fact_id: uuid.UUID | None
+    observations: LineageObservationReferencesPublic
+    evidence: LineageEvidenceReferencesPublic
+
+
+class LineageFindingNodePublic(SQLModel):
+    key: str
+    kind: Literal["FINDING"]
+    finding_id: uuid.UUID
+    resource_id: uuid.UUID
+    canonical_ip: str
+    finding_type: FindingType
+    occurrence_id: uuid.UUID | None
+    transition_id: uuid.UUID | None
+    transition_type: FindingTransitionType | None
+    source_snapshot_ids: list[uuid.UUID] = Field(max_length=3)
+    observations: LineageObservationReferencesPublic
+    evidence: LineageEvidenceReferencesPublic
+
+
+class LineageReportSummaryPublic(SQLModel):
+    customer_observed_asset_count: Annotated[int, PydanticField(strict=True, ge=0)]
+    cloudatlas_observed_asset_count: Annotated[int, PydanticField(strict=True, ge=0)]
+    matched_asset_count: Annotated[int, PydanticField(strict=True, ge=0)]
+    current_run_finding_count: Annotated[int, PydanticField(strict=True, ge=0)]
+    current_run_transition_count: Annotated[int, PydanticField(strict=True, ge=0)]
+    open_backlog_count: Annotated[int, PydanticField(strict=True, ge=0)]
+
+
+class LineageReportNodePublic(SQLModel):
+    key: str
+    kind: Literal["REPORT"]
+    governance_report_id: uuid.UUID
+    report_contract_version: Literal[
+        "deterministic-report-v1", "deterministic-report-v2"
+    ]
+    generation_mode: Literal["DETERMINISTIC_TEMPLATE"]
+    html_sha256: str
+    csv_sha256: str
+    summary: LineageReportSummaryPublic
+    evidence: LineageEvidenceReferencesPublic
+
+
+LineageNodePublic = Annotated[
+    LineageSourceNodePublic
+    | LineageSnapshotNodePublic
+    | LineageProcessNodePublic
+    | LineageComparisonNodePublic
+    | LineageFindingNodePublic
+    | LineageReportNodePublic,
+    PydanticField(discriminator="kind"),
+]
+
+
+class LineageEdgePublic(SQLModel):
+    model_config = SQLModel.model_config | {"populate_by_name": True}
+
+    key: str
+    kind: Literal[
+        "SOURCE_SNAPSHOT",
+        "SNAPSHOT_PROCESS",
+        "ABSENT_SOURCE_PROCESS",
+        "PROCESS_COMPARISON",
+        "PROCESS_FINDING",
+        "PROCESS_REPORT",
+        "COMPARISON_REPORT_CONTEXT",
+        "FINDING_REPORT_CONTEXT",
+    ]
+    from_: str = PydanticField(alias="from")
+    to: str
+
+
+class LineageTotalsPublic(SQLModel):
+    comparison_count: Annotated[int, PydanticField(strict=True, ge=0)]
+    finding_event_count: Annotated[int, PydanticField(strict=True, ge=0)]
+
+
+class LineageCoveragePublic(LineageTotalsPublic):
+    comparison_returned: Annotated[int, PydanticField(strict=True, ge=0)]
+    finding_returned: Annotated[int, PydanticField(strict=True, ge=0)]
+
+
+class GovernanceRunLineagePublic(SQLModel):
+    projection_version: Literal["published-lineage/v1"]
+    project_id: uuid.UUID
+    governance_run_id: uuid.UUID
+    governance_report_id: uuid.UUID
+    run_status: Literal["COMPLETED", "COMPLETED_WITH_WARNINGS"]
+    completed_at: datetime
+    input_contract_version: Literal["governance-run-input-v1"]
+    processing_contract_version: Literal["ip-v1"]
+    report_contract_version: Literal[
+        "deterministic-report-v1", "deterministic-report-v2"
+    ]
+    view: Literal["OVERVIEW", "RESOURCE"]
+    resource_id: uuid.UUID | None
+    comparison_output_hash: str
+    status: Literal["COMPLETE", "EMPTY", "PARTIAL"]
+    truncated: bool
+    truncation_reasons: list[
+        Literal[
+            "comparison_limit",
+            "finding_limit",
+            "observation_reference_limit",
+            "evidence_reference_limit",
+        ]
+    ]
+    totals: LineageTotalsPublic
+    coverage: LineageCoveragePublic
+    nodes: list[LineageNodePublic] = Field(max_length=64)
+    edges: list[LineageEdgePublic] = Field(max_length=128)
+
+
 class GovernanceRunPublic(SQLModel):
     id: uuid.UUID
     trigger_id: str
