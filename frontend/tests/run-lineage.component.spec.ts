@@ -647,6 +647,23 @@ async function installMocks(
       })
       return
     }
+    if (url.pathname.endsWith("/governance-reports")) {
+      await route.fulfill({
+        json: {
+          data: [
+            ...new Map(
+              payloads
+                .filter((dto) =>
+                  url.pathname.includes(`/projects/${dto.project_id}/`),
+                )
+                .map((dto) => [dto.governance_report_id, reportDetail(dto)]),
+            ).values(),
+          ],
+          next_cursor: null,
+        },
+      })
+      return
+    }
     const report = payloads.find(
       (dto) =>
         url.pathname ===
@@ -724,9 +741,7 @@ test("navigates the explicit historical Run and an asset outside overview, prese
     resource,
     publishedLineage({ run: newerRunId }),
   ])
-  await page.goto("/")
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
-  await page.locator(`a[href="${lineagePath()}"]`).click()
+  await page.goto(lineagePath())
   await expect(
     page.getByRole("heading", { name: "Run lineage", exact: true }),
   ).toBeVisible()
@@ -744,7 +759,11 @@ test("navigates the explicit historical Run and an asset outside overview, prese
     .filter({ has: page.getByRole("cell", { name: longIp, exact: true }) })
     .getByRole("link", { name: `Trace asset ${longIp}`, exact: true })
     .click()
-  await expect(page).toHaveURL(new RegExp(`resource_id=${outsideResourceId}$`))
+  await expect(page).toHaveURL(
+    (url) =>
+      url.searchParams.get("resource_id") === outsideResourceId &&
+      url.searchParams.get("classification") === "customer_upload_only",
+  )
   await expect(node(page, "COMPARISON", longIp)).toBeVisible()
   await page.reload()
   await expect(node(page, "COMPARISON", longIp)).toBeVisible()
@@ -752,8 +771,28 @@ test("navigates the explicit historical Run and an asset outside overview, prese
   await expect(page).toHaveURL(filteredUrl)
   await page.goForward()
   await expect(node(page, "COMPARISON", longIp)).toBeVisible()
-  await page.getByRole("link", { name: /overview/i }).click()
-  await expect(page).toHaveURL(new RegExp(`${lineagePath()}$`))
+  await page
+    .getByRole("link", { name: "View source comparison", exact: true })
+    .click()
+  await expect(page).toHaveURL(
+    (url) =>
+      url.pathname.endsWith("/comparison") &&
+      url.searchParams.get("classification") === "customer_upload_only" &&
+      url.searchParams.get("resource_id") === outsideResourceId,
+  )
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "Lineage", exact: true })
+    .click()
+  await page
+    .getByRole("link", { name: "Back to overview", exact: true })
+    .click()
+  await expect(page).toHaveURL(
+    (url) =>
+      url.pathname === lineagePath() &&
+      !url.searchParams.has("resource_id") &&
+      url.searchParams.get("classification") === "customer_upload_only",
+  )
   await expect(node(page, "COMPARISON", longIp)).toHaveCount(0)
   const lineageRequests = requests.filter(({ url }) =>
     url.pathname.endsWith("/lineage"),
@@ -963,6 +1002,7 @@ test("shows all six node details and returned reference identities, with directe
       ({ url }) =>
         url.pathname.includes(`/projects/${projectId}/`) &&
         !url.pathname.endsWith("/lineage") &&
+        !url.pathname.endsWith("/governance-reports") &&
         !url.pathname.endsWith(
           `/governance-reports/${dto.governance_report_id}`,
         ),
@@ -1185,14 +1225,20 @@ test("clears selected facts during a scope request and ignores its late response
   await expect(nodes(page)).toHaveCount(0)
   await expect(details(page)).toHaveCount(0)
   await page.goBack()
-  await page.getByRole("link", { name: "Lineage", exact: true }).click()
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "Lineage", exact: true })
+    .click()
   await expect(node(page, "COMPARISON", "192.0.2.1")).toBeVisible()
   const lateResponse = page.waitForResponse((response) =>
     response.url().includes(`resource_id=${outsideResourceId}`),
   )
   gate.release()
   await (await lateResponse).finished()
-  await expect(page).toHaveURL(new RegExp(`${lineagePath()}$`))
+  await expect(page).toHaveURL(
+    (url) =>
+      url.pathname === lineagePath() && !url.searchParams.has("resource_id"),
+  )
   await expect(node(page, "COMPARISON", longIp)).toHaveCount(0)
   await expect(nodes(page).getByRole("button", { pressed: true })).toHaveCount(
     0,

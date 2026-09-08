@@ -211,6 +211,24 @@ async function mockDashboardApi(page: Page) {
   await page.route("**/api/v1/projects/**", async (route) => {
     const request = route.request()
     const url = new URL(request.url())
+    if (
+      url.pathname.endsWith("/governance-reports") &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill({
+        json: {
+          data: [],
+          count: 0,
+          page_size: 50,
+          next_cursor: null,
+          compatible: true,
+          compatibility_code: null,
+          latest_completed_run_id: null,
+          latest_completed_run_at: null,
+        },
+      })
+      return
+    }
     const profileMatch = url.pathname.match(
       /projects\/([^/]+)\/customer-upload-profile$/,
     )
@@ -284,8 +302,8 @@ test("explains a known unavailable Run input without enabling its trigger", asyn
         },
       }),
   )
-  await page.goto("/")
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.goto("/?view=inputs")
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
   await expect(
     page.getByRole("button", { name: "Trigger Run", exact: true }),
   ).toBeDisabled()
@@ -331,8 +349,8 @@ test("preserves an unknown source validation status across language changes", as
         },
       }),
   )
-  await page.goto("/")
-  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
+  await page.goto("/?view=inputs")
+  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
   await expect(
     page.getByRole("cell", { name: "constructor", exact: true }),
   ).toBeVisible()
@@ -363,7 +381,7 @@ test("keeps the selected upload and project while translating an existing reject
       })
     },
   )
-  await page.goto("/")
+  await page.goto("/?view=inputs")
   const input = page.getByLabel("XLSX file", { exact: true })
   await input.setInputFiles({
     name: "Customer-English-原始文件.xlsx",
@@ -387,7 +405,7 @@ test("keeps the selected upload and project while translating an existing reject
   ).toBeVisible()
   await expect(
     page.getByRole("combobox", { name: "项目", exact: true }),
-  ).toContainText(projects[0].name)
+  ).toHaveValue(projects[0].id)
   await expect(page.locator('input[type="file"]').first()).toHaveValue(
     /Customer-English-原始文件\.xlsx$/,
   )
@@ -457,8 +475,8 @@ test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
     },
   )
 
-  await page.goto("/")
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.goto("/?view=inputs")
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(page.getByRole("status")).toHaveText(
     "The previous launch ended before creating a Run. Use a new Trigger ID.",
@@ -478,19 +496,18 @@ test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
 test("selects the first Project and switches its Profile and upload list", async ({
   page,
 }) => {
-  await page.goto("/")
+  await page.goto("/?view=inputs")
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })
-  await expect(projectSelect).toContainText("North Plant")
+  await expect(projectSelect).toHaveValue(projects[0].id)
   await expect(
     page.getByText(profiles[projects[0].id].id).first(),
   ).toBeVisible()
   await expect(page.getByText("north-assets.xlsx")).toBeVisible()
 
-  await projectSelect.click()
-  await page.getByRole("option", { name: "Archive Lab" }).click()
+  await projectSelect.selectOption(projects[1].id)
 
-  await expect(projectSelect).toContainText("Archive Lab")
+  await expect(projectSelect).toHaveValue(projects[1].id)
   await expect(page.getByText(profiles[projects[1].id].id)).toBeVisible()
   await expect(page.getByText("No accepted uploads yet.")).toBeVisible()
 })
@@ -517,12 +534,14 @@ test("loads every page of accessible Projects into the dropdown", async ({
       },
     })
   })
-  await page.goto("/")
+  await page.goto("/?view=inputs")
 
-  await page.getByRole("combobox", { name: "Project" }).click()
   await expect(
-    page.getByRole("option", { name: "Paged Project 101" }),
-  ).toBeVisible()
+    page.getByRole("combobox", { name: "Project" }).getByRole("option", {
+      name: "Paged Project 101",
+      exact: true,
+    }),
+  ).toHaveAttribute("value", allProjects[100].id)
 })
 
 test("shows loading, empty, and failure states for Projects", async ({
@@ -532,7 +551,7 @@ test("shows loading, empty, and failure states for Projects", async ({
     await new Promise((resolve) => setTimeout(resolve, 500))
     await route.fulfill({ json: { data: projects, count: projects.length } })
   })
-  await page.goto("/")
+  await page.goto("/?view=inputs")
   await expect(page.getByRole("status")).toHaveText("Loading Projects…")
 
   await page.route("**/api/v1/projects/?*", (route) =>
@@ -575,7 +594,7 @@ test("selects an accepted upload as the current Project input", async ({
         },
       }),
   )
-  await page.goto("/")
+  await page.goto("/?view=inputs")
 
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
   await page.getByRole("button", { name: "Set as current input" }).click()
@@ -611,7 +630,7 @@ test("keeps read-only and Archived Projects visible without input controls", asy
         },
       }),
   )
-  await page.goto("/")
+  await page.goto("/?view=inputs")
 
   await expect(
     page.getByText(
@@ -624,8 +643,7 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).not.toBeVisible()
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })
-  await projectSelect.click()
-  await page.getByRole("option", { name: "Archive Lab (Archived)" }).click()
+  await projectSelect.selectOption(projects[1].id)
   await expect(
     page.getByText("Archived Project", { exact: true }),
   ).toBeVisible()
@@ -654,7 +672,7 @@ test("shows current NetFlowDataset hash, counts, and bounded quality summary", a
         },
       }),
   )
-  await page.goto("/")
+  await page.goto("/?view=inputs")
 
   await expect(
     page.getByText("Current NetFlowDataset", { exact: true }),
@@ -703,7 +721,7 @@ test("uploads a NetFlowDataset and refreshes the list", async ({ page }) => {
       })
     },
   )
-  await page.goto("/")
+  await page.goto("/?view=inputs")
 
   const fileInput = page.getByLabel("NetFlow dataset file")
   await fileInput.setInputFiles({
@@ -760,7 +778,7 @@ test("selects and clears the current NetFlowDataset", async ({ page }) => {
       })
     },
   )
-  await page.goto("/")
+  await page.goto("/?view=inputs")
 
   await page
     .getByRole("button", { name: /Select north-netflow-older\.txt/ })
@@ -809,7 +827,7 @@ for (const status of [201, 200]) {
         })
       },
     )
-    await page.goto("/")
+    await page.goto("/?view=inputs")
 
     const fileInput = page.getByLabel("XLSX file")
     await fileInput.setInputFiles({
@@ -891,8 +909,8 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   const sourceUrl = `**/api/v1/projects/${projects[0].id}/cloudatlas-source-instances`
   await page.route(sourceUrl, handleSourceRequest)
   await page.route(`${sourceUrl}/**`, handleSourceRequest)
-  await page.goto("/")
-  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
+  await page.goto("/?view=inputs")
+  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
 
   await expect(page.getByText("CloudAtlas source")).toBeVisible()
   const tokenInput = page.getByLabel("Capset token")
@@ -915,7 +933,7 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
     fingerprint_summary: "abcdef012345",
   }
   await page.reload()
-  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
+  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
   await page.getByRole("button", { name: "Disable source" }).click()
   await expect(page.getByText("Disabled", { exact: true })).toBeVisible()
 
@@ -960,8 +978,8 @@ test("keeps the local session after a structured CloudAtlas authentication failu
       },
     }),
   )
-  await page.goto("/")
-  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
+  await page.goto("/?view=inputs")
+  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
 
   const tokenInput = page.getByLabel("Capset token")
   await tokenInput.fill("transient-test-token")
@@ -971,7 +989,7 @@ test("keeps the local session after a structured CloudAtlas authentication failu
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem("access_token")))
     .toBe("component-token")
-  await expect(page).toHaveURL("/")
+  await expect(page).toHaveURL((url) => url.pathname === "/")
   await expect(
     page.getByText("CloudAtlas source validation failed."),
   ).toBeVisible()
@@ -984,7 +1002,7 @@ test("clears the local session when the current user no longer exists", async ({
     route.fulfill({ status: 404, json: { detail: "User not found" } }),
   )
 
-  await page.goto("/")
+  await page.goto("/?view=inputs")
 
   await expect(page).toHaveURL("/login", { timeout: 15_000 })
   expect(
@@ -1020,8 +1038,8 @@ test("lets an Admin manage an older enabled source from disabled history", async
     olderEnabled = { ...olderEnabled, enabled: false }
     await route.fulfill({ json: olderEnabled })
   })
-  await page.goto("/")
-  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
+  await page.goto("/?view=inputs")
+  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
 
   await expect(page.getByLabel("OctoBus Instance ID")).toHaveValue(
     "cloudatlas-older-enabled",
@@ -1059,7 +1077,7 @@ test("shows only the server safe upload explanation", async ({ page }) => {
       await route.fulfill({ json: uploads[projects[0].id] })
     },
   )
-  await page.goto("/")
+  await page.goto("/?view=inputs")
   await page.getByLabel("XLSX file").setInputFiles({
     name: "invalid.xlsx",
     mimeType:
@@ -1165,8 +1183,8 @@ test("shows the six Run steps and triggers with a caller-owned stable ID", async
       })
     },
   )
-  await page.goto("/")
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.goto("/?view=inputs")
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
 
   await expect(page.getByText("Inputs ready")).toBeVisible()
   for (const step of [
@@ -1309,8 +1327,8 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
         },
       }),
   )
-  await page.goto("/")
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.goto("/?view=inputs")
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
 
   await expect(page.getByText("FAILED_DATA", { exact: true })).toBeVisible()
   await expect(page.getByText("Snapshots reused: 1")).toBeVisible()
@@ -1392,8 +1410,8 @@ test("hides Rerun while a same-Session Retry is in progress", async ({
         },
       }),
   )
-  await page.goto("/")
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.goto("/?view=inputs")
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
 
   await expect(page.getByText("RUNNING", { exact: true })).toBeVisible()
   await expect(page.getByText("Snapshots reused: 0")).toBeVisible()
@@ -1462,8 +1480,8 @@ for (const role of ["Viewer", "Approver"] as const) {
           },
         }),
     )
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Runs", exact: true }).click()
+    await page.goto("/?view=inputs")
+    await page.getByRole("link", { name: "Runs", exact: true }).click()
 
     await expect(page.getByText("Recovery status")).toBeVisible()
     await expect(

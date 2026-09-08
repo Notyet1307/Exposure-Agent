@@ -193,6 +193,24 @@ async function installBaseMocks(page: import("@playwright/test").Page) {
       await route.fulfill({ json: { data: [], count: 0, can_manage: false } })
       return
     }
+    if (
+      url.pathname.endsWith("/governance-reports") &&
+      route.request().method() === "GET"
+    ) {
+      await route.fulfill({
+        json: {
+          data: [],
+          count: 0,
+          page_size: 50,
+          next_cursor: null,
+          compatible: true,
+          compatibility_code: null,
+          latest_completed_run_id: null,
+          latest_completed_run_at: null,
+        },
+      })
+      return
+    }
     if (url.pathname.endsWith("/governance-runs")) {
       await route.fulfill({
         json: {
@@ -305,7 +323,7 @@ async function installResultMocks(page: import("@playwright/test").Page) {
   )
 }
 
-test.describe("Project result tabs", () => {
+test.describe("Project result views", () => {
   test.beforeEach(async ({ page }) => {
     await installBaseMocks(page)
     await installResultMocks(page)
@@ -315,7 +333,9 @@ test.describe("Project result tabs", () => {
   test("uses paginated Assets and Findings views with bounded source details", async ({
     page,
   }) => {
-    await page.getByRole("tab", { name: "Assets", exact: true }).click()
+    await page
+      .getByRole("link", { name: "Current assets", exact: true })
+      .click()
     await expect(page.getByText("IP Assets")).toBeVisible()
     await expect(page.getByText("192.0.2.10", { exact: true })).toBeVisible()
     await expect(page.getByText("Present", { exact: true })).toHaveCount(2)
@@ -326,7 +346,7 @@ test.describe("Project result tabs", () => {
     await expect(page.getByRole("dialog")).toContainText(customerSnapshotId)
     await page.getByRole("button", { name: "Close" }).click()
 
-    await page.getByRole("tab", { name: "Findings", exact: true }).click()
+    await page.getByRole("link", { name: "Findings", exact: true }).click()
     await expect(
       page.getByRole("table").getByText("OPEN", { exact: true }),
     ).toBeVisible()
@@ -358,7 +378,9 @@ test.describe("Project result tabs", () => {
           },
         }),
     )
-    await page.getByRole("tab", { name: "Assets", exact: true }).click()
+    await page
+      .getByRole("link", { name: "Current assets", exact: true })
+      .click()
     await expect(
       page.getByText("Stage 4 results are not available yet"),
     ).toBeVisible()
@@ -377,7 +399,7 @@ test.describe("Finding NetFlow context presentation", () => {
     await installBaseMocks(page)
     await installResultMocks(page)
     await page.goto("/")
-    await page.getByRole("tab", { name: "Findings", exact: true }).click()
+    await page.getByRole("link", { name: "Findings", exact: true }).click()
   })
 
   for (const scenario of [

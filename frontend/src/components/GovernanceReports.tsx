@@ -5,19 +5,11 @@ import {
   type AiGovernanceDraftPublic,
   ApiError,
   type GovernanceReportDetailPublic,
-  type GovernanceReportSummaryPublic,
   GovernanceReportsService,
 } from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -37,7 +29,6 @@ import {
 
 import { useI18n } from "@/lib/i18n"
 
-const REPORT_PAGE_SIZE = 20
 const HTML_EVIDENCE_LIMIT = 8
 const MAX_DRAFT_FINDINGS = 8
 
@@ -112,6 +103,33 @@ function asObject(value: unknown): JsonObject | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonObject)
     : null
+}
+
+export function getVerifiedReportContent(
+  detail: GovernanceReportDetailPublic,
+  projectId: string,
+  reportId: string,
+  expectedRunId?: string,
+  expectedReportContractVersion?: string,
+): JsonObject | null {
+  const root = asObject(detail.canonical_content)
+  const report = root ? objectField(root, "report") : null
+  const identity = report ? objectField(report, "report_identity") : null
+  if (
+    detail.id !== reportId ||
+    !identity ||
+    identity.project_id !== projectId ||
+    identity.governance_run_id !== detail.governance_run_id ||
+    identity.report_contract_version !== detail.report_contract_version ||
+    root?.schema_version !== detail.report_contract_version ||
+    (expectedRunId !== undefined &&
+      detail.governance_run_id !== expectedRunId) ||
+    (expectedReportContractVersion !== undefined &&
+      detail.report_contract_version !== expectedReportContractVersion)
+  ) {
+    return null
+  }
+  return report
 }
 
 function objectField(value: JsonObject, key: string): JsonObject | null {
@@ -987,6 +1005,91 @@ function PublishedReport({
   )
 }
 
+export function useGovernanceReport(
+  projectId: string,
+  reportId: string | null,
+) {
+  return useQuery({
+    queryKey: ["governance-report", projectId, reportId],
+    queryFn: () =>
+      GovernanceReportsService.readGovernanceReport({
+        projectId,
+        reportId: reportId as string,
+      }),
+    enabled: reportId !== null,
+    refetchInterval: (query) => {
+      const draft = query.state.data?.ai_governance_drafts?.[0]
+      return draft?.status === "GENERATING" && draft.session_id === null
+        ? 2000
+        : false
+    },
+  })
+}
+
+function ReportReader({
+  projectId,
+  reportId,
+  expectedRunId,
+  expectedReportContractVersion,
+}: {
+  projectId: string
+  reportId: string
+  expectedRunId?: string
+  expectedReportContractVersion?: string
+}) {
+  const { t } = useI18n()
+  const detailQuery = useGovernanceReport(projectId, reportId)
+  if (detailQuery.isPending)
+    return <p role="status">{t("Loading report…", "正在加载报告…")}</p>
+  const loadError = detailQuery.isError ? (
+    <Alert variant="destructive">
+      <AlertTitle>{t("Report could not be loaded", "无法加载报告")}</AlertTitle>
+      <AlertDescription>
+        {t("Please try again later.", "请稍后重试。")}
+      </AlertDescription>
+    </Alert>
+  ) : null
+  const detail = detailQuery.data
+  if (
+    !detail ||
+    (detailQuery.error instanceof ApiError &&
+      (detailQuery.error.status === 401 ||
+        detailQuery.error.status === 403 ||
+        detailQuery.error.status === 404))
+  ) {
+    return loadError
+  }
+  if (
+    !getVerifiedReportContent(
+      detail,
+      projectId,
+      reportId,
+      expectedRunId,
+      expectedReportContractVersion,
+    )
+  ) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>
+          {t("Report identity mismatch", "报告身份不匹配")}
+        </AlertTitle>
+        <AlertDescription>
+          {t(
+            "The response does not identify the requested Project, Run and Report contract. No report content is displayed.",
+            "响应未标识所请求的项目、运行与报告合同。不显示任何报告内容。",
+          )}
+        </AlertDescription>
+      </Alert>
+    )
+  }
+  return (
+    <>
+      {loadError}
+      <PublishedReport detail={detail} projectId={projectId} />
+    </>
+  )
+}
+
 export function ReportDetailDialog({
   projectId,
   reportId,
@@ -1003,37 +1106,6 @@ export function ReportDetailDialog({
   onCloseAutoFocus?: (event: Event) => void
 }) {
   const { t } = useI18n()
-  const detailQuery = useQuery({
-    queryKey: ["governance-report", projectId, reportId],
-    queryFn: () =>
-      GovernanceReportsService.readGovernanceReport({
-        projectId,
-        reportId: reportId as string,
-      }),
-    enabled: reportId !== null,
-    refetchInterval: (query) => {
-      const draft = query.state.data?.ai_governance_drafts?.[0]
-      return draft?.status === "GENERATING" && draft.session_id === null
-        ? 2000
-        : false
-    },
-  })
-  const detail = detailQuery.data
-  const root = detail ? asObject(detail.canonical_content) : null
-  const report = root ? objectField(root, "report") : null
-  const identity = report ? objectField(report, "report_identity") : null
-  const identityMismatch =
-    detail &&
-    (detail.id !== reportId ||
-      !identity ||
-      identity.project_id !== projectId ||
-      identity.governance_run_id !== detail.governance_run_id ||
-      identity.report_contract_version !== detail.report_contract_version ||
-      root?.schema_version !== detail.report_contract_version ||
-      (expectedRunId !== undefined &&
-        detail.governance_run_id !== expectedRunId) ||
-      (expectedReportContractVersion !== undefined &&
-        detail.report_contract_version !== expectedReportContractVersion))
 
   return (
     <Dialog open={reportId !== null} onOpenChange={onOpenChange}>
@@ -1052,196 +1124,45 @@ export function ReportDetailDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        {detailQuery.isPending && (
-          <p role="status">{t("Loading report…", "正在加载报告…")}</p>
-        )}
-        {detailQuery.isError && (
-          <Alert variant="destructive">
-            <AlertTitle>
-              {t("Report could not be loaded", "无法加载报告")}
-            </AlertTitle>
-            <AlertDescription>
-              {t("Please try again later.", "请稍后重试。")}
-            </AlertDescription>
-          </Alert>
-        )}
-        {identityMismatch && (
-          <Alert variant="destructive">
-            <AlertTitle>
-              {t("Report identity mismatch", "报告身份不匹配")}
-            </AlertTitle>
-            <AlertDescription>
-              {t(
-                "The response does not identify the requested Project, Run and Report contract. No report content is displayed.",
-                "响应未标识所请求的项目、运行与报告合同。不显示任何报告内容。",
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
-        {detail && !identityMismatch && (
-          <PublishedReport detail={detail} projectId={projectId} />
+        {reportId !== null && (
+          <ReportReader
+            projectId={projectId}
+            reportId={reportId}
+            expectedRunId={expectedRunId}
+            expectedReportContractVersion={expectedReportContractVersion}
+          />
         )}
       </DialogContent>
     </Dialog>
   )
 }
 
-function ReportRow({
-  report,
-  onRead,
-}: {
-  report: GovernanceReportSummaryPublic
-  onRead: () => void
-}) {
-  const { t, formatDate, translateValue } = useI18n()
-  return (
-    <TableRow>
-      <TableCell className="break-all font-mono text-xs">
-        {report.governance_run_id}
-      </TableCell>
-      <TableCell>{formatDate(report.run_completed_at)}</TableCell>
-      <TableCell>
-        <Badge>{translateValue(report.generation_mode)}</Badge>
-      </TableCell>
-      <TableCell className="break-all font-mono text-xs">
-        {report.report_contract_version}
-      </TableCell>
-      <TableCell className="max-w-72 break-all font-mono text-xs">
-        {report.html_sha256}
-      </TableCell>
-      <TableCell>
-        <Button type="button" variant="outline" size="sm" onClick={onRead}>
-          {t("Read report", "阅读报告")}
-        </Button>
-      </TableCell>
-    </TableRow>
-  )
-}
-
 export default function GovernanceReports({
   projectId,
+  runId,
+  reportId,
 }: {
   projectId: string
+  runId: string
+  reportId: string
 }) {
   const { t } = useI18n()
-  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([
-    null,
-  ])
-  const [pageIndex, setPageIndex] = useState(0)
-  const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
-  const cursor = cursorHistory[pageIndex] ?? null
-  const reportsQuery = useQuery({
-    queryKey: ["governance-reports", projectId, cursor],
-    queryFn: () =>
-      GovernanceReportsService.readGovernanceReports({
-        projectId,
-        limit: REPORT_PAGE_SIZE,
-        cursor,
-      }),
-    staleTime: Number.POSITIVE_INFINITY,
-  })
-
-  if (reportsQuery.isPending)
-    return <p role="status">{t("Loading Reports…", "正在加载报告列表…")}</p>
-  if (reportsQuery.isError) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>
-          {t("Reports could not be loaded", "无法加载报告列表")}
-        </AlertTitle>
-        <AlertDescription>
-          {t("Please try again later.", "请稍后重试。")}
-        </AlertDescription>
-      </Alert>
-    )
-  }
-
-  const reports = reportsQuery.data
   return (
     <section className="space-y-4" aria-labelledby="reports-title">
-      <Card>
-        <CardHeader>
-          <CardTitle id="reports-title">{t("Reports", "报告")}</CardTitle>
-          <CardDescription>
-            {t(
-              `Published immutable deterministic reports for this Project · ${reports.count} total`,
-              `此项目已发布的不可变确定性报告 · 共 ${reports.count} 份`,
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {reports.data.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {t("No published reports are available.", "暂无已发布报告。")}
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("Governance Run", "治理运行")}</TableHead>
-                  <TableHead>{t("Completed", "完成时间")}</TableHead>
-                  <TableHead>{t("Generation mode", "生成方式")}</TableHead>
-                  <TableHead>{t("Report contract", "报告合同")}</TableHead>
-                  <TableHead>
-                    {t("HTML Artifact SHA-256", "HTML 产物 SHA-256")}
-                  </TableHead>
-                  <TableHead>{t("Report", "报告")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {reports.data.map((report) => (
-                  <ReportRow
-                    key={report.id}
-                    report={report}
-                    onRead={() => setSelectedReportId(report.id)}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {(pageIndex > 0 || reports.next_cursor !== null) && (
-            <nav
-              className="flex items-center justify-end gap-3"
-              aria-label={t("Reports pagination", "报告分页")}
-            >
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={pageIndex === 0}
-                onClick={() => setPageIndex((current) => current - 1)}
-              >
-                {t("Previous", "上一页")}
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                {t("Page", "页码")} {pageIndex + 1}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={reports.next_cursor === null}
-                onClick={() => {
-                  if (reports.next_cursor === null) return
-                  setCursorHistory((history) => [
-                    ...history.slice(0, pageIndex + 1),
-                    reports.next_cursor,
-                  ])
-                  setPageIndex((current) => current + 1)
-                }}
-              >
-                {t("Next", "下一页")}
-              </Button>
-            </nav>
-          )}
-        </CardContent>
-      </Card>
-      <ReportDetailDialog
+      <h2 id="reports-title" className="text-xl font-semibold">
+        {t("Published deterministic report", "已发布的确定性报告")}
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        {t(
+          "This immutable view renders only bounded canonical report content; it does not load CSV or raw source payloads.",
+          "此不可变视图仅呈现有界的规范报告内容，不加载 CSV 或原始来源数据。报告原文保持不变。",
+        )}
+      </p>
+      <ReportReader
+        key={`${projectId}:${runId}:${reportId}`}
         projectId={projectId}
-        reportId={selectedReportId}
-        onOpenChange={(open) => {
-          if (!open) setSelectedReportId(null)
-        }}
+        reportId={reportId}
+        expectedRunId={runId}
       />
     </section>
   )

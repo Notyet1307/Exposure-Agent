@@ -235,6 +235,29 @@ async function installMocks(page: Page, runs: PublishedRun[]) {
       })
       return
     }
+    if (url.pathname.endsWith("/governance-reports")) {
+      await route.fulfill({
+        json: {
+          data: runs
+            .filter((run) =>
+              url.pathname.includes(`/projects/${run.sources.project_id}/`),
+            )
+            .map((run) => ({
+              id: run.sources.governance_report_id,
+              governance_run_id: run.sources.governance_run_id,
+              run_completed_at: completedAt,
+              created_at: completedAt,
+              report_contract_version: run.sources.report_contract_version,
+              generation_mode: "DETERMINISTIC_TEMPLATE",
+              html_sha256: hash,
+              csv_sha256: hash,
+            }))
+            .reverse(),
+          next_cursor: null,
+        },
+      })
+      return
+    }
     if (url.pathname.endsWith("/customer-upload-profile")) {
       await route.fulfill({
         json: {
@@ -310,13 +333,13 @@ test("opens an explicit historical Run from Runs while a newer Run exists", asyn
     oldRun,
     publishedRun({ run: newRunId, netflow: "positive" }),
   ])
-  await page.goto("/")
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
-  await page.locator(`a[href="${comparisonPath()}"]`).click()
-  await expect(page).toHaveURL(new RegExp(`${comparisonPath()}$`))
+  await page.goto(`/?project=${projectId}&run=${oldRunId}&view=runs`)
+  await page.getByRole("main").locator(`a[href^="${comparisonPath()}"]`).click()
+  await expect(page).toHaveURL((url) => url.pathname === comparisonPath())
   await expect(
     page.getByRole("heading", { level: 1, name: "Run source comparison" }),
   ).toBeVisible()
+  await page.getByText("Published Run details", { exact: true }).click()
   await expect(
     page.getByText(`Report ID: ${oldRun.sources.governance_report_id}`, {
       exact: true,
@@ -706,21 +729,18 @@ for (const targetProject of [projectId, otherProjectId]) {
         await route.fallback()
       },
     )
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Runs", exact: true }).click()
-    await page.locator(`a[href="${comparisonPath()}"]`).click()
+    await page.goto(`${comparisonPath()}?view=runs`)
     await expect(page.getByRole("status")).toContainText(/loading/i)
     await expect.poll(() => pending).toBe(2)
-    await page.goBack()
+    await page.getByRole("link", { name: "Runs", exact: true }).click()
     if (targetProject !== projectId) {
-      await page.getByRole("combobox", { name: "Project", exact: true }).click()
       await page
-        .getByRole("option", { name: "South Plant", exact: true })
-        .click()
+        .getByRole("combobox", { name: "Project", exact: true })
+        .selectOption(targetProject)
     }
-    await page.getByRole("tab", { name: "Runs", exact: true }).click()
     await page
-      .locator(`a[href="${comparisonPath(targetProject, newRunId)}"]`)
+      .getByRole("main")
+      .locator(`a[href^="${comparisonPath(targetProject, newRunId)}"]`)
       .click()
     await expect(tableRow(page, "203.0.113.99")).toBeVisible()
     const oldResponses = Promise.all([
@@ -738,7 +758,7 @@ for (const targetProject of [projectId, otherProjectId]) {
       (await oldResponses).map((response) => response.finished()),
     )
     await expect(page).toHaveURL(
-      new RegExp(`${comparisonPath(targetProject, newRunId)}$`),
+      (url) => url.pathname === comparisonPath(targetProject, newRunId),
     )
     await expect(
       netflowCard(page).getByText("PRESENT", { exact: true }),
@@ -750,6 +770,7 @@ for (const targetProject of [projectId, otherProjectId]) {
         exact: true,
       }),
     ).toHaveCount(0)
+    await page.getByText("Published Run details", { exact: true }).click()
     await expect(
       page.getByText(`Report ID: ${newRun.sources.governance_report_id}`, {
         exact: true,

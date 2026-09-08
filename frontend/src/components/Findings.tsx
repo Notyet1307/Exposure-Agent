@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 
 import {
   type FindingDetailPublic,
@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/table"
 
 import { useI18n } from "@/lib/i18n"
+import { useWorkspaceNavigate, useWorkspaceSearch } from "@/lib/workspace"
 
 const PAGE_SIZE = 25
 const TRACE_PAGE_SIZE = 20
@@ -353,15 +354,11 @@ function FindingDetailDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { t, formatDate, translateValue } = useI18n()
-  const [occurrencePage, setOccurrencePage] = useState(0)
-  const [transitionPage, setTransitionPage] = useState(0)
+  const search = useWorkspaceSearch()
+  const navigate = useWorkspaceNavigate()
+  const occurrencePage = (search.occurrence_page ?? 1) - 1
+  const transitionPage = (search.transition_page ?? 1) - 1
   const returnFocusRef = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    if (findingId === null) {
-      setOccurrencePage(0)
-      setTransitionPage(0)
-    }
-  }, [findingId])
   const detailQuery = useQuery({
     queryKey: ["finding", projectId, findingId, occurrencePage, transitionPage],
     queryFn: async () => {
@@ -382,6 +379,41 @@ function FindingDetailDialog({
     },
     enabled: findingId !== null,
   })
+
+  useEffect(() => {
+    if (findingId === null || !detailQuery.data) return
+    const occurrencePageCount = Math.max(
+      1,
+      Math.ceil(detailQuery.data.occurrence_count / TRACE_PAGE_SIZE),
+    )
+    const transitionPageCount = Math.max(
+      1,
+      Math.ceil(detailQuery.data.transition_count / TRACE_PAGE_SIZE),
+    )
+    if (
+      occurrencePage >= occurrencePageCount ||
+      transitionPage >= transitionPageCount
+    ) {
+      void navigate({
+        search: (prev) => ({
+          ...prev,
+          occurrence_page:
+            occurrencePage >= occurrencePageCount
+              ? occurrencePageCount > 1
+                ? occurrencePageCount
+                : undefined
+              : prev.occurrence_page,
+          transition_page:
+            transitionPage >= transitionPageCount
+              ? transitionPageCount > 1
+                ? transitionPageCount
+                : undefined
+              : prev.transition_page,
+        }),
+        replace: true,
+      })
+    }
+  }, [detailQuery.data, findingId, navigate, occurrencePage, transitionPage])
 
   return (
     <Dialog
@@ -484,7 +516,15 @@ function FindingDetailDialog({
                     count={detailQuery.data.occurrence_count}
                     page={occurrencePage}
                     pageSize={TRACE_PAGE_SIZE}
-                    onPageChange={setOccurrencePage}
+                    onPageChange={(nextPage) =>
+                      navigate({
+                        search: (prev) => ({
+                          ...prev,
+                          occurrence_page:
+                            nextPage > 0 ? nextPage + 1 : undefined,
+                        }),
+                      })
+                    }
                   />
                 </div>
               )}
@@ -514,7 +554,15 @@ function FindingDetailDialog({
                     count={detailQuery.data.transition_count}
                     page={transitionPage}
                     pageSize={TRACE_PAGE_SIZE}
-                    onPageChange={setTransitionPage}
+                    onPageChange={(nextPage) =>
+                      navigate({
+                        search: (prev) => ({
+                          ...prev,
+                          transition_page:
+                            nextPage > 0 ? nextPage + 1 : undefined,
+                        }),
+                      })
+                    }
                   />
                 </div>
               )}
@@ -586,11 +634,11 @@ function FindingRow({
 
 export default function Findings({ projectId }: { projectId: string }) {
   const { t, translateValue } = useI18n()
-  const [status, setStatus] = useState<FindingStatus>("OPEN")
-  const [page, setPage] = useState(0)
-  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(
-    null,
-  )
+  const search = useWorkspaceSearch()
+  const navigate = useWorkspaceNavigate()
+  const status = search.finding_status ?? "OPEN"
+  const page = (search.findings_page ?? 1) - 1
+  const selectedFindingId = search.finding_id ?? null
   const findingsQuery = useQuery({
     queryKey: ["findings", projectId, status, page],
     queryFn: () =>
@@ -608,8 +656,16 @@ export default function Findings({ projectId }: { projectId: string }) {
       1,
       Math.ceil(findingsQuery.data.count / PAGE_SIZE),
     )
-    if (page >= pageCount) setPage(pageCount - 1)
-  }, [findingsQuery.data, page])
+    if (page >= pageCount) {
+      void navigate({
+        search: (prev) => ({
+          ...prev,
+          findings_page: pageCount > 1 ? pageCount : undefined,
+        }),
+        replace: true,
+      })
+    }
+  }, [findingsQuery.data, navigate, page])
 
   if (findingsQuery.isPending)
     return <p role="status">{t("Loading Findings…", "正在加载发现项…")}</p>
@@ -667,8 +723,16 @@ export default function Findings({ projectId }: { projectId: string }) {
               <Select
                 value={status}
                 onValueChange={(value) => {
-                  setStatus(value as FindingStatus)
-                  setPage(0)
+                  void navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      finding_status: value as FindingStatus,
+                      findings_page: undefined,
+                      finding_id: undefined,
+                      occurrence_page: undefined,
+                      transition_page: undefined,
+                    }),
+                  })
                 }}
               >
                 <SelectTrigger
@@ -718,7 +782,16 @@ export default function Findings({ projectId }: { projectId: string }) {
                   <FindingRow
                     key={finding.id}
                     finding={finding}
-                    onDetails={() => setSelectedFindingId(finding.id)}
+                    onDetails={() =>
+                      navigate({
+                        search: (prev) => ({
+                          ...prev,
+                          finding_id: finding.id,
+                          occurrence_page: undefined,
+                          transition_page: undefined,
+                        }),
+                      })
+                    }
                   />
                 ))}
               </TableBody>
@@ -729,7 +802,14 @@ export default function Findings({ projectId }: { projectId: string }) {
             count={findings.count}
             page={page}
             pageSize={PAGE_SIZE}
-            onPageChange={setPage}
+            onPageChange={(nextPage) =>
+              navigate({
+                search: (prev) => ({
+                  ...prev,
+                  findings_page: nextPage > 0 ? nextPage + 1 : undefined,
+                }),
+              })
+            }
           />
         </CardContent>
       </Card>
@@ -737,7 +817,16 @@ export default function Findings({ projectId }: { projectId: string }) {
         projectId={projectId}
         findingId={selectedFindingId}
         onOpenChange={(open) => {
-          if (!open) setSelectedFindingId(null)
+          if (!open) {
+            void navigate({
+              search: (prev) => ({
+                ...prev,
+                finding_id: undefined,
+                occurrence_page: undefined,
+                transition_page: undefined,
+              }),
+            })
+          }
         }}
       />
     </section>

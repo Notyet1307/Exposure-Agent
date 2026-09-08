@@ -15,9 +15,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/lib/i18n"
+import { validateWorkspaceSearch } from "@/lib/workspace"
 
 type LineageNode = GovernanceRunLineagePublic["nodes"][number]
-type LineageSearch = { resource_id?: string }
 const GROUPS = [
   { kind: "SOURCE", title: ["Sources", "来源"] },
   { kind: "SNAPSHOT", title: ["Snapshots", "快照"] },
@@ -89,14 +89,7 @@ export const Route = createFileRoute(
   "/_layout/projects/$projectId/runs/$runId/lineage",
 )({
   component: RunLineage,
-  validateSearch: (search: Record<string, unknown>): LineageSearch => ({
-    resource_id:
-      search.resource_id === undefined
-        ? undefined
-        : typeof search.resource_id === "string"
-          ? search.resource_id
-          : "",
-  }),
+  validateSearch: validateWorkspaceSearch,
   head: () => ({ meta: [{ title: "Run lineage - Exposure Agent" }] }),
 })
 
@@ -147,16 +140,28 @@ function RunLineage() {
         >
           {t("Run lineage", "运行血缘")}
         </h1>
-        <p className="break-all text-sm">
-          {t("Project ID", "项目 ID")}: {projectId}
-        </p>
-        <p className="break-all text-sm">
-          {t("Run ID", "运行 ID")}: {runId}
-        </p>
+        <details className="text-sm">
+          <summary className="cursor-pointer">
+            {t("Scope identifiers", "范围标识")}
+          </summary>
+          <div className="mt-2 space-y-2">
+            <p className="break-all">
+              {t("Project ID", "项目 ID")}: {projectId}
+            </p>
+            <p className="break-all">
+              {t("Run ID", "运行 ID")}: {runId}
+            </p>
+            {resourceId !== undefined && (
+              <p className="break-all">
+                {t("Resource ID", "资产 ID")}: {resourceId}
+              </p>
+            )}
+          </div>
+        </details>
         <p className="break-all font-medium">
           {resourceId === undefined
             ? t("Overview", "概览")
-            : t(`Single resource: ${resourceId}`, `单资产范围：${resourceId}`)}
+            : t("Single resource", "单资产范围")}
         </p>
         <p className="text-sm text-muted-foreground">
           {t(
@@ -169,9 +174,25 @@ function RunLineage() {
           className="flex flex-wrap gap-4 text-sm"
         >
           <Link
+            to="/"
+            search={(previous) => ({
+              ...previous,
+              project: projectId,
+              run: runId,
+              view: "overview",
+            })}
+            className="underline underline-offset-4"
+          >
+            {t("Workspace overview", "工作区概览")}
+          </Link>
+          <Link
             to="/projects/$projectId/runs/$runId/comparison"
             params={{ projectId, runId }}
-            search={{}}
+            search={(previous) => ({
+              ...previous,
+              project: projectId,
+              run: runId,
+            })}
             className="underline underline-offset-4"
           >
             {t("View source comparison", "查看来源比较")}
@@ -180,7 +201,12 @@ function RunLineage() {
             <Link
               to="/projects/$projectId/runs/$runId/lineage"
               params={{ projectId, runId }}
-              search={{}}
+              search={(previous) => ({
+                ...previous,
+                project: projectId,
+                run: runId,
+                resource_id: undefined,
+              })}
               className="underline underline-offset-4"
             >
               {t("Back to overview", "返回概览")}
@@ -375,13 +401,14 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
         aria-label={t("Lineage scope and coverage", "血缘范围与覆盖")}
         className="min-w-0 space-y-3"
       >
-        <p className="break-all text-sm">
-          {t("Report ID", "报告 ID")}: {data.governance_report_id}
-        </p>
-        <p className="break-all text-sm">
-          {translateValue(data.run_status)} · {t("Completed", "完成于")}{" "}
-          {formatDate(data.completed_at)} · {data.report_contract_version}
-        </p>
+        {selected?.kind !== "REPORT" && (
+          <Button
+            type="button"
+            onClick={(event) => openReport(event.currentTarget)}
+          >
+            {t("Read report", "阅读报告")}
+          </Button>
+        )}
         <p role="status" className="text-sm">
           <Badge variant="secondary">{translateValue(data.status)}</Badge>{" "}
           {data.status === "EMPTY"
@@ -438,16 +465,17 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
             "概览最多返回 20 条比较和 20 条发现项事件，两者独立选取，不一定指向相同资产。每组引用最多返回 20 条。可使用完整来源比较矩阵追溯概览之外的资产，或缩小范围；这不保证引用完整。",
           )}
         </p>
-        <p className="text-sm text-muted-foreground">
-          {t(
-            "finding_event_count counts distinct Findings with events in this Run, not occurrences, transitions, historical backlog or report samples.",
-            "finding_event_count 统计本次运行中发生事件的去重发现项数量，而非出现次数、状态转换次数、历史积压或报告样本数。",
-          )}
-        </p>
         <details className="text-sm">
           <summary className="cursor-pointer">
             {t("Projection contracts and hash", "投影合同与哈希")}
           </summary>
+          <p className="break-all text-sm">
+            {t("Report ID", "报告 ID")}: {data.governance_report_id}
+          </p>
+          <p className="break-all text-sm">
+            {translateValue(data.run_status)} · {t("Completed", "完成于")}{" "}
+            {formatDate(data.completed_at)} · {data.report_contract_version}
+          </p>
           <dl className="mt-2 space-y-2 [&_dd]:break-all [&_dt]:font-medium">
             <Field label={t("Projection version", "投影版本")}>
               {data.projection_version}
@@ -462,15 +490,13 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
               {data.comparison_output_hash}
             </Field>
           </dl>
+          <p className="text-sm text-muted-foreground">
+            {t(
+              "finding_event_count counts distinct Findings with events in this Run, not occurrences, transitions, historical backlog or report samples.",
+              "finding_event_count 统计本次运行中发生事件的去重发现项数量，而非出现次数、状态转换次数、历史积压或报告样本数。",
+            )}
+          </p>
         </details>
-        {selected?.kind !== "REPORT" && (
-          <Button
-            type="button"
-            onClick={(event) => openReport(event.currentTarget)}
-          >
-            {t("Read report", "阅读报告")}
-          </Button>
-        )}
       </section>
 
       <section
@@ -488,20 +514,20 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
         </p>
         <p className="text-sm">
           {t(
-            "Process is this Run's processing contract, not execution steps or a DAG. Comparison and Finding are parallel results; there is no Comparison → Finding connection.",
-            "处理节点代表本次运行的处理合同，而非执行步骤或 DAG。比较和发现项是并列结果；不存在比较 → 发现项的连接。",
-          )}
-        </p>
-        <p className="text-sm">
-          {t(
             "PRESENT means a pinned snapshot exists, including one with 0 records. ABSENT means input was not provided. UNKNOWN uses the returned reason and does not mean nonexistent, zero traffic or zero risk. Zero Evidence means no corresponding sample references, not missing facts, exclusion from the report or no risk.",
             "PRESENT 表示存在固定快照，包括记录数为 0 的快照。ABSENT 表示未提供输入。UNKNOWN 以返回的原因为准，不代表不存在、流量为零或风险为零。证据数为零表示没有相应的样本引用，不代表事实缺失、未纳入报告或没有风险。",
           )}
         </p>
-        <details open>
+        <details>
           <summary className="cursor-pointer font-medium">
             {t("Edge semantics and line styles", "关系语义与线型")}
           </summary>
+          <p className="text-sm">
+            {t(
+              "Process is this Run's processing contract, not execution steps or a DAG. Comparison and Finding are parallel results; there is no Comparison → Finding connection.",
+              "处理节点代表本次运行的处理合同，而非执行步骤或 DAG。比较和发现项是并列结果；不存在比较 → 发现项的连接。",
+            )}
+          </p>
           <ul className="mt-2 space-y-2 text-sm">
             {Object.entries(EDGE_STYLES).map(([kind, style]) => (
               <li key={kind} className="min-w-0 break-words">

@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router"
+import { Link, useParams } from "@tanstack/react-router"
 
 import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -15,6 +15,7 @@ export function Logo({
   asLink = true,
 }: LogoProps) {
   const { t } = useI18n()
+  const params = useParams({ strict: false })
   const fullLogo = (
     <span
       className={cn(
@@ -54,7 +55,16 @@ export function Logo({
   }
 
   return (
-    <Link to="/" aria-label={t("Exposure-Agent home", "Exposure-Agent 首页")}>
+    <Link
+      to="/"
+      search={(previous) => ({
+        ...previous,
+        project: params.projectId ?? previous.project,
+        run: params.runId ?? previous.run,
+        view: "overview",
+      })}
+      aria-label={t("Exposure-Agent home", "Exposure-Agent 首页")}
+    >
       {content}
     </Link>
   )

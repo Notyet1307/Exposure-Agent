@@ -52,12 +52,12 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
   await page.getByTestId("email-input").fill(email)
   await page.getByTestId("password-input").fill(password)
   await page.getByRole("button", { name: "Log In" }).click()
-  await page.waitForURL("/")
+  await page.waitForURL((url) => url.pathname === "/")
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })
-  await projectSelect.click()
-  await page.getByRole("option", { name: project.name }).click()
-  await expect(projectSelect).toContainText(project.name)
+  await projectSelect.selectOption(project.id)
+  await expect(projectSelect).toHaveValue(project.id)
+  await page.getByRole("link", { name: "Inputs", exact: true }).click()
   await page.getByLabel("XLSX file").setInputFiles(validWorkbook)
   await page
     .locator("form")
