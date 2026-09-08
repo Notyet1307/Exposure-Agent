@@ -12,6 +12,7 @@ import {
   ProjectsService,
 } from "@/client"
 import CloudAtlasSources from "@/components/CloudAtlasSources"
+import CustomerReadingPrototype from "@/components/CustomerReadingPrototype"
 import Findings from "@/components/Findings"
 import GovernanceReports from "@/components/GovernanceReports"
 import GovernanceRuns from "@/components/GovernanceRuns"
@@ -51,6 +52,11 @@ import useAuth from "@/hooks/useAuth"
 const UPLOAD_PAGE_SIZE = 10
 const PROJECT_PAGE_SIZE = 100
 
+type DashboardSearch = {
+  prototype?: "customer"
+  variant?: "A" | "B" | "C"
+}
+
 async function readAccessibleProjects(): Promise<ProjectsPublic> {
   const firstPage = await ProjectsService.readProjects({
     skip: 0,
@@ -72,6 +78,13 @@ async function readAccessibleProjects(): Promise<ProjectsPublic> {
 
 export const Route = createFileRoute("/_layout/")({
   component: Dashboard,
+  validateSearch: (search: Record<string, unknown>): DashboardSearch => ({
+    prototype: search.prototype === "customer" ? "customer" : undefined,
+    variant:
+      search.variant === "A" || search.variant === "B" || search.variant === "C"
+        ? search.variant
+        : undefined,
+  }),
   head: () => ({
     meta: [
       {
@@ -509,6 +522,25 @@ function ProjectWorkspace({ project }: { project: ProjectPublic }) {
 }
 
 function Dashboard() {
+  const search = Route.useSearch()
+  const navigate = Route.useNavigate()
+  if (import.meta.env.DEV && search.prototype === "customer") {
+    return (
+      <CustomerReadingPrototype
+        variant={search.variant ?? "A"}
+        onVariantChange={(variant) => {
+          void navigate({
+            search: (previous) => ({ ...previous, variant }),
+            replace: true,
+          })
+        }}
+      />
+    )
+  }
+  return <ProjectDashboard />
+}
+
+function ProjectDashboard() {
   const { user: currentUser } = useAuth()
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null,

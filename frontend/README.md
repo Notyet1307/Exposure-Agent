@@ -19,6 +19,17 @@ API_PROXY_TARGET=http://localhost:8000
 
 The deployed browser should leave `VITE_API_URL` empty so API calls remain same-origin.
 
+## Customer reading prototype (development only)
+
+Use `/?prototype=customer&variant=A` after signing in to review three read-only
+layouts. `A`, `B`, and `C` are selectable from the floating switcher; the route
+is gated by `import.meta.env.DEV` and does not call or modify product APIs.
+
+The layouts take structural inspiration only from [Landbook](https://land-book.com/)
+and [Motionsites' feature-tabs prompt](https://motionsites.org/prompts/glassmorphic-feature-tabs):
+compact analysis hierarchy and sectional navigation, respectively. No source code
+or visual treatment is copied.
+
 ## Generated client
 
 When the FastAPI contract changes, run from the repository root:
