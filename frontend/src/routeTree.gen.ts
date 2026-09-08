@@ -14,6 +14,7 @@ import { Route as LayoutRouteImport } from './routes/_layout'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutProjectsProjectIdRunsRunIdComparisonRouteImport } from './routes/_layout/projects.$projectId.runs.$runId.comparison'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -39,18 +40,26 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutProjectsProjectIdRunsRunIdComparisonRoute =
+  LayoutProjectsProjectIdRunsRunIdComparisonRouteImport.update({
+    id: '/projects/$projectId/runs/$runId/comparison',
+    path: '/projects/$projectId/runs/$runId/comparison',
+    getParentRoute: () => LayoutRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
   '/login': typeof LoginRoute
   '/admin': typeof LayoutAdminRoute
   '/settings': typeof LayoutSettingsRoute
+  '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/admin': typeof LayoutAdminRoute
   '/settings': typeof LayoutSettingsRoute
   '/': typeof LayoutIndexRoute
+  '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -59,12 +68,23 @@ export interface FileRoutesById {
   '/_layout/admin': typeof LayoutAdminRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/': typeof LayoutIndexRoute
+  '/_layout/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/admin' | '/settings'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/admin'
+    | '/settings'
+    | '/projects/$projectId/runs/$runId/comparison'
   fileRoutesByTo: FileRoutesByTo
-  to: '/login' | '/admin' | '/settings' | '/'
+  to:
+    | '/login'
+    | '/admin'
+    | '/settings'
+    | '/'
+    | '/projects/$projectId/runs/$runId/comparison'
   id:
     | '__root__'
     | '/_layout'
@@ -72,6 +92,7 @@ export interface FileRouteTypes {
     | '/_layout/admin'
     | '/_layout/settings'
     | '/_layout/'
+    | '/_layout/projects/$projectId/runs/$runId/comparison'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -116,6 +137,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/projects/$projectId/runs/$runId/comparison': {
+      id: '/_layout/projects/$projectId/runs/$runId/comparison'
+      path: '/projects/$projectId/runs/$runId/comparison'
+      fullPath: '/projects/$projectId/runs/$runId/comparison'
+      preLoaderRoute: typeof LayoutProjectsProjectIdRunsRunIdComparisonRouteImport
+      parentRoute: typeof LayoutRoute
+    }
   }
 }
 
@@ -123,12 +151,15 @@ interface LayoutRouteChildren {
   LayoutAdminRoute: typeof LayoutAdminRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
+  LayoutProjectsProjectIdRunsRunIdComparisonRoute: typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminRoute: LayoutAdminRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutIndexRoute: LayoutIndexRoute,
+  LayoutProjectsProjectIdRunsRunIdComparisonRoute:
+    LayoutProjectsProjectIdRunsRunIdComparisonRoute,
 }
 
 const LayoutRouteWithChildren =

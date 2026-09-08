@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { Play, Repeat2, RotateCcw } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
@@ -76,12 +77,14 @@ function rejectionCode(error: unknown) {
 
 function RunDetails({
   run,
+  projectId,
   onRetry,
   onRerun,
   retrying,
   rerunning,
 }: {
   run: GovernanceRunPublic
+  projectId: string
   onRetry: () => void
   onRerun: () => void
   retrying: boolean
@@ -176,6 +179,17 @@ function RunDetails({
         <p className="text-sm">
           Snapshots reused: {run.reused_snapshot_count ?? 0}
         </p>
+        {(run.status === "COMPLETED" ||
+          run.status === "COMPLETED_WITH_WARNINGS") &&
+          run.completed_at !== null && (
+            <Link
+              to="/projects/$projectId/runs/$runId/comparison"
+              params={{ projectId, runId: run.id }}
+              className="inline-block text-sm underline underline-offset-4"
+            >
+              View source comparison
+            </Link>
+          )}
         {run.blocking_code && (
           <Alert>
             <AlertTitle>Recovery status</AlertTitle>
@@ -345,8 +359,9 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
           <CardTitle id="governance-runs-title">Governance Runs</CardTitle>
           <CardDescription>
             Run LOAD_CUSTOMER, PULL_CLOUDATLAS, NORMALIZE, RESOLVE,
-            CHECK_FINDINGS, then atomically PUBLISH two immutable
-            SourceSnapshots.
+            CHECK_FINDINGS, then atomically PUBLISH immutable CustomerUpload and
+            CloudAtlas SourceSnapshots, with an optional third NetFlow
+            SourceSnapshot.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -398,6 +413,7 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
           <RunDetails
             key={run.id}
             run={run}
+            projectId={projectId}
             onRetry={() => {
               setMessage(null)
               retryMutation.mutate(run.id)
