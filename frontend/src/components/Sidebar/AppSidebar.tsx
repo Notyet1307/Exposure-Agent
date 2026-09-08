@@ -9,16 +9,20 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar"
 import useAuth from "@/hooks/useAuth"
+import { useI18n } from "@/lib/i18n"
 import { Main } from "./Main"
 import { User } from "./User"
 
-const baseItems = [{ icon: Home, title: "Dashboard", path: "/" }]
-
 export function AppSidebar() {
+  const { t } = useI18n()
+  const baseItems = [{ icon: Home, title: t("Dashboard", "概览"), path: "/" }]
   const { user: currentUser } = useAuth()
 
   const items = currentUser?.is_superuser
-    ? [...baseItems, { icon: Users, title: "Admin", path: "/admin" }]
+    ? [
+        ...baseItems,
+        { icon: Users, title: t("Admin", "用户管理"), path: "/admin" },
+      ]
     : baseItems
 
   return (

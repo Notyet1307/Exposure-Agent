@@ -1,5 +1,3 @@
-import { expect, type Page, test } from "@playwright/test"
-
 import type {
   GovernanceReportDetailPublic,
   GovernanceRunLineagePublic,
@@ -11,6 +9,7 @@ import type {
   LineageFindingNodePublic,
   LineageReportNodePublic,
 } from "../src/client"
+import { expect, type Page, test } from "./fixtures"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
 const otherProjectId = "00000000-0000-0000-0000-000000000002"
@@ -770,6 +769,58 @@ test("navigates the explicit historical Run and an asset outside overview, prese
   expect(unexpected).toEqual([])
 })
 
+test("switches language without losing asset details, report identity or focus", async ({
+  page,
+}) => {
+  const dto = publishedLineage({ resource: resourceId, netflow: "absent" })
+  await installMocks(page, [dto])
+  await page.goto(lineagePath(resourceId))
+  await node(page, "FINDING", "192.0.2.1").click()
+  await expect(details(page)).toContainText(occurrenceId)
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  const chineseDetails = page.getByRole("region", {
+    name: "节点详情",
+    exact: true,
+  })
+  await expect(chineseDetails).toContainText(occurrenceId)
+  await expect(chineseDetails).toContainText(observationId)
+  await expect(page).toHaveURL(new RegExp(`resource_id=${resourceId}$`))
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("en")
+  await expect(node(page, "FINDING", "192.0.2.1")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  await node(page, "REPORT", dto.governance_report_id).click()
+  const readReport = details(page).getByRole("button", {
+    name: "Read report",
+    exact: true,
+  })
+  await readReport.click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toContainText(dto.governance_run_id)
+  await dialog
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(dialog).toContainText(dto.governance_run_id)
+  await expect(dialog).toContainText(hash)
+  await expect(dialog).toContainText("补充扫描目标并重新扫描")
+  await expect(dialog).toContainText("未观测资产不表示资产不存在")
+  await dialog
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("en")
+  await page.keyboard.press("Escape")
+  await expect(readReport).toBeFocused()
+  await expect(node(page, "REPORT", dto.governance_report_id)).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  await expect(page).toHaveURL(new RegExp(`resource_id=${resourceId}$`))
+})
+
 test("shows all six node details and returned reference identities, with directed paths excluding sibling Findings", async ({
   page,
 }) => {
@@ -809,8 +860,8 @@ test("shows all six node details and returned reference identities, with directe
     "31",
   ])
     await expect(details(page)).toContainText(value)
-  await expect(details(page)).toContainText("2026-09-01T11:00:00Z")
-  await expect(details(page)).toContainText(completedAt)
+  await expect(details(page)).toContainText("9/1/2026, 11:00:00 AM UTC")
+  await expect(details(page)).toContainText("9/1/2026, 12:00:00 PM UTC")
   await node(page, "PROCESS", runId).click()
   for (const value of [
     runId,

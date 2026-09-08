@@ -1,5 +1,5 @@
-import { test as setup } from "@playwright/test"
 import { firstSuperuser, firstSuperuserPassword } from "./config.ts"
+import { test as setup } from "./fixtures"
 
 const authFile = "playwright/.auth/user.json"
 

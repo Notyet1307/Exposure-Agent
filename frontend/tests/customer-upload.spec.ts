@@ -1,6 +1,4 @@
 import { fileURLToPath } from "node:url"
-import { expect, test } from "@playwright/test"
-
 import {
   LoginService,
   OpenAPI,
@@ -9,6 +7,7 @@ import {
   UsersService,
 } from "../src/client"
 import { firstSuperuser, firstSuperuserPassword, testApiUrl } from "./config"
+import { expect, test } from "./fixtures"
 import { randomEmail, randomPassword } from "./utils/random"
 
 const validWorkbook = fileURLToPath(
@@ -75,7 +74,7 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
   await expect(uploadRow.getByText("v1", { exact: true })).toBeVisible()
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
 
-  await uploadRow.getByRole("button", { name: "设为当前输入" }).click()
+  await uploadRow.getByRole("button", { name: "Set as current input" }).click()
 
   await expect(uploadRow.getByText("Current", { exact: true })).toBeVisible()
   const selectedInputs = await ProjectsService.readCustomerUploads({

@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { createFileRoute, redirect } from "@tanstack/react-router"
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
@@ -17,6 +18,7 @@ import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { PasswordInput } from "@/components/ui/password-input"
 import useAuth, { isLoggedIn } from "@/hooks/useAuth"
+import { useI18n } from "@/lib/i18n"
 
 const formSchema = z.object({
   username: z.email({ message: "Invalid email address" }),
@@ -47,6 +49,10 @@ export const Route = createFileRoute("/login")({
 })
 
 function Login() {
+  const { t } = useI18n()
+  useEffect(() => {
+    document.title = t("Log In - Exposure-Agent", "登录 - Exposure-Agent")
+  }, [t])
   const { loginMutation } = useAuth()
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -67,11 +73,14 @@ function Login() {
     <AuthLayout>
       <Form {...form}>
         <form
+          noValidate
           onSubmit={form.handleSubmit(onSubmit)}
           className="flex flex-col gap-6"
         >
           <div className="flex flex-col items-center gap-2 text-center">
-            <h1 className="text-2xl font-bold">Login to your account</h1>
+            <h1 className="text-2xl font-bold">
+              {t("Login to your account", "登录您的账户")}
+            </h1>
           </div>
 
           <div className="grid gap-4">
@@ -80,7 +89,7 @@ function Login() {
               name="username"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Email</FormLabel>
+                  <FormLabel>{t("Email", "电子邮箱")}</FormLabel>
                   <FormControl>
                     <Input
                       data-testid="email-input"
@@ -99,11 +108,11 @@ function Login() {
               name="password"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Password</FormLabel>
+                  <FormLabel>{t("Password", "密码")}</FormLabel>
                   <FormControl>
                     <PasswordInput
                       data-testid="password-input"
-                      placeholder="Password"
+                      placeholder={t("Password", "密码")}
                       {...field}
                     />
                   </FormControl>
@@ -113,7 +122,7 @@ function Login() {
             />
 
             <LoadingButton type="submit" loading={loginMutation.isPending}>
-              Log In
+              {t("Log In", "登录")}
             </LoadingButton>
           </div>
         </form>

@@ -9,8 +9,10 @@ import {
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+import { useI18n } from "@/lib/i18n"
 
 const Toaster = ({ ...props }: ToasterProps) => {
+  const { t } = useI18n()
   const { theme = "system" } = useTheme()
 
   return (
@@ -33,6 +35,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
         } as React.CSSProperties
       }
       {...props}
+      containerAriaLabel={t("Notifications", "通知")}
+      toastOptions={{ ...props.toastOptions, closeButtonAriaLabel: t("Close toast", "关闭通知") }}
     />
   )
 }

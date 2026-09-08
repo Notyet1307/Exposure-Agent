@@ -13,6 +13,7 @@ import {
 
 import { cn } from "@/lib/utils"
 import { Label } from "@/components/ui/label"
+import { useI18n } from "@/lib/i18n"
 
 const Form = FormProvider
 
@@ -134,8 +135,9 @@ function FormDescription({ className, ...props }: React.ComponentProps<"p">) {
 }
 
 function FormMessage({ className, ...props }: React.ComponentProps<"p">) {
+  const { message } = useI18n()
   const { error, formMessageId } = useFormField()
-  const body = error ? String(error?.message ?? "") : props.children
+  const body = error ? message(String(error?.message ?? "")) : props.children
 
   if (!body) {
     return null

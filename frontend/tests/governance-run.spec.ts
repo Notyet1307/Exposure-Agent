@@ -1,6 +1,4 @@
 import { fileURLToPath } from "node:url"
-import { expect, test } from "@playwright/test"
-
 import {
   CloudatlasSourceInstancesService,
   GovernanceRunsService,
@@ -17,6 +15,7 @@ import {
   firstSuperuserPassword,
   testApiUrl,
 } from "./config"
+import { expect, test } from "./fixtures"
 import { randomEmail, randomPassword } from "./utils/random"
 
 const validWorkbook = fileURLToPath(
@@ -110,7 +109,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   const uploadRow = page
     .getByRole("row")
     .filter({ hasText: "customer-upload-v1.xlsx" })
-  await uploadRow.getByRole("button", { name: "设为当前输入" }).click()
+  await uploadRow.getByRole("button", { name: "Set as current input" }).click()
 
   await page.getByRole("tab", { name: "Runs", exact: true }).click()
   await expect(page.getByText("Inputs ready")).toBeVisible()
@@ -446,7 +445,9 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   const firstUploadRow = page
     .getByRole("row")
     .filter({ hasText: "customer-upload-stage4-first.xlsx" })
-  await firstUploadRow.getByRole("button", { name: "设为当前输入" }).click()
+  await firstUploadRow
+    .getByRole("button", { name: "Set as current input" })
+    .click()
 
   await request.post(`${stage4FixtureUrl}/fixture/set-assets`, {
     data: {
@@ -509,7 +510,9 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   const secondUploadRow = page
     .getByRole("row")
     .filter({ hasText: "customer-upload-stage4-second.xlsx" })
-  await secondUploadRow.getByRole("button", { name: "设为当前输入" }).click()
+  await secondUploadRow
+    .getByRole("button", { name: "Set as current input" })
+    .click()
   await request.post(`${stage4FixtureUrl}/fixture/set-assets`, {
     data: {
       items: [

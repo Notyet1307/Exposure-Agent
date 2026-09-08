@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test"
 import type { FindingDetailPublic } from "../src/client"
+import { expect, test } from "./fixtures"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
 const resourceId = "80000000-0000-0000-0000-000000000001"
@@ -559,6 +559,33 @@ test.describe("Finding NetFlow context presentation", () => {
       ).toBeVisible()
     })
   }
+
+  test("keeps an unknown NetFlow context explicit when language changes", async ({
+    page,
+  }) => {
+    await page.route(findingDetailUrl, (route) =>
+      route.fulfill({
+        json: {
+          ...findingDetail,
+          netflow_context: {
+            governance_run_id: positiveNetflowContext.governance_run_id,
+            status: "constructor",
+            activity: null,
+          },
+        },
+      }),
+    )
+    await page.getByRole("button", { name: "View details" }).click()
+    const dialog = page.getByRole("dialog")
+    await expect(dialog).toContainText(
+      "Unknown NetFlow context status: constructor",
+    )
+    await dialog
+      .getByRole("combobox", { name: "Language / 语言" })
+      .selectOption("zh-CN")
+    await expect(dialog).toContainText("未知的 NetFlow 上下文状态：constructor")
+    await expect(dialog).not.toContainText("此运行未提供 NetFlow 输入")
+  })
 
   test("keeps a long hash inside the narrow dialog", async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 800 })

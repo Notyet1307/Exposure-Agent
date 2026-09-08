@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test"
 import { firstSuperuser, firstSuperuserPassword } from "./config.ts"
+import { expect, test } from "./fixtures"
 import { randomEmail, randomPassword } from "./utils/random"
 import { createUser, logInUser, logOutUser } from "./utils/user"
 

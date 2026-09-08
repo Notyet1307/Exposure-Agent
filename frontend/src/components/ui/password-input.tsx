@@ -3,6 +3,7 @@ import { Eye, EyeOff } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "./button"
+import { useI18n } from "@/lib/i18n"
 
 interface PasswordInputProps extends React.ComponentProps<"input"> {
   error?: string
@@ -10,6 +11,7 @@ interface PasswordInputProps extends React.ComponentProps<"input"> {
 
 const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
   ({ className, error, ...props }, ref) => {
+    const { t } = useI18n()
     const [showPassword, setShowPassword] = React.useState(false)
 
     return (
@@ -33,7 +35,7 @@ const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
           size="icon-sm"
           className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
           onClick={() => setShowPassword(!showPassword)}
-          aria-label={showPassword ? "Hide password" : "Show password"}
+          aria-label={showPassword ? t("Hide password", "隐藏密码") : t("Show password", "显示密码")}
         >
           {showPassword ? (
             <EyeOff className="h-4 w-4 text-muted-foreground" />

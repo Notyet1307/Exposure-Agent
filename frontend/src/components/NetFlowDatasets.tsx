@@ -11,6 +11,7 @@ import {
 import { ResultPagination } from "@/components/ResultPagination"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -29,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { useI18n } from "@/lib/i18n"
 
 const PAGE_SIZE = 10
 const MAX_WARNING_SUMMARY = 5
@@ -48,13 +50,6 @@ function warningSummary(
   }
 }
 
-function formatTime(value: string | null) {
-  if (!value) return "Not available"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "Not available"
-  return date.toISOString().replace("T", " ").replace(".000Z", " UTC")
-}
-
 function safeServerMessage(error: Error, fallback: string) {
   if (
     error instanceof ApiError &&
@@ -71,18 +66,25 @@ function safeServerMessage(error: Error, fallback: string) {
 }
 
 function CountSummary({ dataset }: { dataset: NetFlowDatasetPublic }) {
+  const { t } = useI18n()
   return (
     <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
       <div>
-        <dt className="text-muted-foreground">Raw records</dt>
+        <dt className="text-muted-foreground">
+          {t("Raw records", "原始记录数")}
+        </dt>
         <dd className="font-medium">{dataset.raw_record_count}</dd>
       </div>
       <div>
-        <dt className="text-muted-foreground">Valid activity records</dt>
+        <dt className="text-muted-foreground">
+          {t("Valid activity records", "有效活动记录数")}
+        </dt>
         <dd className="font-medium">{dataset.activity_valid_record_count}</dd>
       </div>
       <div>
-        <dt className="text-muted-foreground">Isolated records</dt>
+        <dt className="text-muted-foreground">
+          {t("Isolated records", "隔离记录数")}
+        </dt>
         <dd className="font-medium">{dataset.isolated_record_count}</dd>
       </div>
     </dl>
@@ -90,46 +92,67 @@ function CountSummary({ dataset }: { dataset: NetFlowDatasetPublic }) {
 }
 
 function QualitySummary({ dataset }: { dataset: NetFlowDatasetPublic }) {
+  const { t, formatDate, language, translateValue } = useI18n()
+  const formatTime = (value: string | null) => {
+    if (!value || Number.isNaN(new Date(value).getTime())) {
+      return t("Not available", "不可用")
+    }
+    return language === "en"
+      ? new Date(value).toISOString().replace("T", " ").replace(".000Z", " UTC")
+      : formatDate(value, "UTC")
+  }
   const warnings = dataset.warnings.map(warningSummary)
   const visibleWarnings = warnings.slice(0, MAX_WARNING_SUMMARY)
   const hiddenWarningCount = warnings.length - visibleWarnings.length
 
   return (
     <div className="space-y-2 text-sm">
-      <p className="font-medium">Quality summary</p>
+      <p className="font-medium">{t("Quality summary", "质量摘要")}</p>
       <dl className="grid gap-x-4 gap-y-2">
         <div>
-          <dt className="text-muted-foreground">Warnings</dt>
+          <dt className="text-muted-foreground">{t("Warnings", "警告")}</dt>
           <dd>
             {visibleWarnings.length === 0 ? (
-              "None"
+              t("None", "无")
             ) : (
               <ul className="space-y-1">
                 {visibleWarnings.map((warning, index) => (
                   <li key={`${warning.code}-${index}`}>
-                    {warning.code}: {warning.count}
+                    {warning.code === "Unknown warning"
+                      ? t("Unknown warning", "未知警告")
+                      : translateValue(warning.code)}
+                    : {warning.count}
                   </li>
                 ))}
               </ul>
             )}
             {hiddenWarningCount > 0 && (
               <span className="text-muted-foreground">
-                +{hiddenWarningCount} more warning types
+                {t(
+                  `+${hiddenWarningCount} more warning types`,
+                  `另有 ${hiddenWarningCount} 种警告`,
+                )}
               </span>
             )}
           </dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Duplicate groups</dt>
+          <dt className="text-muted-foreground">
+            {t("Duplicate groups", "重复组数")}
+          </dt>
           <dd>{dataset.duplicate_group_count}</dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Duplicate records</dt>
+          <dt className="text-muted-foreground">
+            {t("Duplicate records", "重复记录数")}
+          </dt>
           <dd>{dataset.duplicate_record_count}</dd>
         </div>
       </dl>
       <p>
-        <span className="text-muted-foreground">Valid time range: </span>
+        <span className="text-muted-foreground">
+          {t("Valid time range: ", "有效时间范围：")}
+        </span>
         {formatTime(dataset.valid_time_start_utc)} —{" "}
         {formatTime(dataset.valid_time_end_utc)}
       </p>
@@ -138,17 +161,20 @@ function QualitySummary({ dataset }: { dataset: NetFlowDatasetPublic }) {
 }
 
 function DatasetDetails({ dataset }: { dataset: NetFlowDatasetPublic }) {
+  const { t } = useI18n()
   return (
     <div className="space-y-3">
       <div>
         <p className="font-medium">{dataset.display_filename}</p>
         <p className="break-all font-mono text-xs text-muted-foreground">
-          Dataset ID: {dataset.id}
+          {t("Dataset ID:", "数据集 ID：")} {dataset.id}
         </p>
       </div>
       <dl>
         <div>
-          <dt className="text-muted-foreground">RAW SHA-256</dt>
+          <dt className="text-muted-foreground">
+            {t("RAW SHA-256", "原始 SHA-256")}
+          </dt>
           <dd className="break-all font-mono text-xs">{dataset.raw_sha256}</dd>
         </div>
       </dl>
@@ -167,17 +193,21 @@ function DatasetAction({
   pending: boolean
   onSelect: () => void
 }) {
+  const { t } = useI18n()
   return (
     <LoadingButton
       type="button"
       variant="outline"
       size="sm"
       loading={pending}
-      aria-label={`Select ${dataset.display_filename} as current NetFlowDataset`}
+      aria-label={t(
+        `Select ${dataset.display_filename} as current NetFlowDataset`,
+        `将 ${dataset.display_filename} 设为当前 NetFlow 数据集`,
+      )}
       onClick={onSelect}
     >
       <Check />
-      Select
+      {t("Select", "选择")}
     </LoadingButton>
   )
 }
@@ -195,9 +225,12 @@ function DatasetTable({
   selectingId: string | null
   onSelect: (datasetId: string) => void
 }) {
+  const { t } = useI18n()
   if (datasets.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">No NetFlowDatasets yet.</p>
+      <p className="text-sm text-muted-foreground">
+        {t("No NetFlowDatasets yet.", "尚无 NetFlow 数据集。")}
+      </p>
     )
   }
 
@@ -207,11 +240,17 @@ function DatasetTable({
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-1/5">Dataset</TableHead>
-              <TableHead className="w-1/5">RAW SHA-256</TableHead>
-              <TableHead className="w-[15%]">Records</TableHead>
-              <TableHead className="w-[30%]">Quality</TableHead>
-              <TableHead className="w-[15%] text-right">Action</TableHead>
+              <TableHead className="w-1/5">{t("Dataset", "数据集")}</TableHead>
+              <TableHead className="w-1/5">
+                {t("RAW SHA-256", "原始 SHA-256")}
+              </TableHead>
+              <TableHead className="w-[15%]">
+                {t("Records", "记录数")}
+              </TableHead>
+              <TableHead className="w-[30%]">{t("Quality", "质量")}</TableHead>
+              <TableHead className="w-[15%] text-right">
+                {t("Action", "操作")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -222,17 +261,26 @@ function DatasetTable({
                   <TableCell>
                     <p className="font-medium">{dataset.display_filename}</p>
                     <p className="break-all font-mono text-xs text-muted-foreground">
-                      Dataset ID: {dataset.id}
+                      {t("Dataset ID:", "数据集 ID：")} {dataset.id}
                     </p>
-                    {isCurrent && <Badge className="mt-1">Current</Badge>}
+                    {isCurrent && (
+                      <Badge className="mt-1">{t("Current", "当前")}</Badge>
+                    )}
                   </TableCell>
                   <TableCell className="max-w-xs break-all font-mono text-xs">
                     {dataset.raw_sha256}
                   </TableCell>
                   <TableCell>
-                    <p>Raw: {dataset.raw_record_count}</p>
-                    <p>Valid: {dataset.activity_valid_record_count}</p>
-                    <p>Isolated: {dataset.isolated_record_count}</p>
+                    <p>
+                      {t("Raw:", "原始：")} {dataset.raw_record_count}
+                    </p>
+                    <p>
+                      {t("Valid:", "有效：")}{" "}
+                      {dataset.activity_valid_record_count}
+                    </p>
+                    <p>
+                      {t("Isolated:", "隔离：")} {dataset.isolated_record_count}
+                    </p>
                   </TableCell>
                   <TableCell className="break-all">
                     <QualitySummary dataset={dataset} />
@@ -259,7 +307,7 @@ function DatasetTable({
             <Card key={dataset.id}>
               <CardContent className="space-y-4 pt-6">
                 <DatasetDetails dataset={dataset} />
-                {isCurrent && <Badge>Current</Badge>}
+                {isCurrent && <Badge>{t("Current", "当前")}</Badge>}
                 {!isCurrent && canSelect && (
                   <DatasetAction
                     dataset={dataset}
@@ -283,8 +331,10 @@ export default function NetFlowDatasets({
   projectId: string
   archived?: boolean
 }) {
+  const { t, message: translateMessage } = useI18n()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -324,6 +374,7 @@ export default function NetFlowDatasets({
     onSuccess: async () => {
       setMessage("NetFlowDataset upload accepted successfully.")
       if (fileInputRef.current) fileInputRef.current.value = ""
+      setSelectedFilename(null)
       setPage(0)
       await invalidateAfterMutation()
     },
@@ -374,13 +425,21 @@ export default function NetFlowDatasets({
   })
 
   if (datasetsQuery.isPending)
-    return <p role="status">Loading NetFlowDatasets…</p>
+    return (
+      <p role="status">
+        {t("Loading NetFlowDatasets…", "正在加载 NetFlow 数据集…")}
+      </p>
+    )
   if (datasetsQuery.isError) {
     return (
       <Alert variant="destructive">
         <AlertCircle />
-        <AlertTitle>NetFlowDatasets could not be loaded</AlertTitle>
-        <AlertDescription>Please try again later.</AlertDescription>
+        <AlertTitle>
+          {t("NetFlowDatasets could not be loaded", "无法加载 NetFlow 数据集")}
+        </AlertTitle>
+        <AlertDescription>
+          {t("Please try again later.", "请稍后重试。")}
+        </AlertDescription>
       </Alert>
     )
   }
@@ -409,19 +468,28 @@ export default function NetFlowDatasets({
           id="netflow-datasets-title"
           className="text-xl font-semibold tracking-tight"
         >
-          NetFlowDatasets
+          {t("NetFlowDatasets", "NetFlow 数据集")}
         </h2>
         <p className="text-muted-foreground">
-          Accepted NetFlow datasets are immutable. Authorized operators can
-          change the Project current NetFlow selection.
+          {t(
+            "Accepted NetFlow datasets are immutable. Authorized operators can change the Project current NetFlow selection.",
+            "已接受的 NetFlow 数据集不可修改。获得授权的操作员可更改项目当前选择的 NetFlow 数据集。",
+          )}
         </p>
       </div>
 
       {currentDataset ? (
         <Card>
           <CardHeader>
-            <CardTitle>Current NetFlowDataset</CardTitle>
-            <CardDescription>Project current NetFlow selection</CardDescription>
+            <CardTitle>
+              {t("Current NetFlowDataset", "当前 NetFlow 数据集")}
+            </CardTitle>
+            <CardDescription>
+              {t(
+                "Project current NetFlow selection",
+                "项目当前选择的 NetFlow 数据集",
+              )}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <DatasetDetails dataset={currentDataset} />
@@ -435,7 +503,7 @@ export default function NetFlowDatasets({
                   clearMutation.mutate()
                 }}
               >
-                Clear current
+                {t("Clear current", "清除当前选择")}
               </LoadingButton>
             )}
           </CardContent>
@@ -443,9 +511,14 @@ export default function NetFlowDatasets({
       ) : (
         <Alert>
           <AlertCircle />
-          <AlertTitle>No current NetFlowDataset</AlertTitle>
+          <AlertTitle>
+            {t("No current NetFlowDataset", "未选择当前 NetFlow 数据集")}
+          </AlertTitle>
           <AlertDescription>
-            This Project has no current NetFlow selection.
+            {t(
+              "This Project has no current NetFlow selection.",
+              "此项目尚未选择当前 NetFlow 数据集。",
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -453,10 +526,14 @@ export default function NetFlowDatasets({
       {canUpload ? (
         <Card>
           <CardHeader>
-            <CardTitle>Upload NetFlowDataset</CardTitle>
+            <CardTitle>
+              {t("Upload NetFlowDataset", "上传 NetFlow 数据集")}
+            </CardTitle>
             <CardDescription>
-              Choose one .csv or .txt file. The server performs authoritative
-              validation.
+              {t(
+                "Choose one .csv or .txt file. The server performs authoritative validation.",
+                "请选择一个 .csv 或 .txt 文件。服务器执行权威校验。",
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -466,20 +543,38 @@ export default function NetFlowDatasets({
             >
               <div className="flex-1 space-y-2">
                 <Label htmlFor="netflow-dataset-file">
-                  NetFlow dataset file
+                  {t("NetFlow dataset file", "NetFlow 数据集文件")}
                 </Label>
-                <Input
-                  ref={fileInputRef}
-                  id="netflow-dataset-file"
-                  name="file"
-                  type="file"
-                  accept=".csv,.txt,text/csv,text/plain"
-                  disabled={uploadMutation.isPending}
-                />
+                <div className="flex items-center gap-3">
+                  <Input
+                    ref={fileInputRef}
+                    id="netflow-dataset-file"
+                    name="file"
+                    type="file"
+                    accept=".csv,.txt,text/csv,text/plain"
+                    className="sr-only"
+                    tabIndex={-1}
+                    disabled={uploadMutation.isPending}
+                    onChange={(event) =>
+                      setSelectedFilename(event.target.files?.[0]?.name ?? null)
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={uploadMutation.isPending}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {t("Choose file", "选择文件")}
+                  </Button>
+                  <span className="min-w-0 break-all text-sm">
+                    {selectedFilename ?? t("No file chosen", "未选择文件")}
+                  </span>
+                </div>
               </div>
               <LoadingButton type="submit" loading={uploadMutation.isPending}>
                 <Upload />
-                Upload
+                {t("Upload", "上传")}
               </LoadingButton>
             </form>
           </CardContent>
@@ -487,21 +582,28 @@ export default function NetFlowDatasets({
       ) : (
         !archived && (
           <p className="text-sm text-muted-foreground">
-            You have read-only access to NetFlowDataset inputs for this Project.
+            {t(
+              "You have read-only access to NetFlowDataset inputs for this Project.",
+              "您对此项目的 NetFlow 数据集输入仅有只读权限。",
+            )}
           </p>
         )
       )}
 
       {message && (
         <p role="status" className="text-sm">
-          {message}
+          {translateMessage(message)}
         </p>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Accepted NetFlowDatasets</CardTitle>
-          <CardDescription>{datasets.count} total</CardDescription>
+          <CardTitle>
+            {t("Accepted NetFlowDatasets", "已接受的 NetFlow 数据集")}
+          </CardTitle>
+          <CardDescription>
+            {t(`${datasets.count} total`, `共 ${datasets.count} 项`)}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <DatasetTable
@@ -519,7 +621,7 @@ export default function NetFlowDatasets({
             }}
           />
           <ResultPagination
-            label="NetFlowDatasets"
+            label={t("NetFlowDatasets", "NetFlow 数据集")}
             count={datasets.count}
             page={page}
             pageSize={PAGE_SIZE}

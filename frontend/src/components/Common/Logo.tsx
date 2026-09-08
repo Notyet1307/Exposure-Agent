@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router"
 
+import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
 interface LogoProps {
@@ -13,6 +14,7 @@ export function Logo({
   className,
   asLink = true,
 }: LogoProps) {
+  const { t } = useI18n()
   const fullLogo = (
     <span
       className={cn(
@@ -52,7 +54,7 @@ export function Logo({
   }
 
   return (
-    <Link to="/" aria-label="Exposure-Agent home">
+    <Link to="/" aria-label={t("Exposure-Agent home", "Exposure-Agent 首页")}>
       {content}
     </Link>
   )

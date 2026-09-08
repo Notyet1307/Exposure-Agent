@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import useAuth from "@/hooks/useAuth"
+import { useI18n } from "@/lib/i18n"
 import EditUser from "./EditUser"
 
 interface UserActionsMenuProps {
@@ -16,6 +17,7 @@ interface UserActionsMenuProps {
 }
 
 export const UserActionsMenu = ({ user }: UserActionsMenuProps) => {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const { user: currentUser } = useAuth()
 
@@ -26,7 +28,11 @@ export const UserActionsMenu = ({ user }: UserActionsMenuProps) => {
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t("User actions", "用户操作")}
+        >
           <EllipsisVertical />
         </Button>
       </DropdownMenuTrigger>

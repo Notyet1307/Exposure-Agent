@@ -39,7 +39,7 @@ export function Main({ items }: MainProps) {
             const isActive = currentPath === item.path
 
             return (
-              <SidebarMenuItem key={item.title}>
+              <SidebarMenuItem key={item.path}>
                 <SidebarMenuButton
                   tooltip={item.title}
                   isActive={isActive}

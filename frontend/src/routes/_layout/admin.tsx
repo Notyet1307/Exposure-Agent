@@ -1,6 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { Suspense } from "react"
+import { Suspense, useEffect, useMemo } from "react"
 
 import { type UserPublic, UsersService } from "@/client"
 import AddUser from "@/components/Admin/AddUser"
@@ -8,6 +8,7 @@ import { columns, type UserTableData } from "@/components/Admin/columns"
 import { DataTable } from "@/components/Common/DataTable"
 import PendingUsers from "@/components/Pending/PendingUsers"
 import useAuth from "@/hooks/useAuth"
+import { useI18n } from "@/lib/i18n"
 
 function getUsersQueryOptions() {
   return {
@@ -39,10 +40,14 @@ function UsersTableContent() {
   const { user: currentUser } = useAuth()
   const { data: users } = useSuspenseQuery(getUsersQueryOptions())
 
-  const tableData: UserTableData[] = users.data.map((user: UserPublic) => ({
-    ...user,
-    isCurrentUser: currentUser?.id === user.id,
-  }))
+  const tableData = useMemo<UserTableData[]>(
+    () =>
+      users.data.map((user: UserPublic) => ({
+        ...user,
+        isCurrentUser: currentUser?.id === user.id,
+      })),
+    [users.data, currentUser?.id],
+  )
 
   return <DataTable columns={columns} data={tableData} />
 }
@@ -56,13 +61,19 @@ function UsersTable() {
 }
 
 function Admin() {
+  const { t } = useI18n()
+  useEffect(() => {
+    document.title = t("Admin - Exposure-Agent", "用户管理 - Exposure-Agent")
+  }, [t])
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {t("Users", "用户")}
+          </h1>
           <p className="text-muted-foreground">
-            Manage user accounts and permissions
+            {t("Manage user accounts and permissions", "管理用户账户与权限")}
           </p>
         </div>
         <AddUser />

@@ -35,6 +35,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
+import { useI18n } from "@/lib/i18n"
+
 const REPORT_PAGE_SIZE = 20
 const HTML_EVIDENCE_LIMIT = 8
 const MAX_DRAFT_FINDINGS = 8
@@ -136,11 +138,6 @@ function numberField(value: JsonObject, key: string) {
   return typeof field === "number" && Number.isFinite(field) ? field : 0
 }
 
-function formatDate(value: string) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
-}
-
 function CountList({
   items,
   typeKey,
@@ -148,15 +145,22 @@ function CountList({
   items: JsonObject[]
   typeKey: "finding_type" | "transition_type"
 }) {
+  const { t, translateValue } = useI18n()
   if (items.length === 0) {
-    return <p className="text-sm text-muted-foreground">No counts published.</p>
+    return (
+      <p className="text-sm text-muted-foreground">
+        {t("No counts published.", "未发布计数。")}
+      </p>
+    )
   }
   return (
     <ul className="list-disc space-y-1 pl-5 text-sm">
       {items.map((item, index) => (
         <li key={`${stringField(item, typeKey)}-${index}`}>
-          <span className="font-mono">{stringField(item, typeKey)}</span>:{" "}
-          {numberField(item, "count")}
+          <span className="font-mono">
+            {translateValue(stringField(item, typeKey))}
+          </span>
+          : {numberField(item, "count")}
         </li>
       ))}
     </ul>
@@ -181,28 +185,37 @@ function ReportSection({
 }
 
 function InputCompleteness({ section }: { section: JsonObject }) {
+  const { t, translateValue } = useI18n()
   const sources = objectArray(section, "sources")
   return (
     <div className="space-y-3">
       <p className="text-sm">
         {section.complete === true
-          ? "All bounded input summaries are marked complete."
-          : "The published report does not mark all inputs complete."}
+          ? t(
+              "All bounded input summaries are marked complete.",
+              "所有有界输入摘要均标记为完整。",
+            )
+          : t(
+              "The published report does not mark all inputs complete.",
+              "已发布报告未将所有输入标记为完整。",
+            )}
       </p>
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Source</TableHead>
-            <TableHead>Snapshot reference</TableHead>
-            <TableHead>Content SHA-256</TableHead>
-            <TableHead>Schema</TableHead>
-            <TableHead>Records</TableHead>
+            <TableHead>{t("Source", "来源")}</TableHead>
+            <TableHead>{t("Snapshot reference", "快照引用")}</TableHead>
+            <TableHead>{t("Content SHA-256", "内容 SHA-256")}</TableHead>
+            <TableHead>{t("Schema", "结构版本")}</TableHead>
+            <TableHead>{t("Records", "记录数")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {sources.map((source, index) => (
             <TableRow key={`${stringField(source, "source_type")}-${index}`}>
-              <TableCell>{stringField(source, "source_type")}</TableCell>
+              <TableCell>
+                {translateValue(stringField(source, "source_type"))}
+              </TableCell>
               <TableCell className="break-all font-mono text-xs">
                 {stringField(source, "source_snapshot_id")}
               </TableCell>
@@ -228,12 +241,16 @@ function EvidenceCards({
   evidencePlan: JsonObject
   evidenceCount: number
 }) {
+  const { t, translateValue } = useI18n()
   const allEntries = objectArray(evidencePlan, "entries")
   const entries = allEntries.slice(0, HTML_EVIDENCE_LIMIT)
   if (entries.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No Evidence examples were selected for this report.
+        {t(
+          "No Evidence examples were selected for this report.",
+          "此报告未选择证据示例。",
+        )}
       </p>
     )
   }
@@ -241,9 +258,10 @@ function EvidenceCards({
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Showing {entries.length} of {evidenceCount} bounded Evidence reference
-        {evidenceCount === 1 ? "" : "s"}. The HTML view never renders more than{" "}
-        {HTML_EVIDENCE_LIMIT} cards.
+        {t(
+          `Showing ${entries.length} of ${evidenceCount} bounded Evidence reference${evidenceCount === 1 ? "" : "s"}. The HTML view never renders more than ${HTML_EVIDENCE_LIMIT} cards.`,
+          `显示 ${evidenceCount} 个有界证据引用中的 ${entries.length} 个。HTML 视图最多展示 ${HTML_EVIDENCE_LIMIT} 张卡片。`,
+        )}
       </p>
       <div className="grid gap-3 lg:grid-cols-2">
         {entries.map((entry, index) => {
@@ -255,47 +273,67 @@ function EvidenceCards({
               className="space-y-2 rounded-md border p-3 text-sm"
               key={`${stringField(entry, "finding_id")}-${index}`}
             >
-              <h3 className="font-semibold">Evidence {index + 1}</h3>
+              <h3 className="font-semibold">
+                {t("Evidence", "证据")} {index + 1}
+              </h3>
               <dl className="grid gap-1">
                 <div>
-                  <dt className="inline font-medium">Coverage: </dt>
-                  <dd className="inline">{stringField(entry, "coverage")}</dd>
+                  <dt className="inline font-medium">
+                    {t("Coverage: ", "覆盖范围：")}
+                  </dt>
+                  <dd className="inline">
+                    {translateValue(stringField(entry, "coverage"))}
+                  </dd>
                 </div>
                 <div>
-                  <dt className="inline font-medium">Finding: </dt>
+                  <dt className="inline font-medium">
+                    {t("Finding: ", "发现项：")}
+                  </dt>
                   <dd className="inline break-all font-mono text-xs">
                     {stringField(entry, "finding_id")}
                   </dd>
                 </div>
                 <div>
-                  <dt className="inline font-medium">Type / IP: </dt>
+                  <dt className="inline font-medium">
+                    {t("Type / IP: ", "类型 / IP：")}
+                  </dt>
                   <dd className="inline break-all">
-                    {stringField(entry, "finding_type")} /{" "}
+                    {translateValue(stringField(entry, "finding_type"))} /{" "}
                     <span className="font-mono">
                       {stringField(entry, "canonical_ip")}
                     </span>
                   </dd>
                 </div>
                 <div>
-                  <dt className="inline font-medium">Transition: </dt>
+                  <dt className="inline font-medium">
+                    {t("Transition: ", "状态变更：")}
+                  </dt>
                   <dd className="inline">
-                    {stringField(entry, "transition_type", "None in this Run")}
+                    {translateValue(
+                      stringField(
+                        entry,
+                        "transition_type",
+                        t("None in this Run", "此运行中无变更"),
+                      ),
+                    )}
                   </dd>
                 </div>
                 <div>
-                  <dt className="inline font-medium">Source fact: </dt>
+                  <dt className="inline font-medium">
+                    {t("Source fact: ", "来源事实：")}
+                  </dt>
                   <dd className="inline break-all font-mono text-xs">
-                    {stringField(reference, "fact_type")} /{" "}
+                    {translateValue(stringField(reference, "fact_type"))} /{" "}
                     {stringField(reference, "fact_id")}
                   </dd>
                 </div>
               </dl>
               <p className="flex flex-wrap gap-3 text-sm">
                 <a className="underline" href="#report-provenance">
-                  Evidence provenance
+                  {t("Evidence provenance", "证据来源追溯")}
                 </a>
                 <a className="underline" href="#report-open-backlog">
-                  Finding context
+                  {t("Finding context", "发现项上下文")}
                 </a>
               </p>
             </article>
@@ -345,6 +383,7 @@ function DraftGeneration({
   detail: GovernanceReportDetailPublic
   projectId: string
 }) {
+  const { t, translateValue } = useI18n()
   const queryClient = useQueryClient()
   const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(
     new Set(),
@@ -463,21 +502,35 @@ function DraftGeneration({
   }
 
   return (
-    <ReportSection id="ai-governance-draft" title="AI governance draft">
+    <ReportSection
+      id="ai-governance-draft"
+      title={t("AI governance draft", "AI 治理草稿")}
+    >
       <p className="text-sm text-muted-foreground">
         {supportsAiDraft
-          ? "Select one to eight eligible unobserved assets. Nothing is selected automatically, and the deterministic report remains unchanged."
-          : `AI governance drafts are not supported for ${detail.report_contract_version}.`}
+          ? t(
+              "Select one to eight eligible unobserved assets. Nothing is selected automatically, and the deterministic report remains unchanged.",
+              "请选择一至八个符合条件的未观测资产。不会自动选择任何项，确定性报告保持不变。",
+            )
+          : t(
+              `AI governance drafts are not supported for ${detail.report_contract_version}.`,
+              `${detail.report_contract_version} 不支持 AI 治理草稿。`,
+            )}
       </p>
       {!supportsAiDraft ? null : generationAfterFailureBlocked ? (
         <p className="text-sm text-muted-foreground">
-          A new draft attempt after failure is not available in this release.
+          {t(
+            "A new draft attempt after failure is not available in this release.",
+            "此版本不支持在失败后重新尝试生成草稿。",
+          )}
         </p>
       ) : pendingRequest ? (
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            A previous request is pending. Replaying it sends the same
-            idempotency key and exactly the Findings selected before reload.
+            {t(
+              "A previous request is pending. Replaying it sends the same idempotency key and exactly the Findings selected before reload.",
+              "先前请求仍待处理。重放将发送相同的幂等键，以及重新加载前选择的原始发现项集合。",
+            )}
           </p>
           <Button
             disabled={generationMutation.isPending}
@@ -486,31 +539,39 @@ function DraftGeneration({
             variant="outline"
           >
             {generationMutation.isPending
-              ? "Resuming draft request…"
-              : "Resume your draft request"}
+              ? t("Resuming draft request…", "正在恢复草稿请求…")
+              : t("Resume your draft request", "恢复您的草稿请求")}
           </Button>
         </div>
       ) : activeDraft ? (
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            Draft generation is already active.
+            {t("Draft generation is already active.", "草稿生成已在进行中。")}
           </p>
           {activeDraft.session_id === null && (
             <p className="text-sm text-muted-foreground">
-              This browser does not have a recoverable request for the active
-              draft.
+              {t(
+                "This browser does not have a recoverable request for the active draft.",
+                "此浏览器没有可用于恢复当前草稿的请求。",
+              )}
             </p>
           )}
         </div>
       ) : !detail.can_request_ai_governance_draft ? (
         <p className="text-sm text-muted-foreground">
-          A Project Operator can request an AI governance draft.
+          {t(
+            "A Project Operator can request an AI governance draft.",
+            "项目操作员可请求 AI 治理草稿。",
+          )}
         </p>
       ) : (
         <>
           {eligibleFindings.length === 0 ? (
             <p className="text-sm">
-              No eligible unobserved-asset Findings are available.
+              {t(
+                "No eligible unobserved-asset Findings are available.",
+                "暂无符合条件的未观测资产发现项。",
+              )}
             </p>
           ) : (
             <div className="space-y-2">
@@ -557,38 +618,55 @@ function DraftGeneration({
               type="button"
             >
               {generationMutation.isPending
-                ? "Requesting draft…"
-                : "Request AI draft"}
+                ? t("Requesting draft…", "正在请求草稿…")
+                : t("Request AI draft", "请求 AI 草稿")}
             </Button>
             <span className="text-sm text-muted-foreground">
-              {selectedFindingIds.size} of {MAX_DRAFT_FINDINGS} selected
+              {t(
+                `${selectedFindingIds.size} of ${MAX_DRAFT_FINDINGS} selected`,
+                `已选择 ${selectedFindingIds.size} 项，上限 ${MAX_DRAFT_FINDINGS} 项`,
+              )}
             </span>
           </div>
         </>
       )}
       {generationMutation.isError && (
         <Alert variant="destructive">
-          <AlertTitle>Draft request could not be started</AlertTitle>
+          <AlertTitle>
+            {t("Draft request could not be started", "无法启动草稿请求")}
+          </AlertTitle>
           <AlertDescription>
             {pendingRequest
-              ? "The original request, including its selected Findings, is retained in this browser tab and can be replayed safely."
-              : "No draft was persisted. You can update the selection or prerequisites and try again."}
+              ? t(
+                  "The original request, including its selected Findings, is retained in this browser tab and can be replayed safely.",
+                  "原始请求及其所选发现项保留在此浏览器标签页中，可安全重放。",
+                )
+              : t(
+                  "No draft was persisted. You can update the selection or prerequisites and try again.",
+                  "未持久化任何草稿。您可以更新所选项或前置条件后重试。",
+                )}
           </AlertDescription>
         </Alert>
       )}
       {latestDraft && (
         <div className="rounded-md border p-3 text-sm" role="status">
           <p>
-            Generation <Badge>{latestDraft.status}</Badge>
+            {t("Generation", "生成状态")}{" "}
+            <Badge>{translateValue(latestDraft.status)}</Badge>
           </p>
-          <p className="break-all font-mono text-xs">Draft {latestDraft.id}</p>
+          <p className="break-all font-mono text-xs">
+            {t("Draft", "草稿")} {latestDraft.id}
+          </p>
           {latestDraft.session_id && (
             <p className="break-all font-mono text-xs">
-              Session {latestDraft.session_id}
+              {t("Session", "会话")} {latestDraft.session_id}
             </p>
           )}
           {latestDraft.failure_code && (
-            <p>Failure: {latestDraft.failure_code}</p>
+            <p>
+              {t("Failure:", "失败：")}{" "}
+              {translateValue(latestDraft.failure_code)}
+            </p>
           )}
         </div>
       )}
@@ -603,6 +681,7 @@ function PublishedReport({
   detail: GovernanceReportDetailPublic
   projectId: string
 }) {
+  const { t, formatDate, translateValue } = useI18n()
   const root = asObject(detail.canonical_content)
   const report = root ? objectField(root, "report") : null
   const evidencePlan = root ? objectField(root, "evidence_plan") : null
@@ -634,9 +713,17 @@ function PublishedReport({
   ) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Published report content is not readable</AlertTitle>
+        <AlertTitle>
+          {t(
+            "Published report content is not readable",
+            "无法读取已发布报告内容",
+          )}
+        </AlertTitle>
         <AlertDescription>
-          The fixed report contract is incomplete. No partial report is shown.
+          {t(
+            "The fixed report contract is incomplete. No partial report is shown.",
+            "固定报告合同不完整。不显示部分报告。",
+          )}
         </AlertDescription>
       </Alert>
     )
@@ -675,73 +762,100 @@ function PublishedReport({
   )
 
   return (
-    <article className="space-y-4" aria-label="Immutable governance report">
+    <article
+      className="space-y-4"
+      aria-label={t("Immutable governance report", "不可变治理报告")}
+    >
       <DraftGeneration detail={detail} projectId={projectId} />
       <ReportSection
         id="report-identity"
-        title="Report identity and generation mode"
+        title={t("Report identity and generation mode", "报告身份与生成方式")}
       >
         <dl className="grid gap-3 text-sm md:grid-cols-2">
           <div>
-            <dt className="font-medium">Governance Run</dt>
+            <dt className="font-medium">{t("Governance Run", "治理运行")}</dt>
             <dd className="break-all font-mono">
               {stringField(identity, "governance_run_id")}
             </dd>
           </div>
           <div>
-            <dt className="font-medium">Run completed</dt>
+            <dt className="font-medium">
+              {t("Run completed", "运行完成时间")}
+            </dt>
             <dd>{formatDate(stringField(identity, "run_completed_at"))}</dd>
           </div>
           <div>
-            <dt className="font-medium">Generation mode</dt>
+            <dt className="font-medium">{t("Generation mode", "生成方式")}</dt>
             <dd>
-              <Badge>{stringField(identity, "generation_mode")}</Badge>
+              <Badge>
+                {translateValue(stringField(identity, "generation_mode"))}
+              </Badge>
             </dd>
           </div>
           <div>
-            <dt className="font-medium">Report contract</dt>
+            <dt className="font-medium">{t("Report contract", "报告合同")}</dt>
             <dd className="break-all font-mono">
               {stringField(identity, "report_contract_version")}
             </dd>
           </div>
           <div>
-            <dt className="font-medium">HTML Artifact SHA-256</dt>
+            <dt className="font-medium">
+              {t("HTML Artifact SHA-256", "HTML 产物 SHA-256")}
+            </dt>
             <dd className="break-all font-mono text-xs">
               {detail.html_sha256}
             </dd>
           </div>
           <div>
-            <dt className="font-medium">CSV Artifact SHA-256</dt>
+            <dt className="font-medium">
+              {t("CSV Artifact SHA-256", "CSV 产物 SHA-256")}
+            </dt>
             <dd className="break-all font-mono text-xs">{detail.csv_sha256}</dd>
           </div>
         </dl>
       </ReportSection>
 
-      <ReportSection id="report-input-completeness" title="Input completeness">
+      <ReportSection
+        id="report-input-completeness"
+        title={t("Input completeness", "输入完整性")}
+      >
         <InputCompleteness section={completeness} />
       </ReportSection>
 
-      <ReportSection id="report-ip-summary" title="IP consistency summary">
+      <ReportSection
+        id="report-ip-summary"
+        title={t("IP consistency summary", "IP 一致性摘要")}
+      >
         <div className="space-y-3 text-sm">
           <p>
-            Customer observed assets:{" "}
-            {numberField(summary, "customer_observed_asset_count")} · CloudAtlas
-            observed assets:{" "}
-            {numberField(summary, "cloudatlas_observed_asset_count")} · Matched
-            assets: {numberField(summary, "matched_asset_count")} · Current-Run
-            Findings: {numberField(summary, "current_run_finding_count")}
+            {t("Customer observed assets:", "客户观测资产：")}{" "}
+            {numberField(summary, "customer_observed_asset_count")} ·{" "}
+            {t("CloudAtlas observed assets:", "CloudAtlas 观测资产：")}{" "}
+            {numberField(summary, "cloudatlas_observed_asset_count")} ·{" "}
+            {t("Matched assets:", "匹配资产：")}{" "}
+            {numberField(summary, "matched_asset_count")} ·{" "}
+            {t("Current-Run Findings:", "当前运行发现项：")}{" "}
+            {numberField(summary, "current_run_finding_count")}
           </p>
           {isZeroFindingMatch ? (
             <Alert>
-              <AlertTitle>Complete dual-source IP match</AlertTitle>
+              <AlertTitle>
+                {t("Complete dual-source IP match", "双来源 IP 完全匹配")}
+              </AlertTitle>
               <AlertDescription>
-                With CustomerUpload and CloudAtlas inputs complete, all IP
-                identities observed by those sources matched; this Run produced
-                zero Findings.
+                {t(
+                  "With CustomerUpload and CloudAtlas inputs complete, all IP identities observed by those sources matched; this Run produced zero Findings.",
+                  "CustomerUpload 和 CloudAtlas 输入完整，两者观测到的所有 IP 标识均匹配；此运行未产生发现项。",
+                )}
               </AlertDescription>
             </Alert>
           ) : (
-            <p>The report identifies unmatched observed IP identities.</p>
+            <p>
+              {t(
+                "The report identifies unmatched observed IP identities.",
+                "报告识别了未匹配的已观测 IP 标识。",
+              )}
+            </p>
           )}
           <CountList
             items={objectArray(summary, "finding_counts")}
@@ -752,10 +866,11 @@ function PublishedReport({
 
       <ReportSection
         id="report-lifecycle-changes"
-        title="Current-Run lifecycle changes"
+        title={t("Current-Run lifecycle changes", "当前运行的生命周期变更")}
       >
         <p className="text-sm">
-          Published transitions in this Run: {numberField(lifecycle, "total")}
+          {t("Published transitions in this Run:", "此运行已发布的状态变更：")}{" "}
+          {numberField(lifecycle, "total")}
         </p>
         <CountList
           items={objectArray(lifecycle, "transition_counts")}
@@ -763,9 +878,12 @@ function PublishedReport({
         />
       </ReportSection>
 
-      <ReportSection id="report-open-backlog" title="Open backlog as of Run">
+      <ReportSection
+        id="report-open-backlog"
+        title={t("Open backlog as of Run", "截至此运行的未关闭发现项积压")}
+      >
         <p className="text-sm">
-          OPEN Findings as of Run{" "}
+          {t("OPEN Findings as of Run", "截至此运行的 OPEN（未关闭）发现项")}{" "}
           <span className="break-all font-mono">
             {stringField(backlog, "as_of_governance_run_id")}
           </span>
@@ -777,10 +895,14 @@ function PublishedReport({
         />
       </ReportSection>
 
-      <ReportSection id="report-evidence" title="Bounded Evidence examples">
+      <ReportSection
+        id="report-evidence"
+        title={t("Bounded Evidence examples", "有界证据示例")}
+      >
         <p className="text-sm text-muted-foreground">
-          Selection owner: {stringField(evidenceBoundary, "selection_owner")} ·
-          published HTML maximum:{" "}
+          {t("Selection owner:", "选择责任方：")}{" "}
+          {stringField(evidenceBoundary, "selection_owner")} ·
+          {t("published HTML maximum:", "已发布 HTML 最大条目数：")}{" "}
           {numberField(evidenceBoundary, "max_rendered_entries")}
         </p>
         <EvidenceCards
@@ -791,7 +913,10 @@ function PublishedReport({
 
       <ReportSection
         id="report-directions-limitations"
-        title="Finding-type directions and limitations"
+        title={t(
+          "Finding-type directions and limitations",
+          "发现项类型的处理方向与局限性",
+        )}
       >
         {presentDirections.length > 0 ? (
           <ul className="list-disc space-y-1 pl-5 text-sm">
@@ -805,9 +930,14 @@ function PublishedReport({
             ))}
           </ul>
         ) : (
-          <p className="text-sm">This report has no Finding to handle.</p>
+          <p className="text-sm">
+            {t(
+              "This report has no Finding to handle.",
+              "此报告没有需要处理的发现项。",
+            )}
+          </p>
         )}
-        <h3 className="font-semibold">Limitations</h3>
+        <h3 className="font-semibold">{t("Limitations", "局限性")}</h3>
         <ul className="list-disc space-y-1 pl-5 text-sm">
           {limitations.map((limitation) => (
             <li key={limitation}>{limitation}</li>
@@ -815,22 +945,26 @@ function PublishedReport({
         </ul>
       </ReportSection>
 
-      <ReportSection id="report-provenance" title="Provenance">
+      <ReportSection id="report-provenance" title={t("Provenance", "来源追溯")}>
         <dl className="grid gap-3 text-sm md:grid-cols-2">
           <div>
-            <dt className="font-medium">Governance Run</dt>
+            <dt className="font-medium">{t("Governance Run", "治理运行")}</dt>
             <dd className="break-all font-mono">
               {stringField(provenance, "governance_run_id")}
             </dd>
           </div>
           <div>
-            <dt className="font-medium">Processing contract</dt>
+            <dt className="font-medium">
+              {t("Processing contract", "处理合同")}
+            </dt>
             <dd className="break-all font-mono">
               {stringField(provenance, "processing_contract_version")}
             </dd>
           </div>
           <div>
-            <dt className="font-medium">Finding lifecycle facts</dt>
+            <dt className="font-medium">
+              {t("Finding lifecycle facts", "发现项生命周期事实")}
+            </dt>
             <dd>{numberField(provenance, "finding_lifecycle_fact_count")}</dd>
           </div>
         </dl>
@@ -840,7 +974,7 @@ function PublishedReport({
               className="rounded-md border p-2"
               key={`${snapshot.id}-${index}`}
             >
-              Snapshot reference{" "}
+              {t("Snapshot reference", "快照引用")}{" "}
               <span className="break-all font-mono">{snapshot.id}</span>
               <span className="block break-all font-mono text-xs text-muted-foreground">
                 SHA-256 {snapshot.hash}
@@ -868,6 +1002,7 @@ export function ReportDetailDialog({
   expectedReportContractVersion?: string
   onCloseAutoFocus?: (event: Event) => void
 }) {
+  const { t } = useI18n()
   const detailQuery = useQuery({
     queryKey: ["governance-report", projectId, reportId],
     queryFn: () =>
@@ -907,25 +1042,39 @@ export function ReportDetailDialog({
         onCloseAutoFocus={onCloseAutoFocus}
       >
         <DialogHeader>
-          <DialogTitle>Published deterministic report</DialogTitle>
+          <DialogTitle>
+            {t("Published deterministic report", "已发布的确定性报告")}
+          </DialogTitle>
           <DialogDescription>
-            This immutable view renders only bounded canonical report content;
-            it does not load CSV or raw source payloads.
+            {t(
+              "This immutable view renders only bounded canonical report content; it does not load CSV or raw source payloads.",
+              "此不可变视图仅呈现有界的规范报告内容，不加载 CSV 或原始来源数据。报告原文保持不变。",
+            )}
           </DialogDescription>
         </DialogHeader>
-        {detailQuery.isPending && <p role="status">Loading report…</p>}
+        {detailQuery.isPending && (
+          <p role="status">{t("Loading report…", "正在加载报告…")}</p>
+        )}
         {detailQuery.isError && (
           <Alert variant="destructive">
-            <AlertTitle>Report could not be loaded</AlertTitle>
-            <AlertDescription>Please try again later.</AlertDescription>
+            <AlertTitle>
+              {t("Report could not be loaded", "无法加载报告")}
+            </AlertTitle>
+            <AlertDescription>
+              {t("Please try again later.", "请稍后重试。")}
+            </AlertDescription>
           </Alert>
         )}
         {identityMismatch && (
           <Alert variant="destructive">
-            <AlertTitle>Report identity mismatch</AlertTitle>
+            <AlertTitle>
+              {t("Report identity mismatch", "报告身份不匹配")}
+            </AlertTitle>
             <AlertDescription>
-              The response does not identify the requested Project, Run and
-              Report contract. No report content is displayed.
+              {t(
+                "The response does not identify the requested Project, Run and Report contract. No report content is displayed.",
+                "响应未标识所请求的项目、运行与报告合同。不显示任何报告内容。",
+              )}
             </AlertDescription>
           </Alert>
         )}
@@ -944,6 +1093,7 @@ function ReportRow({
   report: GovernanceReportSummaryPublic
   onRead: () => void
 }) {
+  const { t, formatDate, translateValue } = useI18n()
   return (
     <TableRow>
       <TableCell className="break-all font-mono text-xs">
@@ -951,7 +1101,7 @@ function ReportRow({
       </TableCell>
       <TableCell>{formatDate(report.run_completed_at)}</TableCell>
       <TableCell>
-        <Badge>{report.generation_mode}</Badge>
+        <Badge>{translateValue(report.generation_mode)}</Badge>
       </TableCell>
       <TableCell className="break-all font-mono text-xs">
         {report.report_contract_version}
@@ -961,7 +1111,7 @@ function ReportRow({
       </TableCell>
       <TableCell>
         <Button type="button" variant="outline" size="sm" onClick={onRead}>
-          Read report
+          {t("Read report", "阅读报告")}
         </Button>
       </TableCell>
     </TableRow>
@@ -973,6 +1123,7 @@ export default function GovernanceReports({
 }: {
   projectId: string
 }) {
+  const { t } = useI18n()
   const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([
     null,
   ])
@@ -990,12 +1141,17 @@ export default function GovernanceReports({
     staleTime: Number.POSITIVE_INFINITY,
   })
 
-  if (reportsQuery.isPending) return <p role="status">Loading Reports…</p>
+  if (reportsQuery.isPending)
+    return <p role="status">{t("Loading Reports…", "正在加载报告列表…")}</p>
   if (reportsQuery.isError) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Reports could not be loaded</AlertTitle>
-        <AlertDescription>Please try again later.</AlertDescription>
+        <AlertTitle>
+          {t("Reports could not be loaded", "无法加载报告列表")}
+        </AlertTitle>
+        <AlertDescription>
+          {t("Please try again later.", "请稍后重试。")}
+        </AlertDescription>
       </Alert>
     )
   }
@@ -1005,27 +1161,31 @@ export default function GovernanceReports({
     <section className="space-y-4" aria-labelledby="reports-title">
       <Card>
         <CardHeader>
-          <CardTitle id="reports-title">Reports</CardTitle>
+          <CardTitle id="reports-title">{t("Reports", "报告")}</CardTitle>
           <CardDescription>
-            Published immutable deterministic reports for this Project ·{" "}
-            {reports.count} total
+            {t(
+              `Published immutable deterministic reports for this Project · ${reports.count} total`,
+              `此项目已发布的不可变确定性报告 · 共 ${reports.count} 份`,
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {reports.data.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No published reports are available.
+              {t("No published reports are available.", "暂无已发布报告。")}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Governance Run</TableHead>
-                  <TableHead>Completed</TableHead>
-                  <TableHead>Generation mode</TableHead>
-                  <TableHead>Report contract</TableHead>
-                  <TableHead>HTML Artifact SHA-256</TableHead>
-                  <TableHead>Report</TableHead>
+                  <TableHead>{t("Governance Run", "治理运行")}</TableHead>
+                  <TableHead>{t("Completed", "完成时间")}</TableHead>
+                  <TableHead>{t("Generation mode", "生成方式")}</TableHead>
+                  <TableHead>{t("Report contract", "报告合同")}</TableHead>
+                  <TableHead>
+                    {t("HTML Artifact SHA-256", "HTML 产物 SHA-256")}
+                  </TableHead>
+                  <TableHead>{t("Report", "报告")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1042,7 +1202,7 @@ export default function GovernanceReports({
           {(pageIndex > 0 || reports.next_cursor !== null) && (
             <nav
               className="flex items-center justify-end gap-3"
-              aria-label="Reports pagination"
+              aria-label={t("Reports pagination", "报告分页")}
             >
               <Button
                 type="button"
@@ -1051,10 +1211,10 @@ export default function GovernanceReports({
                 disabled={pageIndex === 0}
                 onClick={() => setPageIndex((current) => current - 1)}
               >
-                Previous
+                {t("Previous", "上一页")}
               </Button>
               <span className="text-sm text-muted-foreground">
-                Page {pageIndex + 1}
+                {t("Page", "页码")} {pageIndex + 1}
               </span>
               <Button
                 type="button"
@@ -1070,7 +1230,7 @@ export default function GovernanceReports({
                   setPageIndex((current) => current + 1)
                 }}
               >
-                Next
+                {t("Next", "下一页")}
               </Button>
             </nav>
           )}

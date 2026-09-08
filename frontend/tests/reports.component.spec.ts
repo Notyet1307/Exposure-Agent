@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test"
+import { expect, type Page, test } from "./fixtures"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
 const completedAt = "2026-08-10T12:00:00Z"
@@ -567,6 +567,36 @@ test.describe("Project Reports", () => {
     await expect(
       report.getByRole("button", { name: "Request AI draft" }),
     ).toHaveCount(0)
+  })
+
+  test("translates a known persisted draft failure without losing its identity", async ({
+    page,
+  }) => {
+    const detail = draftReportDetail("FAILED")
+    detail.ai_governance_drafts[0].failure_code = "model_binding_changed"
+    await page.route(governanceReportsPath, (route) =>
+      route.fulfill({
+        json: new URL(route.request().url()).pathname.endsWith(
+          `/${reportIds[0]}`,
+        )
+          ? detail
+          : reportListResponse(),
+      }),
+    )
+    const report = await openReport(page)
+    await expect(report).toContainText("Failure: model_binding_changed")
+    await report
+      .getByRole("combobox", { name: "Language / 语言" })
+      .selectOption("zh-CN")
+    await expect(report).toContainText(
+      "model_binding_changed（草稿固定的模型绑定与当前部署配置不一致）",
+    )
+    await expect(report).toContainText(draftId)
+    await expect(report).toContainText(draftSessionId)
+    await report
+      .getByRole("combobox", { name: "Language / 语言" })
+      .selectOption("en")
+    await expect(report).toContainText("Failure: model_binding_changed")
   })
 
   test("stops polling after the draft Session is bound", async ({ page }) => {
