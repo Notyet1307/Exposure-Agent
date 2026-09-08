@@ -14,6 +14,7 @@ import { Route as LayoutRouteImport } from './routes/_layout'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutProjectsProjectIdRunsRunIdLineageRouteImport } from './routes/_layout/projects.$projectId.runs.$runId.lineage'
 import { Route as LayoutProjectsProjectIdRunsRunIdComparisonRouteImport } from './routes/_layout/projects.$projectId.runs.$runId.comparison'
 
 const LoginRoute = LoginRouteImport.update({
@@ -40,6 +41,12 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutProjectsProjectIdRunsRunIdLineageRoute =
+  LayoutProjectsProjectIdRunsRunIdLineageRouteImport.update({
+    id: '/projects/$projectId/runs/$runId/lineage',
+    path: '/projects/$projectId/runs/$runId/lineage',
+    getParentRoute: () => LayoutRoute,
+  } as any)
 const LayoutProjectsProjectIdRunsRunIdComparisonRoute =
   LayoutProjectsProjectIdRunsRunIdComparisonRouteImport.update({
     id: '/projects/$projectId/runs/$runId/comparison',
@@ -53,6 +60,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof LayoutAdminRoute
   '/settings': typeof LayoutSettingsRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
+  '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -60,6 +68,7 @@ export interface FileRoutesByTo {
   '/settings': typeof LayoutSettingsRoute
   '/': typeof LayoutIndexRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
+  '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -69,6 +78,7 @@ export interface FileRoutesById {
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
+  '/_layout/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -78,6 +88,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/settings'
     | '/projects/$projectId/runs/$runId/comparison'
+    | '/projects/$projectId/runs/$runId/lineage'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -85,6 +96,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/'
     | '/projects/$projectId/runs/$runId/comparison'
+    | '/projects/$projectId/runs/$runId/lineage'
   id:
     | '__root__'
     | '/_layout'
@@ -93,6 +105,7 @@ export interface FileRouteTypes {
     | '/_layout/settings'
     | '/_layout/'
     | '/_layout/projects/$projectId/runs/$runId/comparison'
+    | '/_layout/projects/$projectId/runs/$runId/lineage'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -137,6 +150,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/projects/$projectId/runs/$runId/lineage': {
+      id: '/_layout/projects/$projectId/runs/$runId/lineage'
+      path: '/projects/$projectId/runs/$runId/lineage'
+      fullPath: '/projects/$projectId/runs/$runId/lineage'
+      preLoaderRoute: typeof LayoutProjectsProjectIdRunsRunIdLineageRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/projects/$projectId/runs/$runId/comparison': {
       id: '/_layout/projects/$projectId/runs/$runId/comparison'
       path: '/projects/$projectId/runs/$runId/comparison'
@@ -152,6 +172,7 @@ interface LayoutRouteChildren {
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
   LayoutProjectsProjectIdRunsRunIdComparisonRoute: typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
+  LayoutProjectsProjectIdRunsRunIdLineageRoute: typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
@@ -160,6 +181,8 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutIndexRoute: LayoutIndexRoute,
   LayoutProjectsProjectIdRunsRunIdComparisonRoute:
     LayoutProjectsProjectIdRunsRunIdComparisonRoute,
+  LayoutProjectsProjectIdRunsRunIdLineageRoute:
+    LayoutProjectsProjectIdRunsRunIdLineageRoute,
 }
 
 const LayoutRouteWithChildren =

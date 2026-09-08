@@ -182,13 +182,22 @@ function RunDetails({
         {(run.status === "COMPLETED" ||
           run.status === "COMPLETED_WITH_WARNINGS") &&
           run.completed_at !== null && (
-            <Link
-              to="/projects/$projectId/runs/$runId/comparison"
-              params={{ projectId, runId: run.id }}
-              className="inline-block text-sm underline underline-offset-4"
-            >
-              View source comparison
-            </Link>
+            <div className="flex flex-wrap gap-4">
+              <Link
+                to="/projects/$projectId/runs/$runId/comparison"
+                params={{ projectId, runId: run.id }}
+                className="inline-block text-sm underline underline-offset-4"
+              >
+                View source comparison
+              </Link>
+              <Link
+                to="/projects/$projectId/runs/$runId/lineage"
+                params={{ projectId, runId: run.id }}
+                className="inline-block text-sm underline underline-offset-4"
+              >
+                Lineage
+              </Link>
+            </div>
           )}
         {run.blocking_code && (
           <Alert>

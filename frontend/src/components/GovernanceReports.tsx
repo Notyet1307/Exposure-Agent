@@ -853,14 +853,20 @@ function PublishedReport({
   )
 }
 
-function ReportDetailDialog({
+export function ReportDetailDialog({
   projectId,
   reportId,
   onOpenChange,
+  expectedRunId,
+  expectedReportContractVersion,
+  onCloseAutoFocus,
 }: {
   projectId: string
   reportId: string | null
   onOpenChange: (open: boolean) => void
+  expectedRunId?: string
+  expectedReportContractVersion?: string
+  onCloseAutoFocus?: (event: Event) => void
 }) {
   const detailQuery = useQuery({
     queryKey: ["governance-report", projectId, reportId],
@@ -877,10 +883,29 @@ function ReportDetailDialog({
         : false
     },
   })
+  const detail = detailQuery.data
+  const root = detail ? asObject(detail.canonical_content) : null
+  const report = root ? objectField(root, "report") : null
+  const identity = report ? objectField(report, "report_identity") : null
+  const identityMismatch =
+    detail &&
+    (detail.id !== reportId ||
+      !identity ||
+      identity.project_id !== projectId ||
+      identity.governance_run_id !== detail.governance_run_id ||
+      identity.report_contract_version !== detail.report_contract_version ||
+      root?.schema_version !== detail.report_contract_version ||
+      (expectedRunId !== undefined &&
+        detail.governance_run_id !== expectedRunId) ||
+      (expectedReportContractVersion !== undefined &&
+        detail.report_contract_version !== expectedReportContractVersion))
 
   return (
     <Dialog open={reportId !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-6xl">
+      <DialogContent
+        className="max-h-[92vh] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-6xl"
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         <DialogHeader>
           <DialogTitle>Published deterministic report</DialogTitle>
           <DialogDescription>
@@ -895,8 +920,17 @@ function ReportDetailDialog({
             <AlertDescription>Please try again later.</AlertDescription>
           </Alert>
         )}
-        {detailQuery.data && (
-          <PublishedReport detail={detailQuery.data} projectId={projectId} />
+        {identityMismatch && (
+          <Alert variant="destructive">
+            <AlertTitle>Report identity mismatch</AlertTitle>
+            <AlertDescription>
+              The response does not identify the requested Project, Run and
+              Report contract. No report content is displayed.
+            </AlertDescription>
+          </Alert>
+        )}
+        {detail && !identityMismatch && (
+          <PublishedReport detail={detail} projectId={projectId} />
         )}
       </DialogContent>
     </Dialog>

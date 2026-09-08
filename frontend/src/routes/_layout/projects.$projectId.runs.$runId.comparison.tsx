@@ -153,6 +153,13 @@ function RunSourceComparison() {
             <p className="break-all text-sm">
               Report ID: {sources.governance_report_id}
             </p>
+            <Link
+              to="/projects/$projectId/runs/$runId/lineage"
+              params={{ projectId, runId }}
+              className="inline-block text-sm underline underline-offset-4"
+            >
+              Lineage
+            </Link>
             <p className="break-all text-sm text-muted-foreground">
               {sources.run_status} · Completed {sources.completed_at} ·{" "}
               {sources.report_contract_version}
@@ -358,6 +365,7 @@ function RunSourceComparison() {
                       <TableHead scope="col">CloudAtlas</TableHead>
                       <TableHead scope="col">NetFlow</TableHead>
                       <TableHead scope="col">Classification</TableHead>
+                      <TableHead scope="col">Lineage</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -381,6 +389,17 @@ function RunSourceComparison() {
                           </p>
                         </TableCell>
                         <TableCell>{row.classification}</TableCell>
+                        <TableCell>
+                          <Link
+                            to="/projects/$projectId/runs/$runId/lineage"
+                            params={{ projectId, runId }}
+                            search={{ resource_id: row.resource_id }}
+                            aria-label={`Trace asset ${row.canonical_ip}`}
+                            className="underline underline-offset-4"
+                          >
+                            Trace asset
+                          </Link>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
