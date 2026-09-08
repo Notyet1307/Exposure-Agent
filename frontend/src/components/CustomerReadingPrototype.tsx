@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import CustomerReadingWorkspace from "@/components/CustomerReadingWorkspace"
 import { cn } from "@/lib/utils"
 
 // Three variants of the project reading surface, switchable with ?prototype=customer&variant=A.
@@ -277,12 +278,14 @@ function VariantC({ t, selectedIp, onSelect }: { t: (typeof copy)[Locale]; selec
   return <div className="pb-20">{tracing ? <div className="space-y-4"><Button type="button" variant="ghost" onClick={() => setTracing(null)}><ArrowLeft />{t.report}</Button><Evidence t={t} ip={tracing} onSelect={trace} onReadReport={() => setTracing(null)} /><TechnicalDetails t={t} /></div> : <><p className="mb-4 text-sm text-muted-foreground">{t.selected} {t.asset}: {selectedIp}</p><ReadingBrief t={t} onTrace={trace} /></>}</div>
 }
 
-export default function CustomerReadingPrototype({ variant, onVariantChange }: { variant: Variant; onVariantChange: (variant: Variant) => void }) {
+export default function CustomerReadingPrototype({ variant, reader, readerSection, readerLocale, resourceId, onVariantChange, onReaderSectionChange, onReaderLocaleChange }: { variant: Variant; reader?: "full"; readerSection?: "overview" | "matrix" | "lineage" | "report"; readerLocale?: Locale; resourceId?: string; onVariantChange: (variant: Variant) => void; onReaderSectionChange: (section: "overview" | "matrix" | "lineage" | "report", resourceId?: string) => void; onReaderLocaleChange: (locale: Locale) => void }) {
   const [locale, setLocale] = useState<Locale>(() => (localStorage.getItem("customer-reading-locale") === "en" ? "en" : "zh"))
   const [selectedIp, setSelectedIp] = useState("192.0.2.21")
   const t = copy[locale]
   useEffect(() => { localStorage.setItem("customer-reading-locale", locale) }, [locale])
+  useEffect(() => { if (readerLocale) setLocale(readerLocale) }, [readerLocale])
   useEffect(() => {
+    if (reader === "full") return
     const move = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || (event.target instanceof HTMLElement && event.target.isContentEditable)) return
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
@@ -293,7 +296,10 @@ export default function CustomerReadingPrototype({ variant, onVariantChange }: {
     }
     window.addEventListener("keydown", move)
     return () => window.removeEventListener("keydown", move)
-  }, [onVariantChange, variant])
+  }, [onVariantChange, reader, variant])
+  if (reader === "full") {
+    return <CustomerReadingWorkspace locale={locale} initialSection={readerSection} resourceId={resourceId} onLocaleChange={(next) => { setLocale(next); onReaderLocaleChange(next) }} onSectionChange={onReaderSectionChange} />
+  }
   const names: Record<Variant, string> = { A: t.variantA, B: t.variantB, C: t.variantC }
   const previous = ({ A: "C", B: "A", C: "B" } as const)[variant]
   const next = ({ A: "B", B: "C", C: "A" } as const)[variant]

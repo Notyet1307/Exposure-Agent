@@ -55,6 +55,12 @@ const PROJECT_PAGE_SIZE = 100
 type DashboardSearch = {
   prototype?: "customer"
   variant?: "A" | "B" | "C"
+  reader?: "full"
+  reader_section?: "overview" | "matrix" | "lineage" | "report"
+  reader_locale?: "zh" | "en"
+  resource_id?: string
+  project_id?: string
+  tab?: "inputs" | "cloudatlas" | "runs" | "assets" | "findings" | "reports"
 }
 
 async function readAccessibleProjects(): Promise<ProjectsPublic> {
@@ -83,6 +89,29 @@ export const Route = createFileRoute("/_layout/")({
     variant:
       search.variant === "A" || search.variant === "B" || search.variant === "C"
         ? search.variant
+        : undefined,
+    reader: search.reader === "full" ? "full" : undefined,
+    reader_section:
+      search.reader_section === "overview" ||
+      search.reader_section === "matrix" ||
+      search.reader_section === "lineage" ||
+      search.reader_section === "report"
+        ? search.reader_section
+        : undefined,
+    reader_locale:
+      search.reader_locale === "zh" || search.reader_locale === "en"
+        ? search.reader_locale
+        : undefined,
+    resource_id: typeof search.resource_id === "string" ? search.resource_id : undefined,
+    project_id: typeof search.project_id === "string" ? search.project_id : undefined,
+    tab:
+      search.tab === "inputs" ||
+      search.tab === "cloudatlas" ||
+      search.tab === "runs" ||
+      search.tab === "assets" ||
+      search.tab === "findings" ||
+      search.tab === "reports"
+        ? search.tab
         : undefined,
   }),
   head: () => ({
@@ -484,9 +513,15 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
   )
 }
 
-function ProjectWorkspace({ project }: { project: ProjectPublic }) {
+function ProjectWorkspace({
+  project,
+  defaultTab = "inputs",
+}: {
+  project: ProjectPublic
+  defaultTab?: DashboardSearch["tab"]
+}) {
   return (
-    <Tabs defaultValue="inputs" className="space-y-4">
+    <Tabs defaultValue={defaultTab} className="space-y-4">
       <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 md:w-fit">
         <TabsTrigger value="inputs">Inputs</TabsTrigger>
         <TabsTrigger value="cloudatlas">CloudAtlas</TabsTrigger>
@@ -524,13 +559,29 @@ function ProjectWorkspace({ project }: { project: ProjectPublic }) {
 function Dashboard() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  if (import.meta.env.DEV && search.prototype === "customer") {
+  if (import.meta.env.DEV && search.prototype === "customer" && !search.tab) {
     return (
       <CustomerReadingPrototype
         variant={search.variant ?? "A"}
+        reader={search.reader}
+        readerSection={search.reader_section}
+        readerLocale={search.reader_locale}
+        resourceId={search.resource_id}
         onVariantChange={(variant) => {
           void navigate({
             search: (previous) => ({ ...previous, variant }),
+            replace: true,
+          })
+        }}
+        onReaderSectionChange={(reader_section, resource_id) => {
+          void navigate({
+            search: (previous) => ({ ...previous, reader: "full", reader_section, resource_id }),
+            replace: true,
+          })
+        }}
+        onReaderLocaleChange={(reader_locale) => {
+          void navigate({
+            search: (previous) => ({ ...previous, reader: "full", reader_locale }),
             replace: true,
           })
         }}
@@ -541,9 +592,10 @@ function Dashboard() {
 }
 
 function ProjectDashboard() {
+  const search = Route.useSearch()
   const { user: currentUser } = useAuth()
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
-    null,
+    search.project_id ?? null,
   )
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -619,7 +671,11 @@ function ProjectDashboard() {
           </SelectContent>
         </Select>
       </div>
-      <ProjectWorkspace key={selectedProject.id} project={selectedProject} />
+      <ProjectWorkspace
+        key={`${selectedProject.id}-${search.tab ?? "inputs"}`}
+        project={selectedProject}
+        defaultTab={search.tab}
+      />
     </div>
   )
 }
