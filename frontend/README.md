@@ -60,6 +60,9 @@ The earlier A/B/C sketches remain as comparison history; their simplified relati
 
 The full reader uses the existing published Run APIs, LineageScope, directed-path traversal, NodeDetails and ReportDetailDialog. It preserves all returned nodes/edges and the original eight edge semantics, partial coverage and immutable report boundaries. The synthetic Run is fixed to `becdfd4f-fdb4-47cb-90ad-2cf07fe0be8f`; this prototype must not be promoted as a general production reader without an implementation Issue.
 
-Results and management share the sidebar. The graph has bounded scrolling and fit-width, while node details scroll independently on desktop. Resource scope is carried in the URL. Chinese navigation and key explanations are provided; original management screens, some detailed reference text and immutable report presentation retain their existing language. Full product localization remains future implementation scope.
+Results and management share the sidebar. The graph has bounded scrolling and fit-width, while node details scroll independently on desktop. Resource scope is carried in the URL. A shared LocaleProvider now covers Chinese/English UI text across login, administration, settings, inputs, governance results, comparisons, lineage and report presentation. The default is Chinese and the choice persists. Customer values, protocol identifiers, hashes and original report content are preserved. This is still a prototype branch, not a production rollout.
 
 Verification: production build; original lineage component suite 23 passed; live synthetic overview/single-resource, report identity/focus return, URL reload, fit-width and 390px overflow checks. No business data was mutated for this revision.
+
+
+Localization verification: build, context hygiene, and 88 component tests passed. The locale behavior test checks default Chinese, changing to English without losing entered text, and persistence after reload. Existing component regressions explicitly run in English. Browser checks covered Chinese Admin pagination/validation and published-report labels. No account or password was changed by verification.

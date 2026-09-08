@@ -13,11 +13,11 @@ import { useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import CustomerReadingWorkspace from "@/components/CustomerReadingWorkspace"
+import { type Locale, useLocale } from "@/components/LocaleProvider"
 import { cn } from "@/lib/utils"
 
 // Three variants of the project reading surface, switchable with ?prototype=customer&variant=A.
 type Variant = "A" | "B" | "C"
-type Locale = "zh" | "en"
 
 const RUN_ID = "becdfd4f-fdb4-47cb-90ad-2cf07fe0be8f"
 const REPORT_ID = "fb498db7-e67f-566e-9524-09adab2c8bfc"
@@ -192,6 +192,7 @@ function SourceStrip({ t }: { t: (typeof copy)[Locale] }) {
 }
 
 function Matrix({ t, selectedIp, onSelect, compact = false }: { t: (typeof copy)[Locale]; selectedIp: string; onSelect: (ip: string) => void; compact?: boolean }) {
+  const { text } = useLocale()
   const [filter, setFilter] = useState<"all" | "diff" | "active">("all")
   const [page, setPage] = useState(0)
   const filtered = useMemo(() => IPs.map(assetState).filter((asset) => filter === "all" || (filter === "diff" ? !asset.customer || !asset.atlas : asset.active)), [filter])
@@ -213,7 +214,7 @@ function Matrix({ t, selectedIp, onSelect, compact = false }: { t: (typeof copy)
           <tbody>{assets.map((asset) => <tr key={asset.ip} className={cn("border-t", selectedIp === asset.ip && "bg-primary/10")}><td className="px-4 py-3 font-medium">{asset.ip}</td><td className="px-4 py-3">{sourceLabel(asset.customer, t.customerObserved, t.unobserved)}</td><td className="px-4 py-3">{sourceLabel(asset.atlas, t.atlasObserved, t.unobserved)}</td><td className="px-4 py-3">{asset.active ? <Badge>{t.active}</Badge> : <Badge variant="secondary">{t.unknown}</Badge>}</td><td className="px-4 py-3 text-right"><Button type="button" variant="ghost" size="sm" onClick={() => onSelect(asset.ip)}>{t.trace}<ChevronRight /></Button></td></tr>)}</tbody>
         </table>
       </div>
-      <div className="flex justify-end gap-2"><Button type="button" variant="outline" size="icon-sm" aria-label="Previous" disabled={page === 0} onClick={() => setPage((value) => value - 1)}><ChevronLeft /></Button><Button type="button" variant="outline" size="icon-sm" aria-label="Next" disabled={page + 1 === pageCount} onClick={() => setPage((value) => value + 1)}><ChevronRight /></Button></div>
+      <div className="flex justify-end gap-2"><Button type="button" variant="outline" size="icon-sm" aria-label={text("上一页", "Previous")} disabled={page === 0} onClick={() => setPage((value) => value - 1)}><ChevronLeft /></Button><Button type="button" variant="outline" size="icon-sm" aria-label={text("下一页", "Next")} disabled={page + 1 === pageCount} onClick={() => setPage((value) => value + 1)}><ChevronRight /></Button></div>
     </section>
   )
 }
@@ -254,7 +255,7 @@ function TechnicalDetails({ t }: { t: (typeof copy)[Locale] }) {
 function VariantA({ t, selectedIp, onSelect }: { t: (typeof copy)[Locale]; selectedIp: string; onSelect: (ip: string) => void }) {
   const [tab, setTab] = useState<"overview" | "matrix" | "lineage" | "report">("overview")
   return <div className="space-y-6 pb-20">
-    <nav className="flex max-w-full gap-1 overflow-x-auto border-b" aria-label="Prototype sections">{(["overview", "matrix", "lineage", "report"] as const).map((name) => <button key={name} type="button" className={cn("shrink-0 border-b-2 px-3 py-3 text-sm font-medium", tab === name ? "border-primary text-foreground" : "border-transparent text-muted-foreground")} onClick={() => setTab(name)}>{t[name]}</button>)}</nav>
+    <nav className="flex max-w-full gap-1 overflow-x-auto border-b" aria-label={t.overview}>{(["overview", "matrix", "lineage", "report"] as const).map((name) => <button key={name} type="button" className={cn("shrink-0 border-b-2 px-3 py-3 text-sm font-medium", tab === name ? "border-primary text-foreground" : "border-transparent text-muted-foreground")} onClick={() => setTab(name)}>{t[name]}</button>)}</nav>
     {tab === "overview" && <><section className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,.65fr)]"><div><h1 className="text-3xl font-semibold tracking-tight">{t.summary}</h1><p className="mt-3 max-w-2xl text-base leading-7 text-muted-foreground">{t.summaryText}</p><Button type="button" className="mt-5" onClick={() => setTab("matrix")}>{t.viewMatrix}<ArrowRight /></Button></div><div className="grid grid-cols-2 gap-x-5 gap-y-5"><Metric value="22" label={t.all} /><Metric value="20" label={t.matched} /><Metric value="1" label={t.customerOnly} muted /><Metric value="1" label={t.atlasOnly} muted /></div></section><SourceStrip t={t} /><section className="border-t pt-5"><h2 className="text-xl font-semibold">{t.findings}</h2><div className="mt-3 grid gap-2"><button type="button" className="rounded-xl bg-muted/65 p-4 text-left text-sm hover:bg-muted" onClick={() => { onSelect("192.0.2.21"); setTab("lineage") }}>{t.findingOne}<ChevronRight className="float-right size-4" /></button><button type="button" className="rounded-xl bg-muted/65 p-4 text-left text-sm hover:bg-muted" onClick={() => { onSelect("192.0.2.22"); setTab("lineage") }}>{t.findingTwo}<ChevronRight className="float-right size-4" /></button></div></section></>}
     {tab === "matrix" && <Matrix t={t} selectedIp={selectedIp} onSelect={(ip) => { onSelect(ip); setTab("lineage") }} />}
     {tab === "lineage" && <><Evidence t={t} ip={selectedIp} onSelect={onSelect} onReadReport={() => setTab("report")} /><TechnicalDetails t={t} /></>}
@@ -278,12 +279,10 @@ function VariantC({ t, selectedIp, onSelect }: { t: (typeof copy)[Locale]; selec
   return <div className="pb-20">{tracing ? <div className="space-y-4"><Button type="button" variant="ghost" onClick={() => setTracing(null)}><ArrowLeft />{t.report}</Button><Evidence t={t} ip={tracing} onSelect={trace} onReadReport={() => setTracing(null)} /><TechnicalDetails t={t} /></div> : <><p className="mb-4 text-sm text-muted-foreground">{t.selected} {t.asset}: {selectedIp}</p><ReadingBrief t={t} onTrace={trace} /></>}</div>
 }
 
-export default function CustomerReadingPrototype({ variant, reader, readerSection, readerLocale, resourceId, onVariantChange, onReaderSectionChange, onReaderLocaleChange }: { variant: Variant; reader?: "full"; readerSection?: "overview" | "matrix" | "lineage" | "report"; readerLocale?: Locale; resourceId?: string; onVariantChange: (variant: Variant) => void; onReaderSectionChange: (section: "overview" | "matrix" | "lineage" | "report", resourceId?: string) => void; onReaderLocaleChange: (locale: Locale) => void }) {
-  const [locale, setLocale] = useState<Locale>(() => (localStorage.getItem("customer-reading-locale") === "en" ? "en" : "zh"))
+export default function CustomerReadingPrototype({ variant, reader, readerSection, resourceId, onVariantChange, onReaderSectionChange }: { variant: Variant; reader?: "full"; readerSection?: "overview" | "matrix" | "lineage" | "report"; resourceId?: string; onVariantChange: (variant: Variant) => void; onReaderSectionChange: (section: "overview" | "matrix" | "lineage" | "report", resourceId?: string) => void }) {
+  const { locale, setLocale } = useLocale()
   const [selectedIp, setSelectedIp] = useState("192.0.2.21")
   const t = copy[locale]
-  useEffect(() => { localStorage.setItem("customer-reading-locale", locale) }, [locale])
-  useEffect(() => { if (readerLocale) setLocale(readerLocale) }, [readerLocale])
   useEffect(() => {
     if (reader === "full") return
     const move = (event: KeyboardEvent) => {
@@ -298,7 +297,7 @@ export default function CustomerReadingPrototype({ variant, reader, readerSectio
     return () => window.removeEventListener("keydown", move)
   }, [onVariantChange, reader, variant])
   if (reader === "full") {
-    return <CustomerReadingWorkspace locale={locale} initialSection={readerSection} resourceId={resourceId} onLocaleChange={(next) => { setLocale(next); onReaderLocaleChange(next) }} onSectionChange={onReaderSectionChange} />
+    return <CustomerReadingWorkspace locale={locale} initialSection={readerSection} resourceId={resourceId} onLocaleChange={setLocale} onSectionChange={onReaderSectionChange} />
   }
   const names: Record<Variant, string> = { A: t.variantA, B: t.variantB, C: t.variantC }
   const previous = ({ A: "C", B: "A", C: "B" } as const)[variant]

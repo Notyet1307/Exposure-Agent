@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import useAuth from "@/hooks/useAuth"
+import { useLocale } from "@/components/LocaleProvider"
 
 const UPLOAD_PAGE_SIZE = 10
 const PROJECT_PAGE_SIZE = 100
@@ -57,7 +58,6 @@ type DashboardSearch = {
   variant?: "A" | "B" | "C"
   reader?: "full"
   reader_section?: "overview" | "matrix" | "lineage" | "report"
-  reader_locale?: "zh" | "en"
   resource_id?: string
   project_id?: string
   tab?: "inputs" | "cloudatlas" | "runs" | "assets" | "findings" | "reports"
@@ -98,10 +98,6 @@ export const Route = createFileRoute("/_layout/")({
       search.reader_section === "report"
         ? search.reader_section
         : undefined,
-    reader_locale:
-      search.reader_locale === "zh" || search.reader_locale === "en"
-        ? search.reader_locale
-        : undefined,
     resource_id: typeof search.resource_id === "string" ? search.resource_id : undefined,
     project_id: typeof search.project_id === "string" ? search.project_id : undefined,
     tab:
@@ -123,7 +119,7 @@ export const Route = createFileRoute("/_layout/")({
   }),
 })
 
-function safeUploadErrorMessage(error: Error): string {
+function safeUploadErrorMessage(error: Error, text: (zh: string, en: string) => string): string {
   if (
     error instanceof ApiError &&
     error.body &&
@@ -135,7 +131,7 @@ function safeUploadErrorMessage(error: Error): string {
       if (typeof message === "string") return message
     }
   }
-  return "The upload could not be accepted. Please try again."
+  return text("上传未被接受，请重试。", "The upload could not be accepted. Please try again.")
 }
 
 function HeaderList({ title, headers }: { title: string; headers: string[] }) {
@@ -158,8 +154,9 @@ function WarningSummary({
 }: {
   warnings: CustomerUploadWarningPublic[]
 }) {
+  const { text } = useLocale()
   if (warnings.length === 0)
-    return <span className="text-muted-foreground">None</span>
+    return <span className="text-muted-foreground">{text("无", "None")}</span>
   return (
     <ul className="space-y-1">
       {warnings.map((warning) => (
@@ -185,23 +182,19 @@ function UploadRows({
   selectingUploadId: string | null
   onSelect: (uploadId: string) => void
 }) {
+  const { text } = useLocale()
   if (uploads.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">No accepted uploads yet.</p>
+      <p className="text-sm text-muted-foreground">{text("尚无已接受的上传文件。", "No accepted uploads yet.")}</p>
     )
   }
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>File</TableHead>
+          <TableHead>{text("文件", "File")}</TableHead>
           <TableHead>SHA-256</TableHead>
-          <TableHead>Records</TableHead>
-          <TableHead>Profile</TableHead>
-          <TableHead>Warnings</TableHead>
-          <TableHead>Accepted</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Action</TableHead>
+          <TableHead>{text("记录数", "Records")}</TableHead><TableHead>{text("配置", "Profile")}</TableHead><TableHead>{text("警告", "Warnings")}</TableHead><TableHead>{text("接受时间", "Accepted")}</TableHead><TableHead>{text("状态", "Status")}</TableHead><TableHead>{text("操作", "Action")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -230,9 +223,9 @@ function UploadRows({
               </TableCell>
               <TableCell>
                 {isCurrent ? (
-                  <Badge>Current</Badge>
+                  <Badge>{text("当前", "Current")}</Badge>
                 ) : (
-                  <span className="text-muted-foreground">Available</span>
+                  <span className="text-muted-foreground">{text("可选", "Available")}</span>
                 )}
               </TableCell>
               <TableCell>
@@ -258,6 +251,7 @@ function UploadRows({
 }
 
 function ProjectInputs({ project }: { project: ProjectPublic }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [page, setPage] = useState(0)
@@ -293,14 +287,14 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
         formData: { file },
       }),
     onSuccess: async () => {
-      setFileMessage("Upload accepted successfully.")
+      setFileMessage(text("上传已接受。", "Upload accepted successfully."))
       if (fileInputRef.current) fileInputRef.current.value = ""
       setPage(0)
       await queryClient.invalidateQueries({
         queryKey: ["customer-uploads", project.id],
       })
     },
-    onError: (error: Error) => setFileMessage(safeUploadErrorMessage(error)),
+    onError: (error: Error) => setFileMessage(safeUploadErrorMessage(error, text)),
   })
   const selectionMutation = useMutation({
     mutationFn: (uploadId: string) =>
@@ -309,7 +303,7 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
         uploadId,
       }),
     onSuccess: async () => {
-      setSelectionMessage("Current Project input updated successfully.")
+      setSelectionMessage(text("当前项目输入已更新。", "Current Project input updated successfully."))
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["customer-uploads", project.id],
@@ -320,18 +314,17 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       ])
     },
     onError: () =>
-      setSelectionMessage("The current Project input could not be changed."),
+      setSelectionMessage(text("无法更改当前项目输入。", "The current Project input could not be changed.")),
   })
 
   if (profileQuery.isPending || uploadsQuery.isPending) {
-    return <p role="status">Loading Project inputs…</p>
+    return <p role="status">{text("正在加载项目输入…", "Loading Project inputs…")}</p>
   }
   if (profileQuery.isError || uploadsQuery.isError) {
     return (
       <Alert variant="destructive">
         <AlertCircle />
-        <AlertTitle>Project inputs could not be loaded</AlertTitle>
-        <AlertDescription>Please try again later.</AlertDescription>
+        <AlertTitle>{text("无法加载项目输入", "Project inputs could not be loaded")}</AlertTitle><AlertDescription>{text("请稍后重试。", "Please try again later.")}</AlertDescription>
       </Alert>
     )
   }
@@ -345,7 +338,7 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
     event.preventDefault()
     const file = fileInputRef.current?.files?.[0]
     if (!file) {
-      setFileMessage("Choose one XLSX file to upload.")
+      setFileMessage(text("请选择一个 XLSX 文件上传。", "Choose one XLSX file to upload."))
       return
     }
     setFileMessage(null)
@@ -357,33 +350,31 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       {project.archived_at && (
         <Alert>
           <Archive />
-          <AlertTitle>Archived Project</AlertTitle>
+          <AlertTitle>{text("已归档项目", "Archived Project")}</AlertTitle>
           <AlertDescription>
-            Existing inputs remain visible, but this Project cannot accept
-            uploads.
+            {text("现有输入仍可查看，但该项目不能接受上传。", "Existing inputs remain visible, but this Project cannot accept uploads.")}
           </AlertDescription>
         </Alert>
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Current CustomerUpload Profile</CardTitle>
-          <CardDescription>
-            Profile ID <span className="font-mono">{profile.id}</span> · Version{" "}
+          <CardTitle>{text("当前客户上传配置", "Current CustomerUpload Profile")}</CardTitle>
+          <CardDescription>{text("配置 ID", "Profile ID")}<span className="font-mono">{profile.id}</span>{text(" · 版本", " · Version")}{" "}
             {profile.version}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 md:grid-cols-3">
           <HeaderList
-            title="Required headers"
+            title={text("必填表头", "Required headers")}
             headers={profile.required_headers}
           />
           <HeaderList
-            title="Warning headers"
+            title={text("缺失时提示警告的表头", "Warning headers")}
             headers={profile.warning_headers}
           />
           <HeaderList
-            title="Optional headers"
+            title={text("可选表头", "Optional headers")}
             headers={profile.optional_headers}
           />
         </CardContent>
@@ -391,15 +382,12 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Current Project input</CardTitle>
-          <CardDescription>
-            Governance uses one explicitly selected accepted CustomerUpload.
-          </CardDescription>
+          <CardTitle>{text("当前项目输入", "Current Project input")}</CardTitle>
+          <CardDescription>{text("治理使用已明确选择并通过校验的客户资产表。", "Governance uses one explicitly selected accepted CustomerUpload.")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {uploads.current_customer_upload_id ? (
-            <p>
-              Current CustomerUpload ID{" "}
+            <p>{text("当前客户资产表 ID", "Current CustomerUpload ID")}{" "}
               <span className="break-all font-mono text-sm">
                 {uploads.current_customer_upload_id}
               </span>
@@ -407,10 +395,8 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
           ) : (
             <Alert>
               <AlertCircle />
-              <AlertTitle>Not ready</AlertTitle>
-              <AlertDescription>
-                Project input is not ready. Select one accepted CustomerUpload.
-              </AlertDescription>
+              <AlertTitle>{text("尚未就绪", "Not ready")}</AlertTitle>
+              <AlertDescription>{text("项目输入尚未就绪，请选择一份已通过校验的客户资产表。", "Project input is not ready. Select one accepted CustomerUpload.")}</AlertDescription>
             </Alert>
           )}
           {selectionMessage && (
@@ -424,11 +410,8 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
       {uploads.can_upload ? (
         <Card>
           <CardHeader>
-            <CardTitle>Upload XLSX</CardTitle>
-            <CardDescription>
-              Choose one .xlsx file. The server performs all authoritative
-              validation.
-            </CardDescription>
+            <CardTitle>{text("上传 XLSX", "Upload XLSX")}</CardTitle>
+            <CardDescription>{text("选择一个 .xlsx 文件，所有正式校验均由服务器执行。", "Choose one .xlsx file. The server performs all authoritative validation.")}</CardDescription>
           </CardHeader>
           <CardContent>
             <form
@@ -436,7 +419,7 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
               onSubmit={submitUpload}
             >
               <div className="flex-1 space-y-2">
-                <Label htmlFor="customer-upload">XLSX file</Label>
+                <Label htmlFor="customer-upload">{text("XLSX 文件", "XLSX file")}</Label>
                 <Input
                   ref={fileInputRef}
                   id="customer-upload"
@@ -448,7 +431,7 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
               </div>
               <LoadingButton type="submit" loading={uploadMutation.isPending}>
                 <Upload />
-                Upload
+                {text("上传", "Upload")}
               </LoadingButton>
             </form>
             {fileMessage && (
@@ -460,16 +443,14 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
         </Card>
       ) : (
         !project.archived_at && (
-          <p className="text-sm text-muted-foreground">
-            You have read-only access to CustomerUpload inputs for this Project.
-          </p>
+          <p className="text-sm text-muted-foreground">{text("你对本项目的客户资产表只有只读权限。", "You have read-only access to CustomerUpload inputs for this Project.")}</p>
         )
       )}
 
       <Card>
         <CardHeader>
-          <CardTitle>Accepted uploads</CardTitle>
-          <CardDescription>{uploads.count} total</CardDescription>
+          <CardTitle>{text("已接受的上传文件", "Accepted uploads")}</CardTitle>
+          <CardDescription>{uploads.count}{text(" 条", " total")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <UploadRows
@@ -493,18 +474,14 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
                 variant="outline"
                 disabled={!canGoBack}
                 onClick={() => setPage((current) => current - 1)}
-              >
-                Previous
-              </Button>
-              <span className="text-sm">Page {page + 1}</span>
+              >{text("上一页", "Previous")}</Button>
+              <span className="text-sm">{text("页码 ", "Page ")}{page + 1}</span>
               <Button
                 type="button"
                 variant="outline"
                 disabled={!canGoForward}
                 onClick={() => setPage((current) => current + 1)}
-              >
-                Next
-              </Button>
+              >{text("下一页", "Next")}</Button>
             </div>
           )}
         </CardContent>
@@ -520,15 +497,17 @@ function ProjectWorkspace({
   project: ProjectPublic
   defaultTab?: DashboardSearch["tab"]
 }) {
+  const { text } = useLocale()
+
   return (
     <Tabs defaultValue={defaultTab} className="space-y-4">
       <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 md:w-fit">
-        <TabsTrigger value="inputs">Inputs</TabsTrigger>
+        <TabsTrigger value="inputs">{text("输入数据", "Inputs")}</TabsTrigger>
         <TabsTrigger value="cloudatlas">CloudAtlas</TabsTrigger>
-        <TabsTrigger value="runs">Runs</TabsTrigger>
-        <TabsTrigger value="assets">Assets</TabsTrigger>
-        <TabsTrigger value="findings">Findings</TabsTrigger>
-        <TabsTrigger value="reports">Reports</TabsTrigger>
+        <TabsTrigger value="runs">{text("治理运行", "Runs")}</TabsTrigger>
+        <TabsTrigger value="assets">{text("资产", "Assets")}</TabsTrigger>
+        <TabsTrigger value="findings">{text("发现项", "Findings")}</TabsTrigger>
+        <TabsTrigger value="reports">{text("报告", "Reports")}</TabsTrigger>
       </TabsList>
       <TabsContent value="inputs">
         <ProjectInputs project={project} />
@@ -557,6 +536,8 @@ function ProjectWorkspace({
 }
 
 function Dashboard() {
+  const { locale } = useLocale()
+  useEffect(() => { document.title = locale === "zh" ? "项目工作区 - Exposure-Agent" : "Project workspace - Exposure-Agent" })
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   if (import.meta.env.DEV && search.prototype === "customer" && !search.tab) {
@@ -565,7 +546,6 @@ function Dashboard() {
         variant={search.variant ?? "A"}
         reader={search.reader}
         readerSection={search.reader_section}
-        readerLocale={search.reader_locale}
         resourceId={search.resource_id}
         onVariantChange={(variant) => {
           void navigate({
@@ -579,12 +559,6 @@ function Dashboard() {
             replace: true,
           })
         }}
-        onReaderLocaleChange={(reader_locale) => {
-          void navigate({
-            search: (previous) => ({ ...previous, reader: "full", reader_locale }),
-            replace: true,
-          })
-        }}
       />
     )
   }
@@ -592,6 +566,8 @@ function Dashboard() {
 }
 
 function ProjectDashboard() {
+  const { text } = useLocale()
+
   const search = Route.useSearch()
   const { user: currentUser } = useAuth()
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
@@ -614,26 +590,22 @@ function ProjectDashboard() {
     }
   }, [projectsQuery.data, selectedProjectId])
 
-  if (projectsQuery.isPending) return <p role="status">Loading Projects…</p>
+  if (projectsQuery.isPending) return <p role="status">{text("正在加载项目…", "Loading Projects…")}</p>
   if (projectsQuery.isError) {
     return (
       <Alert variant="destructive">
         <AlertCircle />
-        <AlertTitle>Projects could not be loaded</AlertTitle>
-        <AlertDescription>Please try again later.</AlertDescription>
+        <AlertTitle>{text("项目加载失败", "Projects could not be loaded")}</AlertTitle>
+        <AlertDescription>{text("请稍后重试。", "Please try again later.")}</AlertDescription>
       </Alert>
     )
   }
   if (projectsQuery.data.data.length === 0) {
     return (
       <div className="space-y-2">
-        <h1 className="text-2xl font-bold tracking-tight">Project inputs</h1>
-        <p className="text-muted-foreground">
-          Welcome back, nice to see you again!
-        </p>
-        <p className="text-muted-foreground">
-          No accessible Projects are available.
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight">{text("项目输入", "Project inputs")}</h1>
+        <p className="text-muted-foreground">{text("欢迎回来。", "Welcome back, nice to see you again!")}</p>
+        <p className="text-muted-foreground">{text("暂无可访问的项目。", "No accessible Projects are available.")}</p>
       </div>
     )
   }
@@ -646,17 +618,14 @@ function ProjectDashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Project workspace</h1>
-        <p className="text-muted-foreground">
-          Welcome back, nice to see you again! Select a Project to manage its
-          inputs, sources, Runs, Assets, Findings, and Reports.
-          {currentUser?.full_name
+        <h1 className="text-2xl font-bold tracking-tight">{text("项目工作区", "Project workspace")}</h1>
+        <p className="text-muted-foreground">{text("选择项目，管理输入数据、来源、治理运行、资产、发现项与报告。", "Welcome back, nice to see you again! Select a Project to manage its inputs, sources, Runs, Assets, Findings, and Reports.")}{currentUser?.full_name
             ? ` Signed in as ${currentUser.full_name}.`
             : ""}
         </p>
       </div>
       <div className="max-w-md space-y-2">
-        <Label id="project-label">Project</Label>
+        <Label id="project-label">{text("项目", "Project")}</Label>
         <Select value={selectedProject.id} onValueChange={setSelectedProjectId}>
           <SelectTrigger className="w-full" aria-labelledby="project-label">
             <SelectValue />

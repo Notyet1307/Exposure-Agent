@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/sidebar"
 import useAuth from "@/hooks/useAuth"
 import { getInitials } from "@/utils"
+import { useLocale } from "@/components/LocaleProvider"
 
 interface UserInfoProps {
   fullName?: string
@@ -42,6 +43,7 @@ function UserInfo({ fullName, email }: UserInfoProps) {
 
 export function User({ user }: { user: any }) {
   const { logout } = useAuth()
+  const { text } = useLocale()
   const { isMobile, setOpenMobile } = useSidebar()
 
   if (!user) return null
@@ -82,12 +84,12 @@ export function User({ user }: { user: any }) {
             <RouterLink to="/settings" onClick={handleMenuClick}>
               <DropdownMenuItem>
                 <Settings />
-                User Settings
+                {text("用户设置", "User Settings")}
               </DropdownMenuItem>
             </RouterLink>
             <DropdownMenuItem onClick={handleLogout}>
               <LogOut />
-              Log Out
+              {text("退出登录", "Log Out")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

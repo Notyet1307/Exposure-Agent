@@ -29,33 +29,35 @@ import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
 import useCustomToast from "@/hooks/useCustomToast"
 import { handleError } from "@/utils"
+import { useLocale } from "@/components/LocaleProvider"
 
-const formSchema = z
+function formSchema(zh: boolean) { return z
   .object({
-    email: z.email({ message: "Invalid email address" }),
+    email: z.email({ message: zh ? "请输入有效邮箱地址" : "Invalid email address" }),
     full_name: z.string().optional(),
     password: z
       .string()
-      .min(1, { message: "Password is required" })
-      .min(8, { message: "Password must be at least 8 characters" }),
+      .min(1, { message: zh ? "请输入密码" : "Password is required" })
+      .min(8, { message: zh ? "密码至少需要 8 个字符" : "Password must be at least 8 characters" }),
     confirm_password: z
       .string()
-      .min(1, { message: "Please confirm your password" }),
+      .min(1, { message: zh ? "请确认密码" : "Please confirm your password" }),
   })
   .refine((data) => data.password === data.confirm_password, {
-    message: "The passwords don't match",
+    message: zh ? "两次输入的密码不一致" : "The passwords don't match",
     path: ["confirm_password"],
-  })
+  }) }
 
-type FormData = z.infer<typeof formSchema>
+type FormData = z.infer<ReturnType<typeof formSchema>>
 
 const AddUser = () => {
   const [isOpen, setIsOpen] = useState(false)
+  const { locale, text } = useLocale()
   const queryClient = useQueryClient()
   const { showSuccessToast, showErrorToast } = useCustomToast()
 
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema(locale === "zh")),
     mode: "onBlur",
     criteriaMode: "all",
     defaultValues: {
@@ -70,7 +72,7 @@ const AddUser = () => {
     mutationFn: (data: UserCreateByAdmin) =>
       UsersService.createUser({ requestBody: data }),
     onSuccess: () => {
-      showSuccessToast("User created successfully")
+      showSuccessToast(text("用户创建成功", "User created successfully"))
       form.reset()
       setIsOpen(false)
     },
@@ -90,18 +92,18 @@ const AddUser = () => {
       <DialogTrigger asChild>
         <Button className="my-4">
           <Plus className="mr-2" />
-          Add User
+          {text("添加用户", "Add User")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add User</DialogTitle>
+          <DialogTitle>{text("添加用户", "Add User")}</DialogTitle>
           <DialogDescription>
-            Fill in the form below to add a new user to the system.
+            {text("填写以下信息以添加系统用户。", "Fill in the form below to add a new user to the system.")}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
+          <form noValidate onSubmit={form.handleSubmit(onSubmit)}>
             <div className="grid gap-4 py-4">
               <FormField
                 control={form.control}
@@ -109,11 +111,11 @@ const AddUser = () => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Email <span className="text-destructive">*</span>
+                      {text("邮箱", "Email")} <span className="text-destructive">*</span>
                     </FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Email"
+                        placeholder={text("邮箱", "Email")}
                         type="email"
                         {...field}
                         required
@@ -129,9 +131,9 @@ const AddUser = () => {
                 name="full_name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Full Name</FormLabel>
+                    <FormLabel>{text("姓名", "Full Name")}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Full name" type="text" {...field} />
+                      <Input placeholder={text("姓名", "Full name")} type="text" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -144,11 +146,11 @@ const AddUser = () => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Set Password <span className="text-destructive">*</span>
+                      {text("设置密码", "Set Password")} <span className="text-destructive">*</span>
                     </FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Password"
+                        placeholder={text("密码", "Password")}
                         type="password"
                         {...field}
                         required
@@ -165,12 +167,12 @@ const AddUser = () => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Confirm Password{" "}
+                      {text("确认密码", "Confirm Password")}{" "}
                       <span className="text-destructive">*</span>
                     </FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Password"
+                        placeholder={text("密码", "Password")}
                         type="password"
                         {...field}
                         required
@@ -184,12 +186,12 @@ const AddUser = () => {
 
             <DialogFooter>
               <DialogClose asChild>
-                <Button variant="outline" disabled={mutation.isPending}>
-                  Cancel
+                <Button variant="outline" aria-label={text("取消添加用户", "Cancel adding user")} disabled={mutation.isPending}>
+                  {text("取消", "Cancel")}
                 </Button>
               </DialogClose>
               <LoadingButton type="submit" loading={mutation.isPending}>
-                Save
+                {text("保存", "Save")}
               </LoadingButton>
             </DialogFooter>
           </form>

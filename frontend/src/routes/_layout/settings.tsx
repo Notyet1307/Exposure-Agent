@@ -4,11 +4,7 @@ import ChangePassword from "@/components/UserSettings/ChangePassword"
 import UserInformation from "@/components/UserSettings/UserInformation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import useAuth from "@/hooks/useAuth"
-
-const tabsConfig = [
-  { value: "my-profile", title: "My profile", component: UserInformation },
-  { value: "password", title: "Password", component: ChangePassword },
-]
+import { useLocale } from "@/components/LocaleProvider"
 
 export const Route = createFileRoute("/_layout/settings")({
   component: UserSettings,
@@ -23,6 +19,11 @@ export const Route = createFileRoute("/_layout/settings")({
 
 function UserSettings() {
   const { user: currentUser } = useAuth()
+  const { text } = useLocale()
+  const tabsConfig = [
+    { value: "my-profile", title: text("我的资料", "My profile"), component: UserInformation },
+    { value: "password", title: text("密码", "Password"), component: ChangePassword },
+  ]
 
   if (!currentUser) {
     return null
@@ -31,9 +32,9 @@ function UserSettings() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">User Settings</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{text("用户设置", "User Settings")}</h1>
         <p className="text-muted-foreground">
-          Manage your account settings and preferences
+          {text("管理账号设置与偏好。", "Manage your account settings and preferences")}
         </p>
       </div>
 

@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { type UpdatePassword, UsersService } from "@/client"
+import { useLocale } from "@/components/LocaleProvider"
 import {
   Form,
   FormControl,
@@ -17,31 +18,47 @@ import { PasswordInput } from "@/components/ui/password-input"
 import useCustomToast from "@/hooks/useCustomToast"
 import { handleError } from "@/utils"
 
-const formSchema = z
-  .object({
-    current_password: z
-      .string()
-      .min(1, { message: "Password is required" })
-      .min(8, { message: "Password must be at least 8 characters" }),
-    new_password: z
-      .string()
-      .min(1, { message: "Password is required" })
-      .min(8, { message: "Password must be at least 8 characters" }),
-    confirm_password: z
-      .string()
-      .min(1, { message: "Password confirmation is required" }),
-  })
-  .refine((data) => data.new_password === data.confirm_password, {
-    message: "The passwords don't match",
-    path: ["confirm_password"],
-  })
+type Text = (zh: string, en: string) => string
 
-type FormData = z.infer<typeof formSchema>
+const formSchema = (text: Text) =>
+  z
+    .object({
+      current_password: z
+        .string()
+        .min(1, { message: text("请输入当前密码", "Password is required") })
+        .min(8, {
+          message: text(
+            "密码至少需要 8 个字符",
+            "Password must be at least 8 characters",
+          ),
+        }),
+      new_password: z
+        .string()
+        .min(1, { message: text("请输入新密码", "Password is required") })
+        .min(8, {
+          message: text(
+            "密码至少需要 8 个字符",
+            "Password must be at least 8 characters",
+          ),
+        }),
+      confirm_password: z
+        .string()
+        .min(1, {
+          message: text("请确认新密码", "Password confirmation is required"),
+        }),
+    })
+    .refine((data) => data.new_password === data.confirm_password, {
+      message: text("两次输入的密码不一致", "The passwords don't match"),
+      path: ["confirm_password"],
+    })
+
+type FormData = z.infer<ReturnType<typeof formSchema>>
 
 const ChangePassword = () => {
+  const { text } = useLocale()
   const { showSuccessToast, showErrorToast } = useCustomToast()
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema(text)),
     mode: "onSubmit",
     criteriaMode: "all",
     defaultValues: {
@@ -55,7 +72,7 @@ const ChangePassword = () => {
     mutationFn: (data: UpdatePassword) =>
       UsersService.updatePasswordMe({ requestBody: data }),
     onSuccess: () => {
-      showSuccessToast("Password updated successfully")
+      showSuccessToast(text("密码已更新。", "Password updated successfully"))
       form.reset()
     },
     onError: handleError.bind(showErrorToast),
@@ -67,10 +84,11 @@ const ChangePassword = () => {
 
   return (
     <div className="max-w-md">
-      <h3 className="text-lg font-semibold py-4">Change Password</h3>
+      <h3 className="text-lg font-semibold py-4">{text("修改密码", "Change Password")}</h3>
       <Form {...form}>
         <form
           onSubmit={form.handleSubmit(onSubmit)}
+          noValidate
           className="flex flex-col gap-4"
         >
           <FormField
@@ -78,7 +96,7 @@ const ChangePassword = () => {
             name="current_password"
             render={({ field, fieldState }) => (
               <FormItem>
-                <FormLabel>Current Password</FormLabel>
+                <FormLabel>{text("当前密码", "Current Password")}</FormLabel>
                 <FormControl>
                   <PasswordInput
                     data-testid="current-password-input"
@@ -97,7 +115,7 @@ const ChangePassword = () => {
             name="new_password"
             render={({ field, fieldState }) => (
               <FormItem>
-                <FormLabel>New Password</FormLabel>
+                <FormLabel>{text("新密码", "New Password")}</FormLabel>
                 <FormControl>
                   <PasswordInput
                     data-testid="new-password-input"
@@ -116,7 +134,7 @@ const ChangePassword = () => {
             name="confirm_password"
             render={({ field, fieldState }) => (
               <FormItem>
-                <FormLabel>Confirm Password</FormLabel>
+                <FormLabel>{text("确认新密码", "Confirm Password")}</FormLabel>
                 <FormControl>
                   <PasswordInput
                     data-testid="confirm-password-input"
@@ -135,7 +153,7 @@ const ChangePassword = () => {
             loading={mutation.isPending}
             className="self-start"
           >
-            Update Password
+            {text("更新密码", "Update Password")}
           </LoadingButton>
         </form>
       </Form>

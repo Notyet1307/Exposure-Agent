@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 
 import { UsersService, type UserUpdateMe } from "@/client"
+import { useLocale } from "@/components/LocaleProvider"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -21,21 +22,25 @@ import useCustomToast from "@/hooks/useCustomToast"
 import { cn } from "@/lib/utils"
 import { handleError } from "@/utils"
 
-const formSchema = z.object({
-  full_name: z.string().max(30).optional(),
-  email: z.email({ message: "Invalid email address" }),
-})
+type Text = (zh: string, en: string) => string
 
-type FormData = z.infer<typeof formSchema>
+const formSchema = (text: Text) =>
+  z.object({
+    full_name: z.string().max(30).optional(),
+    email: z.email({ message: text("请输入有效的邮箱地址", "Invalid email address") }),
+  })
+
+type FormData = z.infer<ReturnType<typeof formSchema>>
 
 const UserInformation = () => {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const { showSuccessToast, showErrorToast } = useCustomToast()
   const [editMode, setEditMode] = useState(false)
   const { user: currentUser } = useAuth()
 
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema(text)),
     mode: "onBlur",
     criteriaMode: "all",
     defaultValues: {
@@ -52,7 +57,7 @@ const UserInformation = () => {
     mutationFn: (data: UserUpdateMe) =>
       UsersService.updateUserMe({ requestBody: data }),
     onSuccess: () => {
-      showSuccessToast("User updated successfully")
+      showSuccessToast(text("用户信息已更新。", "User updated successfully"))
       toggleEditMode()
     },
     onError: handleError.bind(showErrorToast),
@@ -82,10 +87,11 @@ const UserInformation = () => {
 
   return (
     <div className="max-w-md">
-      <h3 className="text-lg font-semibold py-4">User Information</h3>
+      <h3 className="text-lg font-semibold py-4">{text("用户信息", "User Information")}</h3>
       <Form {...form}>
         <form
           onSubmit={form.handleSubmit(onSubmit)}
+          noValidate
           className="flex flex-col gap-4"
         >
           <FormField
@@ -94,7 +100,7 @@ const UserInformation = () => {
             render={({ field }) =>
               editMode ? (
                 <FormItem>
-                  <FormLabel>Full name</FormLabel>
+                  <FormLabel>{text("姓名", "Full name")}</FormLabel>
                   <FormControl>
                     <Input type="text" {...field} />
                   </FormControl>
@@ -102,14 +108,14 @@ const UserInformation = () => {
                 </FormItem>
               ) : (
                 <FormItem>
-                  <FormLabel>Full name</FormLabel>
+                  <FormLabel>{text("姓名", "Full name")}</FormLabel>
                   <p
                     className={cn(
                       "py-2 truncate max-w-sm",
                       !field.value && "text-muted-foreground",
                     )}
                   >
-                    {field.value || "N/A"}
+                    {field.value || text("未填写", "N/A")}
                   </p>
                 </FormItem>
               )
@@ -122,7 +128,7 @@ const UserInformation = () => {
             render={({ field }) =>
               editMode ? (
                 <FormItem>
-                  <FormLabel>Email</FormLabel>
+                  <FormLabel>{text("邮箱", "Email")}</FormLabel>
                   <FormControl>
                     <Input type="email" {...field} />
                   </FormControl>
@@ -130,7 +136,7 @@ const UserInformation = () => {
                 </FormItem>
               ) : (
                 <FormItem>
-                  <FormLabel>Email</FormLabel>
+                  <FormLabel>{text("邮箱", "Email")}</FormLabel>
                   <p className="py-2 truncate max-w-sm">{field.value}</p>
                 </FormItem>
               )
@@ -145,7 +151,7 @@ const UserInformation = () => {
                   loading={mutation.isPending}
                   disabled={!form.formState.isDirty}
                 >
-                  Save
+                  {text("保存", "Save")}
                 </LoadingButton>
                 <Button
                   type="button"
@@ -153,12 +159,12 @@ const UserInformation = () => {
                   onClick={onCancel}
                   disabled={mutation.isPending}
                 >
-                  Cancel
+                  {text("取消", "Cancel")}
                 </Button>
               </>
             ) : (
               <Button type="button" onClick={toggleEditMode}>
-                Edit
+                {text("编辑", "Edit")}
               </Button>
             )}
           </div>

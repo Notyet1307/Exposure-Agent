@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton"
+import { useLocale } from "@/components/LocaleProvider"
 import {
   Table,
   TableBody,
@@ -8,16 +9,18 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-const PendingUsers = () => (
+const PendingUsers = () => {
+  const { text } = useLocale()
+  return (
   <Table>
     <TableHeader>
       <TableRow>
-        <TableHead>Full Name</TableHead>
-        <TableHead>Email</TableHead>
-        <TableHead>Role</TableHead>
-        <TableHead>Status</TableHead>
+        <TableHead>{text("姓名", "Full Name")}</TableHead>
+        <TableHead>{text("邮箱", "Email")}</TableHead>
+        <TableHead>{text("角色", "Role")}</TableHead>
+        <TableHead>{text("状态", "Status")}</TableHead>
         <TableHead>
-          <span className="sr-only">Actions</span>
+          <span className="sr-only">{text("操作", "Actions")}</span>
         </TableHead>
       </TableRow>
     </TableHeader>
@@ -48,6 +51,7 @@ const PendingUsers = () => (
       ))}
     </TableBody>
   </Table>
-)
+  )
+}
 
 export default PendingUsers

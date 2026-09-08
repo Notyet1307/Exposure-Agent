@@ -463,7 +463,7 @@ async function installMocks(
   const requests: { url: URL; method: string }[] = []
   const unexpected: string[] = []
   await page.addInitScript(() =>
-    localStorage.setItem("access_token", "component-token"),
+    { localStorage.setItem("access_token", "component-token"); localStorage.setItem("exposure-agent-locale", "en") },
   )
   page.on("request", (request) => {
     if (new URL(request.url()).pathname.startsWith("/api/v1/"))

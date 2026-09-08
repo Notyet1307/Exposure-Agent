@@ -41,6 +41,7 @@ export default defineConfig({
       testMatch: /.*\.component\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
+        storageState: 'tests/fixtures/component-en.json',
       },
     },
 

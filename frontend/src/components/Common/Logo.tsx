@@ -1,5 +1,7 @@
 import { Link } from "@tanstack/react-router"
 
+import { useLocale } from "@/components/LocaleProvider"
+
 import { cn } from "@/lib/utils"
 
 interface LogoProps {
@@ -13,6 +15,7 @@ export function Logo({
   className,
   asLink = true,
 }: LogoProps) {
+  const { text } = useLocale()
   const fullLogo = (
     <span
       className={cn(
@@ -52,7 +55,7 @@ export function Logo({
   }
 
   return (
-    <Link to="/" aria-label="Exposure-Agent home">
+    <Link to="/" aria-label={text("Exposure-Agent 首页", "Exposure-Agent home")}>
       {content}
     </Link>
   )

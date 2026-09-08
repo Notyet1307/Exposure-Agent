@@ -4,9 +4,10 @@ import { Suspense } from "react"
 
 import { type UserPublic, UsersService } from "@/client"
 import AddUser from "@/components/Admin/AddUser"
-import { columns, type UserTableData } from "@/components/Admin/columns"
+import { createColumns, type UserTableData } from "@/components/Admin/columns"
 import { DataTable } from "@/components/Common/DataTable"
 import PendingUsers from "@/components/Pending/PendingUsers"
+import { useLocale } from "@/components/LocaleProvider"
 import useAuth from "@/hooks/useAuth"
 
 function getUsersQueryOptions() {
@@ -37,6 +38,7 @@ export const Route = createFileRoute("/_layout/admin")({
 
 function UsersTableContent() {
   const { user: currentUser } = useAuth()
+  const { text } = useLocale()
   const { data: users } = useSuspenseQuery(getUsersQueryOptions())
 
   const tableData: UserTableData[] = users.data.map((user: UserPublic) => ({
@@ -44,7 +46,7 @@ function UsersTableContent() {
     isCurrentUser: currentUser?.id === user.id,
   }))
 
-  return <DataTable columns={columns} data={tableData} />
+  return <DataTable columns={createColumns(text)} data={tableData} />
 }
 
 function UsersTable() {
@@ -56,13 +58,14 @@ function UsersTable() {
 }
 
 function Admin() {
+  const { text } = useLocale()
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{text("用户", "Users")}</h1>
           <p className="text-muted-foreground">
-            Manage user accounts and permissions
+            {text("管理用户账号与权限", "Manage user accounts and permissions")}
           </p>
         </div>
         <AddUser />

@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import useAuth from "@/hooks/useAuth"
 import EditUser from "./EditUser"
+import { useLocale } from "@/components/LocaleProvider"
 
 interface UserActionsMenuProps {
   user: UserPublic
@@ -18,6 +19,7 @@ interface UserActionsMenuProps {
 export const UserActionsMenu = ({ user }: UserActionsMenuProps) => {
   const [open, setOpen] = useState(false)
   const { user: currentUser } = useAuth()
+  const { text } = useLocale()
 
   if (user.id === currentUser?.id) {
     return null
@@ -26,7 +28,7 @@ export const UserActionsMenu = ({ user }: UserActionsMenuProps) => {
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon">
+        <Button variant="ghost" size="icon" aria-label={text("用户操作", "User actions")}>
           <EllipsisVertical />
         </Button>
       </DropdownMenuTrigger>

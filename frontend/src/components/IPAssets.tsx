@@ -8,6 +8,7 @@ import {
 } from "@/client"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Stage4ResultNotice } from "@/components/Stage4ResultNotice"
+import { useLocale } from "@/components/LocaleProvider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -35,37 +36,48 @@ import {
 } from "@/components/ui/table"
 
 const PAGE_SIZE = 25
+type Localize = (chinese: string, english: string) => string
 
-function observationStatus(observed: boolean) {
+function observationStatus(observed: boolean, text: Localize) {
   return (
     <Badge variant={observed ? "default" : "outline"}>
-      {observed ? "Present" : "Not observed"}
+      {observed ? text("已观测", "Present") : text("未观测", "Not observed")}
     </Badge>
   )
 }
 
-function findingLabel(findingType: string | null) {
-  if (findingType === "UNREPORTED_ASSET") return "Unreported asset"
-  if (findingType === "UNOBSERVED_ASSET") return "Unobserved asset"
-  return findingType ?? "None"
+function findingLabel(findingType: string | null, text: Localize) {
+  if (findingType === "UNREPORTED_ASSET") {
+    return text("未报备资产", "Unreported asset")
+  }
+  if (findingType === "UNOBSERVED_ASSET") {
+    return text("未观测资产", "Unobserved asset")
+  }
+  return findingType ?? text("无", "None")
 }
 
-function ObservationRows({ detail }: { detail: IPAssetDetailPublic }) {
+function ObservationRows({
+  detail,
+  text,
+}: {
+  detail: IPAssetDetailPublic
+  text: Localize
+}) {
   const observations = detail.observations ?? []
   if (observations.length === 0) {
-    return <p className="text-sm text-muted-foreground">No observations.</p>
+    return <p className="text-sm text-muted-foreground">{text("暂无观测记录。", "No observations.")}</p>
   }
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Raw IP</TableHead>
-          <TableHead>Canonical IP</TableHead>
-          <TableHead>Source</TableHead>
-          <TableHead>Location</TableHead>
-          <TableHead>CloudAtlas ID</TableHead>
-          <TableHead>CloudAtlas status</TableHead>
-          <TableHead>Snapshot</TableHead>
+          <TableHead>{text("原始 IP", "Raw IP")}</TableHead>
+          <TableHead>{text("规范 IP", "Canonical IP")}</TableHead>
+          <TableHead>{text("来源", "Source")}</TableHead>
+          <TableHead>{text("位置", "Location")}</TableHead>
+          <TableHead>{text("CloudAtlas ID", "CloudAtlas ID")}</TableHead>
+          <TableHead>{text("CloudAtlas 状态", "CloudAtlas status")}</TableHead>
+          <TableHead>{text("快照", "Snapshot")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -104,6 +116,7 @@ function AssetDetailDialog({
   resourceId: string | null
   onOpenChange: (open: boolean) => void
 }) {
+  const { text } = useLocale()
   const [page, setPage] = useState(0)
   useEffect(() => {
     if (resourceId === null) setPage(0)
@@ -127,42 +140,44 @@ function AssetDetailDialog({
     >
       <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-6xl">
         <DialogHeader>
-          <DialogTitle>IP Asset details</DialogTitle>
+          <DialogTitle>{text("IP 资产详情", "IP Asset details")}</DialogTitle>
           <DialogDescription>
-            Only confirmed source observations and Snapshot references are
-            shown. Original artifacts are not exposed here.
+            {text(
+              "此处仅展示已确认的来源观测和快照引用，不展示原始制品。",
+              "Only confirmed source observations and Snapshot references are shown. Original artifacts are not exposed here.",
+            )}
           </DialogDescription>
         </DialogHeader>
-        {detailQuery.isPending && <p role="status">Loading Asset details…</p>}
+        {detailQuery.isPending && <p role="status">{text("正在加载资产详情…", "Loading Asset details…")}</p>}
         {detailQuery.isError && (
           <Alert variant="destructive">
-            <AlertTitle>Asset details could not be loaded</AlertTitle>
-            <AlertDescription>Please try again later.</AlertDescription>
+            <AlertTitle>{text("无法加载资产详情", "Asset details could not be loaded")}</AlertTitle>
+            <AlertDescription>{text("请稍后重试。", "Please try again later.")}</AlertDescription>
           </Alert>
         )}
         {detailQuery.data && (
           <div className="space-y-4">
             <div className="grid gap-3 text-sm md:grid-cols-4">
               <div>
-                <p className="font-medium">Canonical IP</p>
+                <p className="font-medium">{text("规范 IP", "Canonical IP")}</p>
                 <p className="font-mono">{detailQuery.data.canonical_ip}</p>
               </div>
               <div>
-                <p className="font-medium">Customer side</p>
-                {observationStatus(detailQuery.data.customer_observed)}
+                <p className="font-medium">{text("客户侧", "Customer side")}</p>
+                {observationStatus(detailQuery.data.customer_observed, text)}
               </div>
               <div>
-                <p className="font-medium">CloudAtlas side</p>
-                {observationStatus(detailQuery.data.cloudatlas_observed)}
+                <p className="font-medium">{text("CloudAtlas 侧", "CloudAtlas side")}</p>
+                {observationStatus(detailQuery.data.cloudatlas_observed, text)}
               </div>
               <div>
-                <p className="font-medium">Observation count</p>
+                <p className="font-medium">{text("观测数量", "Observation count")}</p>
                 <p>{detailQuery.data.observation_count}</p>
               </div>
             </div>
-            <ObservationRows detail={detailQuery.data} />
+            <ObservationRows detail={detailQuery.data} text={text} />
             <ResultPagination
-              label="Asset observations"
+              label={text("资产观测记录", "Asset observations")}
               count={detailQuery.data.observation_count}
               page={page}
               pageSize={PAGE_SIZE}
@@ -178,34 +193,38 @@ function AssetDetailDialog({
 function AssetRow({
   asset,
   onDetails,
+  text,
 }: {
   asset: IPAssetPublic
   onDetails: () => void
+  text: Localize
 }) {
   return (
     <TableRow>
       <TableCell className="font-mono font-medium">
         {asset.canonical_ip}
       </TableCell>
-      <TableCell>{observationStatus(asset.customer_observed)}</TableCell>
-      <TableCell>{observationStatus(asset.cloudatlas_observed)}</TableCell>
+      <TableCell>{observationStatus(asset.customer_observed, text)}</TableCell>
+      <TableCell>{observationStatus(asset.cloudatlas_observed, text)}</TableCell>
       <TableCell>
         <div>{asset.observation_count}</div>
         <div className="text-xs text-muted-foreground">
-          Customer {asset.customer_observation_count} · CloudAtlas{" "}
-          {asset.cloudatlas_observation_count}
+          {text(
+            `客户侧 ${asset.customer_observation_count} · CloudAtlas ${asset.cloudatlas_observation_count}`,
+            `Customer ${asset.customer_observation_count} · CloudAtlas ${asset.cloudatlas_observation_count}`,
+          )}
         </div>
       </TableCell>
       <TableCell>
         {asset.open_finding_type ? (
           <div>
-            <div>{findingLabel(asset.open_finding_type)}</div>
+            <div>{findingLabel(asset.open_finding_type, text)}</div>
             <div className="font-mono text-xs text-muted-foreground">
               {asset.open_finding_type}
             </div>
           </div>
         ) : (
-          <span className="text-muted-foreground">None</span>
+          <span className="text-muted-foreground">{text("无", "None")}</span>
         )}
       </TableCell>
       <TableCell>
@@ -215,7 +234,7 @@ function AssetRow({
           size="sm"
           onClick={onDetails}
         >
-          View details
+          {text("查看详情", "View details")}
         </LoadingButton>
       </TableCell>
     </TableRow>
@@ -223,6 +242,7 @@ function AssetRow({
 }
 
 export default function IPAssets({ projectId }: { projectId: string }) {
+  const { locale, text } = useLocale()
   const [page, setPage] = useState(0)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null,
@@ -243,12 +263,12 @@ export default function IPAssets({ projectId }: { projectId: string }) {
     if (page >= pageCount) setPage(pageCount - 1)
   }, [assetsQuery.data, page])
 
-  if (assetsQuery.isPending) return <p role="status">Loading IP Assets…</p>
+  if (assetsQuery.isPending) return <p role="status">{text("正在加载 IP 资产…", "Loading IP Assets…")}</p>
   if (assetsQuery.isError) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>IP Assets could not be loaded</AlertTitle>
-        <AlertDescription>Please try again later.</AlertDescription>
+        <AlertTitle>{text("无法加载 IP 资产", "IP Assets could not be loaded")}</AlertTitle>
+        <AlertDescription>{text("请稍后重试。", "Please try again later.")}</AlertDescription>
       </Alert>
     )
   }
@@ -267,20 +287,22 @@ export default function IPAssets({ projectId }: { projectId: string }) {
     <section className="space-y-4" aria-labelledby="ip-assets-title">
       <Card>
         <CardHeader>
-          <CardTitle id="ip-assets-title">IP Assets</CardTitle>
+          <CardTitle id="ip-assets-title">{text("IP 资产", "IP Assets")}</CardTitle>
           <CardDescription>
-            Latest compatible completed Run · {assets.count} IP Resource
-            {assets.count === 1 ? "" : "s"}
+            {text(
+              `最近一次兼容且已完成的治理运行 · ${assets.count} 个 IP 资源`,
+              `Latest compatible completed Run · ${assets.count} IP Resource${assets.count === 1 ? "" : "s"}`,
+            )}
             {assets.latest_run_id && (
               <span className="block break-all font-mono text-xs">
-                Published Run {assets.latest_run_id}
+                {text("已发布治理运行 ", "Published Run ")}{assets.latest_run_id}
               </span>
             )}
             {assets.latest_run_completed_at && (
               <>
                 {" "}
-                · completed{" "}
-                {new Date(assets.latest_run_completed_at).toLocaleString()}
+                {text("· 完成于 ", "· completed ")}
+                {new Date(assets.latest_run_completed_at).toLocaleString(locale)}
               </>
             )}
           </CardDescription>
@@ -288,18 +310,18 @@ export default function IPAssets({ projectId }: { projectId: string }) {
         <CardContent className="space-y-4">
           {assets.data.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No IP Resources were observed in the latest compatible Run.
+              {text("最近一次兼容治理运行中未观测到 IP 资源。", "No IP Resources were observed in the latest compatible Run.")}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Canonical IP</TableHead>
-                  <TableHead>Customer side</TableHead>
-                  <TableHead>CloudAtlas side</TableHead>
-                  <TableHead>Observations</TableHead>
-                  <TableHead>Open Finding</TableHead>
-                  <TableHead>Details</TableHead>
+                  <TableHead>{text("规范 IP", "Canonical IP")}</TableHead>
+                  <TableHead>{text("客户侧", "Customer side")}</TableHead>
+                  <TableHead>{text("CloudAtlas 侧", "CloudAtlas side")}</TableHead>
+                  <TableHead>{text("观测记录", "Observations")}</TableHead>
+                  <TableHead>{text("开放发现项", "Open Finding")}</TableHead>
+                  <TableHead>{text("详情", "Details")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -307,6 +329,7 @@ export default function IPAssets({ projectId }: { projectId: string }) {
                   <AssetRow
                     key={asset.id}
                     asset={asset}
+                    text={text}
                     onDetails={() => setSelectedResourceId(asset.resource_id)}
                   />
                 ))}
@@ -314,7 +337,7 @@ export default function IPAssets({ projectId }: { projectId: string }) {
             </Table>
           )}
           <ResultPagination
-            label="Assets"
+            label={text("资产", "Assets")}
             count={assets.count}
             page={page}
             pageSize={PAGE_SIZE}

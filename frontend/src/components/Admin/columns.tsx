@@ -9,10 +9,10 @@ export type UserTableData = UserPublic & {
   isCurrentUser: boolean
 }
 
-export const columns: ColumnDef<UserTableData>[] = [
+export function createColumns(text: (zh: string, en: string) => string): ColumnDef<UserTableData>[] { return [
   {
     accessorKey: "full_name",
-    header: "Full Name",
+    header: text("姓名", "Full Name"),
     cell: ({ row }) => {
       const fullName = row.original.full_name
       return (
@@ -20,11 +20,11 @@ export const columns: ColumnDef<UserTableData>[] = [
           <span
             className={cn("font-medium", !fullName && "text-muted-foreground")}
           >
-            {fullName || "N/A"}
+            {fullName || text("未提供", "N/A")}
           </span>
           {row.original.isCurrentUser && (
             <Badge variant="outline" className="text-xs">
-              You
+              {text("当前用户", "You")}
             </Badge>
           )}
         </div>
@@ -33,23 +33,23 @@ export const columns: ColumnDef<UserTableData>[] = [
   },
   {
     accessorKey: "email",
-    header: "Email",
+    header: text("邮箱", "Email"),
     cell: ({ row }) => (
       <span className="text-muted-foreground">{row.original.email}</span>
     ),
   },
   {
     accessorKey: "is_superuser",
-    header: "Role",
+    header: text("角色", "Role"),
     cell: ({ row }) => (
       <Badge variant={row.original.is_superuser ? "default" : "secondary"}>
-        {row.original.is_superuser ? "Superuser" : "User"}
+        {row.original.is_superuser ? text("管理员", "Superuser") : text("用户", "User")}
       </Badge>
     ),
   },
   {
     accessorKey: "is_active",
-    header: "Status",
+    header: text("状态", "Status"),
     cell: ({ row }) => (
       <div className="flex items-center gap-2">
         <span
@@ -59,18 +59,18 @@ export const columns: ColumnDef<UserTableData>[] = [
           )}
         />
         <span className={row.original.is_active ? "" : "text-muted-foreground"}>
-          {row.original.is_active ? "Active" : "Inactive"}
+          {row.original.is_active ? text("启用", "Active") : text("停用", "Inactive")}
         </span>
       </div>
     ),
   },
   {
     id: "actions",
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{text("操作", "Actions")}</span>,
     cell: ({ row }) => (
       <div className="flex justify-end">
         <UserActionsMenu user={row.original} />
       </div>
     ),
   },
-]
+] }

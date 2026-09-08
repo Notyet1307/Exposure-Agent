@@ -1,6 +1,7 @@
 import { Appearance } from "@/components/Common/Appearance"
 import { Logo } from "@/components/Common/Logo"
 import { Footer } from "./Footer"
+import { LocaleToggle } from "@/components/LocaleToggle"
 
 interface AuthLayoutProps {
   children: React.ReactNode
@@ -14,7 +15,7 @@ export function AuthLayout({ children }: AuthLayoutProps) {
       </div>
       <div className="flex flex-col gap-4 p-6 md:p-10">
         <div className="flex justify-end">
-          <Appearance />
+          <div className="flex items-center gap-2"><LocaleToggle compact /><Appearance /></div>
         </div>
         <div className="flex flex-1 items-center justify-center">
           <div className="w-full max-w-xs">{children}</div>

@@ -5,6 +5,7 @@ import {
   type CloudAtlasSourcePublic,
   CloudatlasSourceInstancesService,
 } from "@/client"
+import { useLocale } from "@/components/LocaleProvider"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -27,15 +28,17 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-function validationLabel(status: string): string {
+type Text = (zh: string, en: string) => string
+
+function validationLabel(status: string, text: Text): string {
   return (
     {
-      validated: "Validated",
-      invalid: "Invalid",
-      failed: "Failed",
-      unavailable: "Unavailable",
-      not_validated: "Not validated",
-    }[status] ?? "Unknown"
+      validated: text("已验证", "Validated"),
+      invalid: text("无效", "Invalid"),
+      failed: text("失败", "Failed"),
+      unavailable: text("不可用", "Unavailable"),
+      not_validated: text("未验证", "Not validated"),
+    }[status] ?? text("未知", "Unknown")
   )
 }
 
@@ -44,16 +47,18 @@ function SourceRows({
   canManage,
   selectedSourceId,
   onSelect,
+  text,
 }: {
   sources: CloudAtlasSourcePublic[]
   canManage: boolean
   selectedSourceId: string | null
   onSelect: (sourceId: string) => void
+  text: Text
 }) {
   if (sources.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No CloudAtlas SourceInstance configured.
+        {text("尚未配置 CloudAtlas 来源实例。", "No CloudAtlas SourceInstance configured.")}
       </p>
     )
   }
@@ -61,12 +66,12 @@ function SourceRows({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Instance binding</TableHead>
+          <TableHead>{text("实例绑定", "Instance binding")}</TableHead>
           <TableHead>Capset</TableHead>
-          <TableHead>Validation</TableHead>
-          <TableHead>Fingerprint</TableHead>
-          <TableHead>State</TableHead>
-          {canManage && <TableHead>Action</TableHead>}
+          <TableHead>{text("验证", "Validation")}</TableHead>
+          <TableHead>{text("指纹", "Fingerprint")}</TableHead>
+          <TableHead>{text("状态", "State")}</TableHead>
+          {canManage && <TableHead>{text("操作", "Action")}</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -86,7 +91,7 @@ function SourceRows({
                     : "secondary"
                 }
               >
-                {validationLabel(source.validation_status)}
+                {validationLabel(source.validation_status, text)}
               </Badge>
             </TableCell>
             <TableCell className="font-mono text-xs">
@@ -94,13 +99,13 @@ function SourceRows({
             </TableCell>
             <TableCell>
               <Badge variant={source.enabled ? "default" : "outline"}>
-                {source.enabled ? "Enabled" : "Disabled"}
+                {source.enabled ? text("已启用", "Enabled") : text("已停用", "Disabled")}
               </Badge>
             </TableCell>
             {canManage && (
               <TableCell>
                 {source.id === selectedSourceId ? (
-                  <Badge variant="secondary">Managing</Badge>
+                  <Badge variant="secondary">{text("正在管理", "Managing")}</Badge>
                 ) : (
                   <Button
                     type="button"
@@ -108,7 +113,7 @@ function SourceRows({
                     size="sm"
                     onClick={() => onSelect(source.id)}
                   >
-                    Manage source
+                    {text("管理来源", "Manage source")}
                   </Button>
                 )}
               </TableCell>
@@ -125,6 +130,7 @@ export default function CloudAtlasSources({
 }: {
   projectId: string
 }) {
+  const { text } = useLocale()
   const queryClient = useQueryClient()
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
   const [isAddingSource, setIsAddingSource] = useState(false)
@@ -190,10 +196,10 @@ export default function CloudAtlasSources({
     onSuccess: async (savedSource) => {
       setIsAddingSource(false)
       setSelectedSourceId(savedSource.id)
-      setMessage("CloudAtlas binding saved. Validation is required.")
+      setMessage(text("CloudAtlas 绑定已保存，需要验证。", "CloudAtlas binding saved. Validation is required."))
       await refresh()
     },
-    onError: () => setMessage("The CloudAtlas binding could not be saved."),
+    onError: () => setMessage(text("无法保存 CloudAtlas 绑定。", "The CloudAtlas binding could not be saved.")),
   })
   const validationMutation = useMutation({
     mutationFn: () => {
@@ -205,10 +211,10 @@ export default function CloudAtlasSources({
       })
     },
     onSuccess: async () => {
-      setMessage("CloudAtlas source validated successfully.")
+      setMessage(text("CloudAtlas 来源验证成功。", "CloudAtlas source validated successfully."))
       await refresh()
     },
-    onError: () => setMessage("CloudAtlas source validation failed."),
+    onError: () => setMessage(text("CloudAtlas 来源验证失败。", "CloudAtlas source validation failed.")),
     onSettled: () => setCapsetToken(""),
   })
   const stateMutation = useMutation({
@@ -226,22 +232,22 @@ export default function CloudAtlasSources({
     },
     onSuccess: async (_result, enabled) => {
       setMessage(
-        enabled ? "CloudAtlas source enabled." : "CloudAtlas source disabled.",
+        enabled ? text("CloudAtlas 来源已启用。", "CloudAtlas source enabled.") : text("CloudAtlas 来源已停用。", "CloudAtlas source disabled."),
       )
       await refresh()
     },
     onError: () =>
-      setMessage("The CloudAtlas source state could not be changed."),
+      setMessage(text("无法更改 CloudAtlas 来源状态。", "The CloudAtlas source state could not be changed.")),
   })
 
   if (sourcesQuery.isPending) {
-    return <p role="status">Loading CloudAtlas source…</p>
+    return <p role="status">{text("正在加载 CloudAtlas 来源…", "Loading CloudAtlas source…")}</p>
   }
   if (sourcesQuery.isError) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>CloudAtlas source could not be loaded</AlertTitle>
-        <AlertDescription>Please try again later.</AlertDescription>
+        <AlertTitle>{text("无法加载 CloudAtlas 来源", "CloudAtlas source could not be loaded")}</AlertTitle>
+        <AlertDescription>{text("请稍后重试。", "Please try again later.")}</AlertDescription>
       </Alert>
     )
   }
@@ -255,10 +261,9 @@ export default function CloudAtlasSources({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>CloudAtlas source</CardTitle>
+        <CardTitle>{text("CloudAtlas 来源", "CloudAtlas source")}</CardTitle>
         <CardDescription>
-          Read-only OctoBus Instance and Capset binding. Credentials remain in
-          OctoBus.
+          {text("只读的 OctoBus 实例与 Capset 绑定。凭据仍保留在 OctoBus 中。", "Read-only OctoBus Instance and Capset binding. Credentials remain in OctoBus.")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -271,6 +276,7 @@ export default function CloudAtlasSources({
             setSelectedSourceId(sourceId)
             setMessage(null)
           }}
+          text={text}
         />
 
         {sources.can_manage ? (
@@ -288,7 +294,7 @@ export default function CloudAtlasSources({
                   setMessage(null)
                 }}
               >
-                Add source binding
+                {text("添加来源绑定", "Add source binding")}
               </Button>
             )}
             <form
@@ -301,7 +307,7 @@ export default function CloudAtlasSources({
             >
               <div className="space-y-2">
                 <Label htmlFor={`cloudatlas-instance-${projectId}`}>
-                  OctoBus Instance ID
+                  {text("OctoBus 实例 ID", "OctoBus Instance ID")}
                 </Label>
                 <Input
                   id={`cloudatlas-instance-${projectId}`}
@@ -313,7 +319,7 @@ export default function CloudAtlasSources({
               </div>
               <div className="space-y-2">
                 <Label htmlFor={`cloudatlas-capset-${projectId}`}>
-                  Read-only Capset ID
+                  {text("只读 Capset ID", "Read-only Capset ID")}
                 </Label>
                 <Input
                   id={`cloudatlas-capset-${projectId}`}
@@ -324,7 +330,7 @@ export default function CloudAtlasSources({
                 />
               </div>
               <LoadingButton type="submit" loading={bindingMutation.isPending}>
-                Save binding
+                {text("保存绑定", "Save binding")}
               </LoadingButton>
             </form>
 
@@ -332,7 +338,7 @@ export default function CloudAtlasSources({
               <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
                 <div className="space-y-2">
                   <Label htmlFor={`cloudatlas-token-${projectId}`}>
-                    Capset token
+                    {text("Capset 令牌", "Capset token")}
                   </Label>
                   <Input
                     id={`cloudatlas-token-${projectId}`}
@@ -343,8 +349,7 @@ export default function CloudAtlasSources({
                     onChange={(event) => setCapsetToken(event.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Used only for this validation request and never displayed or
-                    stored by Exposure-Agent.
+                    {text("仅用于本次验证请求；Exposure-Agent 不会显示或保存该令牌。", "Used only for this validation request and never displayed or stored by Exposure-Agent.")}
                   </p>
                 </div>
                 <LoadingButton
@@ -357,7 +362,7 @@ export default function CloudAtlasSources({
                     validationMutation.mutate()
                   }}
                 >
-                  Validate source
+                  {text("验证来源", "Validate source")}
                 </LoadingButton>
                 <LoadingButton
                   type="button"
@@ -372,14 +377,14 @@ export default function CloudAtlasSources({
                     stateMutation.mutate(!source.enabled)
                   }}
                 >
-                  {source.enabled ? "Disable source" : "Enable source"}
+                  {source.enabled ? text("停用来源", "Disable source") : text("启用来源", "Enable source")}
                 </LoadingButton>
               </div>
             )}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            You have read-only access to this CloudAtlas source summary.
+            {text("你对此 CloudAtlas 来源摘要只有只读权限。", "You have read-only access to this CloudAtlas source summary.")}
           </p>
         )}
 
@@ -390,20 +395,18 @@ export default function CloudAtlasSources({
         )}
         {source?.validation_status === "unavailable" ? (
           <Alert>
-            <AlertTitle>Validation check unavailable</AlertTitle>
+          <AlertTitle>{text("验证检查不可用", "Validation check unavailable")}</AlertTitle>
             <AlertDescription>
-              The stored validation was not invalidated, but the current OctoBus
-              material could not be confirmed.
+              {text("已存验证未失效，但无法确认当前 OctoBus 材料。", "The stored validation was not invalidated, but the current OctoBus material could not be confirmed.")}
             </AlertDescription>
           </Alert>
         ) : (
           source &&
           source.validation_status !== "validated" && (
             <Alert>
-              <AlertTitle>Source not ready</AlertTitle>
+              <AlertTitle>{text("来源尚未就绪", "Source not ready")}</AlertTitle>
               <AlertDescription>
-                The current binding must pass the single read-only method before
-                it can be enabled.
+                {text("当前绑定必须通过单个只读方法验证后才能启用。", "The current binding must pass the single read-only method before it can be enabled.")}
               </AlertDescription>
             </Alert>
           )
