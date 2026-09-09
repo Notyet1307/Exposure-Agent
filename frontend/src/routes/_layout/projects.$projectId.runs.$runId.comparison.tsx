@@ -17,14 +17,9 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useI18n } from "@/lib/i18n"
+import { CLASSIFICATIONS, validateWorkspaceSearch } from "@/lib/workspace"
 
 const PAGE_SIZE = 25
-const CLASSIFICATIONS = [
-  "matched",
-  "customer_upload_only",
-  "cloudatlas_only",
-  "neither_source_observed",
-] as const
 const NETFLOW_STATUSES = ["ACTIVE", "UNKNOWN"] as const
 const SOURCE_NAMES = {
   CUSTOMER_UPLOAD: "CustomerUpload",
@@ -32,36 +27,11 @@ const SOURCE_NAMES = {
   NETFLOW: "NetFlow",
 }
 
-type ComparisonSearch = {
-  classification?: (typeof CLASSIFICATIONS)[number]
-  netflow_status?: (typeof NETFLOW_STATUSES)[number]
-  page?: number
-}
-
 export const Route = createFileRoute(
   "/_layout/projects/$projectId/runs/$runId/comparison",
 )({
   component: RunSourceComparison,
-  validateSearch: (search: Record<string, unknown>): ComparisonSearch => {
-    const page =
-      typeof search.page === "number" || typeof search.page === "string"
-        ? Number(search.page)
-        : Number.NaN
-    return {
-      classification: CLASSIFICATIONS.find(
-        (value) => value === search.classification,
-      ),
-      netflow_status: NETFLOW_STATUSES.find(
-        (value) => value === search.netflow_status,
-      ),
-      page:
-        Number.isSafeInteger(page) &&
-        page > 1 &&
-        page <= Math.floor(Number.MAX_SAFE_INTEGER / PAGE_SIZE)
-          ? page
-          : undefined,
-    }
-  },
+  validateSearch: validateWorkspaceSearch,
   head: () => ({
     meta: [{ title: "Run source comparison - Exposure Agent" }],
   }),
@@ -146,36 +116,59 @@ function RunSourceComparison() {
   return (
     <div className="min-w-0 max-w-full space-y-6 overflow-hidden">
       <header className="space-y-2">
-        <Link to="/" className="text-sm underline underline-offset-4">
-          {t("Back to dashboard", "返回仪表盘")}
+        <Link
+          to="/"
+          search={(previous) => ({
+            ...previous,
+            project: projectId,
+            run: runId,
+            view: "overview",
+          })}
+          className="text-sm underline underline-offset-4"
+        >
+          {t("Back to overview", "返回概览")}
         </Link>
         <h1 className="text-2xl font-bold tracking-tight">
           {t("Run source comparison", "运行来源比较")}
         </h1>
-        <p className="break-all text-sm">
-          {t("Run ID", "运行 ID")}: {runId}
-        </p>
-        <p className="break-all text-sm text-muted-foreground">
-          {t("Project ID", "项目 ID")}: {projectId}
-        </p>
+        <details className="text-sm">
+          <summary className="cursor-pointer">
+            {t("Published Run details", "已发布运行详情")}
+          </summary>
+          <div className="mt-2 space-y-2">
+            <p className="break-all">
+              {t("Project ID", "项目 ID")}: {projectId}
+            </p>
+            <p className="break-all">
+              {t("Run ID", "运行 ID")}: {runId}
+            </p>
+            {ready && (
+              <>
+                <p className="break-all">
+                  {t("Report ID", "报告 ID")}: {sources.governance_report_id}
+                </p>
+                <p className="break-all text-muted-foreground">
+                  {translateValue(sources.run_status)} ·{" "}
+                  {t("Completed", "完成于")} {formatDate(sources.completed_at)}{" "}
+                  · {sources.report_contract_version}
+                </p>
+              </>
+            )}
+          </div>
+        </details>
         {ready && (
-          <>
-            <p className="break-all text-sm">
-              {t("Report ID", "报告 ID")}: {sources.governance_report_id}
-            </p>
-            <Link
-              to="/projects/$projectId/runs/$runId/lineage"
-              params={{ projectId, runId }}
-              className="inline-block text-sm underline underline-offset-4"
-            >
-              {t("Lineage", "血缘追溯")}
-            </Link>
-            <p className="break-all text-sm text-muted-foreground">
-              {translateValue(sources.run_status)} · {t("Completed", "完成于")}{" "}
-              {formatDate(sources.completed_at)} ·{" "}
-              {sources.report_contract_version}
-            </p>
-          </>
+          <Link
+            to="/projects/$projectId/runs/$runId/lineage"
+            params={{ projectId, runId }}
+            search={(previous) => ({
+              ...previous,
+              project: projectId,
+              run: runId,
+            })}
+            className="inline-block text-sm underline underline-offset-4"
+          >
+            {t("Lineage", "血缘追溯")}
+          </Link>
         )}
         <p className="text-sm text-muted-foreground">
           {t(
@@ -239,114 +232,6 @@ function RunSourceComparison() {
       ) : null}
 
       <section
-        aria-label={t("Source overview", "来源概览")}
-        className="min-w-0 space-y-3"
-      >
-        <h2 className="text-xl font-semibold">
-          {t("Source overview", "来源概览")}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {t(
-            "PRESENT means a source snapshot was published, including a snapshot with 0 raw records. ABSENT means no snapshot was published for this source in this Run; it is not a request failure. Raw record counts do not measure positive activity or traffic volume.",
-            "PRESENT 表示已发布来源快照，包括原始记录数为 0 的快照。ABSENT 表示本次运行未发布该来源的快照，并非请求失败。原始记录数不衡量有效活动或流量大小。",
-          )}
-        </p>
-        {ready && (
-          <div className="grid min-w-0 gap-4 lg:grid-cols-3">
-            {sources.sources.map((source) => (
-              <Card
-                key={source.source_type}
-                role="region"
-                aria-label={translateValue(SOURCE_NAMES[source.source_type])}
-                className="min-w-0"
-              >
-                <CardHeader>
-                  <CardTitle>
-                    <h3>{translateValue(SOURCE_NAMES[source.source_type])}</h3>
-                  </CardTitle>
-                  <Badge
-                    variant={
-                      source.state === "PRESENT" ? "default" : "secondary"
-                    }
-                  >
-                    {translateValue(source.state)}
-                  </Badge>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <dl className="space-y-2 [&_dd]:break-all [&_dt]:font-medium">
-                    <div>
-                      <dt>{t("Raw records", "原始记录数")}</dt>
-                      <dd>
-                        {source.record_count ?? t("Not available", "不可用")}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t("Snapshot ID", "快照 ID")}</dt>
-                      <dd>
-                        {source.snapshot_id ?? t("Not available", "不可用")}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>{t("Input ID", "输入 ID")}</dt>
-                      <dd>{source.input_id ?? t("Not available", "不可用")}</dd>
-                    </div>
-                    <div>
-                      <dt>
-                        {t("Valid time start (UTC)", "有效时间起点（UTC）")}
-                      </dt>
-                      <dd>
-                        {source.valid_time_start_utc
-                          ? formatDate(source.valid_time_start_utc, "UTC")
-                          : t("Not available", "不可用")}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>
-                        {t("Valid time end (UTC)", "有效时间终点（UTC）")}
-                      </dt>
-                      <dd>
-                        {source.valid_time_end_utc
-                          ? formatDate(source.valid_time_end_utc, "UTC")
-                          : t("Not available", "不可用")}
-                      </dd>
-                    </div>
-                  </dl>
-                  <details>
-                    <summary className="cursor-pointer">
-                      {t("Hashes and fingerprints", "哈希与指纹")}
-                    </summary>
-                    <dl className="mt-2 space-y-2 [&_dd]:break-all [&_dd]:font-mono [&_dd]:text-xs [&_dt]:font-medium">
-                      <div>
-                        <dt>{t("Content SHA-256", "内容 SHA-256")}</dt>
-                        <dd>
-                          {source.content_sha256 ??
-                            t("Not available", "不可用")}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>{t("Schema fingerprint", "结构指纹")}</dt>
-                        <dd>
-                          {source.schema_fingerprint ??
-                            t("Not available", "不可用")}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>{t("Method fingerprint", "方法指纹")}</dt>
-                        <dd>
-                          {source.method_fingerprint ??
-                            t("Not available", "不可用")}
-                        </dd>
-                      </div>
-                    </dl>
-                  </details>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section
         aria-label={t("IP source comparison", "IP 来源比较")}
         className="min-w-0 space-y-4"
       >
@@ -371,7 +256,11 @@ function RunSourceComparison() {
                   (value) => value === event.target.value,
                 )
                 void navigate({
-                  search: { ...search, classification, page: undefined },
+                  search: (previous) => ({
+                    ...previous,
+                    classification,
+                    page: undefined,
+                  }),
                 })
               }}
             >
@@ -394,7 +283,11 @@ function RunSourceComparison() {
                   (value) => value === event.target.value,
                 )
                 void navigate({
-                  search: { ...search, netflow_status, page: undefined },
+                  search: (previous) => ({
+                    ...previous,
+                    netflow_status,
+                    page: undefined,
+                  }),
                 })
               }}
             >
@@ -473,7 +366,12 @@ function RunSourceComparison() {
                           <Link
                             to="/projects/$projectId/runs/$runId/lineage"
                             params={{ projectId, runId }}
-                            search={{ resource_id: row.resource_id }}
+                            search={(previous) => ({
+                              ...previous,
+                              project: projectId,
+                              run: runId,
+                              resource_id: row.resource_id,
+                            })}
                             aria-label={t(
                               `Trace asset ${row.canonical_ip}`,
                               `追溯资产 ${row.canonical_ip}`,
@@ -496,14 +394,128 @@ function RunSourceComparison() {
               pageSize={PAGE_SIZE}
               onPageChange={(nextPage) => {
                 void navigate({
-                  search: {
-                    ...search,
+                  search: (previous) => ({
+                    ...previous,
                     page: nextPage === 0 ? undefined : nextPage + 1,
-                  },
+                  }),
                 })
               }}
             />
           </>
+        )}
+      </section>
+      <section
+        aria-label={t("Source overview", "来源概览")}
+        className="min-w-0 space-y-3"
+      >
+        <h2 className="text-xl font-semibold">
+          {t("Source overview", "来源概览")}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {t(
+            "PRESENT means a source snapshot was published, including a snapshot with 0 raw records. ABSENT means no snapshot was published for this source in this Run; it is not a request failure. Raw record counts do not measure positive activity or traffic volume.",
+            "PRESENT 表示已发布来源快照，包括原始记录数为 0 的快照。ABSENT 表示本次运行未发布该来源的快照，并非请求失败。原始记录数不衡量有效活动或流量大小。",
+          )}
+        </p>
+        {ready && (
+          <div className="grid min-w-0 gap-4 lg:grid-cols-3">
+            {sources.sources.map((source) => (
+              <Card
+                key={source.source_type}
+                role="region"
+                aria-label={translateValue(SOURCE_NAMES[source.source_type])}
+                className="min-w-0"
+              >
+                <CardHeader>
+                  <CardTitle>
+                    <h3>{translateValue(SOURCE_NAMES[source.source_type])}</h3>
+                  </CardTitle>
+                  <Badge
+                    variant={
+                      source.state === "PRESENT" ? "default" : "secondary"
+                    }
+                  >
+                    {translateValue(source.state)}
+                  </Badge>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <dl className="space-y-2 [&_dd]:break-all [&_dt]:font-medium">
+                    <div>
+                      <dt>{t("Raw records", "原始记录数")}</dt>
+                      <dd>
+                        {source.record_count ?? t("Not available", "不可用")}
+                      </dd>
+                    </div>
+                  </dl>
+                  <details>
+                    <summary className="cursor-pointer">
+                      {t(
+                        "Snapshot details, hashes and fingerprints",
+                        "快照详情、哈希与指纹",
+                      )}
+                    </summary>
+                    <dl className="mt-2 space-y-2 [&_dd]:break-all [&_dt]:font-medium">
+                      <div>
+                        <dt>{t("Snapshot ID", "快照 ID")}</dt>
+                        <dd>
+                          {source.snapshot_id ?? t("Not available", "不可用")}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>{t("Input ID", "输入 ID")}</dt>
+                        <dd>
+                          {source.input_id ?? t("Not available", "不可用")}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>
+                          {t("Valid time start (UTC)", "有效时间起点（UTC）")}
+                        </dt>
+                        <dd>
+                          {source.valid_time_start_utc
+                            ? formatDate(source.valid_time_start_utc, "UTC")
+                            : t("Not available", "不可用")}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>
+                          {t("Valid time end (UTC)", "有效时间终点（UTC）")}
+                        </dt>
+                        <dd>
+                          {source.valid_time_end_utc
+                            ? formatDate(source.valid_time_end_utc, "UTC")
+                            : t("Not available", "不可用")}
+                        </dd>
+                      </div>
+                    </dl>
+                    <dl className="mt-2 space-y-2 [&_dd]:break-all [&_dd]:font-mono [&_dd]:text-xs [&_dt]:font-medium">
+                      <div>
+                        <dt>{t("Content SHA-256", "内容 SHA-256")}</dt>
+                        <dd>
+                          {source.content_sha256 ??
+                            t("Not available", "不可用")}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>{t("Schema fingerprint", "结构指纹")}</dt>
+                        <dd>
+                          {source.schema_fingerprint ??
+                            t("Not available", "不可用")}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>{t("Method fingerprint", "方法指纹")}</dt>
+                        <dd>
+                          {source.method_fingerprint ??
+                            t("Not available", "不可用")}
+                        </dd>
+                      </div>
+                    </dl>
+                  </details>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         )}
       </section>
     </div>

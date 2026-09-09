@@ -21,10 +21,13 @@ const governanceReportsPath = new RegExp(
   `/api/v1/projects/${projectId}/governance-reports(?:/.*)?(?:\\?.*)?$`,
 )
 async function openReport(page: Page, navigate = true) {
-  if (navigate) await page.goto("/")
-  await page.getByRole("tab", { name: "Reports", exact: true }).click()
-  await page.getByRole("button", { name: "Read report" }).click()
-  return page.getByRole("dialog")
+  if (navigate) {
+    await page.goto(`/?project=${projectId}&run=${runIds[0]}&view=reports`)
+  }
+  return page.getByRole("region", {
+    name: /Published deterministic report|已发布的确定性报告/,
+    exact: true,
+  })
 }
 function reportSummary(index: number) {
   return {
@@ -190,6 +193,21 @@ function v2ReportDetail() {
             },
           ],
         },
+        ip_source_comparison_summary: {
+          resource_count: 47,
+          classification_counts: {
+            matched: 31,
+            customer_upload_only: 9,
+            cloudatlas_only: 6,
+            neither_source_observed: 1,
+          },
+          netflow_status_counts: { ACTIVE: 5, UNKNOWN: 42 },
+          netflow_reason_counts: {
+            positive_activity_observed: 5,
+            netflow_input_absent: 2,
+            no_positive_activity_evidence: 40,
+          },
+        },
       },
       evidence_plan: {
         ...canonical.evidence_plan,
@@ -343,45 +361,65 @@ test.describe("Project Reports", () => {
     await installBaseMocks(page)
   })
 
-  test("uses the opaque server cursor across equal completion-time pages", async ({
+  test("loads opaque cursor pages and pins an older published run", async ({
     page,
   }) => {
     const requestedCursors: Array<string | null> = []
-    await page.route(
-      new RegExp(`/api/v1/projects/${projectId}/governance-reports(?:\\?.*)?$`),
-      (route) => {
-        const url = new URL(route.request().url())
-        const cursor = url.searchParams.get("cursor")
-        requestedCursors.push(cursor)
-        const secondPage = cursor === "opaque-tied-page-2"
+    await page.route(governanceReportsPath, (route) => {
+      const url = new URL(route.request().url())
+      const reportIndex = reportIds.findIndex((id) =>
+        url.pathname.endsWith(`/${id}`),
+      )
+      if (reportIndex !== -1) {
+        const canonical = canonicalContent({ zeroFindings: true })
+        canonical.report.report_identity.governance_run_id = runIds[reportIndex]
+        canonical.report.open_backlog_as_of_run.as_of_governance_run_id =
+          runIds[reportIndex]
+        canonical.report.provenance.governance_run_id = runIds[reportIndex]
+        canonical.evidence_plan.governance_run_id = runIds[reportIndex]
         return route.fulfill({
           json: {
-            data: secondPage
-              ? [reportSummary(2)]
-              : [reportSummary(0), reportSummary(1)],
-            count: 3,
-            page_size: secondPage ? 1 : 2,
-            next_cursor: secondPage ? null : "opaque-tied-page-2",
-            compatible: true,
-            compatibility_code: null,
-            latest_completed_run_id: runIds[0],
-            latest_completed_run_at: completedAt,
+            ...reportSummary(reportIndex),
+            canonical_content: canonical,
+            evidence: [],
+            evidence_count: 0,
+            evidence_max_entries: 50,
+            can_request_ai_governance_draft: false,
           },
         })
-      },
-    )
+      }
+      const cursor = url.searchParams.get("cursor")
+      requestedCursors.push(cursor)
+      const secondPage = cursor === "opaque-tied-page-2"
+      return route.fulfill({
+        json: {
+          data: secondPage
+            ? [reportSummary(2)]
+            : [reportSummary(0), reportSummary(1)],
+          count: 3,
+          page_size: secondPage ? 1 : 2,
+          next_cursor: secondPage ? null : "opaque-tied-page-2",
+          compatible: true,
+          compatibility_code: null,
+          latest_completed_run_id: runIds[0],
+          latest_completed_run_at: completedAt,
+        },
+      })
+    })
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await expect(page.getByText(runIds[0], { exact: true })).toBeVisible()
-    await expect(page.getByText(runIds[1], { exact: true })).toBeVisible()
-
-    await page.getByRole("button", { name: "Next" }).click()
-    await expect(page.getByText(runIds[2], { exact: true })).toBeVisible()
-    await expect(page.getByText(runIds[0], { exact: true })).not.toBeVisible()
-
-    await page.getByRole("button", { name: "Previous" }).click()
-    await expect(page.getByText(runIds[0], { exact: true })).toBeVisible()
+    const report = await openReport(page)
+    const runSelector = page.getByRole("combobox", {
+      name: "Published run",
+      exact: true,
+    })
+    await expect(runSelector).toHaveValue(runIds[0])
+    await runSelector.selectOption(runIds[2])
+    await expect(page).toHaveURL(new RegExp(`run=${runIds[2]}`))
+    await expect(report.locator("#report-identity")).toContainText(runIds[2])
+    await expect(report).not.toContainText(runIds[0])
+    await page.goBack()
+    await expect(runSelector).toHaveValue(runIds[0])
+    await expect(report.locator("#report-identity")).toContainText(runIds[0])
     expect(requestedCursors).toEqual([null, "opaque-tied-page-2"])
   })
 
@@ -422,10 +460,7 @@ test.describe("Project Reports", () => {
       },
     )
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
-    const report = page.getByRole("dialog")
+    const report = await openReport(page)
 
     for (const section of [
       "Report identity and generation mode",
@@ -501,16 +536,12 @@ test.describe("Project Reports", () => {
       },
     )
 
-    await page.goto("/")
-    await page.getByRole("tab", { name: "Reports", exact: true }).click()
-    await page.getByRole("button", { name: "Read report" }).click()
+    const report = await openReport(page)
 
     await expect(
-      page
-        .getByRole("dialog")
-        .getByText(
-          "With CustomerUpload and CloudAtlas inputs complete, all IP identities observed by those sources matched; this Run produced zero Findings.",
-        ),
+      report.getByText(
+        "With CustomerUpload and CloudAtlas inputs complete, all IP identities observed by those sources matched; this Run produced zero Findings.",
+      ),
     ).toBeVisible()
   })
 
@@ -585,7 +616,7 @@ test.describe("Project Reports", () => {
     )
     const report = await openReport(page)
     await expect(report).toContainText("Failure: model_binding_changed")
-    await report
+    await page
       .getByRole("combobox", { name: "Language / 语言" })
       .selectOption("zh-CN")
     await expect(report).toContainText(
@@ -593,7 +624,7 @@ test.describe("Project Reports", () => {
     )
     await expect(report).toContainText(draftId)
     await expect(report).toContainText(draftSessionId)
-    await report
+    await page
       .getByRole("combobox", { name: "Language / 语言" })
       .selectOption("en")
     await expect(report).toContainText("Failure: model_binding_changed")
@@ -1043,4 +1074,369 @@ test.describe("Project Reports", () => {
     await expect(report.getByText("7 of 8 selected")).toBeVisible()
     await expect(findings.nth(8)).toBeEnabled()
   })
+
+  test("removes cached report facts when a refresh returns masked access denial", async ({
+    page,
+  }) => {
+    let accessRevoked = false
+    await page.route(governanceReportsPath, (route) => {
+      const pathname = new URL(route.request().url()).pathname
+      if (pathname.endsWith("/ai-governance-drafts")) {
+        accessRevoked = true
+        return route.fulfill({ status: 404, json: { detail: "Not Found" } })
+      }
+      if (pathname.endsWith(`/${reportIds[0]}`)) {
+        return accessRevoked
+          ? route.fulfill({ status: 404, json: { detail: "Not Found" } })
+          : route.fulfill({ json: draftReportDetail() })
+      }
+      return route.fulfill({ json: reportListResponse() })
+    })
+    const report = await openReport(page)
+    await expect(report.locator("#report-ip-summary")).toBeVisible()
+    await report.getByRole("checkbox").first().click()
+    await report.getByRole("button", { name: "Request AI draft" }).click()
+    await expect(report.getByRole("alert")).toContainText(
+      "Report could not be loaded",
+    )
+    await expect(report.locator("#report-ip-summary")).toHaveCount(0)
+    await expect(report.getByRole("checkbox")).toHaveCount(0)
+    await expect(
+      report.getByRole("button", { name: "Resume your draft request" }),
+    ).toHaveCount(0)
+  })
+})
+
+test.describe("Published overview", () => {
+  test.beforeEach(async ({ page }) => {
+    await installBaseMocks(page)
+  })
+
+  test("shows authoritative totals above 25 instead of counting comparison rows", async ({
+    page,
+  }) => {
+    const detail = v2ReportDetail()
+    await page.route(governanceReportsPath, (route) =>
+      route.fulfill({
+        json: new URL(route.request().url()).pathname.endsWith(
+          `/${reportIds[0]}`,
+        )
+          ? detail
+          : {
+              ...reportListResponse(),
+              data: [
+                {
+                  ...reportSummary(0),
+                  report_contract_version: detail.report_contract_version,
+                },
+              ],
+            },
+      }),
+    )
+    await page.goto(`/?project=${projectId}&run=${runIds[0]}&view=overview`)
+    const overview = page.getByRole("region", {
+      name: "Published overview",
+      exact: true,
+    })
+    await expect(
+      overview
+        .getByText("Compared resources", { exact: true })
+        .locator("..")
+        .locator("dd"),
+    ).toHaveText("47")
+    await expect(
+      overview
+        .getByText("matched", { exact: true })
+        .locator("..")
+        .locator("dd"),
+    ).toHaveText("31")
+    await expect(
+      overview
+        .getByText("UNKNOWN", { exact: true })
+        .locator("..")
+        .locator("dd"),
+    ).toHaveText("42")
+    await page.reload()
+    await expect(
+      overview
+        .getByText("Compared resources", { exact: true })
+        .locator("..")
+        .locator("dd"),
+    ).toHaveText("47")
+  })
+
+  test("marks unavailable legacy three-source counts as N/A rather than zero", async ({
+    page,
+  }) => {
+    await page.route(governanceReportsPath, (route) =>
+      route.fulfill({
+        json: new URL(route.request().url()).pathname.endsWith(
+          `/${reportIds[0]}`,
+        )
+          ? draftReportDetail()
+          : reportListResponse(),
+      }),
+    )
+    await page.goto(`/?project=${projectId}&run=${runIds[0]}&view=overview`)
+    await expect(page.getByRole("alert")).toContainText(
+      "Three-source summary: N/A",
+    )
+    await expect(
+      page.getByText("Compared resources", { exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      page
+        .getByRole("link", { name: "Assets & differences", exact: true })
+        .last(),
+    ).toHaveAttribute("href", new RegExp(`/runs/${runIds[0]}/comparison`))
+  })
+
+  test("fails closed when a v2 mandatory summary is missing", async ({
+    page,
+  }) => {
+    const detail = v2ReportDetail()
+    await page.route(governanceReportsPath, (route) =>
+      route.fulfill({
+        json: new URL(route.request().url()).pathname.endsWith(
+          `/${reportIds[0]}`,
+        )
+          ? {
+              ...detail,
+              canonical_content: {
+                ...detail.canonical_content,
+                report: {
+                  ...detail.canonical_content.report,
+                  ip_source_comparison_summary: undefined,
+                },
+              },
+            }
+          : {
+              ...reportListResponse(),
+              data: [
+                {
+                  ...reportSummary(0),
+                  report_contract_version: detail.report_contract_version,
+                },
+              ],
+            },
+      }),
+    )
+    await page.goto(`/?project=${projectId}&run=${runIds[0]}&view=overview`)
+    await expect(page.getByRole("alert")).toContainText(
+      "Published summary is not readable",
+    )
+    await expect(
+      page.getByText("Compared resources", { exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByText("Three-source summary: N/A", { exact: true }),
+    ).toHaveCount(0)
+  })
+
+  test("skips an incompatible latest result, pins the compatible run and never replaces an explicit unavailable run", async ({
+    page,
+  }) => {
+    const probes: string[] = []
+    const canonical = canonicalContent({ zeroFindings: true })
+    canonical.report.report_identity.governance_run_id = runIds[1]
+    canonical.report.open_backlog_as_of_run.as_of_governance_run_id = runIds[1]
+    canonical.report.provenance.governance_run_id = runIds[1]
+    canonical.evidence_plan.governance_run_id = runIds[1]
+    await page.route(governanceReportsPath, (route) =>
+      route.fulfill({
+        json: new URL(route.request().url()).pathname.endsWith(
+          `/${reportIds[1]}`,
+        )
+          ? {
+              ...reportSummary(1),
+              canonical_content: canonical,
+              evidence: [],
+              evidence_count: 0,
+              evidence_max_entries: 50,
+              can_request_ai_governance_draft: false,
+            }
+          : {
+              ...reportListResponse(),
+              data: [reportSummary(0), reportSummary(1)],
+              count: 2,
+            },
+      }),
+    )
+    await page.route(
+      `**/api/v1/projects/${projectId}/governance-runs/*/sources`,
+      (route) => {
+        const runId =
+          new URL(route.request().url()).pathname.split("/").at(-2) ?? ""
+        probes.push(runId)
+        if (runId === runIds[0]) {
+          return route.fulfill({
+            status: 404,
+            json: { detail: "No compatible published result" },
+          })
+        }
+        return route.fulfill({
+          json: {
+            project_id: projectId,
+            governance_run_id: runIds[1],
+            governance_report_id: reportIds[1],
+            run_status: "COMPLETED",
+            completed_at: completedAt,
+            input_contract_version: "governance-run-input-v1",
+            processing_contract_version: "ip-v1",
+            report_contract_version: "deterministic-report-v1",
+            sources: [],
+          },
+        })
+      },
+    )
+    await page.goto(`/?project=${projectId}&view=overview`)
+    await expect(page).toHaveURL(new RegExp(`run=${runIds[1]}`))
+    await expect(page.getByRole("alert")).toContainText(
+      "Three-source summary: N/A",
+    )
+    expect(probes).toEqual([runIds[0], runIds[1]])
+    await page.reload()
+    await expect(page.getByRole("alert")).toContainText(
+      "Three-source summary: N/A",
+    )
+    expect(probes).toEqual([runIds[0], runIds[1]])
+
+    await page.goto(`/?project=${projectId}&run=${runIds[2]}&view=overview`)
+    await expect(page.getByRole("alert")).toContainText(
+      "Published Run unavailable",
+    )
+    await expect(page).toHaveURL(new RegExp(`run=${runIds[2]}`))
+    await expect(
+      page.getByRole("region", { name: "Published overview", exact: true }),
+    ).toHaveCount(0)
+    expect(probes).toEqual([runIds[0], runIds[1]])
+  })
+})
+
+test("waits for fresh reports before pinning a cached project's latest Run", async ({
+  page,
+}) => {
+  await installBaseMocks(page)
+  const otherProjectId = "00000000-0000-0000-0000-000000000002"
+  await page.route(/\/api\/v1\/projects\/\?/, (route) =>
+    route.fulfill({
+      json: {
+        data: [projectId, otherProjectId].map((id) => ({
+          id,
+          name: id,
+          tenant_id: "00000000-0000-0000-0000-000000000010",
+          archived_at: null,
+          created_at: completedAt,
+          updated_at: completedAt,
+        })),
+        count: 2,
+      },
+    }),
+  )
+  let newestPublished = false
+  let release!: () => void
+  const delayed = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(
+    `**/api/v1/projects/${otherProjectId}/governance-reports?*`,
+    (route) =>
+      route.fulfill({
+        json: { ...reportListResponse(), data: [], count: 0 },
+      }),
+  )
+  await page.route(governanceReportsPath, async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith("/governance-reports")) {
+      if (newestPublished) await delayed
+      return route.fulfill({
+        json: {
+          ...reportListResponse(),
+          data: newestPublished
+            ? [reportSummary(1), reportSummary(0)]
+            : [reportSummary(0)],
+          count: newestPublished ? 2 : 1,
+        },
+      })
+    }
+    const index = path.endsWith(reportIds[1]) ? 1 : 0
+    const detail = draftReportDetail()
+    detail.canonical_content.report.report_identity.governance_run_id =
+      runIds[index]
+    return route.fulfill({ json: { ...detail, ...reportSummary(index) } })
+  })
+  await page.route("**/governance-runs/*/sources", (route) => {
+    const index = new URL(route.request().url()).pathname.includes(runIds[1])
+      ? 1
+      : 0
+    return route.fulfill({
+      json: {
+        project_id: projectId,
+        governance_run_id: runIds[index],
+        governance_report_id: reportIds[index],
+        report_contract_version: "deterministic-report-v1",
+      },
+    })
+  })
+  await page.goto(`/?project=${projectId}`)
+  await expect(page).toHaveURL(new RegExp(`run=${runIds[0]}`))
+  await page
+    .getByRole("combobox", { name: "Project", exact: true })
+    .selectOption(otherProjectId)
+  await expect(page.getByRole("alert")).toContainText(
+    "Results are being prepared",
+  )
+  newestPublished = true
+  const refresh = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname ===
+      `/api/v1/projects/${projectId}/governance-reports`,
+  )
+  await page
+    .getByRole("combobox", { name: "Project", exact: true })
+    .selectOption(projectId)
+  await refresh
+  // Hold the fresh response through a rendering turn: cached latest must not become an explicit pin.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  )
+  release()
+  await expect(page).toHaveURL(new RegExp(`run=${runIds[1]}`))
+  await expect(page.getByRole("alert")).toContainText(
+    "Three-source summary: N/A",
+  )
+})
+
+test("hides cached Run choices after a masked access-denial refresh", async ({
+  page,
+}) => {
+  await installBaseMocks(page)
+  let denied = false
+  await page.route(governanceReportsPath, (route) => {
+    if (
+      new URL(route.request().url()).pathname.endsWith("/governance-reports")
+    ) {
+      return denied
+        ? route.fulfill({ status: 404, json: { detail: "Project not found" } })
+        : route.fulfill({ json: reportListResponse() })
+    }
+    return route.fulfill({ json: draftReportDetail() })
+  })
+  await page.goto(`/?project=${projectId}&run=${runIds[0]}`)
+  const runs = page.getByRole("combobox", {
+    name: "Published run",
+    exact: true,
+  })
+  await expect(runs).toContainText(runIds[0])
+  denied = true
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
+  await expect(page.getByRole("alert")).toContainText(
+    "Published results could not be loaded",
+  )
+  await expect(runs).toBeDisabled()
+  await expect(runs).not.toContainText(runIds[0])
+  await expect(page).toHaveURL(new RegExp(`run=${runIds[0]}`))
 })

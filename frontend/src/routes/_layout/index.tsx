@@ -8,7 +8,6 @@ import {
   type CustomerUploadPublic,
   type CustomerUploadWarningPublic,
   type ProjectPublic,
-  type ProjectsPublic,
   ProjectsService,
 } from "@/client"
 import CloudAtlasSources from "@/components/CloudAtlasSources"
@@ -31,13 +30,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LoadingButton } from "@/components/ui/loading-button"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Table,
   TableBody,
   TableCell,
@@ -45,31 +37,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import useAuth from "@/hooks/useAuth"
+import WorkspaceOverview from "@/components/WorkspaceOverview"
 import { useI18n } from "@/lib/i18n"
+import {
+  useWorkspaceContext,
+  useWorkspaceNavigate,
+  useWorkspaceSearch,
+} from "@/lib/workspace"
 
 const UPLOAD_PAGE_SIZE = 10
-const PROJECT_PAGE_SIZE = 100
-
-async function readAccessibleProjects(): Promise<ProjectsPublic> {
-  const firstPage = await ProjectsService.readProjects({
-    skip: 0,
-    limit: PROJECT_PAGE_SIZE,
-  })
-  const data = [...firstPage.data]
-
-  while (data.length < firstPage.count) {
-    const nextPage = await ProjectsService.readProjects({
-      skip: data.length,
-      limit: PROJECT_PAGE_SIZE,
-    })
-    if (nextPage.data.length === 0) break
-    data.push(...nextPage.data)
-  }
-
-  return { data, count: firstPage.count }
-}
 
 export const Route = createFileRoute("/_layout/")({
   component: Dashboard,
@@ -225,15 +201,20 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
-  const [page, setPage] = useState(0)
+  const search = useWorkspaceSearch()
+  const navigate = useWorkspaceNavigate()
+  const page = (search.upload_page ?? 1) - 1
+  const setPage = (value: number | ((current: number) => number)) => {
+    const next = typeof value === "function" ? value(page) : value
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        upload_page: next === 0 ? undefined : next + 1,
+      }),
+    })
+  }
   const [fileMessage, setFileMessage] = useState<string | null>(null)
   const [selectionMessage, setSelectionMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    setPage(0)
-    setFileMessage(null)
-    setSelectionMessage(null)
-  }, [])
 
   const profileQuery = useQuery({
     queryKey: ["customer-upload-profile", project.id],
@@ -525,79 +506,30 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
   )
 }
 
-function ProjectWorkspace({ project }: { project: ProjectPublic }) {
-  const { t } = useI18n()
-  return (
-    <Tabs defaultValue="inputs" className="space-y-4">
-      <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 md:w-fit">
-        <TabsTrigger value="inputs">{t("Inputs", "输入")}</TabsTrigger>
-        <TabsTrigger value="cloudatlas">CloudAtlas</TabsTrigger>
-        <TabsTrigger value="runs">{t("Runs", "运行")}</TabsTrigger>
-        <TabsTrigger value="assets">{t("Assets", "资产")}</TabsTrigger>
-        <TabsTrigger value="findings">{t("Findings", "发现项")}</TabsTrigger>
-        <TabsTrigger value="reports">{t("Reports", "报告")}</TabsTrigger>
-      </TabsList>
-      <TabsContent value="inputs">
-        <ProjectInputs project={project} />
-        <NetFlowDatasets
-          projectId={project.id}
-          archived={project.archived_at !== null}
-        />
-      </TabsContent>
-      <TabsContent value="cloudatlas">
-        <CloudAtlasSources projectId={project.id} />
-      </TabsContent>
-      <TabsContent value="runs">
-        <GovernanceRuns projectId={project.id} />
-      </TabsContent>
-      <TabsContent value="assets">
-        <IPAssets projectId={project.id} />
-      </TabsContent>
-      <TabsContent value="findings">
-        <Findings projectId={project.id} />
-      </TabsContent>
-      <TabsContent value="reports">
-        <GovernanceReports projectId={project.id} />
-      </TabsContent>
-    </Tabs>
-  )
-}
-
 function Dashboard() {
   const { t } = useI18n()
+  const {
+    search,
+    projectId,
+    runId,
+    project,
+    projects,
+    reports,
+    latest,
+    report,
+  } = useWorkspaceContext()
+  const view = search.view ?? "overview"
   useEffect(() => {
     document.title = t(
-      "Project inputs - Exposure Agent",
-      "项目输入 - Exposure Agent",
+      "Project workspace - Exposure Agent",
+      "项目工作区 - Exposure Agent",
     )
   }, [t])
-  const { user: currentUser } = useAuth()
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
-    null,
-  )
-  const projectsQuery = useQuery({
-    queryKey: ["projects"],
-    queryFn: readAccessibleProjects,
-  })
-
-  useEffect(() => {
-    const firstProject = projectsQuery.data?.data[0]
-    if (
-      firstProject &&
-      !projectsQuery.data?.data.some(
-        (project) => project.id === selectedProjectId,
-      )
-    ) {
-      setSelectedProjectId(firstProject.id)
-    }
-  }, [projectsQuery.data, selectedProjectId])
-
-  if (projectsQuery.isPending)
+  if (projects.isPending)
     return <p role="status">{t("Loading Projects…", "正在加载项目…")}</p>
-  if (projectsQuery.isError) {
+  if (projects.isError)
     return (
       <Alert variant="destructive">
-        <AlertCircle />
         <AlertTitle>
           {t("Projects could not be loaded", "无法加载项目")}
         </AlertTitle>
@@ -606,67 +538,136 @@ function Dashboard() {
         </AlertDescription>
       </Alert>
     )
-  }
-  if (projectsQuery.data.data.length === 0) {
+  if (!projects.data.data.length)
     return (
-      <div className="space-y-2">
-        <h1 className="text-2xl font-bold tracking-tight">
-          {t("Project inputs", "项目输入")}
-        </h1>
-        <p className="text-muted-foreground">
-          {t(
-            "Welcome back, nice to see you again!",
-            "欢迎回来，很高兴再次见到您！",
-          )}
-        </p>
-        <p className="text-muted-foreground">
-          {t("No accessible Projects are available.", "暂无可访问的项目。")}
-        </p>
-      </div>
+      <p>{t("No accessible Projects are available.", "暂无可访问的项目。")}</p>
     )
+  if (!project)
+    return (
+      <p role="status">
+        {projectId === undefined
+          ? t("Selecting a Project…", "正在选择项目…")
+          : t(
+              "Project unavailable. Select an accessible Project.",
+              "项目不可用，请选择可访问的项目。",
+            )}
+      </p>
+    )
+
+  let content: React.ReactNode
+  switch (view) {
+    case "inputs":
+      content = (
+        <>
+          <ProjectInputs key={project.id} project={project} />
+          <NetFlowDatasets
+            key={`netflow:${project.id}`}
+            projectId={project.id}
+            archived={project.archived_at !== null}
+          />
+        </>
+      )
+      break
+    case "cloudatlas":
+      content = <CloudAtlasSources key={project.id} projectId={project.id} />
+      break
+    case "runs":
+      content = <GovernanceRuns key={project.id} projectId={project.id} />
+      break
+    case "assets":
+      content = <IPAssets key={project.id} projectId={project.id} />
+      break
+    case "findings":
+      content = <Findings key={project.id} projectId={project.id} />
+      break
+    default:
+      if (reports.isError || (latest.isError && runId === undefined)) {
+        content = (
+          <Alert variant="destructive">
+            <AlertTitle>
+              {t("Published results could not be loaded", "无法加载已发布结果")}
+            </AlertTitle>
+            <AlertDescription>
+              {t(
+                "No other Run has been substituted. Try again.",
+                "未替换为其他运行，请重试。",
+              )}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  void reports.refetch()
+                  if (runId === undefined) void latest.refetch()
+                }}
+              >
+                {t("Try again", "重试")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )
+      } else if (
+        reports.isPending ||
+        (runId === undefined &&
+          (reports.isFetching || latest.isPending || latest.isFetching))
+      ) {
+        content = (
+          <p role="status">
+            {t("Loading published results…", "正在加载已发布结果…")}
+          </p>
+        )
+      } else if (!runId || !report) {
+        content = (
+          <Alert>
+            <AlertTitle>
+              {runId
+                ? t("Published Run unavailable", "已发布运行不可用")
+                : t("Results are being prepared", "结果准备中")}
+            </AlertTitle>
+            <AlertDescription>
+              {runId
+                ? t(
+                    "This explicit Run is unavailable. No other Run has been substituted.",
+                    "所选运行不可用，未替换为其他运行。",
+                  )
+                : t(
+                    "No compatible published result is available. Use input, source and run management to prepare a result.",
+                    "暂无兼容的已发布结果，可通过输入、来源和运行管理准备结果。",
+                  )}
+            </AlertDescription>
+          </Alert>
+        )
+      } else {
+        content =
+          view === "reports" ? (
+            <GovernanceReports
+              key={`${project.id}:${runId}`}
+              projectId={project.id}
+              runId={runId}
+              reportId={report.id}
+            />
+          ) : (
+            <WorkspaceOverview
+              key={`${project.id}:${runId}`}
+              projectId={project.id}
+              runId={runId}
+              reportId={report.id}
+            />
+          )
+      }
   }
-
-  const selectedProject =
-    projectsQuery.data.data.find(
-      (project) => project.id === selectedProjectId,
-    ) ?? projectsQuery.data.data[0]
-
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          {t("Project workspace", "项目工作区")}
-        </h1>
-        <p className="text-muted-foreground">
-          {t(
-            "Welcome back, nice to see you again! Select a Project to manage its inputs, sources, Runs, Assets, Findings, and Reports.",
-            "欢迎回来，很高兴再次见到您！选择项目以管理其输入、来源、运行、资产、发现项和报告。",
-          )}
-          {currentUser?.full_name
-            ? t(
-                ` Signed in as ${currentUser.full_name}.`,
-                ` 当前登录：${currentUser.full_name}。`,
-              )
-            : ""}
-        </p>
-      </div>
-      <div className="max-w-md space-y-2">
-        <Label id="project-label">{t("Project", "项目")}</Label>
-        <Select value={selectedProject.id} onValueChange={setSelectedProjectId}>
-          <SelectTrigger className="w-full" aria-labelledby="project-label">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {projectsQuery.data.data.map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
-                {project.archived_at ? t(" (Archived)", "（已归档）") : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <ProjectWorkspace key={selectedProject.id} project={selectedProject} />
+    <div className="min-w-0 space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+        {view !== "overview" && view !== "reports" && (
+          <p className="text-sm text-muted-foreground">
+            {t(
+              "Current project management. Published reading context is preserved; current inputs and Findings are not historical Run facts.",
+              "当前项目管理。已保留发布结果阅读上下文；当前输入和发现项并非历史运行事实。",
+            )}
+          </p>
+        )}
+      </header>
+      {content}
     </div>
   )
 }

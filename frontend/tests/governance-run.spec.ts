@@ -96,10 +96,10 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   await page.getByTestId("email-input").fill(email)
   await page.getByTestId("password-input").fill(password)
   await page.getByRole("button", { name: "Log In" }).click()
-  await page.waitForURL("/")
+  await page.waitForURL((url) => url.pathname === "/")
   const projectSelect = page.getByRole("combobox", { name: "Project" })
-  await projectSelect.click()
-  await page.getByRole("option", { name: project.name }).click()
+  await projectSelect.selectOption(project.id)
+  await page.getByRole("link", { name: "Inputs", exact: true }).click()
   await page.getByLabel("XLSX file").setInputFiles(validWorkbook)
   await page
     .locator("form")
@@ -111,7 +111,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     .filter({ hasText: "customer-upload-v1.xlsx" })
   await uploadRow.getByRole("button", { name: "Set as current input" }).click()
 
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
   await expect(page.getByText("Inputs ready")).toBeVisible()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(
@@ -175,7 +175,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     .toBe(true)
 
   await page.reload()
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
   await page.getByRole("button", { name: "Retry same Session" }).click()
   await expect
     .poll(
@@ -254,10 +254,10 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     )
     .toBe(true)
 
-  // Stop the Runs tab polling before arming the one-shot Session probe. A
+  // Stop the Runs view polling before arming the one-shot Session probe. A
   // background read can otherwise consume the fixture's probe and make the
   // explicit retry appear recoverable (202) instead of fail-closed (409).
-  await page.getByRole("tab", { name: "Inputs", exact: true }).click()
+  await page.getByRole("link", { name: "Inputs", exact: true }).click()
   const missNextSession = await request.post(
     "http://cloudatlas-fixture:18080/fixture/miss-next-session-query",
   )
@@ -289,7 +289,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   )
 
   await page.reload()
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
   await expect(
     page.getByText(
       "The original Session cannot be recovered. Use an explicit Rerun.",
@@ -399,10 +399,10 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     await page.getByTestId("email-input").fill(account.email)
     await page.getByTestId("password-input").fill(account.password)
     await page.getByRole("button", { name: "Log In" }).click()
-    await page.waitForURL("/")
+    await page.waitForURL((url) => url.pathname === "/")
     const projectSelect = page.getByRole("combobox", { name: "Project" })
-    await projectSelect.click()
-    await page.getByRole("option", { name: project.name }).click()
+    await projectSelect.selectOption(project.id)
+    await page.getByRole("link", { name: "Inputs", exact: true }).click()
   }
 
   async function waitForLatestStatus(status: string, previousRunId?: string) {
@@ -457,7 +457,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
       ],
     },
   })
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
   await expect(page.getByText("Inputs ready")).toBeVisible()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(page.getByText("COMPLETED", { exact: true })).toBeVisible({
@@ -466,11 +466,11 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   const firstRun = await waitForLatestStatus("COMPLETED")
   expect(firstRun).toBeDefined()
 
-  await page.getByRole("tab", { name: "Assets", exact: true }).click()
+  await page.getByRole("link", { name: "Current assets", exact: true }).click()
   await expect(page.getByText(stage4MatchedIp, { exact: true })).toBeVisible()
   await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
   await expect(page.getByText(stage4CloudOnlyIp, { exact: true })).toBeVisible()
-  await page.getByRole("tab", { name: "Findings", exact: true }).click()
+  await page.getByRole("link", { name: "Findings", exact: true }).click()
   await expect(
     page.getByRole("table").getByText("UNOBSERVED_ASSET", { exact: true }),
   ).toBeVisible()
@@ -500,7 +500,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   )
   await page.getByRole("button", { name: "Close" }).click()
 
-  await page.getByRole("tab", { name: "Inputs", exact: true }).click()
+  await page.getByRole("link", { name: "Inputs", exact: true }).click()
   await page.getByLabel("XLSX file").setInputFiles(stage4SecondWorkbook)
   await page
     .locator("form")
@@ -521,7 +521,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
       ],
     },
   })
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(page.getByText("COMPLETED", { exact: true })).toBeVisible({
     timeout: 120_000,
@@ -529,7 +529,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   const secondRun = await waitForLatestStatus("COMPLETED", firstRun.id)
   expect(secondRun.id).not.toBe(firstRun?.id)
 
-  await page.getByRole("tab", { name: "Findings", exact: true }).click()
+  await page.getByRole("link", { name: "Findings", exact: true }).click()
   await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
   await page.getByRole("combobox", { name: "Finding status" }).click()
   await page.getByRole("option", { name: "CLOSED", exact: true }).click()
@@ -562,7 +562,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   ).toBe(1)
 
   await request.post(`${stage4FixtureUrl}/fixture/fail-next`)
-  await page.getByRole("tab", { name: "Runs", exact: true }).click()
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   const failedRun = await waitForLatestStatus("FAILED_DATA", secondRun.id)
   expect(failedRun.id).not.toBe(secondRun.id)
@@ -575,21 +575,25 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     page.getByText("COMPLETED", { exact: true }).first(),
   ).toBeVisible()
 
-  await page.getByRole("tab", { name: "Assets", exact: true }).click()
+  await page.getByRole("link", { name: "Current assets", exact: true }).click()
   await expect(
     page.getByText(`Published Run ${secondRun.id}`, { exact: true }),
   ).toBeVisible()
   await expect(page.getByText(stage4CloudOnlyIp, { exact: true })).toBeVisible()
-  await page.getByRole("tab", { name: "Findings", exact: true }).click()
+  await page.getByRole("link", { name: "Findings", exact: true }).click()
+  await page.getByRole("combobox", { name: "Finding status" }).click()
+  await page.getByRole("option", { name: "OPEN", exact: true }).click()
   await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
 
   for (const role of ["viewer", "approver"] as const) {
     await loginInBrowser(credentials[role])
-    await page.getByRole("tab", { name: "Assets", exact: true }).click()
+    await page
+      .getByRole("link", { name: "Current assets", exact: true })
+      .click()
     await expect(
       page.getByText(stage4CloudOnlyIp, { exact: true }),
     ).toBeVisible()
-    await page.getByRole("tab", { name: "Findings", exact: true }).click()
+    await page.getByRole("link", { name: "Findings", exact: true }).click()
     await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
   }
 
@@ -602,8 +606,8 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await expect(
     page.getByText("Archived Project", { exact: true }),
   ).toBeVisible()
-  await page.getByRole("tab", { name: "Assets", exact: true }).click()
+  await page.getByRole("link", { name: "Current assets", exact: true }).click()
   await expect(page.getByText(stage4CloudOnlyIp, { exact: true })).toBeVisible()
-  await page.getByRole("tab", { name: "Findings", exact: true }).click()
+  await page.getByRole("link", { name: "Findings", exact: true }).click()
   await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
 })

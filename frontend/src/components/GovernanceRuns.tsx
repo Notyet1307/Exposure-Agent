@@ -269,6 +269,16 @@ function RunDetails({
               <Link
                 to="/projects/$projectId/runs/$runId/comparison"
                 params={{ projectId, runId: run.id }}
+                search={(previous) => ({
+                  ...previous,
+                  project: projectId,
+                  run: run.id,
+                  view: "overview",
+                  page: undefined,
+                  resource_id: undefined,
+                  classification: undefined,
+                  netflow_status: undefined,
+                })}
                 className="inline-block text-sm underline underline-offset-4"
               >
                 {t("View source comparison", "查看来源比较")}
@@ -276,6 +286,16 @@ function RunDetails({
               <Link
                 to="/projects/$projectId/runs/$runId/lineage"
                 params={{ projectId, runId: run.id }}
+                search={(previous) => ({
+                  ...previous,
+                  project: projectId,
+                  run: run.id,
+                  view: "overview",
+                  page: undefined,
+                  resource_id: undefined,
+                  classification: undefined,
+                  netflow_status: undefined,
+                })}
                 className="inline-block text-sm underline underline-offset-4"
               >
                 {t("Lineage", "血缘")}
@@ -337,6 +357,19 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
         ? 2000
         : false,
   })
+  const completedRunId = runsQuery.data?.data.find(
+    (run) =>
+      (run.status === "COMPLETED" ||
+        run.status === "COMPLETED_WITH_WARNINGS") &&
+      run.completed_at !== null,
+  )?.id
+  useEffect(() => {
+    if (completedRunId) {
+      void queryClient.invalidateQueries({
+        queryKey: ["workspace-published-reports", projectId],
+      })
+    }
+  }, [completedRunId, projectId, queryClient])
   useEffect(() => {
     const data = runsQuery.data
     if (data?.launch_blocking_code === "run_launch_terminal_use_new_trigger") {

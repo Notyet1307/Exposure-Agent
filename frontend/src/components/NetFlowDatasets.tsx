@@ -31,6 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useI18n } from "@/lib/i18n"
+import { useWorkspaceNavigate, useWorkspaceSearch } from "@/lib/workspace"
 
 const PAGE_SIZE = 10
 const MAX_WARNING_SUMMARY = 5
@@ -335,13 +336,10 @@ export default function NetFlowDatasets({
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
-  const [page, setPage] = useState(0)
+  const search = useWorkspaceSearch()
+  const navigate = useWorkspaceNavigate()
+  const page = (search.netflow_page ?? 1) - 1
   const [message, setMessage] = useState<string | null>(null)
-
-  useEffect(() => {
-    setPage(0)
-    setMessage(null)
-  }, [])
 
   const queryKey = ["netflow-datasets", projectId, page]
   const datasetsQuery = useQuery<NetFlowDatasetsPublic>({
@@ -353,6 +351,23 @@ export default function NetFlowDatasets({
         limit: PAGE_SIZE,
       }),
   })
+
+  useEffect(() => {
+    if (!datasetsQuery.data) return
+    const pageCount = Math.max(
+      1,
+      Math.ceil(datasetsQuery.data.count / PAGE_SIZE),
+    )
+    if (page >= pageCount) {
+      void navigate({
+        search: (prev) => ({
+          ...prev,
+          netflow_page: pageCount > 1 ? pageCount : undefined,
+        }),
+        replace: true,
+      })
+    }
+  }, [datasetsQuery.data, navigate, page])
 
   const invalidateAfterMutation = async () => {
     await Promise.all([
@@ -375,7 +390,9 @@ export default function NetFlowDatasets({
       setMessage("NetFlowDataset upload accepted successfully.")
       if (fileInputRef.current) fileInputRef.current.value = ""
       setSelectedFilename(null)
-      setPage(0)
+      void navigate({
+        search: (prev) => ({ ...prev, netflow_page: undefined }),
+      })
       await invalidateAfterMutation()
     },
     onError: (error: Error) =>
@@ -625,7 +642,14 @@ export default function NetFlowDatasets({
             count={datasets.count}
             page={page}
             pageSize={PAGE_SIZE}
-            onPageChange={setPage}
+            onPageChange={(nextPage) =>
+              navigate({
+                search: (prev) => ({
+                  ...prev,
+                  netflow_page: nextPage > 0 ? nextPage + 1 : undefined,
+                }),
+              })
+            }
           />
         </CardContent>
       </Card>

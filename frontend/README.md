@@ -27,6 +27,14 @@ Use `useI18n` from `src/lib/i18n.tsx` for interface text and dates. Keep error k
 
 Existing Playwright regressions import `tests/fixtures.ts` to select English at the actual test origin. The language-specific suite uses the product default directly; tests must not change that default or introduce a fixed origin.
 
+## Published reading workspace
+
+The shared sidebar separates published Overview, Assets & differences, Lineage and Reports from current project management. Project choices come from the authorized project API; published Run choices come from the cursor-paginated report list. Initial selection probes the newest compatible published result and writes its explicit Run into the URL. An unavailable explicit Project or Run is never silently replaced.
+
+The URL preserves project/run scope, matrix classification and NetFlow filters, pagination, resource scope, and management list/detail state across refresh and navigation. Current assets, inputs and Findings remain current-project management views, not historical Run facts.
+
+Overview reads `ip_source_comparison_summary` from the selected canonical report-v2; totals are independent of the matrix's 25-row pages. Report-v1 has no three-source summary and displays N/A rather than zero. The full matrix can trace resources beyond the bounded lineage overview. Snapshot metadata, identifiers and technical explanations are expandable; integrity failures, UNKNOWN/absence semantics and truncation limits remain visible.
+
 ## Generated client
 
 When the FastAPI contract changes, run from the repository root:

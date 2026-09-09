@@ -1,4 +1,4 @@
-import { Link as RouterLink } from "@tanstack/react-router"
+import { Link as RouterLink, useParams } from "@tanstack/react-router"
 import { ChevronsUpDown, LogOut, Settings } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/sidebar"
 import useAuth from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
+import { useWorkspaceSearch } from "@/lib/workspace"
 import { getInitials } from "@/utils"
 
 interface UserInfoProps {
@@ -46,6 +47,8 @@ export function User({ user }: { user: any }) {
   const { t } = useI18n()
   const { logout } = useAuth()
   const { isMobile, setOpenMobile } = useSidebar()
+  const search = useWorkspaceSearch()
+  const params = useParams({ strict: false })
 
   if (!user) return null
 
@@ -83,7 +86,15 @@ export function User({ user }: { user: any }) {
               <UserInfo fullName={user?.full_name} email={user?.email} />
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <RouterLink to="/settings" onClick={handleMenuClick}>
+            <RouterLink
+              to="/settings"
+              search={{
+                ...search,
+                project: params.projectId ?? search.project,
+                run: params.runId ?? search.run,
+              }}
+              onClick={handleMenuClick}
+            >
               <DropdownMenuItem>
                 <Settings />
                 {t("User Settings", "用户设置")}

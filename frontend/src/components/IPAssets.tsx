@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 
 import {
   type IPAssetDetailPublic,
@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table"
 
 import { useI18n } from "@/lib/i18n"
+import { useWorkspaceNavigate, useWorkspaceSearch } from "@/lib/workspace"
 
 const PAGE_SIZE = 25
 
@@ -120,10 +121,9 @@ function AssetDetailDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useI18n()
-  const [page, setPage] = useState(0)
-  useEffect(() => {
-    if (resourceId === null) setPage(0)
-  }, [resourceId])
+  const search = useWorkspaceSearch()
+  const navigate = useWorkspaceNavigate()
+  const page = (search.asset_page ?? 1) - 1
   const detailQuery = useQuery({
     queryKey: ["ip-asset", projectId, resourceId, page],
     queryFn: () =>
@@ -135,6 +135,23 @@ function AssetDetailDialog({
       }),
     enabled: resourceId !== null,
   })
+
+  useEffect(() => {
+    if (resourceId === null || !detailQuery.data) return
+    const pageCount = Math.max(
+      1,
+      Math.ceil(detailQuery.data.observation_count / PAGE_SIZE),
+    )
+    if (page >= pageCount) {
+      void navigate({
+        search: (prev) => ({
+          ...prev,
+          asset_page: pageCount > 1 ? pageCount : undefined,
+        }),
+        replace: true,
+      })
+    }
+  }, [detailQuery.data, navigate, page, resourceId])
 
   return (
     <Dialog
@@ -196,7 +213,14 @@ function AssetDetailDialog({
               count={detailQuery.data.observation_count}
               page={page}
               pageSize={PAGE_SIZE}
-              onPageChange={setPage}
+              onPageChange={(nextPage) =>
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    asset_page: nextPage > 0 ? nextPage + 1 : undefined,
+                  }),
+                })
+              }
             />
           </div>
         )}
@@ -257,10 +281,10 @@ function AssetRow({
 
 export default function IPAssets({ projectId }: { projectId: string }) {
   const { t, formatDate } = useI18n()
-  const [page, setPage] = useState(0)
-  const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
-    null,
-  )
+  const search = useWorkspaceSearch()
+  const navigate = useWorkspaceNavigate()
+  const page = (search.assets_page ?? 1) - 1
+  const selectedResourceId = search.asset_id ?? null
   const assetsQuery = useQuery({
     queryKey: ["ip-assets", projectId, page],
     queryFn: () =>
@@ -274,8 +298,16 @@ export default function IPAssets({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (!assetsQuery.data) return
     const pageCount = Math.max(1, Math.ceil(assetsQuery.data.count / PAGE_SIZE))
-    if (page >= pageCount) setPage(pageCount - 1)
-  }, [assetsQuery.data, page])
+    if (page >= pageCount) {
+      void navigate({
+        search: (prev) => ({
+          ...prev,
+          assets_page: pageCount > 1 ? pageCount : undefined,
+        }),
+        replace: true,
+      })
+    }
+  }, [assetsQuery.data, navigate, page])
 
   if (assetsQuery.isPending)
     return <p role="status">{t("Loading IP Assets…", "正在加载 IP 资产…")}</p>
@@ -353,7 +385,15 @@ export default function IPAssets({ projectId }: { projectId: string }) {
                   <AssetRow
                     key={asset.id}
                     asset={asset}
-                    onDetails={() => setSelectedResourceId(asset.resource_id)}
+                    onDetails={() =>
+                      navigate({
+                        search: (prev) => ({
+                          ...prev,
+                          asset_id: asset.resource_id,
+                          asset_page: undefined,
+                        }),
+                      })
+                    }
                   />
                 ))}
               </TableBody>
@@ -364,7 +404,14 @@ export default function IPAssets({ projectId }: { projectId: string }) {
             count={assets.count}
             page={page}
             pageSize={PAGE_SIZE}
-            onPageChange={setPage}
+            onPageChange={(nextPage) =>
+              navigate({
+                search: (prev) => ({
+                  ...prev,
+                  assets_page: nextPage > 0 ? nextPage + 1 : undefined,
+                }),
+              })
+            }
           />
         </CardContent>
       </Card>
@@ -372,7 +419,15 @@ export default function IPAssets({ projectId }: { projectId: string }) {
         projectId={projectId}
         resourceId={selectedResourceId}
         onOpenChange={(open) => {
-          if (!open) setSelectedResourceId(null)
+          if (!open) {
+            void navigate({
+              search: (prev) => ({
+                ...prev,
+                asset_id: undefined,
+                asset_page: undefined,
+              }),
+            })
+          }
         }}
       />
     </section>
