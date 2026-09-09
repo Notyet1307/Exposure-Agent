@@ -7,6 +7,7 @@ import {
   IpResultsService,
 } from "@/client"
 import { AiInvestigationPanel } from "@/components/AiInvestigationPanel"
+import { ManualReviewPanel } from "@/components/ManualReviewPanel"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Stage4ResultNotice } from "@/components/Stage4ResultNotice"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -225,6 +226,14 @@ function AssetDetailDialog({
               {search.investigation_run && resourceId && (
                 <AiInvestigationPanel
                   key={`${projectId}:${resourceId}:${search.investigation_run}`}
+                  projectId={projectId}
+                  resourceId={resourceId}
+                  runId={search.investigation_run}
+                />
+              )}
+              {search.investigation_run && resourceId && (
+                <ManualReviewPanel
+                  key={`manual:${projectId}:${resourceId}:${search.investigation_run}`}
                   projectId={projectId}
                   resourceId={resourceId}
                   runId={search.investigation_run}

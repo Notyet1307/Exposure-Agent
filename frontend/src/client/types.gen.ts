@@ -663,6 +663,52 @@ export type LineageTotalsPublic = {
     finding_event_count: number;
 };
 
+export type ManualReviewCreate = {
+    resource_id: string;
+    run_id: string;
+    finding_id?: (string | null);
+    conclusion: string;
+    pending_verification: string;
+    supersedes_id?: (string | null);
+};
+
+export type ManualReviewPublic = {
+    id: string;
+    project_id: string;
+    resource_id: string;
+    run_id: string;
+    finding_id: (string | null);
+    author_id: string;
+    author_name: string;
+    created_at: string;
+    conclusion: string;
+    pending_verification: string;
+    supersedes_id: (string | null);
+    version: number;
+    is_current: boolean;
+    status: 'PENDING' | 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE';
+    verifications: Array<ManualReviewVerification>;
+};
+
+export type status5 = 'PENDING' | 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE';
+
+export type ManualReviewsPublic = {
+    data: Array<ManualReviewPublic>;
+    count: number;
+    can_create: boolean;
+};
+
+export type ManualReviewVerification = {
+    run_id: string;
+    run_status: string;
+    completed_at: (string | null);
+    observed_at: string;
+    status: 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE' | 'NO_NEW_CONCLUSION';
+    reason: string;
+};
+
+export type status6 = 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE' | 'NO_NEW_CONCLUSION';
+
 export type Message = {
     message: string;
 };
@@ -1040,6 +1086,24 @@ export type LoginLoginAccessTokenData = {
 export type LoginLoginAccessTokenResponse = (Token);
 
 export type LoginTestTokenResponse = (UserPublic);
+
+export type ManualReviewsCreateManualReviewData = {
+    projectId: string;
+    requestBody: ManualReviewCreate;
+};
+
+export type ManualReviewsCreateManualReviewResponse = (ManualReviewPublic);
+
+export type ManualReviewsReadManualReviewsData = {
+    findingId?: (string | null);
+    limit?: number;
+    projectId: string;
+    resourceId: string;
+    runId: string;
+    skip?: number;
+};
+
+export type ManualReviewsReadManualReviewsResponse = (ManualReviewsPublic);
 
 export type ModelQualificationReadModelQualificationStatusResponse = (ModelQualificationStatus);
 

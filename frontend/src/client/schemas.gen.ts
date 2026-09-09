@@ -3258,6 +3258,221 @@ export const LineageTotalsPublicSchema = {
     title: 'LineageTotalsPublic'
 } as const;
 
+export const ManualReviewCreateSchema = {
+    properties: {
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Run Id'
+        },
+        finding_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Finding Id'
+        },
+        conclusion: {
+            type: 'string',
+            maxLength: 4000,
+            minLength: 1,
+            title: 'Conclusion'
+        },
+        pending_verification: {
+            type: 'string',
+            maxLength: 4000,
+            minLength: 1,
+            title: 'Pending Verification'
+        },
+        supersedes_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Supersedes Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['resource_id', 'run_id', 'conclusion', 'pending_verification'],
+    title: 'ManualReviewCreate'
+} as const;
+
+export const ManualReviewPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Run Id'
+        },
+        finding_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Finding Id'
+        },
+        author_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Author Id'
+        },
+        author_name: {
+            type: 'string',
+            title: 'Author Name'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        conclusion: {
+            type: 'string',
+            title: 'Conclusion'
+        },
+        pending_verification: {
+            type: 'string',
+            title: 'Pending Verification'
+        },
+        supersedes_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Supersedes Id'
+        },
+        version: {
+            type: 'integer',
+            title: 'Version'
+        },
+        is_current: {
+            type: 'boolean',
+            title: 'Is Current'
+        },
+        status: {
+            type: 'string',
+            enum: ['PENDING', 'RESOLVED', 'UNRESOLVED', 'INSUFFICIENT_EVIDENCE'],
+            title: 'Status'
+        },
+        verifications: {
+            items: {
+                '$ref': '#/components/schemas/ManualReviewVerification'
+            },
+            type: 'array',
+            title: 'Verifications'
+        }
+    },
+    type: 'object',
+    required: ['id', 'project_id', 'resource_id', 'run_id', 'finding_id', 'author_id', 'author_name', 'created_at', 'conclusion', 'pending_verification', 'supersedes_id', 'version', 'is_current', 'status', 'verifications'],
+    title: 'ManualReviewPublic'
+} as const;
+
+export const ManualReviewVerificationSchema = {
+    properties: {
+        run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Run Id'
+        },
+        run_status: {
+            type: 'string',
+            title: 'Run Status'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        },
+        observed_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Observed At'
+        },
+        status: {
+            type: 'string',
+            enum: ['RESOLVED', 'UNRESOLVED', 'INSUFFICIENT_EVIDENCE', 'NO_NEW_CONCLUSION'],
+            title: 'Status'
+        },
+        reason: {
+            type: 'string',
+            title: 'Reason'
+        }
+    },
+    type: 'object',
+    required: ['run_id', 'run_status', 'completed_at', 'observed_at', 'status', 'reason'],
+    title: 'ManualReviewVerification'
+} as const;
+
+export const ManualReviewsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/ManualReviewPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        can_create: {
+            type: 'boolean',
+            title: 'Can Create'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'can_create'],
+    title: 'ManualReviewsPublic'
+} as const;
+
 export const MessageSchema = {
     properties: {
         message: {

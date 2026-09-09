@@ -1,4 +1,4 @@
-import type { FindingDetailPublic } from "../src/client"
+import type { FindingDetailPublic, ManualReviewPublic } from "../src/client"
 import { expect, test } from "./fixtures"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
@@ -230,6 +230,11 @@ async function installBaseMocks(page: import("@playwright/test").Page) {
 
 async function installResultMocks(page: import("@playwright/test").Page) {
   await page.route(
+    new RegExp(`/api/v1/projects/${projectId}/manual-reviews(?:\\?.*)?$`),
+    (route) =>
+      route.fulfill({ json: { data: [], count: 0, can_create: true } }),
+  )
+  await page.route(
     new RegExp(`/api/v1/projects/${projectId}/ai-investigations(?:\\?.*)?$`),
     (route) =>
       route.fulfill({ json: { data: [], count: 0, can_create: true } }),
@@ -378,6 +383,338 @@ test.describe("Project result views", () => {
     await installBaseMocks(page)
     await installResultMocks(page)
     await page.goto("/")
+  })
+  test("saves without AI, retains rejected corrections, and resets the draft for a Finding scope", async ({
+    page,
+  }) => {
+    const runId = findingSummary.latest_occurrence_run_id
+    const original: ManualReviewPublic = {
+      id: "f0000000-0000-4000-8000-000000000001",
+      project_id: projectId,
+      resource_id: resourceId,
+      run_id: runId,
+      finding_id: null,
+      author_id: "30000000-0000-0000-0000-000000000001",
+      author_name: "Test Operator",
+      created_at: "2026-09-09T12:00:00Z",
+      conclusion: "Original observation",
+      pending_verification: "Confirm both source observations",
+      supersedes_id: null,
+      version: 1,
+      is_current: true,
+      status: "RESOLVED",
+      verifications: [
+        {
+          run_id: "60000000-0000-4000-8000-000000000002",
+          run_status: "COMPLETED",
+          completed_at: "2026-09-09T12:02:00Z",
+          observed_at: "2026-09-09T12:02:00Z",
+          status: "RESOLVED",
+          reason: "both_sources_observed",
+        },
+      ],
+    }
+    let records = [original]
+    let findingRecords: ManualReviewPublic[] = []
+    let conflict = true
+    const requests: Record<string, unknown>[] = []
+    await page.route(
+      `**/api/v1/projects/${projectId}/ai-investigations**`,
+      (route) =>
+        route.fulfill({ status: 503, json: { detail: "Model unavailable" } }),
+    )
+    await page.route(
+      `**/api/v1/projects/${projectId}/manual-reviews**`,
+      async (route) => {
+        if (route.request().method() === "POST") {
+          const body = route.request().postDataJSON()
+          requests.push(body)
+          if (conflict) {
+            conflict = false
+            records = [
+              {
+                ...original,
+                id: "f0000000-0000-4000-8000-000000000002",
+                conclusion: "Another operator's correction",
+                version: 2,
+                created_at: "2026-09-09T12:03:00Z",
+                status: "PENDING",
+                verifications: [],
+              },
+              { ...original, is_current: false },
+            ]
+            return route.fulfill({
+              status: 409,
+              json: { detail: "Current version changed" },
+            })
+          }
+          const saved: ManualReviewPublic = {
+            ...original,
+            ...body,
+            id: body.finding_id
+              ? "f0000000-0000-4000-8000-000000000004"
+              : "f0000000-0000-4000-8000-000000000003",
+            version: body.finding_id ? 1 : 3,
+            created_at: "2026-09-09T12:04:00Z",
+            status: "PENDING",
+            verifications: [],
+          }
+          if (body.finding_id) findingRecords = [saved]
+          else
+            records = [
+              saved,
+              ...records.map((item) => ({ ...item, is_current: false })),
+            ]
+          return route.fulfill({ status: 201, json: saved })
+        }
+        const finding = new URL(route.request().url()).searchParams.get(
+          "finding_id",
+        )
+        const scopedRecords = finding ? findingRecords : records
+        return route.fulfill({
+          json: {
+            data: scopedRecords,
+            count: scopedRecords.length,
+            can_create: true,
+          },
+        })
+      },
+    )
+    await page
+      .getByRole("link", { name: "Current assets", exact: true })
+      .click()
+    await page.getByRole("button", { name: "View details" }).click()
+    const panel = page.getByRole("region", {
+      name: "Manual review",
+      exact: true,
+    })
+    await expect(
+      page.getByRole("region", { name: "AI investigation" }),
+    ).toContainText("Investigation could not be read")
+    await panel.getByRole("button", { name: "Correct current version" }).click()
+    await expect(
+      panel.getByLabel("Manual conclusion", { exact: true }),
+    ).toHaveValue(original.conclusion)
+    await panel
+      .getByLabel("Manual conclusion", { exact: true })
+      .fill("My corrected explanation")
+    await panel
+      .getByRole("button", { name: "Save correction", exact: true })
+      .click()
+    await expect(
+      panel.getByRole("article", {
+        name: "Manual record version 2",
+        exact: true,
+      }),
+    ).toBeVisible()
+    await expect(
+      panel.getByLabel("Manual conclusion", { exact: true }),
+    ).toHaveValue("My corrected explanation")
+    await expect(
+      panel.getByRole("button", { name: "Save correction", exact: true }),
+    ).toBeDisabled()
+    await expect(
+      panel
+        .getByRole("article", { name: "Manual record version 1", exact: true })
+        .getByRole("button"),
+    ).toHaveCount(0)
+    await panel.getByRole("button", { name: "Correct current version" }).click()
+    await expect(
+      panel.getByLabel("Manual conclusion", { exact: true }),
+    ).toHaveValue("My corrected explanation")
+    await panel
+      .getByRole("button", { name: "Save correction", exact: true })
+      .click()
+    const current = panel.getByRole("article", {
+      name: "Manual record version 3",
+      exact: true,
+    })
+    await expect(current).toContainText("Pending verification")
+    await expect(current).toContainText("My corrected explanation")
+    await expect(
+      panel.getByRole("article", {
+        name: "Manual record version 1",
+        exact: true,
+      }),
+    ).toContainText(original.conclusion)
+    expect(requests.map((request) => request.supersedes_id)).toEqual([
+      original.id,
+      "f0000000-0000-4000-8000-000000000002",
+    ])
+    expect(requests[1]).toMatchObject({
+      resource_id: resourceId,
+      run_id: runId,
+      finding_id: null,
+      conclusion: "My corrected explanation",
+      pending_verification: original.pending_verification,
+    })
+    await panel.getByRole("button", { name: "Correct current version" }).click()
+    await panel
+      .getByLabel("Manual conclusion", { exact: true })
+      .fill("Do not leak this asset draft")
+    await page.getByRole("button", { name: "Close", exact: true }).click()
+    await page.getByRole("link", { name: "Findings", exact: true }).click()
+    await page.getByRole("button", { name: "View details" }).click()
+    await expect(
+      panel.getByLabel("Manual conclusion", { exact: true }),
+    ).toHaveValue("")
+    await expect(
+      panel.getByLabel("Items to verify", { exact: true }),
+    ).toHaveValue("")
+    await panel
+      .getByLabel("Manual conclusion", { exact: true })
+      .fill("Finding-specific review")
+    await panel
+      .getByLabel("Items to verify", { exact: true })
+      .fill("Check original difference")
+    await panel
+      .getByRole("button", { name: "Save manual record", exact: true })
+      .click()
+    await expect.poll(() => requests.length).toBe(3)
+    expect(requests[2]).toMatchObject({
+      resource_id: resourceId,
+      run_id: runId,
+      finding_id: findingId,
+      supersedes_id: null,
+    })
+    await expect(
+      panel.getByRole("article", {
+        name: "Manual record version 1",
+        exact: true,
+      }),
+    ).toContainText("Finding-specific review")
+    await expect(
+      page.getByRole("dialog").getByText("OPEN", { exact: true }),
+    ).toBeVisible()
+  })
+
+  test("keeps successful verification beside later failure, with read-only paginated bilingual history", async ({
+    page,
+  }) => {
+    const successRun = "60000000-0000-4000-8000-000000000002"
+    const failureRun = "60000000-0000-4000-8000-000000000003"
+    const record = {
+      id: "f0000000-0000-4000-8000-000000000021",
+      project_id: projectId,
+      resource_id: resourceId,
+      run_id: findingSummary.latest_occurrence_run_id,
+      finding_id: null,
+      author_id: "30000000-0000-0000-0000-000000000001",
+      author_name: "Readably named operator",
+      created_at: "2026-09-09T12:00:00Z",
+      conclusion: "Documented original difference",
+      pending_verification: "Check both sources",
+      supersedes_id: null,
+      version: 21,
+      is_current: true,
+      status: "RESOLVED",
+      verifications: [
+        {
+          run_id: successRun,
+          run_status: "COMPLETED",
+          completed_at: "2026-09-09T13:00:00Z",
+          observed_at: "2026-09-09T13:00:00Z",
+          status: "RESOLVED",
+          reason: "both_sources_observed",
+        },
+        {
+          run_id: failureRun,
+          run_status: "FAILED_PROCESSING",
+          completed_at: "2026-09-09T14:00:00Z",
+          observed_at: "2026-09-09T14:00:00Z",
+          status: "NO_NEW_CONCLUSION",
+          reason: "run_not_successful",
+        },
+      ],
+    }
+    await page.route(
+      `**/api/v1/projects/${projectId}/manual-reviews**`,
+      (route) => {
+        const older =
+          new URL(route.request().url()).searchParams.get("skip") === "20"
+        return route.fulfill({
+          json: {
+            data: older
+              ? [
+                  {
+                    ...record,
+                    id: "f0000000-0000-4000-8000-000000000001",
+                    version: 1,
+                    is_current: false,
+                    conclusion: "Old retained record",
+                    verifications: [],
+                  },
+                ]
+              : Array.from({ length: 20 }, (_, index) => ({
+                  ...record,
+                  id: `f0000000-0000-4000-8000-${String(21 - index).padStart(12, "0")}`,
+                  version: 21 - index,
+                  is_current: index === 0,
+                  verifications: index === 0 ? record.verifications : [],
+                })),
+            count: 21,
+            can_create: false,
+          },
+        })
+      },
+    )
+    await page
+      .getByRole("link", { name: "Current assets", exact: true })
+      .click()
+    await page.getByRole("button", { name: "View details" }).click()
+    const panel = page.getByRole("region", {
+      name: "Manual review",
+      exact: true,
+    })
+    const current = panel.getByRole("article", {
+      name: "Manual record version 21",
+      exact: true,
+    })
+    await expect(current).toContainText("Verified resolved")
+    await expect(current).toContainText("No new conclusion")
+    await expect(current).toContainText(
+      "earlier successful verification remains unchanged",
+    )
+    await expect(current).toContainText(record.author_name)
+    await expect(panel.getByRole("textbox")).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Correct current version" }),
+    ).toHaveCount(0)
+    const identifiers = current
+      .locator("summary")
+      .filter({ hasText: "Verification Run · full identifier and reason" })
+    await identifiers.first().focus()
+    await page.keyboard.press("Enter")
+    await identifiers.last().click()
+    await expect(current.getByText(successRun, { exact: true })).toBeVisible()
+    await expect(current.getByText(failureRun, { exact: true })).toBeVisible()
+    await page.setViewportSize({ width: 390, height: 844 })
+    expect(
+      await page
+        .getByRole("dialog")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    ).toBe(true)
+    await panel
+      .getByRole("navigation", { name: "Manual records pagination" })
+      .getByRole("button", { name: "Next" })
+      .click()
+    await expect(
+      panel.getByRole("article", {
+        name: "Manual record version 1",
+        exact: true,
+      }),
+    ).toContainText("Old retained record")
+    await expect(
+      panel.getByRole("button", { name: "Correct current version" }),
+    ).toHaveCount(0)
+    await page.evaluate(() =>
+      localStorage.setItem("exposure:language", "zh-CN"),
+    )
+    await page.reload()
+    const chinese = page.getByRole("region", { name: "人工核查", exact: true })
+    await expect(chinese).toContainText("已验证解决")
+    await expect(chinese).toContainText("没有新的可用结论")
+    await expect(chinese).toContainText("当前为只读权限")
   })
 
   test("allows correcting a rejected follow-up after reload without replaying its rejected key", async ({

@@ -11,6 +11,7 @@ import {
   type SourceSnapshotPublic,
 } from "@/client"
 import { AiInvestigationPanel } from "@/components/AiInvestigationPanel"
+import { ManualReviewPanel } from "@/components/ManualReviewPanel"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Stage4ResultNotice } from "@/components/Stage4ResultNotice"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -510,6 +511,15 @@ function FindingDetailDialog({
             {search.investigation_run && findingId && (
               <AiInvestigationPanel
                 key={`${projectId}:${detailQuery.data.resource_id}:${search.investigation_run}:${findingId}`}
+                projectId={projectId}
+                resourceId={detailQuery.data.resource_id}
+                runId={search.investigation_run}
+                findingId={findingId}
+              />
+            )}
+            {search.investigation_run && findingId && (
+              <ManualReviewPanel
+                key={`manual:${projectId}:${detailQuery.data.resource_id}:${search.investigation_run}:${findingId}`}
                 projectId={projectId}
                 resourceId={detailQuery.data.resource_id}
                 runId={search.investigation_run}
