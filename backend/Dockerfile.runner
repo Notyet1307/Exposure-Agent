@@ -34,6 +34,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY ./backend/pyproject.toml ./backend/alembic.ini /app/backend/
 COPY ./backend/app /app/backend/app
 
+# The single-asset supervisor loads only this bundled Pi extension. Fail image
+# creation if the pinned runtime or copied tool is not available.
+RUN test -x /usr/bin/pi-with-tools && \
+    test -f /app/backend/app/integrations/pi_read_asset_facts.ts
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \

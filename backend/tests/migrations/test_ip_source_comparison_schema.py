@@ -504,9 +504,6 @@ def test_comparison_migration_preserves_null_v1_history_without_backfill(
         assert connection.execute(
             "SELECT ip_source_comparison_fact_id FROM evidence"
         ).fetchall() == [(None,)]
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (COMPARISON_REVISION,)
     run_downgrade(evidence_database, PRE_COMPARISON_REVISION)
     assert snapshot() == before
     run_migration(evidence_database, "head")

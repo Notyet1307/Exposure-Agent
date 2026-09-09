@@ -262,13 +262,20 @@ def _resolve_model_address(
                     type=socket.SOCK_STREAM,
                 )
             }
-        except (OSError, ValueError):
+        except OSError, ValueError:
             raise ValueError("model_endpoint_unresolvable") from None
     if (
         not addresses
         or any(address.is_link_local for address in addresses)
         or not all(
-            address.is_global
+            (
+                address.is_global
+                and not address.is_multicast
+                and not address.is_reserved
+                and not (
+                    isinstance(address, ipaddress.IPv6Address) and address.is_site_local
+                )
+            )
             if allow_public
             else any(address in network for network in _INTERNAL_MODEL_NETWORKS)
             for address in addresses
@@ -320,14 +327,15 @@ def model_binding(
     ):
         raise ValueError("model_configuration_invalid")
     hostname = parsed.hostname.lower()
-    # ADR-0014: only the fixed synthetic qualifier opts into this endpoint.
-    resolved_address = _resolve_model_address(
-        hostname,
-        port,
-        allow_public=allow_baizhi_test is True
+    # An external test host must never fall back to the private-network policy.
+    allow_public = (
+        allow_baizhi_test is True
         and protocol == "responses"
-        and endpoint == "https://ai-api-gateway.app.baizhi.cloud/api/openai",
+        and endpoint == "https://ai-api-gateway.app.baizhi.cloud/api/openai"
     )
+    if hostname.rstrip(".") == "ai-api-gateway.app.baizhi.cloud" and not allow_public:
+        raise ValueError("external_model_provider_forbidden")
+    resolved_address = _resolve_model_address(hostname, port, allow_public=allow_public)
     return ModelBinding(
         endpoint=endpoint,
         resolved_address=resolved_address,
@@ -462,7 +470,7 @@ def execute_model_qualification(
                     if run.output is None:
                         raise ValueError("missing output")
                     parsed = QualificationRunResult.model_validate_json(run.output)
-                except (ValidationError, ValueError):
+                except ValidationError, ValueError:
                     evaluation = _failed_evaluation("model_output_invalid")
                 else:
                     if (

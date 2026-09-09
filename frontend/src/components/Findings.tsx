@@ -10,6 +10,7 @@ import {
   IpResultsService,
   type SourceSnapshotPublic,
 } from "@/client"
+import { AiInvestigationPanel } from "@/components/AiInvestigationPanel"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Stage4ResultNotice } from "@/components/Stage4ResultNotice"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -380,6 +381,19 @@ function FindingDetailDialog({
     enabled: findingId !== null,
   })
 
+  const investigationRunId =
+    detailQuery.isSuccess && !detailQuery.isFetching
+      ? detailQuery.data.latest_occurrence_run_id
+      : null
+  useEffect(() => {
+    if (findingId && investigationRunId && !search.investigation_run) {
+      void navigate({
+        search: (prev) => ({ ...prev, investigation_run: investigationRunId }),
+        replace: true,
+      })
+    }
+  }, [findingId, navigate, investigationRunId, search.investigation_run])
+
   useEffect(() => {
     if (findingId === null || !detailQuery.data) return
     const occurrencePageCount = Math.max(
@@ -457,7 +471,7 @@ function FindingDetailDialog({
             </AlertDescription>
           </Alert>
         )}
-        {detailQuery.data && (
+        {detailQuery.isSuccess && detailQuery.data.id === findingId && (
           <div className="min-w-0 space-y-4">
             <div className="grid gap-3 text-sm md:grid-cols-4">
               <div>
@@ -493,6 +507,15 @@ function FindingDetailDialog({
                 )}
               </div>
             </div>
+            {search.investigation_run && findingId && (
+              <AiInvestigationPanel
+                key={`${projectId}:${detailQuery.data.resource_id}:${search.investigation_run}:${findingId}`}
+                projectId={projectId}
+                resourceId={detailQuery.data.resource_id}
+                runId={search.investigation_run}
+                findingId={findingId}
+              />
+            )}
             <NetFlowContext context={detailQuery.data.netflow_context} />
             <div>
               <p className="mb-2 text-sm font-medium">
@@ -729,6 +752,7 @@ export default function Findings({ projectId }: { projectId: string }) {
                       finding_status: value as FindingStatus,
                       findings_page: undefined,
                       finding_id: undefined,
+                      investigation_run: undefined,
                       occurrence_page: undefined,
                       transition_page: undefined,
                     }),
@@ -789,6 +813,8 @@ export default function Findings({ projectId }: { projectId: string }) {
                           finding_id: finding.id,
                           occurrence_page: undefined,
                           transition_page: undefined,
+                          investigation_run:
+                            finding.latest_occurrence_run_id ?? undefined,
                         }),
                       })
                     }
@@ -824,6 +850,7 @@ export default function Findings({ projectId }: { projectId: string }) {
                 finding_id: undefined,
                 occurrence_page: undefined,
                 transition_page: undefined,
+                investigation_run: undefined,
               }),
             })
           }

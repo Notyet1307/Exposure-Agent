@@ -2784,6 +2784,94 @@ class AiGovernanceDraft(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_DRAFT_TIME)
 
 
+class AiInvestigation(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "ai_investigations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            ondelete="RESTRICT",
+            name="fk_ai_investigations_project_scope",
+        ),
+        ForeignKeyConstraint(
+            ["run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            ondelete="RESTRICT",
+            name="fk_ai_investigations_run_scope",
+        ),
+        ForeignKeyConstraint(
+            ["resource_id", "project_id", "tenant_id"],
+            ["resources.id", "resources.project_id", "resources.tenant_id"],
+            ondelete="RESTRICT",
+            name="fk_ai_investigations_resource_scope",
+        ),
+        ForeignKeyConstraint(
+            ["finding_id", "project_id", "tenant_id"],
+            ["findings.id", "findings.project_id", "findings.tenant_id"],
+            ondelete="RESTRICT",
+            name="fk_ai_investigations_finding_scope",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "idempotency_key",
+            name="uq_ai_investigations_idempotency",
+        ),
+        UniqueConstraint(
+            "agent_compose_run_id", name="uq_ai_investigations_compose_run"
+        ),
+        UniqueConstraint("session_id", name="uq_ai_investigations_session"),
+        CheckConstraint(
+            "(status = 'GENERATING' AND completed_at IS NULL AND output IS NULL) OR "
+            "(status = 'FAILED' AND completed_at IS NOT NULL AND failure_code IS NOT NULL AND output IS NULL) OR "
+            "(status = 'COMPLETED' AND completed_at IS NOT NULL AND failure_code IS NULL AND output IS NOT NULL "
+            "AND successful_tool_calls > 0)",
+            name="ck_ai_investigations_terminal",
+        ),
+        CheckConstraint(
+            "max_tool_calls > 0 AND max_material_bytes > 0 AND max_output_bytes > 0 AND timeout_seconds > 0 "
+            "AND successful_tool_calls >= 0 AND successful_tool_calls <= max_tool_calls "
+            "AND material_bytes_read >= 0 AND material_bytes_read <= max_material_bytes",
+            name="ck_ai_investigations_budgets",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    resource_id: uuid.UUID = Field(index=True)
+    run_id: uuid.UUID = Field(index=True)
+    finding_id: uuid.UUID | None = Field(default=None)
+    initiated_by: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    idempotency_key: str = Field(max_length=255)
+    config_fingerprint: str = Field(max_length=64)
+    material_sha256: str = Field(max_length=64)
+    material: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    sources: list[dict[str, Any]] = Field(sa_column=Column(JSONB, nullable=False))
+    agent_compose_run_id: str = Field(max_length=64)
+    agent_compose_project_id: str = Field(max_length=64)
+    agent_compose_agent_name: str = Field(max_length=255)
+    session_id: str | None = Field(default=None, max_length=64)
+    execution_started_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+    status: str = Field(default="GENERATING", max_length=30, index=True)
+    failure_code: str | None = Field(default=None, max_length=100)
+    output: dict[str, Any] | None = Field(
+        default=None, sa_column=Column(JSONB(none_as_null=True), nullable=True)
+    )
+    max_tool_calls: int
+    max_material_bytes: int
+    max_output_bytes: int
+    timeout_seconds: float
+    successful_tool_calls: int = 0
+    material_bytes_read: int = 0
+    created_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_DRAFT_TIME)
+    completed_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+
+
 class AiGovernanceDraftFindingBinding(SQLModel, table=True):
     __tablename__: ClassVar[str] = "ai_governance_draft_finding_bindings"
     __table_args__ = (

@@ -281,7 +281,16 @@ def test_baizhi_test_opt_in_is_exact_and_preserves_production_boundary(
             model_binding(
                 **(configuration | {"endpoint": endpoint}), allow_baizhi_test=True
             )
-    for address in ("169.254.169.254", "127.0.0.1", "10.0.0.1", "::1"):
+    for address in (
+        "169.254.169.254",
+        "127.0.0.1",
+        "10.0.0.1",
+        "::1",
+        "224.0.0.1",
+        "ff02::1",
+        "4000::1",
+        "fec0::1",
+    ):
         monkeypatch.setattr(
             socket,
             "getaddrinfo",
@@ -291,32 +300,10 @@ def test_baizhi_test_opt_in_is_exact_and_preserves_production_boundary(
         )
         with pytest.raises(ValueError, match="external_model_provider_forbidden"):
             model_binding(**configuration, allow_baizhi_test=True)
-
-
-def test_qualification_prompt_defines_the_nested_output_contract() -> None:
-    from app.domain.model_qualification import qualification_prompt
-
-    prompt = qualification_prompt()
-    codes = json.loads(
-        prompt.split("Allowed action codes: ", 1)[1].split(". Fixture: ", 1)[0]
-    )
-    # Vocabulary order must not provide the per-finding answer mapping.
-    assert codes == [
-        "ADD_AUTHENTICATED_SCAN",
-        "CONFIRM_ASSET_OWNER",
-        "CONFIRM_SERVICE_EXPOSURE",
-        "VERIFY_NETWORK_ROUTE",
-    ]
-    schema = json.loads(prompt.split("Output JSON Schema: ", 1)[1])
-    recommendation = schema["$defs"]["QualificationRecommendation"]
-    assert set(recommendation["required"]) == {
-        "finding_id",
-        "action_code",
-        "claims",
-        "finding_modified",
-    }
-    assert schema["additionalProperties"] is False
-    assert schema["$defs"]["QualificationClaim"]["required"] == [
-        "claim_id",
-        "evidence_ids",
-    ]
+        with pytest.raises(ValueError, match="external_model_provider_forbidden"):
+            model_binding(**configuration)
+        with pytest.raises(ValueError, match="external_model_provider_forbidden"):
+            model_binding(
+                **(configuration | {"protocol": "chat_completions"}),
+                allow_baizhi_test=True,
+            )

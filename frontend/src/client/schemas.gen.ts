@@ -2267,6 +2267,313 @@ export const IPSourceComparisonsPublicSchema = {
     title: 'IPSourceComparisonsPublic'
 } as const;
 
+export const InvestigationFactSchema = {
+    properties: {
+        text: {
+            type: 'string',
+            maxLength: 2000,
+            minLength: 1,
+            title: 'Text'
+        },
+        citation_ids: {
+            items: {
+                type: 'string',
+                maxLength: 255,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 8,
+            minItems: 1,
+            title: 'Citation Ids'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['text', 'citation_ids'],
+    title: 'InvestigationFact'
+} as const;
+
+export const InvestigationMaterialSchema = {
+    properties: {
+        version: {
+            type: 'string',
+            const: 'ai-investigation-material/v1',
+            title: 'Version',
+            default: 'ai-investigation-material/v1'
+        },
+        scope: {
+            '$ref': '#/components/schemas/InvestigationRequest'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        published_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Published At'
+        },
+        report_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Report Id'
+        },
+        report_contract_version: {
+            type: 'string',
+            enum: ['deterministic-report-v1', 'deterministic-report-v2'],
+            title: 'Report Contract Version'
+        },
+        truncated: {
+            type: 'boolean',
+            title: 'Truncated'
+        },
+        items: {
+            items: {
+                '$ref': '#/components/schemas/InvestigationMaterialItem'
+            },
+            type: 'array',
+            maxItems: 28,
+            minItems: 1,
+            title: 'Items'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['scope', 'project_id', 'published_at', 'report_id', 'report_contract_version', 'truncated', 'items'],
+    title: 'InvestigationMaterial'
+} as const;
+
+export const InvestigationMaterialItemSchema = {
+    properties: {
+        citation_id: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Citation Id'
+        },
+        fact: {
+            oneOf: [
+                {
+                    '$ref': '#/components/schemas/LineageSourceNodePublic'
+                },
+                {
+                    '$ref': '#/components/schemas/LineageSnapshotNodePublic'
+                },
+                {
+                    '$ref': '#/components/schemas/LineageComparisonNodePublic'
+                },
+                {
+                    '$ref': '#/components/schemas/LineageFindingNodePublic'
+                }
+            ],
+            title: 'Fact',
+            discriminator: {
+                propertyName: 'kind',
+                mapping: {
+                    COMPARISON: '#/components/schemas/LineageComparisonNodePublic',
+                    FINDING: '#/components/schemas/LineageFindingNodePublic',
+                    SNAPSHOT: '#/components/schemas/LineageSnapshotNodePublic',
+                    SOURCE: '#/components/schemas/LineageSourceNodePublic'
+                }
+            }
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['citation_id', 'fact'],
+    title: 'InvestigationMaterialItem'
+} as const;
+
+export const InvestigationOutputSchema = {
+    properties: {
+        facts: {
+            items: {
+                '$ref': '#/components/schemas/InvestigationFact'
+            },
+            type: 'array',
+            maxItems: 16,
+            minItems: 1,
+            title: 'Facts'
+        },
+        explanations: {
+            items: {
+                type: 'string',
+                maxLength: 2000,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 16,
+            title: 'Explanations'
+        },
+        gaps: {
+            items: {
+                type: 'string',
+                maxLength: 2000,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 16,
+            title: 'Gaps'
+        },
+        next_steps: {
+            items: {
+                type: 'string',
+                maxLength: 2000,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 16,
+            title: 'Next Steps'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['facts', 'explanations', 'gaps', 'next_steps'],
+    title: 'InvestigationOutput'
+} as const;
+
+export const InvestigationPublicSchema = {
+    properties: {
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Run Id'
+        },
+        finding_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Finding Id'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['GENERATING', 'COMPLETED', 'FAILED'],
+            title: 'Status'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        },
+        failure_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Failure Code'
+        },
+        output: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/InvestigationOutput'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        material: {
+            '$ref': '#/components/schemas/InvestigationMaterial'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['resource_id', 'run_id', 'id', 'project_id', 'status', 'created_at', 'completed_at', 'failure_code', 'output', 'material'],
+    title: 'InvestigationPublic'
+} as const;
+
+export const InvestigationRequestSchema = {
+    properties: {
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Run Id'
+        },
+        finding_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Finding Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['resource_id', 'run_id'],
+    title: 'InvestigationRequest'
+} as const;
+
+export const InvestigationsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/InvestigationPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        can_create: {
+            type: 'boolean',
+            title: 'Can Create'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'can_create'],
+    title: 'InvestigationsPublic'
+} as const;
+
 export const LineageComparisonNodePublicSchema = {
     properties: {
         resource_id: {
