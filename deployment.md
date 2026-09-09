@@ -60,6 +60,16 @@ external model providers are not fallback paths.
 
 `FRONTEND_HOST` and `BACKEND_CORS_ORIGINS` are only needed for trusted cross-origin development. The deployed browser uses same-origin `/api`.
 
+### Local synthetic qualification with Baizhi
+
+For the maintainer-approved local test exception only, see [ADR-0014](docs/adr/0014-allow-local-baizhi-synthetic-qualification.md).
+Set `MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST=true`, the exact endpoint
+`https://ai-api-gateway.app.baizhi.cloud/api/openai`, protocol `responses`, and
+the selected OMP model identity and credential in restricted runtime configuration.
+The flag defaults to false. This enables only the fixed synthetic qualification
+fixture; it does not enable public-provider product draft requests. Disable the
+flag and remove the test credential before customer deployment.
+
 ### agent-compose v2608.4.0 upgrade
 
 This runtime derives Project and Run IDs from the project name without the

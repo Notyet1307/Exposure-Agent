@@ -72,6 +72,7 @@ for name in (
     "MODEL_IDENTITY",
     "MODEL_CONFIG_REVISION",
     "MODEL_QUALIFICATION_TIMEOUT_SECONDS",
+    "MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST",
 ):
     expected = service_environment("backend").get(name)
     require_equal("agent-compose-project-init", name, expected)

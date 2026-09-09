@@ -242,7 +242,9 @@ class ModelBinding:
     config_fingerprint: str
 
 
-def _resolve_internal_model_address(hostname: str, port: int | None) -> str:
+def _resolve_model_address(
+    hostname: str, port: int | None, *, allow_public: bool = False
+) -> str:
     try:
         addresses = {ipaddress.ip_address(hostname)}
     except ValueError:
@@ -261,12 +263,16 @@ def _resolve_internal_model_address(hostname: str, port: int | None) -> str:
         not addresses
         or any(address.is_link_local for address in addresses)
         or not all(
-            any(address in network for network in _INTERNAL_MODEL_NETWORKS)
+            address.is_global
+            if allow_public
+            else any(address in network for network in _INTERNAL_MODEL_NETWORKS)
             for address in addresses
         )
     ):
         raise ValueError("external_model_provider_forbidden")
-    return min(addresses, key=lambda address: (address.version, int(address))).compressed
+    return min(
+        addresses, key=lambda address: (address.version, int(address))
+    ).compressed
 
 
 def model_binding(
@@ -277,6 +283,7 @@ def model_binding(
     config_revision: str,
     runner_build_version: str,
     agent_compose_runtime_version: str,
+    allow_baizhi_test: bool = False,
 ) -> ModelBinding:
     endpoint = endpoint.strip().rstrip("/")
     model_identity = model_identity.strip()
@@ -308,7 +315,14 @@ def model_binding(
     ):
         raise ValueError("model_configuration_invalid")
     hostname = parsed.hostname.lower()
-    resolved_address = _resolve_internal_model_address(hostname, port)
+    # ADR-0014: only the fixed synthetic qualifier opts into this endpoint.
+    resolved_address = _resolve_model_address(
+        hostname,
+        port,
+        allow_public=allow_baizhi_test is True
+        and protocol == "responses"
+        and endpoint == "https://ai-api-gateway.app.baizhi.cloud/api/openai",
+    )
     return ModelBinding(
         endpoint=endpoint,
         resolved_address=resolved_address,

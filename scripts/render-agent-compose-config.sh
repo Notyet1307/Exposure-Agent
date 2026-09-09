@@ -7,6 +7,7 @@ set -eu
 
 input=${1:?input template is required}
 output=${2:?output path is required}
+export MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST="${MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST:-false}"
 
 awk '
 function render(text, token, name, at) {

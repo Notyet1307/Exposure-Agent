@@ -240,3 +240,54 @@ def test_loopback_private_and_ipv6_ula_endpoints_remain_allowed(endpoint: str) -
         ).endpoint
         == endpoint
     )
+
+
+def test_baizhi_test_opt_in_is_exact_and_preserves_production_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("43.179.238.22", 443))
+        ],
+    )
+    configuration: dict[str, Any] = {
+        "endpoint": "https://ai-api-gateway.app.baizhi.cloud/api/openai",
+        "model_identity": "feature/gpt-5.6-sol",
+        "protocol": "responses",
+        "config_revision": "local-test",
+        "runner_build_version": "runner-test",
+        "agent_compose_runtime_version": "compose-v1",
+    }
+    with pytest.raises(ValueError, match="external_model_provider_forbidden"):
+        model_binding(**configuration)
+    assert (
+        model_binding(**configuration, allow_baizhi_test=True).resolved_address
+        == "43.179.238.22"
+    )
+    with pytest.raises(ValueError, match="external_model_provider_forbidden"):
+        model_binding(
+            **(configuration | {"protocol": "chat_completions"}),
+            allow_baizhi_test=True,
+        )
+    for endpoint in (
+        "http://ai-api-gateway.app.baizhi.cloud/api/openai",
+        "https://ai-api-gateway.app.baizhi.cloud/other",
+        "https://ai-api-gateway.app.baizhi.cloud.evil.example/api/openai",
+        "https://8.8.8.8/api/openai",
+    ):
+        with pytest.raises(ValueError, match="external_model_provider_forbidden"):
+            model_binding(
+                **(configuration | {"endpoint": endpoint}), allow_baizhi_test=True
+            )
+    for address in ("169.254.169.254", "127.0.0.1", "10.0.0.1", "::1"):
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, address=address, **_kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 443))
+            ],
+        )
+        with pytest.raises(ValueError, match="external_model_provider_forbidden"):
+            model_binding(**configuration, allow_baizhi_test=True)

@@ -31,6 +31,7 @@ def read_model_qualification_status(session: SessionDep) -> ModelQualificationSt
             config_revision=settings.MODEL_CONFIG_REVISION,
             runner_build_version=settings.RUNNER_BUILD_VERSION,
             agent_compose_runtime_version=settings.AGENT_COMPOSE_RUNTIME_VERSION,
+            allow_baizhi_test=settings.MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST,
         )
     except ValueError:
         return ModelQualificationStatus(qualified=False)

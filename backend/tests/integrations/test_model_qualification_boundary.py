@@ -2,6 +2,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -63,8 +65,10 @@ def test_draft_session_agent_has_no_application_or_model_credentials() -> None:
     assert 'command="/usr/bin/true"' in integration
 
 
+@pytest.mark.parametrize("baizhi_test", ["false", "true"])
 def test_renderer_resolves_the_complete_qualification_configuration(
     tmp_path: Path,
+    baizhi_test: str,
 ) -> None:
     rendered = tmp_path / "agent-compose.yml"
     environment = os.environ | {
@@ -81,6 +85,7 @@ def test_renderer_resolves_the_complete_qualification_configuration(
         "MODEL_CONFIG_REVISION": "fixture-v1",
         "MODEL_IDENTITY": "fixture-model",
         "MODEL_QUALIFICATION_TIMEOUT_SECONDS": "17",
+        "MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST": baizhi_test,
         "NETFLOW_MAX_BYTES": "52428800",
         "POSTGRES_DB": "app",
         "POSTGRES_PASSWORD": "postgres-password",
@@ -110,4 +115,7 @@ def test_renderer_resolves_the_complete_qualification_configuration(
     assert "      LLM_API_ENDPOINT: http://model-fixture:8080/v1\n" in qualifier
     assert "        value: model-secret\n" in qualifier
     assert "      MODEL_QUALIFICATION_TIMEOUT_SECONDS: 17\n" in qualifier
+    assert (
+        f'      MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST: "{baizhi_test}"\n' in qualifier
+    )
     assert configuration.count("      NETFLOW_MAX_BYTES: 52428800\n") == 2
