@@ -1429,3 +1429,84 @@ for (const mismatch of ["report", "run", "project", "contract"] as const) {
     ).toHaveCount(0)
   })
 }
+
+for (const width of [1280, 1073, 375]) {
+  test(`keeps graph zoom, directory and adjacent facts usable at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 800 })
+    const dto = publishedLineage({ netflow: "absent", partial: true })
+    await installMocks(page, [dto])
+    await page.goto(lineagePath())
+    const graph = page.getByRole("region", {
+      name: "Lineage graph",
+      exact: true,
+    })
+    const svg = graph.locator("svg")
+    await expect(graph).toBeVisible()
+    const initial = await svg.boundingBox()
+    expect(initial).not.toBeNull()
+    if (width >= 1073) expect((await graph.boundingBox())!.y).toBeLessThan(800)
+    await page.getByRole("button", { name: "Zoom in", exact: true }).click()
+    expect((await svg.boundingBox())!.width).toBeGreaterThan(initial!.width)
+    await page.getByRole("button", { name: "Fit graph", exact: true }).click()
+    const fit = await graph.evaluate((element) => ({
+      width: element.clientWidth,
+      height: element.clientHeight,
+      svgWidth: element.querySelector("svg")!.getBoundingClientRect().width,
+      svgHeight: element.querySelector("svg")!.getBoundingClientRect().height,
+    }))
+    expect(fit.svgWidth).toBeLessThanOrEqual(fit.width + 1)
+    expect(fit.svgHeight).toBeLessThanOrEqual(fit.height + 1)
+    await page.getByRole("button", { name: "Actual size", exact: true }).click()
+    await graph.focus()
+    await page.keyboard.press("ArrowRight")
+    await expect
+      .poll(() => graph.evaluate((element) => element.scrollLeft))
+      .toBeGreaterThan(0)
+    const directory = page.getByText("Node directory", { exact: true })
+    await directory.focus()
+    await page.keyboard.press("Enter")
+    await expect(node(page, "SOURCE", "NETFLOW")).toBeHidden()
+    await page.keyboard.press("Space")
+    await expect(node(page, "SOURCE", "NETFLOW")).toBeVisible()
+    await graph.evaluate((element) => element.scrollTo(0, 0))
+    await graph.scrollIntoViewIfNeeded()
+    const pageScroll = await page.evaluate(() => window.scrollY)
+    await graph.locator("button").filter({ hasText: "NETFLOW" }).click()
+    expect(await page.evaluate(() => window.scrollY)).toBe(pageScroll)
+    await expect(details(page)).toContainText("ABSENT")
+    const panel = page.getByRole("region", {
+      name: "Node reading panel",
+      exact: true,
+    })
+    if (width >= 1073) {
+      const graphBox = (await graph.boundingBox())!
+      const panelBox = (await panel.boundingBox())!
+      expect(panelBox.x).toBeGreaterThanOrEqual(graphBox.x + graphBox.width)
+      expect(panelBox.y).toBeLessThan(graphBox.y + 50)
+    }
+    await node(page, "FINDING", longIp).click()
+    await expect(details(page)).toContainText(occurrenceId)
+    await expect(details(page)).toContainText(observationId)
+    await panel.focus()
+    await page.keyboard.press("ArrowDown")
+    await expect
+      .poll(() => panel.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0)
+    await page
+      .getByRole("combobox", { name: "Language / 语言" })
+      .selectOption("zh-CN")
+    await expect(
+      page.getByRole("region", { name: "节点详情", exact: true }),
+    ).toContainText(occurrenceId)
+    await expect(
+      page.getByRole("button", { name: "适配画布", exact: true }),
+    ).toBeVisible()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+  })
+}
