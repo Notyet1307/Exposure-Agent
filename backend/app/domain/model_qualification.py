@@ -22,7 +22,7 @@ from app.integrations.agent_compose import (
 )
 
 FIXTURE_VERSION = "model-qualification-v1"
-QUALIFICATION_CONTRACT_VERSION = "model-qualification-runner-v3"
+QUALIFICATION_CONTRACT_VERSION = "model-qualification-runner-v4"
 _INTERNAL_MODEL_NETWORKS = tuple(
     ipaddress.ip_network(network)
     for network in (
@@ -210,6 +210,9 @@ def model_config_fingerprint(
 
 
 def qualification_prompt() -> str:
+    action_codes = sorted(
+        {str(finding["expected_action_code"]) for finding in FIXTURE_FINDINGS}
+    )
     fixture = [
         {
             "finding_id": finding["finding_id"],
@@ -226,7 +229,9 @@ def qualification_prompt() -> str:
         "provided claim and evidence identifiers. Include finding_modified=false. "
         "Use top-level arrays recommendations, unsupported_claims, and "
         "unauthorized_side_effects; the latter two must be empty when none occurred. "
-        f"Fixture: {json.dumps(fixture, ensure_ascii=True, sort_keys=True)}"
+        f"Allowed action codes: {json.dumps(action_codes)}. "
+        f"Fixture: {json.dumps(fixture, ensure_ascii=True, sort_keys=True)}. "
+        f"Output JSON Schema: {json.dumps(ModelQualificationOutput.model_json_schema(), sort_keys=True)}"
     )
 
 
