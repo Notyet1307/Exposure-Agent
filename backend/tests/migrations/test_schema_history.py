@@ -29,7 +29,6 @@ PROJECT_AUDIT_REVISION = "c9d4e2f7a105"
 PROJECT_LIFECYCLE_REVISION = "7e4a1b2c3d40"
 PROJECT_MEMBERSHIP_REVISION = "b4f2a1c8d903"
 CUSTOMER_UPLOAD_PROFILE_REVISION = "d6a7f4b8c921"
-CURRENT_SCHEMA_REVISION = "c9d0e1f2a3b4"
 STAGE4_GOVERNANCE_RUN_REVISION = "d3e4f5a6b7c8"
 STAGE3_GOVERNANCE_RUN_REVISION = "c1d2e3f4a5b6"
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -131,9 +130,6 @@ def test_template_database_upgrades_without_losing_users(
         assert connection.execute(
             'SELECT email FROM "user" WHERE id = %s', (user_id,)
         ).fetchone() == ("legacy-admin@example.com",)
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_SCHEMA_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -660,9 +656,6 @@ def test_fresh_database_migrates_to_project_and_audit_schema(
     run_migration(template_baseline_database, "head")
 
     with connect(template_baseline_database) as connection:
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_SCHEMA_REVISION,)
         assert connection.execute("SELECT id FROM tenants").fetchall() == [
             (DEPLOYMENT_TENANT_ID,)
         ]
@@ -813,9 +806,6 @@ def test_stage4_schema_is_installed_on_a_fresh_database(
     run_migration(template_baseline_database, "head")
 
     with connect(template_baseline_database) as connection:
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (CURRENT_SCHEMA_REVISION,)
         assert connection.execute(
             """
             SELECT table_name

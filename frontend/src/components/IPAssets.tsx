@@ -6,6 +6,7 @@ import {
   type IPAssetPublic,
   IpResultsService,
 } from "@/client"
+import { AiInvestigationPanel } from "@/components/AiInvestigationPanel"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Stage4ResultNotice } from "@/components/Stage4ResultNotice"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -114,10 +115,12 @@ function ObservationRows({ detail }: { detail: IPAssetDetailPublic }) {
 function AssetDetailDialog({
   projectId,
   resourceId,
+  publishedRunId,
   onOpenChange,
 }: {
   projectId: string
   resourceId: string | null
+  publishedRunId: string | null
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useI18n()
@@ -135,6 +138,15 @@ function AssetDetailDialog({
       }),
     enabled: resourceId !== null,
   })
+
+  useEffect(() => {
+    if (resourceId && publishedRunId && !search.investigation_run) {
+      void navigate({
+        search: (prev) => ({ ...prev, investigation_run: publishedRunId }),
+        replace: true,
+      })
+    }
+  }, [navigate, publishedRunId, resourceId, search.investigation_run])
 
   useEffect(() => {
     if (resourceId === null || !detailQuery.data) return
@@ -158,7 +170,7 @@ function AssetDetailDialog({
       open={resourceId !== null}
       onOpenChange={(open) => onOpenChange(open)}
     >
-      <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-6xl">
+      <DialogContent className="max-h-[90vh] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-6xl">
         <DialogHeader>
           <DialogTitle>{t("IP Asset details", "IP 资产详情")}</DialogTitle>
           <DialogDescription>
@@ -183,47 +195,58 @@ function AssetDetailDialog({
             </AlertDescription>
           </Alert>
         )}
-        {detailQuery.data && (
-          <div className="space-y-4">
-            <div className="grid gap-3 text-sm md:grid-cols-4">
-              <div>
-                <p className="font-medium">{t("Canonical IP", "规范化 IP")}</p>
-                <p className="font-mono">{detailQuery.data.canonical_ip}</p>
+        {detailQuery.isSuccess &&
+          detailQuery.data.resource_id === resourceId && (
+            <div className="space-y-4">
+              <div className="grid gap-3 text-sm md:grid-cols-4">
+                <div>
+                  <p className="font-medium">
+                    {t("Canonical IP", "规范化 IP")}
+                  </p>
+                  <p className="font-mono">{detailQuery.data.canonical_ip}</p>
+                </div>
+                <div>
+                  <p className="font-medium">{t("Customer side", "客户侧")}</p>
+                  {observationStatus(detailQuery.data.customer_observed, t)}
+                </div>
+                <div>
+                  <p className="font-medium">
+                    {t("CloudAtlas side", "CloudAtlas 侧")}
+                  </p>
+                  {observationStatus(detailQuery.data.cloudatlas_observed, t)}
+                </div>
+                <div>
+                  <p className="font-medium">
+                    {t("Observation count", "观测数量")}
+                  </p>
+                  <p>{detailQuery.data.observation_count}</p>
+                </div>
               </div>
-              <div>
-                <p className="font-medium">{t("Customer side", "客户侧")}</p>
-                {observationStatus(detailQuery.data.customer_observed, t)}
-              </div>
-              <div>
-                <p className="font-medium">
-                  {t("CloudAtlas side", "CloudAtlas 侧")}
-                </p>
-                {observationStatus(detailQuery.data.cloudatlas_observed, t)}
-              </div>
-              <div>
-                <p className="font-medium">
-                  {t("Observation count", "观测数量")}
-                </p>
-                <p>{detailQuery.data.observation_count}</p>
-              </div>
+              {search.investigation_run && resourceId && (
+                <AiInvestigationPanel
+                  key={`${projectId}:${resourceId}:${search.investigation_run}`}
+                  projectId={projectId}
+                  resourceId={resourceId}
+                  runId={search.investigation_run}
+                />
+              )}
+              <ObservationRows detail={detailQuery.data} />
+              <ResultPagination
+                label={t("Asset observations", "资产观测记录")}
+                count={detailQuery.data.observation_count}
+                page={page}
+                pageSize={PAGE_SIZE}
+                onPageChange={(nextPage) =>
+                  navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      asset_page: nextPage > 0 ? nextPage + 1 : undefined,
+                    }),
+                  })
+                }
+              />
             </div>
-            <ObservationRows detail={detailQuery.data} />
-            <ResultPagination
-              label={t("Asset observations", "资产观测记录")}
-              count={detailQuery.data.observation_count}
-              page={page}
-              pageSize={PAGE_SIZE}
-              onPageChange={(nextPage) =>
-                navigate({
-                  search: (prev) => ({
-                    ...prev,
-                    asset_page: nextPage > 0 ? nextPage + 1 : undefined,
-                  }),
-                })
-              }
-            />
-          </div>
-        )}
+          )}
       </DialogContent>
     </Dialog>
   )
@@ -391,6 +414,7 @@ export default function IPAssets({ projectId }: { projectId: string }) {
                           ...prev,
                           asset_id: asset.resource_id,
                           asset_page: undefined,
+                          investigation_run: assets.latest_run_id ?? undefined,
                         }),
                       })
                     }
@@ -418,6 +442,11 @@ export default function IPAssets({ projectId }: { projectId: string }) {
       <AssetDetailDialog
         projectId={projectId}
         resourceId={selectedResourceId}
+        publishedRunId={
+          assetsQuery.isSuccess && !assetsQuery.isFetching
+            ? assets.latest_run_id
+            : null
+        }
         onOpenChange={(open) => {
           if (!open) {
             void navigate({
@@ -425,6 +454,7 @@ export default function IPAssets({ projectId }: { projectId: string }) {
                 ...prev,
                 asset_id: undefined,
                 asset_page: undefined,
+                investigation_run: undefined,
               }),
             })
           }

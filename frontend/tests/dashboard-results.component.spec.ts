@@ -230,6 +230,11 @@ async function installBaseMocks(page: import("@playwright/test").Page) {
 
 async function installResultMocks(page: import("@playwright/test").Page) {
   await page.route(
+    new RegExp(`/api/v1/projects/${projectId}/ai-investigations(?:\\?.*)?$`),
+    (route) =>
+      route.fulfill({ json: { data: [], count: 0, can_create: true } }),
+  )
+  await page.route(
     new RegExp(`/api/v1/projects/${projectId}/ip-assets(?:\\?.*)?$`),
     (route) =>
       route.fulfill({
@@ -360,6 +365,277 @@ test.describe("Project result views", () => {
     await expect(page.getByRole("dialog")).toContainText("Transition · OPENED")
     await expect(page.getByRole("dialog")).toContainText(
       "Confirmed Snapshot references",
+    )
+  })
+
+  test("recovers an uncertain investigation with the same identity and fixed Run after reload", async ({
+    page,
+  }) => {
+    const runId = findingSummary.latest_occurrence_run_id
+    const requests: { key: string; body: unknown }[] = []
+    const investigation = {
+      id: "e0000000-0000-0000-0000-000000000001",
+      project_id: projectId,
+      resource_id: resourceId,
+      run_id: runId,
+      finding_id: null,
+      status: "GENERATING",
+      created_at: "2026-09-09T12:00:00Z",
+      completed_at: null,
+      failure_code: "investigation_session_unknown",
+      output: null,
+      material: {
+        version: "ai-investigation-material/v1",
+        project_id: projectId,
+        scope: { resource_id: resourceId, run_id: runId, finding_id: null },
+        published_at: "2026-07-30T12:00:00Z",
+        report_id: "report-1",
+        report_contract_version: "deterministic-report-v1",
+        truncated: false,
+        items: [],
+      },
+    }
+    await page.route(
+      `**/api/v1/projects/${projectId}/ai-investigations**`,
+      async (route) => {
+        if (route.request().method() === "POST") {
+          requests.push({
+            key: route.request().headers()["idempotency-key"],
+            body: route.request().postDataJSON(),
+          })
+          if (requests.length === 1) return route.abort()
+          return route.fulfill({ json: investigation })
+        }
+        const url = new URL(route.request().url())
+        return route.fulfill({
+          json: url.pathname.endsWith("/ai-investigations")
+            ? { data: [], count: 0, can_create: true }
+            : investigation,
+        })
+      },
+    )
+    await page
+      .getByRole("link", { name: "Current assets", exact: true })
+      .click()
+    await page.getByRole("button", { name: "View details" }).click()
+    await page.getByRole("button", { name: "Investigate this asset" }).click()
+    await expect(page.getByText("Start not yet confirmed")).toBeVisible()
+    await page.route(
+      new RegExp(`/api/v1/projects/${projectId}/ip-assets(?:\\?.*)?$`),
+      (route) =>
+        route.fulfill({
+          json: {
+            data: [],
+            count: 0,
+            latest_run_id: "60000000-0000-0000-0000-000000000099",
+            latest_run_completed_at: "2026-09-09T13:00:00Z",
+            compatible: true,
+            compatibility_code: null,
+          },
+        }),
+    )
+    await page.reload()
+    await page.getByRole("button", { name: "Check previous request" }).click()
+    await expect(
+      page.getByRole("region", { name: "AI investigation" }),
+    ).toContainText("Awaiting a confirmed result.")
+    expect(requests).toHaveLength(2)
+    expect(requests[0].key).toBeTruthy()
+    expect(requests[1]).toEqual(requests[0])
+    expect(requests[1].body).toEqual({
+      resource_id: resourceId,
+      run_id: runId,
+      finding_id: null,
+    })
+    await expect(
+      page.getByRole("region", { name: "AI investigation" }),
+    ).not.toContainText("60000000-0000-0000-0000-000000000099")
+    await page.getByRole("button", { name: "Check previous request" }).click()
+    await expect.poll(() => requests.length).toBe(3)
+    expect(requests[2]).toEqual(requests[0])
+    const citationId = `comparison/${runId}/${resourceId}`
+    const completed = {
+      ...investigation,
+      status: "COMPLETED",
+      completed_at: "2026-09-09T13:01:00Z",
+      failure_code: null,
+      material: {
+        ...investigation.material,
+        items: [
+          {
+            citation_id: citationId,
+            fact: { kind: "COMPARISON", resource_id: resourceId },
+          },
+        ],
+      },
+      output: {
+        facts: [
+          {
+            text: `Published comparison for ${resourceId}; reference ${"a".repeat(128)}.`,
+            citation_ids: [citationId],
+          },
+        ],
+        explanations: [],
+        gaps: [],
+        next_steps: [],
+      },
+    }
+    await page.route(
+      `**/api/v1/projects/${projectId}/ai-investigations**`,
+      (route) =>
+        route.fulfill({
+          json: new URL(route.request().url()).pathname.endsWith(
+            "/ai-investigations",
+          )
+            ? { data: [completed], count: 1, can_create: true }
+            : completed,
+        }),
+    )
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.reload()
+    await expect(
+      page.getByRole("heading", { name: "Cited facts" }),
+    ).toBeVisible()
+    const dialog = page.getByRole("dialog")
+    expect(
+      await dialog.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth + 1,
+      ),
+    ).toBe(true)
+    const citation = dialog.locator("summary").filter({ hasText: citationId })
+    await citation.focus()
+    await page.keyboard.press("Enter")
+    await expect(citation.locator("..").locator("pre")).toContainText(
+      resourceId,
+    )
+  })
+
+  test("keeps Viewer investigation citations readable and rejects cross-project results", async ({
+    page,
+  }) => {
+    await page.route(
+      new RegExp(`/api/v1/projects/${projectId}/findings\\?status=OPEN.*$`),
+      (route) =>
+        route.fulfill({
+          json: {
+            data: [findingSummary],
+            count: 1,
+            status: "OPEN",
+            latest_run_id: "60000000-0000-0000-0000-000000000099",
+            latest_run_completed_at: "2026-09-09T12:00:00Z",
+            compatible: true,
+            compatibility_code: null,
+          },
+        }),
+    )
+    const citationId = `comparison/${findingSummary.latest_occurrence_run_id}/${resourceId}`
+    let wrongProject = false
+    const investigation = {
+      id: "e0000000-0000-0000-0000-000000000002",
+      project_id: projectId,
+      resource_id: resourceId,
+      run_id: findingSummary.latest_occurrence_run_id,
+      finding_id: findingId,
+      status: "COMPLETED",
+      created_at: "2026-09-09T12:00:00Z",
+      completed_at: "2026-09-09T12:01:00Z",
+      failure_code: null,
+      output: {
+        facts: [
+          {
+            text: "Customer-side observation is present.",
+            citation_ids: [citationId],
+          },
+        ],
+        explanations: ["Ownership requires confirmation."],
+        gaps: ["No owner record."],
+        next_steps: ["Ask the asset owner."],
+      },
+      material: {
+        version: "ai-investigation-material/v1",
+        project_id: projectId,
+        scope: {
+          resource_id: resourceId,
+          run_id: findingSummary.latest_occurrence_run_id,
+          finding_id: findingId,
+        },
+        published_at: "2026-07-30T12:00:00Z",
+        report_id: "report-1",
+        report_contract_version: "deterministic-report-v2",
+        truncated: false,
+        items: [{ citation_id: citationId, fact: { customer_observed: true } }],
+      },
+    }
+    await page.route(
+      `**/api/v1/projects/${projectId}/ai-investigations**`,
+      async (route) => {
+        expect(route.request().method()).toBe("GET")
+        const result = {
+          ...investigation,
+          project_id: wrongProject ? "other-project" : projectId,
+        }
+        return route.fulfill({
+          json: new URL(route.request().url()).pathname.endsWith(
+            "/ai-investigations",
+          )
+            ? { data: [result], count: 1, can_create: false }
+            : result,
+        })
+      },
+    )
+    await page.getByRole("link", { name: "Findings", exact: true }).click()
+    await page.getByRole("button", { name: "View details" }).click()
+    const panel = page.getByRole("region", { name: "AI investigation" })
+    await expect(panel).toContainText("Customer-side observation is present.")
+    expect(new URL(page.url()).searchParams.get("investigation_run")).toBe(
+      findingSummary.latest_occurrence_run_id,
+    )
+    await page.goto(
+      `/?project=${projectId}&view=findings&finding_id=${findingId}`,
+    )
+    await expect(panel).toContainText("Customer-side observation is present.")
+    expect(new URL(page.url()).searchParams.get("investigation_run")).toBe(
+      findingSummary.latest_occurrence_run_id,
+    )
+    await expect(panel).toContainText("Read-only access.")
+    await expect(
+      panel.getByRole("button", { name: "Investigate this asset" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("heading", { name: "Explanations to verify" }),
+    ).toBeVisible()
+    await expect(
+      panel.getByRole("heading", { name: "Information gaps" }),
+    ).toBeVisible()
+    await expect(
+      panel.getByRole("heading", { name: "Next steps" }),
+    ).toBeVisible()
+    await expect(panel).toContainText(citationId)
+    await page.setViewportSize({ width: 390, height: 844 })
+    const citation = panel.locator("summary").filter({ hasText: citationId })
+    await citation.focus()
+    await page.keyboard.press("Enter")
+    await expect(panel.locator("pre")).toContainText(
+      '"customer_observed": true',
+    )
+    await page
+      .getByRole("dialog")
+      .getByRole("combobox", { name: "Language / 语言" })
+      .selectOption("zh-CN")
+    await expect(
+      page
+        .getByRole("region", { name: "AI 核查" })
+        .getByRole("heading", { name: "待验证解释" }),
+    ).toBeVisible()
+    await page
+      .getByRole("dialog")
+      .getByRole("combobox", { name: "Language / 语言" })
+      .selectOption("en")
+    wrongProject = true
+    await page.reload()
+    await expect(panel).toContainText("Investigation could not be read")
+    await expect(panel).not.toContainText(
+      "Customer-side observation is present.",
     )
   })
 

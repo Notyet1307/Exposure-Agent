@@ -1,8 +1,13 @@
+import socket
+import uuid
+
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlmodel import Session
 
+from app.api.routes.governance_reports import _require_current_model_binding
 from app.core.config import settings
 from app.domain.model_qualification import (
     QualificationEvaluation,
@@ -11,15 +16,34 @@ from app.domain.model_qualification import (
 )
 
 
+@pytest.mark.parametrize("baizhi_test", [False, True])
 def test_status_fails_closed_and_invalidates_on_configuration_drift(
     client: TestClient,
     superuser_token_headers: dict[str, str],
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
+    baizhi_test: bool,
 ) -> None:
-    monkeypatch.setattr(settings, "MODEL_API_ENDPOINT", "http://127.0.0.1/v1")
+    monkeypatch.setattr(settings, "MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST", baizhi_test)
+    monkeypatch.setattr(
+        settings,
+        "MODEL_API_ENDPOINT",
+        "https://ai-api-gateway.app.baizhi.cloud/api/openai"
+        if baizhi_test
+        else "http://127.0.0.1/v1",
+    )
+    if baizhi_test:
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("43.179.238.22", 443))
+            ],
+        )
     monkeypatch.setattr(settings, "MODEL_IDENTITY", "customer-model")
-    monkeypatch.setattr(settings, "MODEL_API_PROTOCOL", "chat_completions")
+    monkeypatch.setattr(
+        settings, "MODEL_API_PROTOCOL", "responses" if baizhi_test else "chat_completions"
+    )
     monkeypatch.setattr(settings, "MODEL_CONFIG_REVISION", "v1")
     monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "runner-v1")
     monkeypatch.setattr(settings, "AGENT_COMPOSE_RUNTIME_VERSION", "compose-v1")
@@ -44,7 +68,7 @@ def test_status_fails_closed_and_invalidates_on_configuration_drift(
             runner_build_version=settings.RUNNER_BUILD_VERSION,
             agent_compose_runtime_version=settings.AGENT_COMPOSE_RUNTIME_VERSION,
         ),
-        agent_compose_run_id="d" * 64,
+        agent_compose_run_id=uuid.uuid4().hex * 2,
         evaluation=QualificationEvaluation(
             fixture_version="model-qualification-v1",
             status="PASS",
@@ -62,6 +86,20 @@ def test_status_fails_closed_and_invalidates_on_configuration_drift(
         f"{settings.API_V1_STR}/model-qualification/status",
         headers=superuser_token_headers,
     ).json() == {"qualified": True}
+
+    if baizhi_test:
+        # A synthetic qualification PASS never admits public product drafts.
+        with pytest.raises(HTTPException) as error:
+            _require_current_model_binding(session=db)
+        assert error.value.status_code == 409
+        assert isinstance(error.value.detail, dict)
+        assert error.value.detail["code"] == "model_not_qualified"
+        monkeypatch.setattr(settings, "MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST", False)
+        assert client.get(
+            f"{settings.API_V1_STR}/model-qualification/status",
+            headers=superuser_token_headers,
+        ).json() == {"qualified": False}
+        monkeypatch.setattr(settings, "MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST", True)
 
     monkeypatch.setattr(settings, "MODEL_CONFIG_REVISION", "v2")
     assert client.get(

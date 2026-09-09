@@ -40,6 +40,7 @@ export type WorkspaceSearch = {
   findings_page?: number
   finding_status?: "OPEN" | "CLOSED"
   finding_id?: string
+  investigation_run?: string
   occurrence_page?: number
   transition_page?: number
 }
@@ -89,6 +90,10 @@ export function validateWorkspaceSearch(
         : undefined,
     finding_id:
       typeof search.finding_id === "string" ? search.finding_id : undefined,
+    investigation_run:
+      typeof search.investigation_run === "string"
+        ? search.investigation_run
+        : undefined,
     occurrence_page: pageNumber(search.occurrence_page, 20),
     transition_page: pageNumber(search.transition_page, 20),
   }

@@ -22,7 +22,7 @@ from app.integrations.agent_compose import (
 )
 
 FIXTURE_VERSION = "model-qualification-v1"
-QUALIFICATION_CONTRACT_VERSION = "model-qualification-runner-v3"
+QUALIFICATION_CONTRACT_VERSION = "model-qualification-runner-v4"
 _INTERNAL_MODEL_NETWORKS = tuple(
     ipaddress.ip_network(network)
     for network in (
@@ -210,6 +210,9 @@ def model_config_fingerprint(
 
 
 def qualification_prompt() -> str:
+    action_codes = sorted(
+        {str(finding["expected_action_code"]) for finding in FIXTURE_FINDINGS}
+    )
     fixture = [
         {
             "finding_id": finding["finding_id"],
@@ -226,7 +229,9 @@ def qualification_prompt() -> str:
         "provided claim and evidence identifiers. Include finding_modified=false. "
         "Use top-level arrays recommendations, unsupported_claims, and "
         "unauthorized_side_effects; the latter two must be empty when none occurred. "
-        f"Fixture: {json.dumps(fixture, ensure_ascii=True, sort_keys=True)}"
+        f"Allowed action codes: {json.dumps(action_codes)}. "
+        f"Fixture: {json.dumps(fixture, ensure_ascii=True, sort_keys=True)}. "
+        f"Output JSON Schema: {json.dumps(ModelQualificationOutput.model_json_schema(), sort_keys=True)}"
     )
 
 
@@ -242,7 +247,9 @@ class ModelBinding:
     config_fingerprint: str
 
 
-def _resolve_internal_model_address(hostname: str, port: int | None) -> str:
+def _resolve_model_address(
+    hostname: str, port: int | None, *, allow_public: bool = False
+) -> str:
     try:
         addresses = {ipaddress.ip_address(hostname)}
     except ValueError:
@@ -255,18 +262,29 @@ def _resolve_internal_model_address(hostname: str, port: int | None) -> str:
                     type=socket.SOCK_STREAM,
                 )
             }
-        except (OSError, ValueError):
+        except OSError, ValueError:
             raise ValueError("model_endpoint_unresolvable") from None
     if (
         not addresses
         or any(address.is_link_local for address in addresses)
         or not all(
-            any(address in network for network in _INTERNAL_MODEL_NETWORKS)
+            (
+                address.is_global
+                and not address.is_multicast
+                and not address.is_reserved
+                and not (
+                    isinstance(address, ipaddress.IPv6Address) and address.is_site_local
+                )
+            )
+            if allow_public
+            else any(address in network for network in _INTERNAL_MODEL_NETWORKS)
             for address in addresses
         )
     ):
         raise ValueError("external_model_provider_forbidden")
-    return min(addresses, key=lambda address: (address.version, int(address))).compressed
+    return min(
+        addresses, key=lambda address: (address.version, int(address))
+    ).compressed
 
 
 def model_binding(
@@ -277,6 +295,7 @@ def model_binding(
     config_revision: str,
     runner_build_version: str,
     agent_compose_runtime_version: str,
+    allow_baizhi_test: bool = False,
 ) -> ModelBinding:
     endpoint = endpoint.strip().rstrip("/")
     model_identity = model_identity.strip()
@@ -308,7 +327,15 @@ def model_binding(
     ):
         raise ValueError("model_configuration_invalid")
     hostname = parsed.hostname.lower()
-    resolved_address = _resolve_internal_model_address(hostname, port)
+    # An external test host must never fall back to the private-network policy.
+    allow_public = (
+        allow_baizhi_test is True
+        and protocol == "responses"
+        and endpoint == "https://ai-api-gateway.app.baizhi.cloud/api/openai"
+    )
+    if hostname.rstrip(".") == "ai-api-gateway.app.baizhi.cloud" and not allow_public:
+        raise ValueError("external_model_provider_forbidden")
+    resolved_address = _resolve_model_address(hostname, port, allow_public=allow_public)
     return ModelBinding(
         endpoint=endpoint,
         resolved_address=resolved_address,
@@ -443,7 +470,7 @@ def execute_model_qualification(
                     if run.output is None:
                         raise ValueError("missing output")
                     parsed = QualificationRunResult.model_validate_json(run.output)
-                except (ValidationError, ValueError):
+                except ValidationError, ValueError:
                     evaluation = _failed_evaluation("model_output_invalid")
                 else:
                     if (

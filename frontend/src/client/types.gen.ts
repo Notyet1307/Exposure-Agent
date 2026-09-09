@@ -369,6 +369,62 @@ export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
 
+export type InvestigationFact = {
+    text: string;
+    citation_ids: Array<(string)>;
+};
+
+export type InvestigationMaterial = {
+    version?: "ai-investigation-material/v1";
+    scope: InvestigationRequest;
+    project_id: string;
+    published_at: string;
+    report_id: string;
+    report_contract_version: 'deterministic-report-v1' | 'deterministic-report-v2';
+    truncated: boolean;
+    items: Array<InvestigationMaterialItem>;
+};
+
+export type InvestigationMaterialItem = {
+    citation_id: string;
+    fact: (LineageSourceNodePublic | LineageSnapshotNodePublic | LineageComparisonNodePublic | LineageFindingNodePublic);
+};
+
+export type InvestigationOutput = {
+    facts: Array<InvestigationFact>;
+    explanations: Array<(string)>;
+    gaps: Array<(string)>;
+    next_steps: Array<(string)>;
+};
+
+export type InvestigationPublic = {
+    resource_id: string;
+    run_id: string;
+    finding_id?: (string | null);
+    id: string;
+    project_id: string;
+    status: 'GENERATING' | 'COMPLETED' | 'FAILED';
+    created_at: string;
+    completed_at: (string | null);
+    failure_code: (string | null);
+    output: (InvestigationOutput | null);
+    material: InvestigationMaterial;
+};
+
+export type status3 = 'GENERATING' | 'COMPLETED' | 'FAILED';
+
+export type InvestigationRequest = {
+    resource_id: string;
+    run_id: string;
+    finding_id?: (string | null);
+};
+
+export type InvestigationsPublic = {
+    data: Array<InvestigationPublic>;
+    count: number;
+    can_create: boolean;
+};
+
 export type IPAssetDetailPublic = {
     id: string;
     resource_id: string;
@@ -738,6 +794,31 @@ export type ValidationError = {
         [key: string]: unknown;
     };
 };
+
+export type AiInvestigationsCreateAiInvestigationData = {
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: InvestigationRequest;
+};
+
+export type AiInvestigationsCreateAiInvestigationResponse = (InvestigationPublic);
+
+export type AiInvestigationsReadAiInvestigationsData = {
+    findingId?: (string | null);
+    limit?: number;
+    projectId: string;
+    resourceId: string;
+    runId: string;
+};
+
+export type AiInvestigationsReadAiInvestigationsResponse = (InvestigationsPublic);
+
+export type AiInvestigationsReadAiInvestigationData = {
+    investigationId: string;
+    projectId: string;
+};
+
+export type AiInvestigationsReadAiInvestigationResponse = (InvestigationPublic);
 
 export type AuditEventsReadAuditEventsData = {
     limit?: number;

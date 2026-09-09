@@ -191,6 +191,11 @@ class AgentComposeClient:
             client_request_id=client_request_id,
         )
 
+    def expected_ai_investigation_run_id(self, client_request_id: str) -> str:
+        return self._expected_run_id(
+            agent_name="ai-investigation", client_request_id=client_request_id
+        )
+
     def get_run(self, run_id: str) -> AgentComposeRunStart | None:
         body = self._request(
             _GET_RUN_PATH,
@@ -299,6 +304,21 @@ class AgentComposeClient:
             # bounded model handoff is a downstream capability, so this Agent
             # receives neither application credentials nor draft input.
             command="/usr/bin/true",
+        )
+
+    def start_ai_investigation(
+        self, *, client_request_id: str, investigation_id: str
+    ) -> AgentComposeRunStart:
+        return self._start_run(
+            agent_name="ai-investigation",
+            client_request_id=client_request_id,
+            environment={
+                "AI_INVESTIGATION_ID": investigation_id,
+                "AI_INVESTIGATION_RUN_ID": self.expected_ai_investigation_run_id(
+                    client_request_id
+                ),
+            },
+            command="/app/.venv/bin/python -m app.ai_investigation_runner",
         )
 
     def _start_run(

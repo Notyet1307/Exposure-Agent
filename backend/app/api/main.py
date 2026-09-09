@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    ai_investigations,
     audit_events,
     cloudatlas_source_instances,
     governance_reports,
@@ -24,3 +25,4 @@ api_router.include_router(ip_results.router)
 api_router.include_router(model_qualification.router)
 api_router.include_router(project_memberships.router)
 api_router.include_router(audit_events.router)
+api_router.include_router(ai_investigations.router)

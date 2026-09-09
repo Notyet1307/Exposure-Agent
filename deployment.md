@@ -60,6 +60,69 @@ external model providers are not fallback paths.
 
 `FRONTEND_HOST` and `BACKEND_CORS_ORIGINS` are only needed for trusted cross-origin development. The deployed browser uses same-origin `/api`.
 
+### Local synthetic qualification with Baizhi
+
+For the maintainer-approved local test exception only, see [ADR-0014](docs/adr/0014-allow-local-baizhi-synthetic-qualification.md).
+Set `MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST=true`, the exact endpoint
+`https://ai-api-gateway.app.baizhi.cloud/api/openai`, protocol `responses`, and
+the selected OMP model identity and credential in restricted runtime configuration.
+The flag defaults to false. This enables only the fixed synthetic qualification
+fixture; it does not enable public-provider product draft requests. Disable the
+flag and remove the test credential before customer deployment.
+
+### Local synthetic single-asset investigation
+
+[ADR-0015](docs/adr/0015-allow-bounded-synthetic-ai-business-tasks.md) permits a
+separate, default-closed local synthetic business path. Qualification PASS alone
+does not permit business material to leave the deployment. Enable
+`AI_INVESTIGATION_ALLOW_BAIZHI_TEST` only for the approved local synthetic
+deployment, with the exact ADR-0014 endpoint and Responses protocol. Keep the
+existing application security mode and private-model production default.
+
+`AI_INVESTIGATION_SYNTHETIC_MANIFEST` is a single-line JSON array supplied by the
+deployment operator, never by an API request or model. Each approved entry has
+`project_id`, `run_id`, `resource_id`, nullable `finding_id`, `material_sha256`,
+and `sources`. Each present source has `source_type`, `input_id`, `snapshot_id`,
+and `content_sha256`; include all present sources sorted by `source_type`.
+Absent NetFlow remains explicit in the material rather than a fabricated
+snapshot. Asset-level and Finding-level scopes are separate permissions.
+
+After independently confirming that every input and derived field is synthetic,
+use `app.domain.ai_investigations.prepare_material` with an authorized Project,
+an `InvestigationRequest`, and a fresh read-only REPEATABLE READ Session to
+obtain the exact material and source identities. `material_hash` computes its
+SHA-256 over sorted-key UTF-8 JSON, `ensure_ascii=False`, `allow_nan=False`,
+and separators `(',', ':')`. This reader does not call a model or grant
+permission. Install only the reviewed entries in restricted runtime
+configuration and apply them to both backend and the `ai-investigation` agent.
+New uploads, changed sources or different scopes require explicit review and
+a new exact entry; a permitted project name or ID is insufficient.
+
+The deployment fixes budgets before execution:
+
+| Setting | Default |
+| --- | --- |
+| `AI_INVESTIGATION_TIMEOUT_SECONDS` | 120 seconds |
+| `AI_INVESTIGATION_MAX_TOOL_CALLS` | 4 |
+| `AI_INVESTIGATION_MAX_MATERIAL_BYTES` | 65536 cumulative bytes |
+| `AI_INVESTIGATION_MAX_OUTPUT_BYTES` | 32768 bytes |
+
+The supervisor receives database credentials; the Pi child receives only an
+authenticated local bridge, with the single packaged `read_asset_facts` tool.
+Do not add built-in tools, arbitrary extensions or Artifact mounts to this agent.
+Build backend and Runner together, apply migrations, install the agent
+definition, and qualify the current model binding before enabling creation.
+Run controls, credential changes and a deployment switch retain their normal
+authorization and drain/backup requirements.
+
+Verify a Web-triggered investigation reaches a persisted terminal result, its
+citations resolve within the fixed material, replay does not launch another
+Session, Viewer creation is refused, and published facts remain unchanged.
+An unknown or unreachable Session is not success; reading/replaying its saved
+identity must not start a replacement. Only a confirmed failure permits an
+explicit new attempt, preserving the failed record. Disable the business and
+qualification exceptions and remove test credentials after local acceptance.
+
 ### agent-compose v2608.4.0 upgrade
 
 This runtime derives Project and Run IDs from the project name without the

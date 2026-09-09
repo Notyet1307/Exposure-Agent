@@ -128,6 +128,10 @@ def main() -> int:
             agent_compose_runtime_version=_required_environment(
                 "AGENT_COMPOSE_RUNTIME_VERSION"
             ),
+            allow_baizhi_test=os.environ.get(
+                "MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST", "false"
+            ).lower()
+            == "true",
         )
     except OSError:
         sys.stderr.write(

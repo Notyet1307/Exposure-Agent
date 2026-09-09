@@ -23,6 +23,7 @@ def main() -> int:
             config_revision=settings.MODEL_CONFIG_REVISION,
             runner_build_version=settings.RUNNER_BUILD_VERSION,
             agent_compose_runtime_version=settings.AGENT_COMPOSE_RUNTIME_VERSION,
+            allow_baizhi_test=settings.MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST,
         )
         if not settings.MODEL_API_KEY.get_secret_value():
             raise ValueError("model_configuration_invalid")
