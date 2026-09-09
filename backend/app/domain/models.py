@@ -2838,6 +2838,16 @@ class AiInvestigation(SQLModel, table=True):
             "AND material_bytes_read >= 0 AND material_bytes_read <= max_material_bytes",
             name="ck_ai_investigations_budgets",
         ),
+        CheckConstraint(
+            "(parent_investigation_id IS NULL AND question IS NULL) OR "
+            "(parent_investigation_id IS NOT NULL AND question IS NOT NULL "
+            "AND length(btrim(question)) BETWEEN 1 AND 2000)",
+            name="ck_ai_investigations_question",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(tool_reads) = 'array'",
+            name="ck_ai_investigations_reads",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -2846,6 +2856,13 @@ class AiInvestigation(SQLModel, table=True):
     resource_id: uuid.UUID = Field(index=True)
     run_id: uuid.UUID = Field(index=True)
     finding_id: uuid.UUID | None = Field(default=None)
+    parent_investigation_id: uuid.UUID | None = Field(
+        default=None, foreign_key="ai_investigations.id", ondelete="RESTRICT"
+    )
+    question: str | None = Field(default=None, max_length=2000)
+    tool_reads: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSONB, nullable=False)
+    )
     initiated_by: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
     idempotency_key: str = Field(max_length=255)
     config_fingerprint: str = Field(max_length=64)

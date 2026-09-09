@@ -98,6 +98,31 @@ configuration and apply them to both backend and the `ai-investigation` agent.
 New uploads, changed sources or different scopes require explicit review and
 a new exact entry; a permitted project name or ID is insufficient.
 
+Historical reads additionally require a separate exact manifest entry for each
+returned historical Run, using the same Resource and `finding_id: null`. The
+reader selects at most five published, resource-associated Runs strictly before
+the fixed base publication time; a larger window is explicitly marked truncated.
+
+An optional `cloudatlas_reads` array on the base entry authorizes exact live
+synthetic results. Each element contains `source_instance_id`, `instance_id`,
+`capset_id`, `fingerprint`, and `content_sha256`. The hash covers the complete
+`ai-cloudatlas-asset/v1` content: fixed Project/Resource/base Run and publication
+time, pinned source identity/method/fingerprint, canonical IP, `FOUND` or
+`NO_DATA`, and matching `{id, ip, status}` rows sorted by ID. Only generated
+citation IDs and query timestamps are excluded; timestamps are still persisted
+and shown. A no-data result needs its own exact approval. Never enroll a live
+customer query as synthetic or approve all responses from a project.
+
+In this public synthetic mode, free-text followups also need explicit deployment
+approval: the base entry's optional `question_sha256s` contains at most 16 SHA-256
+hex digests of the approved question text after trimming leading/trailing
+whitespace and encoding as UTF-8. An absent list permits no followups. Every
+current and ancestor question is rechecked before sending conversation context;
+prior historical/live material permissions are rechecked too. Revocation blocks
+new model execution but does not hide saved results. Never approve real customer
+text or secrets as synthetic. The existing private-model path does not require
+this synthetic manifest.
+
 The deployment fixes budgets before execution:
 
 | Setting | Default |
@@ -107,8 +132,13 @@ The deployment fixes budgets before execution:
 | `AI_INVESTIGATION_MAX_MATERIAL_BYTES` | 65536 cumulative bytes |
 | `AI_INVESTIGATION_MAX_OUTPUT_BYTES` | 32768 bytes |
 
-The supervisor receives database credentials; the Pi child receives only an
-authenticated local bridge, with the single packaged `read_asset_facts` tool.
+The supervisor receives database and CloudAtlas credentials; the Pi child receives
+only an authenticated local bridge with the packaged `read_asset_facts`,
+`read_asset_history`, and `read_cloudatlas_asset` tools. All accept exactly `{}`.
+Each round first reads the fixed base; the model may then select supplemental
+tools. CloudAtlas reuses only `ListIPAssets` on the source pinned to the base,
+with at most five pages of 100 rows, filtering normalized IPs before any model
+return. Incomplete pagination and exceeded bounds never produce partial success.
 Do not add built-in tools, arbitrary extensions or Artifact mounts to this agent.
 Build backend and Runner together, apply migrations, install the agent
 definition, and qualify the current model binding before enabling creation.
@@ -118,6 +148,17 @@ authorization and drain/backup requirements.
 Verify a Web-triggered investigation reaches a persisted terminal result, its
 citations resolve within the fixed material, replay does not launch another
 Session, Viewer creation is refused, and published facts remain unchanged.
+Followups accept only a question and derive Project/Resource/base Run/Finding
+from their completed parent. There are at most eight turns including the initial
+investigation; each question is at most 2000 characters. Prior questions/answers
+count toward the material budget and are context, not new evidence. Every tool
+attempt is saved before I/O and sealed before its result is returned, including
+source/scope/query times and failures. Successful citations from that round alone
+can support facts; no-data and failed optional queries remain explicit gaps.
+Also verify a real historical/live followup, no-data and upstream-failure reads,
+same-parent replay across browser reload, and readable previous results.
+Confirmed API request rejections release the pending browser operation so the
+question can be corrected; network failures and timeouts retain its replay key.
 An unknown or unreachable Session is not success; reading/replaying its saved
 identity must not start a replacement. Only a confirmed failure permits an
 explicit new attempt, preserving the failed record. Disable the business and

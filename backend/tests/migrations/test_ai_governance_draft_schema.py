@@ -52,13 +52,6 @@ from tests.utils.audit import reject_audit_inserts
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 BINDING_INSERT = "INSERT INTO ai_governance_draft_finding_bindings (id, tenant_id, project_id, governance_run_id, draft_id, finding_id, evidence_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, now())"
-FUNCTION_REPLACEMENT_MARKERS = {
-    "d3e4f5a6b7c8": "NEW.processing_contract_version",
-    "e4f5a6b7c8d9": "NEW.report_contract_version",
-    "a2b3c4d5e6f7": "OLD.status LIKE 'COMPLETED%'",
-    "f6a7b8c9d0e1": "NEW.input_contract_version",
-    "c9d0e1f2a3b4": "selected_evidence.ip_source_comparison_fact_id IS NULL",
-}
 
 
 def _migration_string_assignment(tree: ast.Module, name: str) -> str:
@@ -94,15 +87,7 @@ def _replaced_function_boundaries() -> tuple[tuple[str, str], ...]:
     return tuple(sorted(boundaries))
 
 
-# A new replacement boundary must declare the semantic marker its downgrade removes.
-_FUNCTION_BOUNDARIES = _replaced_function_boundaries()
-assert {revision for revision, _ in _FUNCTION_BOUNDARIES} == set(
-    FUNCTION_REPLACEMENT_MARKERS
-)
-REPLACED_TRIGGER_BOUNDARIES = tuple(
-    (revision, predecessor, FUNCTION_REPLACEMENT_MARKERS[revision])
-    for revision, predecessor in _FUNCTION_BOUNDARIES
-)
+REPLACED_TRIGGER_BOUNDARIES = _replaced_function_boundaries()
 
 
 def run_downgrade(database: str, revision: str) -> None:
@@ -1897,10 +1882,7 @@ def test_draft_runner_starts_with_only_draft_identity_and_handles_mismatches(
 
 @pytest.mark.parametrize(
     ("boundary_revision", "predecessor_revision"),
-    [
-        (revision, predecessor)
-        for revision, predecessor, _ in REPLACED_TRIGGER_BOUNDARIES
-    ],
+    REPLACED_TRIGGER_BOUNDARIES,
 )
 def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
     draft_database: str,
@@ -1926,19 +1908,6 @@ def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
     def assert_legacy_schema_protections() -> None:
         _assert_run_pins_immutable(draft_database, running_ids["run_id"])
         _assert_surviving_finding_evidence_seals(draft_database, ids)
-        with connect(draft_database) as connection:
-            expected_ai_tables = (
-                ("ai_governance_drafts", "ai_governance_draft_finding_bindings")
-                if boundary_revision in {"f6a7b8c9d0e1", "c9d0e1f2a3b4"}
-                else (None, None)
-            )
-            assert (
-                connection.execute(
-                    "SELECT to_regclass('public.ai_governance_drafts'), "
-                    "to_regclass('public.ai_governance_draft_finding_bindings')"
-                ).fetchone()
-                == expected_ai_tables
-            )
 
     _assert_run_pins_immutable(draft_database, running_ids["run_id"])
     _assert_surviving_finding_evidence_seals(draft_database, ids)

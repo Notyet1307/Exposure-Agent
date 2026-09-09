@@ -30,7 +30,7 @@
 - agent-compose Session 创建、终态查询、同 Session 恢复和未知状态 fail-closed；
 - 客户内部 OpenAI-compatible 模型经 Pi 使用固定非客户 fixture 执行部署资格检查，PostgreSQL 仅保存脱敏门禁指标和当前配置绑定；
 - Operator 可从已发布 `deterministic-report-v1` 报告显式选择一至八个有持久 Evidence 的“未观测资产”并创建 `GENERATING` AI 治理草稿；`deterministic-report-v2` 在详情与请求入口均明确禁用。Controller 先持久保留确定性的 agent-compose Run identity，再启动独立 Pi Session；本阶段 Session 只建立并绑定身份，不接收数据库、应用、模型凭据或草稿输入；
-- Operator 可从资产或发现详情手动创建独立的单资产 AI 核查，固定 Project、Resource、已发布 Run 和可选 Finding；支持 v1/v2 与两种既有 Finding。发现入口默认使用该 Finding 最近一次 Occurrence 的 Run，不把后续没有该 Finding 事件的项目 Run 当作基础；显式 URL 固定值保持不变。服务端封存有界材料、来源和内容 Hash，先保留确定性 agent-compose Run 身份再启动真实 Pi。Pi 只有 `read_asset_facts({})` 工具，输出分为引用事实、待验证解释、缺口和建议；PostgreSQL 保存执行身份、状态、材料、工具计数和结果，终态不可改写。Viewer 可读取；同键重放和 GET 仅核对原 Session，未知不视为成功或另开执行，确认失败后允许保留旧记录的人工新尝试。此能力独立于旧 AI 治理草稿接口，不修改已发布事实。
+- Operator 可从资产或发现详情手动创建独立的单资产 AI 核查，固定 Project、Resource、已发布 Run 和可选 Finding；支持 v1/v2 与两种既有 Finding。发现入口默认使用该 Finding 最近一次 Occurrence 的 Run；显式 URL 固定值不漂移。每轮 Pi 先调用 `read_asset_facts({})`，再按问题选择 `read_asset_history({})` 或 `read_cloudatlas_asset({})`。历史最多读取基础发布时间之前的五个同资产已发布 Run；实时查询复用基础 Run 固定来源的 OctoBus `ListIPAssets`，最多五页、每页一百条，服务端规范化并过滤同一 IP，不改变 SourceSnapshot 或原 Run 统计。PostgreSQL 追加保存工具读取范围、来源、时间、结果/失败及引用；失败和无资料不能支持肯定性事实。追问固定已完成父核查的范围，最多八轮，每轮问题最多 2000 字符，之前问答仅作有界上下文。Viewer 只读；同键重放与 GET 不另开 Session，未知不视为成功；人工新尝试保留失败记录，终态与已完成读取不可重写。
 - CustomerUpload 与 CloudAtlas 的 IP Observation、Project 级稳定 IP Resource 和精确解析；
 - “未报备资产”“未观测资产”两类 Finding、Occurrence、Transition 与来源引用；
 - Finding 详情 API 与 Web 在同一只读数据库快照内展示最新兼容已发布 Run 的 NetFlow 活动上下文：仍 OPEN 或本轮有 Occurrence/Transition 的 Finding 可引用同 Run/Resource 的真实活动，早已 CLOSED 且本轮无事件的 Finding 不关联后续活动。此读取独立于报告样本，仅公开采样流记录数、可空时间及 Run/Snapshot/活动身份和 Hash，不公开 Peer、协议或 raw 数据，不新增绑定表或报告 Evidence target。历史未建模、明确无输入、历史未建模活动合同与合法无正向活动分别说明；活动及完整发布凭据损坏不降格为空结果。
@@ -52,7 +52,7 @@
 - agent-compose Session 只有权威查询确认终态后才允许恢复；未知、不可达或未识别状态保持 fail-closed。
 - 模型资格只允许 Pi 经无重定向本地代理连接解析到私网地址的部署注入端点，禁用模型工具和自动 retry；Secret、完整 Prompt、模型原始输出和 Provider 原始事件不进入 PostgreSQL 或 agent-compose Run 输出；端点、模型、非 Secret 配置、Runner build、资格契约或 agent-compose runtime 指纹漂移立即失效。
 - 本地测试可依 [ADR-0014](../adr/0014-allow-local-baizhi-synthetic-qualification.md) 显式启用精确百智云 HTTPS 地址的固定合成资格检查；默认关闭，DNS 地址必须全部为公网且连接固定地址。该例外不进入产品草稿的模型绑定校验，不允许客户数据外发。
-- 单资产核查按 [ADR-0015](../adr/0015-allow-bounded-synthetic-ai-business-tasks.md) 使用独立、默认关闭的合成业务开关与部署材料白名单；普通上传不会因项目获准而自动出域。发送前及每次工具读取复核项目权限、固定范围、当前模型资格与材料 Hash；Runner 还核对镜像内 build 标识。模型子进程仅持有回环代理能力，不持有模型、数据库或应用凭据。执行总时长、工具次数、累计材料和输出字节受固定预算限制，失败只保存脱敏代码。历史/CloudAtlas 追问和报告生成仍由对应 Issue 实现，不因本核查白名单而获准；真实客户数据外发不在许可范围内。
+- 单资产核查按 [ADR-0015](../adr/0015-allow-bounded-synthetic-ai-business-tasks.md) 使用独立、默认关闭的合成业务开关与部署材料白名单；普通上传不会因项目获准而自动出域。发送前及每次工具读取复核项目权限、固定范围、当前模型资格与材料 Hash；每份历史材料分别授权，实时合成结果额外固定来源指纹和规范化内容 Hash，查询时间单独保留。Runner 核对镜像 build，模型子进程仅持有回环代理能力，不持有模型、数据库、CloudAtlas 或应用凭据。每轮总时长、全部工具次数、累计材料（含前序问答）和输出字节受固定预算限制。AI 分析报告仍由对应 Issue 实现；真实客户数据外发不在许可范围内。配置与验收步骤见 [deployment.md](../../deployment.md)。
 - 当前 AI 草稿 Session 的 direct command 是无副作用的占位命令，不接收数据库、应用、模型凭据或草稿输入，也不发出产品模型请求；API 可按已保留的 Run identity 幂等补齐同一 Session 绑定，控制面响应丢失或 Session identity 尚不可见时保留 `GENERATING` 状态供同一 Idempotency-Key 重放，前端在 Session 绑定前仅把该键和有界的已选 Finding ID 保留在当前浏览器标签页的 `sessionStorage` 中用于重载恢复，不保留原始 Evidence 内容，已确认的终态启动失败则收敛为脱敏 `FAILED`。
 - 更换 agent-compose 镜像 digest、架构或 driver 后，旧 probe 结论不能外推，必须重新验证当前运行时契约。
 - 真实 CloudAtlas 只读 canary 仍是部署门禁，步骤见 [Runbook](../runbooks/cloudatlas-canary.md)。

@@ -66,6 +66,28 @@ class InvestigationRequest(BaseModel):
     finding_id: uuid.UUID | None = None
 
 
+class InvestigationFollowupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: Text
+
+
+class InvestigationToolRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: uuid.UUID
+    tool_name: Literal[
+        "read_asset_facts", "read_asset_history", "read_cloudatlas_asset"
+    ]
+    queried_at: datetime
+    completed_at: datetime | None
+    status: Literal["RUNNING", "SUCCEEDED", "FAILED"]
+    failure_code: str | None
+    project_id: uuid.UUID
+    resource_id: uuid.UUID
+    run_id: uuid.UUID
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    result: dict[str, Any] = Field(default_factory=dict)
+
+
 class InvestigationFact(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: Text
@@ -115,6 +137,9 @@ class InvestigationPublic(InvestigationRequest):
     failure_code: str | None
     output: InvestigationOutput | None
     material: InvestigationMaterial
+    parent_investigation_id: uuid.UUID | None
+    question: str | None
+    tool_reads: list[InvestigationToolRead]
 
 
 class InvestigationsPublic(BaseModel):
@@ -131,10 +156,23 @@ class SyntheticSource(BaseModel):
     content_sha256: Digest
 
 
+class SyntheticCloudAtlasReadPermission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_instance_id: uuid.UUID
+    instance_id: Annotated[str, StringConstraints(min_length=1, max_length=255)]
+    capset_id: Annotated[str, StringConstraints(min_length=1, max_length=255)]
+    fingerprint: Digest
+    content_sha256: Digest
+
+
 class SyntheticPermission(InvestigationRequest):
     project_id: uuid.UUID
     material_sha256: Digest
     sources: list[SyntheticSource] = Field(min_length=1, max_length=3)
+    cloudatlas_reads: list[SyntheticCloudAtlasReadPermission] = Field(
+        default_factory=list, max_length=16
+    )
+    question_sha256s: list[Digest] = Field(default_factory=list, max_length=16)
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -193,6 +231,7 @@ def authorize_material(
     scope: InvestigationRequest,
     material: dict[str, Any],
     sources: list[dict[str, Any]],
+    questions: tuple[str, ...] = (),
 ) -> None:
     if binding.endpoint != "https://ai-api-gateway.app.baizhi.cloud/api/openai":
         return
@@ -210,8 +249,56 @@ def authorize_material(
         )
     except ValueError:
         raise InvestigationError("synthetic_manifest_invalid") from None
-    if expected not in manifest:
+    if not any(
+        entry.model_dump(exclude={"cloudatlas_reads", "question_sha256s"})
+        == expected.model_dump(exclude={"cloudatlas_reads", "question_sha256s"})
+        and all(
+            hashlib.sha256(question.encode("utf-8")).hexdigest()
+            in entry.question_sha256s
+            for question in questions
+        )
+        for entry in manifest
+    ):
         raise InvestigationError("synthetic_material_denied")
+
+
+def authorize_cloudatlas(
+    *, record: AiInvestigation, binding: ModelBinding, content: dict[str, Any]
+) -> str:
+    digest = material_hash(content)
+    if binding.endpoint != "https://ai-api-gateway.app.baizhi.cloud/api/openai":
+        return digest
+    if not settings.AI_INVESTIGATION_ALLOW_BAIZHI_TEST:
+        raise InvestigationError("synthetic_material_denied")
+    try:
+        manifest = TypeAdapter(list[SyntheticPermission]).validate_json(
+            settings.AI_INVESTIGATION_SYNTHETIC_MANIFEST
+        )
+    except ValueError:
+        raise InvestigationError("synthetic_manifest_invalid") from None
+    source = content["source"]
+    expected = SyntheticCloudAtlasReadPermission(
+        source_instance_id=source["source_instance_id"],
+        instance_id=source["instance_id"],
+        capset_id=source["capset_id"],
+        fingerprint=source["fingerprint"],
+        content_sha256=digest,
+    )
+    base = SyntheticPermission(
+        project_id=record.project_id,
+        resource_id=record.resource_id,
+        run_id=record.run_id,
+        finding_id=record.finding_id,
+        material_sha256=record.material_sha256,
+        sources=[SyntheticSource.model_validate(source) for source in record.sources],
+    ).model_dump(exclude={"cloudatlas_reads", "question_sha256s"})
+    if not any(
+        entry.model_dump(exclude={"cloudatlas_reads", "question_sha256s"}) == base
+        and expected in entry.cloudatlas_reads
+        for entry in manifest
+    ):
+        raise InvestigationError("synthetic_material_denied")
+    return digest
 
 
 def prepare_material(
@@ -357,6 +444,124 @@ def load_material(
         return material, sources, binding
 
 
+def conversation(record: AiInvestigation) -> dict[str, Any] | None:
+    """Reload bounded ancestors; saved model prose is context, never new evidence."""
+    if record.parent_investigation_id is None:
+        return None
+    with Session(engine) as session:
+        binding = require_model(session, record)
+        turns: list[dict[str, Any]] = []
+        parent_id: uuid.UUID | None = record.parent_investigation_id
+        while parent_id is not None:
+            if len(turns) >= 7:
+                raise InvestigationError("investigation_turn_limit")
+            parent = session.get(AiInvestigation, parent_id)
+            if (
+                parent is None
+                or parent.status != "COMPLETED"
+                or (
+                    parent.tenant_id,
+                    parent.project_id,
+                    parent.resource_id,
+                    parent.run_id,
+                    parent.finding_id,
+                )
+                != (
+                    record.tenant_id,
+                    record.project_id,
+                    record.resource_id,
+                    record.run_id,
+                    record.finding_id,
+                )
+            ):
+                raise InvestigationError("investigation_scope_denied")
+            for read in parent.tool_reads:
+                if read["status"] != "SUCCEEDED":
+                    continue
+                if read["tool_name"] == "read_cloudatlas_asset" and not read["items"]:
+                    content = {
+                        key: read["result"][key]
+                        for key in (
+                            "schema",
+                            "project_id",
+                            "resource_id",
+                            "run_id",
+                            "base_published_at",
+                            "source",
+                            "canonical_ip",
+                            "result",
+                        )
+                    }
+                    authorize_cloudatlas(
+                        record=parent,
+                        binding=binding,
+                        content={**content, "assets": []},
+                    )
+                for item in read["items"]:
+                    fact = item["fact"]
+                    if read["tool_name"] == "read_asset_history":
+                        historical = fact["material"]
+                        authorize_material(
+                            binding=binding,
+                            project_id=parent.project_id,
+                            scope=InvestigationRequest.model_validate(
+                                historical["scope"]
+                            ),
+                            material=historical,
+                            sources=fact["sources"],
+                        )
+                    elif read["tool_name"] == "read_cloudatlas_asset":
+                        authorize_cloudatlas(
+                            record=parent,
+                            binding=binding,
+                            content={
+                                key: value
+                                for key, value in fact.items()
+                                if key not in {"queried_at", "completed_at"}
+                            },
+                        )
+            turns.append({"question": parent.question, "output": parent.output})
+            parent_id = parent.parent_investigation_id
+        context = {"question": record.question, "previous_turns": list(reversed(turns))}
+        authorize_material(
+            binding=binding,
+            project_id=record.project_id,
+            scope=InvestigationRequest.model_validate(record.material["scope"]),
+            material=record.material,
+            sources=record.sources,
+            questions=tuple(
+                question
+                for question in [record.question, *(turn["question"] for turn in turns)]
+                if question is not None
+            ),
+        )
+        if len(canonical_bytes(context)) > record.max_material_bytes:
+            raise InvestigationError("material_limit")
+        return context
+
+
+def save_tool_read(
+    record: AiInvestigation, read: InvestigationToolRead, *, complete: bool = False
+) -> None:
+    with Session(engine) as session:
+        current = locked_record(session, record.id)
+        if current.status != "GENERATING" or current.session_id != record.session_id:
+            raise InvestigationError("investigation_scope_denied")
+        reads = list(current.tool_reads)
+        if complete:
+            if not reads or reads[-1]["id"] != str(read.id):
+                raise InvestigationError("investigation_scope_denied")
+            reads[-1] = read.model_dump(mode="json")
+        else:
+            if len(reads) >= current.max_tool_calls:
+                raise InvestigationError("tool_call_limit")
+            reads.append(read.model_dump(mode="json"))
+        current.tool_reads = reads
+        session.add(current)
+        audit(session, current, "ai_investigation.tool_read")
+        session.commit()
+
+
 def audit(session: Session, record: AiInvestigation, action: str) -> None:
     session.add(
         AuditEvent(
@@ -402,6 +607,20 @@ def locked_record(session: Session, investigation_id: uuid.UUID) -> AiInvestigat
     ).one()
 
 
+def _fail_pending_read(session: Session, record: AiInvestigation) -> None:
+    if record.tool_reads and record.tool_reads[-1]["status"] == "RUNNING":
+        pending = {
+            **record.tool_reads[-1],
+            "status": "FAILED",
+            "failure_code": "investigation_interrupted",
+            "completed_at": get_datetime_utc().isoformat(),
+        }
+        record.tool_reads = [*record.tool_reads[:-1], pending]
+        session.add(record)
+        # Seal the read while GENERATING, then independently seal the execution.
+        session.flush()
+
+
 def finish(
     *,
     investigation_id: uuid.UUID,
@@ -413,6 +632,7 @@ def finish(
     with Session(engine) as session:
         record = locked_record(session, investigation_id)
         if record.status == "GENERATING":
+            _fail_pending_read(session, record)
             record.status = "FAILED" if failure_code else "COMPLETED"
             record.failure_code = failure_code
             record.output = output
@@ -485,6 +705,7 @@ def reconcile(record: AiInvestigation, *, launch: bool = False) -> AiInvestigati
                     else:
                         current.session_id = observation.session_id
                 if observation is not None and observation.is_terminal:
+                    _fail_pending_read(session, current)
                     current.status = "FAILED"
                     current.failure_code = (
                         "runner_result_missing"

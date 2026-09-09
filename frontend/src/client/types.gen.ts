@@ -374,6 +374,10 @@ export type InvestigationFact = {
     citation_ids: Array<(string)>;
 };
 
+export type InvestigationFollowupRequest = {
+    question: string;
+};
+
 export type InvestigationMaterial = {
     version?: "ai-investigation-material/v1";
     scope: InvestigationRequest;
@@ -409,6 +413,9 @@ export type InvestigationPublic = {
     failure_code: (string | null);
     output: (InvestigationOutput | null);
     material: InvestigationMaterial;
+    parent_investigation_id: (string | null);
+    question: (string | null);
+    tool_reads: Array<InvestigationToolRead>;
 };
 
 export type status3 = 'GENERATING' | 'COMPLETED' | 'FAILED';
@@ -424,6 +431,28 @@ export type InvestigationsPublic = {
     count: number;
     can_create: boolean;
 };
+
+export type InvestigationToolRead = {
+    id: string;
+    tool_name: 'read_asset_facts' | 'read_asset_history' | 'read_cloudatlas_asset';
+    queried_at: string;
+    completed_at: (string | null);
+    status: 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+    failure_code: (string | null);
+    project_id: string;
+    resource_id: string;
+    run_id: string;
+    items?: Array<{
+        [key: string]: unknown;
+    }>;
+    result?: {
+        [key: string]: unknown;
+    };
+};
+
+export type tool_name = 'read_asset_facts' | 'read_asset_history' | 'read_cloudatlas_asset';
+
+export type status4 = 'RUNNING' | 'SUCCEEDED' | 'FAILED';
 
 export type IPAssetDetailPublic = {
     id: string;
@@ -812,6 +841,15 @@ export type AiInvestigationsReadAiInvestigationsData = {
 };
 
 export type AiInvestigationsReadAiInvestigationsResponse = (InvestigationsPublic);
+
+export type AiInvestigationsCreateAiInvestigationFollowupData = {
+    idempotencyKey: string;
+    investigationId: string;
+    projectId: string;
+    requestBody: InvestigationFollowupRequest;
+};
+
+export type AiInvestigationsCreateAiInvestigationFollowupResponse = (InvestigationPublic);
 
 export type AiInvestigationsReadAiInvestigationData = {
     investigationId: string;

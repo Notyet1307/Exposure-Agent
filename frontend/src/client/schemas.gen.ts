@@ -2293,6 +2293,21 @@ export const InvestigationFactSchema = {
     title: 'InvestigationFact'
 } as const;
 
+export const InvestigationFollowupRequestSchema = {
+    properties: {
+        question: {
+            type: 'string',
+            maxLength: 2000,
+            minLength: 1,
+            title: 'Question'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['question'],
+    title: 'InvestigationFollowupRequest'
+} as const;
+
 export const InvestigationMaterialSchema = {
     properties: {
         version: {
@@ -2512,11 +2527,41 @@ export const InvestigationPublicSchema = {
         },
         material: {
             '$ref': '#/components/schemas/InvestigationMaterial'
+        },
+        parent_investigation_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Parent Investigation Id'
+        },
+        question: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Question'
+        },
+        tool_reads: {
+            items: {
+                '$ref': '#/components/schemas/InvestigationToolRead'
+            },
+            type: 'array',
+            title: 'Tool Reads'
         }
     },
     additionalProperties: false,
     type: 'object',
-    required: ['resource_id', 'run_id', 'id', 'project_id', 'status', 'created_at', 'completed_at', 'failure_code', 'output', 'material'],
+    required: ['resource_id', 'run_id', 'id', 'project_id', 'status', 'created_at', 'completed_at', 'failure_code', 'output', 'material', 'parent_investigation_id', 'question', 'tool_reads'],
     title: 'InvestigationPublic'
 } as const;
 
@@ -2549,6 +2594,86 @@ export const InvestigationRequestSchema = {
     type: 'object',
     required: ['resource_id', 'run_id'],
     title: 'InvestigationRequest'
+} as const;
+
+export const InvestigationToolReadSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        tool_name: {
+            type: 'string',
+            enum: ['read_asset_facts', 'read_asset_history', 'read_cloudatlas_asset'],
+            title: 'Tool Name'
+        },
+        queried_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Queried At'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        },
+        status: {
+            type: 'string',
+            enum: ['RUNNING', 'SUCCEEDED', 'FAILED'],
+            title: 'Status'
+        },
+        failure_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Failure Code'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Run Id'
+        },
+        items: {
+            items: {
+                additionalProperties: true,
+                type: 'object'
+            },
+            type: 'array',
+            title: 'Items'
+        },
+        result: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Result'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['id', 'tool_name', 'queried_at', 'completed_at', 'status', 'failure_code', 'project_id', 'resource_id', 'run_id'],
+    title: 'InvestigationToolRead'
 } as const;
 
 export const InvestigationsPublicSchema = {

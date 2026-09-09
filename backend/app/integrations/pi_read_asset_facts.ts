@@ -45,17 +45,34 @@ export default function (pi: ExtensionAPI) {
     outputBytes += Buffer.byteLength(JSON.stringify(event.message.content), "utf8");
   });
 
-  pi.registerTool({
-    name: "read_asset_facts",
-    label: "Read authorized asset facts",
-    description: "Read bounded facts and citation identities for the one server-authorized asset and published run. No arguments; scope cannot be changed.",
-    parameters: Type.Object({}, { additionalProperties: false }),
-    async execute(toolCallId, args, signal) {
-      const text = await request("/read_asset_facts", {
-        id: toolCallId,
-        arguments: args,
-      }, signal);
-      return { content: [{ type: "text" as const, text }], details: {} };
+  const tools = [
+    {
+      name: "read_asset_facts",
+      label: "Read authorized asset facts",
+      description: "Read bounded facts and citation identities for the one server-authorized asset and published base Run. Required first in every round. No arguments; scope cannot be changed.",
     },
-  });
+    {
+      name: "read_asset_history",
+      label: "Read authorized asset history",
+      description: "Read bounded published history for the same server-authorized project and asset. Historical snapshots retain their own source and time, not the base Run's time. No arguments; scope cannot be changed.",
+    },
+    {
+      name: "read_cloudatlas_asset",
+      label: "Read authorized CloudAtlas asset",
+      description: "Query existing CloudAtlas read-only capability for this server-authorized asset. Returns bounded matching facts and query time, or an explicit gap/failed read without facts. No arguments; scope cannot be changed.",
+    },
+  ];
+  for (const tool of tools) {
+    pi.registerTool({
+      ...tool,
+      parameters: Type.Object({}, { additionalProperties: false }),
+      async execute(toolCallId, args, signal) {
+        const text = await request(`/${tool.name}`, {
+          id: toolCallId,
+          arguments: args,
+        }, signal);
+        return { content: [{ type: "text" as const, text }], details: {} };
+      },
+    });
+  }
 }
