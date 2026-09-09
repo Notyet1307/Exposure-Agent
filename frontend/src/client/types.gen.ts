@@ -16,6 +16,82 @@ export type AiGovernanceDraftRequest = {
     finding_ids: Array<(string)>;
 };
 
+export type AnalysisReportMaterial = {
+    captured_at: string;
+    report_id: string;
+    report_contract_version: string;
+    summary: {
+        [key: string]: unknown;
+    };
+    items: Array<AnalysisReportMaterialItem>;
+    gaps: Array<(string)>;
+    truncated: boolean;
+};
+
+export type AnalysisReportMaterialItem = {
+    citation_id: string;
+    kind: string;
+    identity: string;
+    recorded_at: (string | null);
+    data: {
+        [key: string]: unknown;
+    };
+};
+
+export type AnalysisReportOutput = {
+    text: AnalysisReportText;
+    citation_ids: Array<(string)>;
+    gaps: Array<(string)>;
+};
+
+export type AnalysisReportPublic = {
+    run_id: string;
+    id: string;
+    project_id: string;
+    status: 'GENERATING' | 'DRAFT' | 'CONFIRMED' | 'FAILED';
+    created_at: string;
+    completed_at: (string | null);
+    edited_at: (string | null);
+    confirmed_at: (string | null);
+    created_by_id: string;
+    edited_by_id: (string | null);
+    confirmed_by_id: (string | null);
+    revision: number;
+    failure_code: (string | null);
+    original_output: (AnalysisReportOutput | null);
+    text: (AnalysisReportText | null);
+    material: AnalysisReportMaterial;
+    materials_changed: boolean;
+};
+
+export type status = 'GENERATING' | 'DRAFT' | 'CONFIRMED' | 'FAILED';
+
+export type AnalysisReportRequest = {
+    run_id: string;
+};
+
+export type AnalysisReportRevision = {
+    expected_revision: number;
+};
+
+export type AnalysisReportsPublic = {
+    data: Array<AnalysisReportPublic>;
+    count: number;
+    can_create: boolean;
+};
+
+export type AnalysisReportText = {
+    business_summary: string;
+    key_differences: string;
+    investigation_progress: string;
+    next_steps: string;
+};
+
+export type AnalysisReportUpdate = {
+    expected_revision: number;
+    text: AnalysisReportText;
+};
+
 export type AuditEventPublic = {
     id: string;
     tenant_id: string;
@@ -157,7 +233,7 @@ export type FindingNetFlowContextPublic = {
     activity: (FindingNetFlowActivityPublic | null);
 };
 
-export type status = 'NOT_APPLICABLE' | 'INPUT_UNMODELED' | 'INPUT_ABSENT' | 'ACTIVITY_UNMODELED' | 'NO_POSITIVE_ACTIVITY' | 'POSITIVE_ACTIVITY';
+export type status2 = 'NOT_APPLICABLE' | 'INPUT_UNMODELED' | 'INPUT_ABSENT' | 'ACTIVITY_UNMODELED' | 'NO_POSITIVE_ACTIVITY' | 'POSITIVE_ACTIVITY';
 
 export type FindingOccurrencePublic = {
     id: string;
@@ -289,7 +365,7 @@ export type report_contract_version = 'deterministic-report-v1' | 'deterministic
 
 export type view = 'OVERVIEW' | 'RESOURCE';
 
-export type status2 = 'COMPLETE' | 'EMPTY' | 'PARTIAL';
+export type status3 = 'COMPLETE' | 'EMPTY' | 'PARTIAL';
 
 export type GovernanceRunPublic = {
     id: string;
@@ -418,7 +494,7 @@ export type InvestigationPublic = {
     tool_reads: Array<InvestigationToolRead>;
 };
 
-export type status3 = 'GENERATING' | 'COMPLETED' | 'FAILED';
+export type status4 = 'GENERATING' | 'COMPLETED' | 'FAILED';
 
 export type InvestigationRequest = {
     resource_id: string;
@@ -452,7 +528,7 @@ export type InvestigationToolRead = {
 
 export type tool_name = 'read_asset_facts' | 'read_asset_history' | 'read_cloudatlas_asset';
 
-export type status4 = 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+export type status5 = 'RUNNING' | 'SUCCEEDED' | 'FAILED';
 
 export type IPAssetDetailPublic = {
     id: string;
@@ -690,7 +766,7 @@ export type ManualReviewPublic = {
     verifications: Array<ManualReviewVerification>;
 };
 
-export type status5 = 'PENDING' | 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE';
+export type status6 = 'PENDING' | 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE';
 
 export type ManualReviewsPublic = {
     data: Array<ManualReviewPublic>;
@@ -707,7 +783,7 @@ export type ManualReviewVerification = {
     reason: string;
 };
 
-export type status6 = 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE' | 'NO_NEW_CONCLUSION';
+export type status7 = 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE' | 'NO_NEW_CONCLUSION';
 
 export type Message = {
     message: string;
@@ -903,6 +979,44 @@ export type AiInvestigationsReadAiInvestigationData = {
 };
 
 export type AiInvestigationsReadAiInvestigationResponse = (InvestigationPublic);
+
+export type AnalysisReportsCreateAnalysisReportData = {
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: AnalysisReportRequest;
+};
+
+export type AnalysisReportsCreateAnalysisReportResponse = (AnalysisReportPublic);
+
+export type AnalysisReportsReadAnalysisReportsData = {
+    projectId: string;
+    runId: string;
+};
+
+export type AnalysisReportsReadAnalysisReportsResponse = (AnalysisReportsPublic);
+
+export type AnalysisReportsReadAnalysisReportData = {
+    analysisReportId: string;
+    projectId: string;
+};
+
+export type AnalysisReportsReadAnalysisReportResponse = (AnalysisReportPublic);
+
+export type AnalysisReportsUpdateAnalysisReportData = {
+    analysisReportId: string;
+    projectId: string;
+    requestBody: AnalysisReportUpdate;
+};
+
+export type AnalysisReportsUpdateAnalysisReportResponse = (AnalysisReportPublic);
+
+export type AnalysisReportsConfirmAnalysisReportData = {
+    analysisReportId: string;
+    projectId: string;
+    requestBody: AnalysisReportRevision;
+};
+
+export type AnalysisReportsConfirmAnalysisReportResponse = (AnalysisReportPublic);
 
 export type AuditEventsReadAuditEventsData = {
     limit?: number;

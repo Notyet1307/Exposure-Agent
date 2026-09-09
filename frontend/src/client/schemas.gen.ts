@@ -90,6 +90,362 @@ export const AiGovernanceDraftRequestSchema = {
     title: 'AiGovernanceDraftRequest'
 } as const;
 
+export const AnalysisReportMaterialSchema = {
+    properties: {
+        captured_at: {
+            type: 'string',
+            title: 'Captured At'
+        },
+        report_id: {
+            type: 'string',
+            title: 'Report Id'
+        },
+        report_contract_version: {
+            type: 'string',
+            title: 'Report Contract Version'
+        },
+        summary: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Summary'
+        },
+        items: {
+            items: {
+                '$ref': '#/components/schemas/AnalysisReportMaterialItem'
+            },
+            type: 'array',
+            title: 'Items'
+        },
+        gaps: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Gaps'
+        },
+        truncated: {
+            type: 'boolean',
+            title: 'Truncated'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['captured_at', 'report_id', 'report_contract_version', 'summary', 'items', 'gaps', 'truncated'],
+    title: 'AnalysisReportMaterial'
+} as const;
+
+export const AnalysisReportMaterialItemSchema = {
+    properties: {
+        citation_id: {
+            type: 'string',
+            title: 'Citation Id'
+        },
+        kind: {
+            type: 'string',
+            title: 'Kind'
+        },
+        identity: {
+            type: 'string',
+            title: 'Identity'
+        },
+        recorded_at: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Recorded At'
+        },
+        data: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Data'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['citation_id', 'kind', 'identity', 'recorded_at', 'data'],
+    title: 'AnalysisReportMaterialItem'
+} as const;
+
+export const AnalysisReportOutputSchema = {
+    properties: {
+        text: {
+            '$ref': '#/components/schemas/AnalysisReportText'
+        },
+        citation_ids: {
+            items: {
+                type: 'string',
+                maxLength: 255,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 64,
+            minItems: 1,
+            title: 'Citation Ids'
+        },
+        gaps: {
+            items: {
+                type: 'string',
+                maxLength: 2000,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 32,
+            title: 'Gaps'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['text', 'citation_ids', 'gaps'],
+    title: 'AnalysisReportOutput'
+} as const;
+
+export const AnalysisReportPublicSchema = {
+    properties: {
+        run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Run Id'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['GENERATING', 'DRAFT', 'CONFIRMED', 'FAILED'],
+            title: 'Status'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        },
+        edited_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Edited At'
+        },
+        confirmed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Confirmed At'
+        },
+        created_by_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Created By Id'
+        },
+        edited_by_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Edited By Id'
+        },
+        confirmed_by_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Confirmed By Id'
+        },
+        revision: {
+            type: 'integer',
+            title: 'Revision'
+        },
+        failure_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Failure Code'
+        },
+        original_output: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/AnalysisReportOutput'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        text: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/AnalysisReportText'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        material: {
+            '$ref': '#/components/schemas/AnalysisReportMaterial'
+        },
+        materials_changed: {
+            type: 'boolean',
+            title: 'Materials Changed'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['run_id', 'id', 'project_id', 'status', 'created_at', 'completed_at', 'edited_at', 'confirmed_at', 'created_by_id', 'edited_by_id', 'confirmed_by_id', 'revision', 'failure_code', 'original_output', 'text', 'material', 'materials_changed'],
+    title: 'AnalysisReportPublic'
+} as const;
+
+export const AnalysisReportRequestSchema = {
+    properties: {
+        run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Run Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['run_id'],
+    title: 'AnalysisReportRequest'
+} as const;
+
+export const AnalysisReportRevisionSchema = {
+    properties: {
+        expected_revision: {
+            type: 'integer',
+            minimum: 1,
+            title: 'Expected Revision'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['expected_revision'],
+    title: 'AnalysisReportRevision'
+} as const;
+
+export const AnalysisReportTextSchema = {
+    properties: {
+        business_summary: {
+            type: 'string',
+            maxLength: 8000,
+            minLength: 1,
+            title: 'Business Summary'
+        },
+        key_differences: {
+            type: 'string',
+            maxLength: 8000,
+            minLength: 1,
+            title: 'Key Differences'
+        },
+        investigation_progress: {
+            type: 'string',
+            maxLength: 8000,
+            minLength: 1,
+            title: 'Investigation Progress'
+        },
+        next_steps: {
+            type: 'string',
+            maxLength: 8000,
+            minLength: 1,
+            title: 'Next Steps'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['business_summary', 'key_differences', 'investigation_progress', 'next_steps'],
+    title: 'AnalysisReportText'
+} as const;
+
+export const AnalysisReportUpdateSchema = {
+    properties: {
+        expected_revision: {
+            type: 'integer',
+            minimum: 1,
+            title: 'Expected Revision'
+        },
+        text: {
+            '$ref': '#/components/schemas/AnalysisReportText'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['expected_revision', 'text'],
+    title: 'AnalysisReportUpdate'
+} as const;
+
+export const AnalysisReportsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/AnalysisReportPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        can_create: {
+            type: 'boolean',
+            title: 'Can Create'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'can_create'],
+    title: 'AnalysisReportsPublic'
+} as const;
+
 export const AuditEventPublicSchema = {
     properties: {
         id: {

@@ -297,6 +297,10 @@ async function installBaseMocks(page: Page) {
   )
   await page.route("**/api/v1/projects/**", async (route) => {
     const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/analysis-reports")) {
+      await route.fulfill({ json: { data: [], count: 0, can_create: false } })
+      return
+    }
     if (url.pathname === "/api/v1/projects/") {
       await route.fulfill({
         json: {
@@ -1439,4 +1443,404 @@ test("hides cached Run choices after a masked access-denial refresh", async ({
   await expect(runs).toBeDisabled()
   await expect(runs).not.toContainText(runIds[0])
   await expect(page).toHaveURL(new RegExp(`run=${runIds[0]}`))
+})
+
+const analysisIds = [
+  "a0000000-0000-0000-0000-000000000001",
+  "a0000000-0000-0000-0000-000000000002",
+  "a0000000-0000-0000-0000-000000000003",
+]
+const analysisPath = new RegExp(
+  `/api/v1/projects/${projectId}/analysis-reports(?:/.*)?(?:\\?.*)?$`,
+)
+
+function analysisVersion(
+  index: number,
+  status: "GENERATING" | "DRAFT" | "CONFIRMED" | "FAILED" = "DRAFT",
+) {
+  const text = {
+    business_summary: `Analysis ${index}: reconcile the recorded source difference.`,
+    key_differences: "The asset appears only in the customer source.",
+    investigation_progress: "No investigation records were captured.",
+    next_steps: "Verify the source scope before changing any finding.",
+  }
+  const ready = status === "DRAFT" || status === "CONFIRMED"
+  return {
+    id: analysisIds[index],
+    project_id: projectId,
+    run_id: runIds[0],
+    status,
+    created_at: completedAt,
+    completed_at: status === "GENERATING" ? null : completedAt,
+    confirmed_at: status === "CONFIRMED" ? completedAt : null,
+    created_by_id: "30000000-0000-0000-0000-000000000001",
+    edited_by_id: null as string | null,
+    edited_at: null as string | null,
+    confirmed_by_id:
+      status === "CONFIRMED" ? "30000000-0000-0000-0000-000000000001" : null,
+    revision: 1,
+    failure_code:
+      status === "FAILED"
+        ? "model_output_invalid"
+        : status === "GENERATING"
+          ? "session_pending"
+          : null,
+    original_output: ready
+      ? {
+          text: { ...text },
+          citation_ids: ["M-0"],
+          gaps: ["No investigation records."],
+        }
+      : null,
+    text: ready ? text : null,
+    material: {
+      captured_at: completedAt,
+      report_id: reportIds[0],
+      report_contract_version: "deterministic-report-v2",
+      summary: { resource_count: 47, netflow_input_state: "absent" },
+      items: [
+        {
+          citation_id: "M-0",
+          kind: "deterministic_summary",
+          identity: `run:${runIds[0]}:report:${reportIds[0]}`,
+          recorded_at: completedAt,
+          data: { resource_count: 47 },
+        },
+      ],
+      gaps: ["No later investigation materials."],
+      truncated: false,
+    },
+    materials_changed: false,
+  }
+}
+
+test.describe("Analysis reports", () => {
+  test.beforeEach(async ({ page }) => {
+    await installBaseMocks(page)
+    await page.route(governanceReportsPath, (route) => {
+      if (
+        new URL(route.request().url()).pathname.endsWith(`/${reportIds[0]}`)
+      ) {
+        return route.fulfill({ json: v2ReportDetail() })
+      }
+      return route.fulfill({
+        json: {
+          ...reportListResponse(),
+          data: [
+            {
+              ...reportSummary(0),
+              report_contract_version: "deterministic-report-v2",
+            },
+          ],
+        },
+      })
+    })
+  })
+
+  test("keeps an explicitly selected old version and its update notice through unknown and failed generation", async ({
+    page,
+  }) => {
+    const old = { ...analysisVersion(0, "CONFIRMED"), materials_changed: true }
+    const newer = { ...analysisVersion(1), materials_changed: true }
+    const failed = analysisVersion(2, "FAILED")
+    const generating = analysisVersion(2, "GENERATING")
+    let records = [newer, old]
+    const keys: string[] = []
+    await page.route(analysisPath, async (route) => {
+      const request = route.request()
+      const path = new URL(request.url()).pathname
+      if (request.method() === "POST") {
+        keys.push((await request.allHeaders())["idempotency-key"])
+        if (keys.length === 1) {
+          return route.fulfill({
+            status: 503,
+            json: { detail: "Session result unknown" },
+          })
+        }
+        const result = keys.length === 2 ? generating : failed
+        records = [result, ...records.filter((item) => item.id !== result.id)]
+        return route.fulfill({ json: result })
+      }
+      const selected = records.find((item) => path.endsWith(`/${item.id}`))
+      return route.fulfill({
+        json: selected ?? {
+          data: records,
+          count: records.length,
+          can_create: true,
+        },
+      })
+    })
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await panel.getByLabel("Analysis version").selectOption(old.id)
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toContainText(old.text!.business_summary)
+    const notice = panel
+      .getByRole("alert")
+      .filter({ hasText: "New materials are NOT included" })
+    await notice
+      .getByRole("button", { name: "Generate new analysis draft" })
+      .click()
+    await expect(
+      panel
+        .getByRole("alert")
+        .filter({ hasText: "Report generation was not confirmed" }),
+    ).toBeVisible()
+    await expect(panel.getByLabel("Analysis version")).toHaveValue(old.id)
+    await notice.getByRole("button", { name: "Resume report request" }).click()
+    await expect(panel.getByLabel("Analysis version")).toHaveValue(old.id)
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toContainText(old.text!.business_summary)
+    await expect(notice).toBeVisible()
+    expect(keys[0]).toBeTruthy()
+    expect(keys[1]).toBe(keys[0])
+    await page.reload()
+    await expect(
+      panel.getByText("Generation outcome is still unknown", { exact: true }),
+    ).toBeVisible()
+    await expect(
+      panel.getByRole("button", { name: "Generate new analysis draft" }),
+    ).toHaveCount(0)
+    await panel.getByLabel("Analysis version").selectOption(old.id)
+    await notice.getByRole("button", { name: "Resume report request" }).click()
+    await expect(panel.getByLabel("Analysis version")).toHaveValue(old.id)
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toContainText(old.text!.business_summary)
+    expect(keys).toEqual([keys[0], keys[0], keys[0]])
+    await panel.getByLabel("Analysis version").selectOption(failed.id)
+    await expect(
+      panel.getByText("This version failed to generate", { exact: true }),
+    ).toBeVisible()
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toHaveCount(0)
+    await panel.getByLabel("Analysis version").selectOption(newer.id)
+    await expect(notice).toBeVisible()
+    await expect(
+      notice.getByRole("button", { name: "Generate new analysis draft" }),
+    ).toBeEnabled()
+  })
+
+  test("retains conflicted edits, confirms separately, and preserves original citations on narrow screens", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    let record = analysisVersion(0)
+    let rejectFirstEdit = true
+    let confirmations = 0
+    await page.route(analysisPath, async (route) => {
+      const request = route.request()
+      const path = new URL(request.url()).pathname
+      if (request.method() === "PATCH") {
+        const body = request.postDataJSON()
+        if (rejectFirstEdit) {
+          rejectFirstEdit = false
+          record = {
+            ...record,
+            revision: 2,
+            text: {
+              ...record.text!,
+              business_summary: "Another operator's saved explanation.",
+            },
+          }
+          return route.fulfill({
+            status: 409,
+            json: { detail: "revision_conflict" },
+          })
+        }
+        expect(body.expected_revision).toBe(2)
+        record = {
+          ...record,
+          revision: 3,
+          text: body.text,
+          edited_by_id: "30000000-0000-0000-0000-000000000002",
+          edited_at: "2026-08-11T12:00:00Z",
+        }
+        return route.fulfill({ json: record })
+      }
+      if (path.endsWith("/confirm")) {
+        confirmations += 1
+        expect(request.postDataJSON()).toEqual({ expected_revision: 3 })
+        record = {
+          ...record,
+          revision: 4,
+          status: "CONFIRMED",
+          confirmed_by_id: record.edited_by_id,
+          confirmed_at: "2026-08-11T13:00:00Z",
+        }
+        return route.fulfill({ json: record })
+      }
+      return route.fulfill({
+        json: path.endsWith(`/${record.id}`)
+          ? record
+          : { data: [record], count: 1, can_create: true },
+      })
+    })
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    await panel
+      .getByLabel("Business summary", { exact: true })
+      .fill("Retain my explanation during conflict.")
+    await panel
+      .getByRole("button", { name: "Save narrative", exact: true })
+      .click()
+    await expect(
+      panel.getByLabel("Business summary", { exact: true }),
+    ).toHaveValue("Retain my explanation during conflict.")
+    await expect(
+      panel.getByRole("button", { name: "Save narrative", exact: true }),
+    ).toBeDisabled()
+    await panel.getByRole("button", { name: "Cancel edit" }).click()
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    await panel
+      .getByLabel("Business summary", { exact: true })
+      .fill("Human explanation after checking the current revision.")
+    await panel
+      .getByRole("button", { name: "Save narrative", exact: true })
+      .click()
+    const narrative = panel.getByRole("region", { name: "Report narrative" })
+    await expect(narrative).toContainText(
+      "Human explanation after checking the current revision.",
+    )
+    expect(confirmations).toBe(0)
+    await panel
+      .getByRole("button", { name: "Confirm this version", exact: true })
+      .click()
+    await expect(
+      panel.getByRole("button", { name: "Edit narrative", exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByText("Human-confirmed", { exact: true }),
+    ).toBeVisible()
+    expect(confirmations).toBe(1)
+    const original = panel.locator("details").filter({
+      hasText: "Original AI draft · preserved unchanged",
+    })
+    await original.locator("summary").click()
+    await expect(original).toContainText(
+      analysisVersion(0).text!.business_summary,
+    )
+    await expect(original).not.toContainText(
+      "Human explanation after checking the current revision.",
+    )
+    const source = panel
+      .locator("details")
+      .filter({ hasText: "Cited source · M-0" })
+    await source.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(
+      source.getByText(record.material.items[0].identity, { exact: true }),
+    ).toBeVisible()
+    await expect(
+      source.getByText("Recorded time", { exact: true }),
+    ).toBeVisible()
+    expect(
+      await panel.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth + 1,
+      ),
+    ).toBe(true)
+  })
+
+  test("keeps Viewer access read-only and hides cached materials after revoked access", async ({
+    page,
+  }) => {
+    const record = { ...analysisVersion(0), materials_changed: true }
+    let revoked = false
+    await page.route(analysisPath, (route) => {
+      if (revoked)
+        return route.fulfill({ status: 404, json: { detail: "Not Found" } })
+      const path = new URL(route.request().url()).pathname
+      return route.fulfill({
+        json: path.endsWith(`/${record.id}`)
+          ? record
+          : { data: [record], count: 1, can_create: false },
+      })
+    })
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toBeVisible()
+    await expect(
+      panel.getByText("New materials are NOT included in this version", {
+        exact: true,
+      }),
+    ).toBeVisible()
+    await expect(
+      panel.getByRole("button", {
+        name: /Generate new analysis draft|Edit narrative|Confirm this version/,
+      }),
+    ).toHaveCount(0)
+    revoked = true
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel.getByText("Analysis report could not be read", { exact: true }),
+    ).toBeVisible()
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("region", { name: "Frozen materials and citations" }),
+    ).toHaveCount(0)
+    await expect(panel.getByLabel("Analysis version")).toHaveValue(record.id)
+  })
+})
+
+test("rejects analysis material from another deterministic report instead of displaying cross-scope prose", async ({
+  page,
+}) => {
+  await installBaseMocks(page)
+  await page.route(governanceReportsPath, (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).pathname.endsWith(`/${reportIds[0]}`)
+        ? v2ReportDetail()
+        : {
+            ...reportListResponse(),
+            data: [
+              {
+                ...reportSummary(0),
+                report_contract_version: "deterministic-report-v2",
+              },
+            ],
+          },
+    }),
+  )
+  const record = analysisVersion(0)
+  record.material.report_id = reportIds[1]
+  await page.route(analysisPath, (route) =>
+    route.fulfill({ json: { data: [record], count: 1, can_create: true } }),
+  )
+  await openReport(page)
+  const panel = page.getByRole("region", {
+    name: "AI analysis reports",
+    exact: true,
+  })
+  await expect(
+    panel.getByText("Analysis report could not be read", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel.getByText(record.text!.business_summary, { exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    panel.getByRole("button", { name: "Generate new analysis draft" }),
+  ).toHaveCount(0)
 })

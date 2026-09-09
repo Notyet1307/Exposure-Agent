@@ -196,6 +196,11 @@ class AgentComposeClient:
             agent_name="ai-investigation", client_request_id=client_request_id
         )
 
+    def expected_analysis_report_run_id(self, client_request_id: str) -> str:
+        return self._expected_run_id(
+            agent_name="ai-analysis-report", client_request_id=client_request_id
+        )
+
     def get_run(self, run_id: str) -> AgentComposeRunStart | None:
         body = self._request(
             _GET_RUN_PATH,
@@ -319,6 +324,21 @@ class AgentComposeClient:
                 ),
             },
             command="/app/.venv/bin/python -m app.ai_investigation_runner",
+        )
+
+    def start_analysis_report(
+        self, *, client_request_id: str, analysis_report_id: str
+    ) -> AgentComposeRunStart:
+        return self._start_run(
+            agent_name="ai-analysis-report",
+            client_request_id=client_request_id,
+            environment={
+                "AI_ANALYSIS_REPORT_ID": analysis_report_id,
+                "AI_ANALYSIS_REPORT_RUN_ID": self.expected_analysis_report_run_id(
+                    client_request_id
+                ),
+            },
+            command="/app/.venv/bin/python -m app.ai_analysis_report_runner",
         )
 
     def _start_run(
