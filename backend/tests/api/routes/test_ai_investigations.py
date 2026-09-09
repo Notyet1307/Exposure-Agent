@@ -196,7 +196,7 @@ def test_malformed_control_plane_identity_does_not_poison_runner(
         _run(
             monkeypatch,
             record_id,
-            lambda **kwargs: _output(kwargs["read_facts"]({})),
+            lambda **kwargs: _output(kwargs["tools"]["read_asset_facts"]({})),
             actual_session_id="a" * 64,
         )
         == 0
@@ -247,7 +247,11 @@ def test_success_cites_real_read_and_finished_rows_are_immutable(
     assert response.status_code == 201, response.text
     record_id = response.json()["id"]
     assert (
-        _run(monkeypatch, record_id, lambda **kwargs: _output(kwargs["read_facts"]({})))
+        _run(
+            monkeypatch,
+            record_id,
+            lambda **kwargs: _output(kwargs["tools"]["read_asset_facts"]({})),
+        )
         == 0
     )
     result = client.get(f"{url}/{record_id}", headers=headers).json()
@@ -293,7 +297,7 @@ def test_runner_image_drift_fails_before_model_call(
 
     def model(**kwargs: Any) -> dict[str, Any]:
         model_calls.append(True)
-        return _output(kwargs["read_facts"]({}))
+        return _output(kwargs["tools"]["read_asset_facts"]({}))
 
     assert _run(monkeypatch, response.json()["id"], model) == 1
     assert model_calls == []
@@ -319,11 +323,13 @@ def test_failed_model_attempt_preserves_readable_failure_and_allows_manual_new_a
 
     def invalid(**kwargs: Any) -> dict[str, Any]:
         if failure == "scope":
-            return _output(kwargs["read_facts"]({"resource_id": str(uuid.uuid4())}))
+            return _output(
+                kwargs["tools"]["read_asset_facts"]({"resource_id": str(uuid.uuid4())})
+            )
         output = _output(
             response.json()["material"]
             if failure == "no-tool"
-            else kwargs["read_facts"]({})
+            else kwargs["tools"]["read_asset_facts"]({})
         )
         output["facts"][0]["citation_ids"] = ["comparison/foreign-run/foreign-resource"]
         return output
@@ -406,7 +412,7 @@ def test_v2_asset_investigation_accepts_explicit_published_run(
         _run(
             monkeypatch,
             response.json()["id"],
-            lambda **kwargs: _output(kwargs["read_facts"]({})),
+            lambda **kwargs: _output(kwargs["tools"]["read_asset_facts"]({})),
         )
         == 0
     )
@@ -513,7 +519,7 @@ def test_material_permission_is_rechecked_before_model_and_every_tool(
     def model(**kwargs: Any) -> dict[str, Any]:
         model_calls.append(True)
         monkeypatch.setattr(settings, "AI_INVESTIGATION_SYNTHETIC_MANIFEST", "[]")
-        return _output(kwargs["read_facts"]({}))
+        return _output(kwargs["tools"]["read_asset_facts"]({}))
 
     assert _run(monkeypatch, record_id, model) == 1
     result = client.get(f"{url}/{record_id}", headers=headers).json()

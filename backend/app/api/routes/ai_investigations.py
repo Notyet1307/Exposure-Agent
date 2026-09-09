@@ -50,6 +50,54 @@ def create_ai_investigation(
     response: Response,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
 ) -> service.InvestigationPublic:
+    return _create_investigation(
+        session=session,
+        current_user=current_user,
+        project_id=project_id,
+        request_body=request_body,
+        response=response,
+        idempotency_key=idempotency_key,
+    )
+
+
+@router.post(
+    "/{investigation_id}/followups",
+    response_model=service.InvestigationPublic,
+    status_code=201,
+)
+def create_ai_investigation_followup(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    investigation_id: uuid.UUID,
+    request_body: service.InvestigationFollowupRequest,
+    response: Response,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+) -> service.InvestigationPublic:
+    return _create_investigation(
+        session=session,
+        current_user=current_user,
+        project_id=project_id,
+        request_body=None,
+        response=response,
+        idempotency_key=idempotency_key,
+        parent_id=investigation_id,
+        question=request_body.question,
+    )
+
+
+def _create_investigation(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    request_body: service.InvestigationRequest | None,
+    response: Response,
+    idempotency_key: str,
+    parent_id: uuid.UUID | None = None,
+    question: str | None = None,
+) -> service.InvestigationPublic:
     if (
         not idempotency_key
         or idempotency_key.strip() != idempotency_key
@@ -67,6 +115,27 @@ def create_ai_investigation(
         writable=True,
         lock=True,
     )
+    parent = None
+    if parent_id is not None:
+        parent = session.exec(
+            select(AiInvestigation).where(
+                AiInvestigation.id == parent_id,
+                AiInvestigation.project_id == project.id,
+                AiInvestigation.tenant_id == project.tenant_id,
+            )
+        ).one_or_none()
+        if parent is None:
+            raise HTTPException(status_code=404, detail="Investigation not found")
+        if parent.status != "COMPLETED":
+            raise _error(
+                service.InvestigationError("investigation_parent_not_completed")
+            )
+        request_body = service.InvestigationRequest(
+            resource_id=parent.resource_id,
+            run_id=parent.run_id,
+            finding_id=parent.finding_id,
+        )
+    assert request_body is not None
     existing = session.exec(
         select(AiInvestigation).where(
             AiInvestigation.project_id == project.id,
@@ -75,10 +144,18 @@ def create_ai_investigation(
         )
     ).one_or_none()
     if existing is not None:
-        if (existing.resource_id, existing.run_id, existing.finding_id) != (
+        if (
+            existing.resource_id,
+            existing.run_id,
+            existing.finding_id,
+            existing.parent_investigation_id,
+            existing.question,
+        ) != (
             request_body.resource_id,
             request_body.run_id,
             request_body.finding_id,
+            parent_id,
+            question,
         ):
             raise _error(
                 service.InvestigationError("investigation_idempotency_conflict")
@@ -112,6 +189,8 @@ def create_ai_investigation(
         project_id=project.id,
         **request_body.model_dump(),
         initiated_by=current_user.id,
+        parent_investigation_id=parent_id,
+        question=question,
         idempotency_key=idempotency_key,
         config_fingerprint=binding.config_fingerprint,
         material_sha256=service.material_hash(material),
@@ -127,6 +206,11 @@ def create_ai_investigation(
         max_output_bytes=settings.AI_INVESTIGATION_MAX_OUTPUT_BYTES,
         timeout_seconds=settings.AI_INVESTIGATION_TIMEOUT_SECONDS,
     )
+    if parent is not None:
+        try:
+            service.conversation(record)
+        except service.InvestigationError as error:
+            raise _error(error) from None
     session.add(record)
     service.audit(session, record, "ai_investigation.requested")
     # One durable launch reservation before any control-plane I/O. Losing replays

@@ -7,7 +7,8 @@ import re
 import sys
 import time
 import uuid
-from typing import Any
+from functools import partial
+from typing import Any, Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
@@ -16,6 +17,7 @@ try:
     from app.core.config import settings
     from app.core.db import engine
     from app.core.time import get_datetime_utc
+    from app.domain import ai_investigation_tools as read_tools
     from app.domain import ai_investigations as service
     from app.integrations.pi_investigation import run_pi_investigation
     from app.model_qualification_runner import _runner_build_version
@@ -45,6 +47,9 @@ _FAILURE_CODES = frozenset(
         "investigation_material_changed",
         "investigation_finding_not_in_run",
         "investigation_material_truncated",
+        "investigation_turn_limit",
+        "cloudatlas_read_limit",
+        "cloudatlas_material_changed",
     }
 )
 
@@ -90,28 +95,98 @@ def main() -> int:
         finding_id=record.finding_id,
     )
 
-    def read_facts(arguments: dict[str, Any]) -> dict[str, Any]:
+    def read_tool(
+        name: Literal[
+            "read_asset_facts", "read_asset_history", "read_cloudatlas_asset"
+        ],
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
         nonlocal successful_calls, bytes_read, attempted_calls
         attempted_calls += 1
         if arguments != {}:
             raise service.InvestigationError("tool_scope_denied")
         if attempted_calls > record.max_tool_calls:
             raise service.InvestigationError("tool_call_limit")
-        material, _sources, _binding = service.load_material(
+        read = service.InvestigationToolRead(
+            id=uuid.uuid4(),
+            tool_name=name,
+            queried_at=get_datetime_utc(),
+            completed_at=None,
+            status="RUNNING",
+            failure_code=None,
             project_id=record.project_id,
-            user_id=record.initiated_by,
-            scope=scope,
-            record=record,
+            resource_id=record.resource_id,
+            run_id=record.run_id,
         )
-        size = len(service.canonical_bytes(material))
-        if bytes_read + size > record.max_material_bytes:
-            raise service.InvestigationError("material_limit")
-        if time.monotonic() - started > record.timeout_seconds:
-            raise service.InvestigationError("investigation_timeout")
-        bytes_read += size
-        successful_calls += 1
-        citation_ids.update(item["citation_id"] for item in material["items"])
-        return material
+        service.save_tool_read(record, read)
+        try:
+            if name == "read_asset_facts":
+                material, _sources, _binding = service.load_material(
+                    project_id=record.project_id,
+                    user_id=record.initiated_by,
+                    scope=scope,
+                    record=record,
+                )
+            elif name == "read_asset_history":
+                material = read_tools.read_asset_history(record=record)
+            else:
+                material = read_tools.read_cloudatlas_asset(record=record)
+            # Recheck permission after potentially slow external I/O, before
+            # persisting or returning any successfully queried material.
+            service.load_material(
+                project_id=record.project_id,
+                user_id=record.initiated_by,
+                scope=scope,
+                record=record,
+            )
+            if name != "read_asset_facts":
+                material["status"] = "SUCCEEDED"
+            size = len(service.canonical_bytes(material))
+            if bytes_read + size > record.max_material_bytes:
+                raise service.InvestigationError("material_limit")
+            if time.monotonic() - started > record.timeout_seconds:
+                raise service.InvestigationError("investigation_timeout")
+            read.status = "SUCCEEDED"
+            read.items = material["items"]
+            read.result = {
+                key: value for key, value in material.items() if key != "items"
+            }
+            read.completed_at = get_datetime_utc()
+            service.save_tool_read(record, read, complete=True)
+            bytes_read += size
+            successful_calls += 1
+            citation_ids.update(item["citation_id"] for item in read.items)
+            return material
+        except Exception as error:
+            code = (
+                error.code
+                if isinstance(error, service.InvestigationError)
+                else "tool_failed"
+            )
+            read.status = "FAILED"
+            read.failure_code = code
+            read.completed_at = get_datetime_utc()
+            read.items = []
+            read.result = {}
+            service.save_tool_read(record, read, complete=True)
+            if name != "read_asset_facts" and code in {
+                "cloudatlas_connectivity_failed",
+                "cloudatlas_upstream_failed",
+                "cloudatlas_response_contract_failed",
+                "cloudatlas_source_unavailable",
+                "cloudatlas_read_failed",
+                "history_read_failed",
+                "cloudatlas_authentication_failed",
+                "octobus_authentication_failed",
+                "cloudatlas_authorization_failed",
+            }:
+                failure_material = read.model_dump(mode="json")
+                size = len(service.canonical_bytes(failure_material))
+                if bytes_read + size > record.max_material_bytes:
+                    raise service.InvestigationError("material_limit") from None
+                bytes_read += size
+                return failure_material
+            raise
 
     try:
         if _runner_build_version() != settings.RUNNER_BUILD_VERSION:
@@ -122,16 +197,24 @@ def main() -> int:
             scope=scope,
             record=record,
         )
+        context = service.conversation(record)
+        if context is not None:
+            bytes_read = len(service.canonical_bytes(context))
         remaining = record.timeout_seconds - (time.monotonic() - started)
         if remaining <= 0:
             raise service.InvestigationError("investigation_timeout")
         output = run_pi_investigation(
             binding=binding,
             api_key=settings.MODEL_API_KEY.get_secret_value(),
-            read_facts=read_facts,
+            tools={
+                "read_asset_facts": partial(read_tool, "read_asset_facts"),
+                "read_asset_history": partial(read_tool, "read_asset_history"),
+                "read_cloudatlas_asset": partial(read_tool, "read_cloudatlas_asset"),
+            },
+            conversation=context,
             timeout_seconds=remaining,
             max_tool_calls=record.max_tool_calls,
-            max_material_bytes=record.max_material_bytes,
+            max_material_bytes=record.max_material_bytes - bytes_read,
             max_output_bytes=record.max_output_bytes,
         )
         if successful_calls < 1:

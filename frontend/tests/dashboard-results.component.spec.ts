@@ -328,11 +328,402 @@ async function installResultMocks(page: import("@playwright/test").Page) {
   )
 }
 
+const completedInvestigation = {
+  id: "e0000000-0000-4000-8000-000000000010",
+  project_id: projectId,
+  resource_id: resourceId,
+  run_id: findingSummary.latest_occurrence_run_id,
+  finding_id: null,
+  parent_investigation_id: null,
+  question: null,
+  tool_reads: [],
+  status: "COMPLETED",
+  created_at: "2026-09-09T12:00:00Z",
+  completed_at: "2026-09-09T12:01:00Z",
+  failure_code: null,
+  output: {
+    facts: [
+      {
+        text: "Original published comparison.",
+        citation_ids: ["base-comparison"],
+      },
+    ],
+    explanations: [],
+    gaps: [],
+    next_steps: [],
+  },
+  material: {
+    version: "ai-investigation-material/v1",
+    project_id: projectId,
+    scope: {
+      resource_id: resourceId,
+      run_id: findingSummary.latest_occurrence_run_id,
+      finding_id: null,
+    },
+    published_at: "2026-07-30T12:00:00Z",
+    report_id: "report-1",
+    report_contract_version: "deterministic-report-v2",
+    truncated: false,
+    items: [
+      {
+        citation_id: "base-comparison",
+        fact: { resource_id: resourceId, customer_observed: true },
+      },
+    ],
+  },
+}
+
 test.describe("Project result views", () => {
   test.beforeEach(async ({ page }) => {
     await installBaseMocks(page)
     await installResultMocks(page)
     await page.goto("/")
+  })
+
+  test("allows correcting a rejected follow-up after reload without replaying its rejected key", async ({
+    page,
+  }) => {
+    const parent = completedInvestigation
+    const question = "Approved synthetic question"
+    const child = {
+      ...parent,
+      id: "e0000000-0000-4000-8000-000000000012",
+      parent_investigation_id: parent.id,
+      question,
+      created_at: "2026-09-09T12:02:00Z",
+    }
+    const requests: { key: string; body: unknown }[] = []
+    await page.route(
+      `**/api/v1/projects/${projectId}/ai-investigations**`,
+      async (route) => {
+        const path = new URL(route.request().url()).pathname
+        if (route.request().method() === "POST") {
+          requests.push({
+            key: route.request().headers()["idempotency-key"],
+            body: route.request().postDataJSON(),
+          })
+          if (requests.length === 1)
+            return route.fulfill({
+              status: 409,
+              json: { detail: { code: "synthetic_material_denied" } },
+            })
+          return route.fulfill({ json: child })
+        }
+        if (path.endsWith("/ai-investigations"))
+          return route.fulfill({
+            json: {
+              data: requests.length > 1 ? [child, parent] : [parent],
+              count: requests.length > 1 ? 2 : 1,
+              can_create: true,
+            },
+          })
+        return route.fulfill({ json: path.endsWith(child.id) ? child : parent })
+      },
+    )
+    await page
+      .getByRole("link", { name: "Current assets", exact: true })
+      .click()
+    await page.getByRole("button", { name: "View details" }).click()
+    const panel = page.getByRole("region", { name: "AI investigation" })
+    await panel.getByLabel("Follow-up question").fill("Unapproved question")
+    await panel.getByRole("button", { name: "Submit follow-up" }).click()
+    await expect(panel.getByRole("alert")).toContainText("Request rejected")
+    await expect(
+      panel.getByRole("button", { name: "Submit follow-up" }),
+    ).toBeEnabled()
+    await page.reload()
+    await expect(
+      panel.getByRole("button", { name: "Check previous request" }),
+    ).toHaveCount(0)
+    await panel.getByLabel("Follow-up question").fill(question)
+    await panel.getByRole("button", { name: "Submit follow-up" }).click()
+    await expect(panel).toContainText("Saved question")
+    expect(requests).toHaveLength(2)
+    expect(requests[1].body).toEqual({ question })
+    expect(requests[1].key).not.toBe(requests[0].key)
+  })
+
+  test("replays a pending follow-up after reload without changing parent and retries a failed turn as a follow-up", async ({
+    page,
+  }) => {
+    const parent = completedInvestigation
+    const question = "What changed since the historical snapshot?"
+    const child = {
+      ...parent,
+      id: "e0000000-0000-4000-8000-000000000011",
+      parent_investigation_id: parent.id,
+      question,
+      created_at: "2026-09-09T12:02:00Z",
+      completed_at: "2026-09-09T12:03:00Z",
+      status: "FAILED",
+      output: null,
+      failure_code: "cloudatlas_upstream_failed",
+    }
+    const newer = {
+      ...parent,
+      id: "e0000000-0000-4000-8000-000000000099",
+      created_at: "2026-09-09T13:00:00Z",
+    }
+    const requests: { path: string; key: string; body: unknown }[] = []
+    let showNewer = false
+    await page.route(
+      `**/api/v1/projects/${projectId}/ai-investigations**`,
+      async (route) => {
+        const path = new URL(route.request().url()).pathname
+        if (route.request().method() === "POST") {
+          requests.push({
+            path,
+            key: route.request().headers()["idempotency-key"],
+            body: route.request().postDataJSON(),
+          })
+          if (requests.length === 1) return route.abort()
+          return route.fulfill({ json: child })
+        }
+        if (path.endsWith("/ai-investigations"))
+          return route.fulfill({
+            json: {
+              data: showNewer ? [newer] : [parent],
+              count: showNewer ? 3 : 1,
+              can_create: true,
+            },
+          })
+        return route.fulfill({
+          json: path.endsWith(parent.id)
+            ? parent
+            : path.endsWith(newer.id)
+              ? newer
+              : child,
+        })
+      },
+    )
+    await page
+      .getByRole("link", { name: "Current assets", exact: true })
+      .click()
+    await page.getByRole("button", { name: "View details" }).click()
+    const panel = page.getByRole("region", { name: "AI investigation" })
+    await panel.getByLabel("Follow-up question").fill(question)
+    expect(requests).toHaveLength(0)
+    await panel.getByRole("button", { name: "Submit follow-up" }).click()
+    await expect(panel).toContainText("Pending question")
+    showNewer = true
+    await page.reload()
+    await expect(panel).toContainText(question)
+    await panel.getByRole("button", { name: "Check previous request" }).click()
+    await expect(panel).toContainText("This attempt failed.")
+    expect(requests).toHaveLength(2)
+    expect(requests[1]).toEqual(requests[0])
+    expect(requests[1].path).toBe(
+      `/api/v1/projects/${projectId}/ai-investigations/${parent.id}/followups`,
+    )
+    expect(requests[1].body).toEqual({ question })
+    // The parent is outside the list window and must be recovered by identity.
+    await expect(
+      panel.locator("article").filter({ hasText: "Saved question" }),
+    ).toContainText(parent.id)
+    await expect(panel.locator("article").first()).toContainText(parent.id)
+    await panel.getByRole("button", { name: "Start a new attempt" }).click()
+    await expect.poll(() => requests.length).toBe(3)
+    expect(requests[2].path).toBe(requests[0].path)
+    expect(requests[2].body).toEqual(requests[0].body)
+    expect(requests[2].key).not.toBe(requests[0].key)
+  })
+
+  test("distinguishes persisted read sources and rejects scope drift, conflicting and unsuccessful citations", async ({
+    page,
+  }) => {
+    const parent = completedInvestigation
+    const read = {
+      id: "f0000000-0000-4000-8000-000000000001",
+      tool_name: "read_cloudatlas_asset",
+      queried_at: "2026-09-09T12:02:00Z",
+      completed_at: "2026-09-09T12:02:01Z",
+      status: "SUCCEEDED",
+      failure_code: null,
+      project_id: projectId,
+      resource_id: resourceId,
+      run_id: parent.run_id,
+      result: { source: "CloudAtlas OctoBus ListIPAssets", result: "FOUND" },
+      items: [
+        {
+          citation_id: "live-asset",
+          fact: {
+            canonical_ip: "192.0.2.10",
+            source: "CLOUDATLAS",
+            queried_at: "2026-09-09T12:02:00Z",
+          },
+        },
+      ],
+    }
+    const history = {
+      ...read,
+      id: "f0000000-0000-4000-8000-000000000002",
+      tool_name: "read_asset_history",
+      items: [
+        {
+          citation_id: "history-asset",
+          fact: {
+            run_id: "60000000-0000-0000-0000-000000000009",
+            published_at: "2026-07-01T12:00:00Z",
+            customer_observed: false,
+          },
+        },
+      ],
+    }
+    const failed = {
+      ...read,
+      id: "f0000000-0000-4000-8000-000000000003",
+      status: "FAILED",
+      failure_code: "cloudatlas_upstream_failed",
+      items: [],
+      result: {},
+    }
+    const noData = {
+      ...history,
+      id: "f0000000-0000-4000-8000-000000000004",
+      items: [],
+      result: {
+        result: "NO_DATA",
+        gaps: ["no_published_asset_history"],
+        source: "published_runs",
+      },
+    }
+    const running = {
+      ...read,
+      id: "f0000000-0000-4000-8000-000000000005",
+      status: "RUNNING",
+      completed_at: null,
+      items: [],
+      result: {},
+    }
+    let corruption = ""
+    await page.route(
+      `**/api/v1/projects/${projectId}/ai-investigations**`,
+      async (route) => {
+        const live = {
+          ...read,
+          run_id: corruption === "scope" ? "other-run" : read.run_id,
+          ...(corruption === "failed" ? { status: "FAILED", items: [] } : {}),
+          ...(corruption === "running" ? { status: "RUNNING", items: [] } : {}),
+          ...(corruption === "conflict"
+            ? {
+                items: [
+                  {
+                    citation_id: "base-comparison",
+                    fact: { customer_observed: false },
+                  },
+                ],
+              }
+            : {}),
+        }
+        const child = {
+          ...parent,
+          id: "e0000000-0000-4000-8000-000000000012",
+          parent_investigation_id: parent.id,
+          question: "Compare the live and historical material.",
+          created_at: "2026-09-09T12:04:00Z",
+          tool_reads: [
+            {
+              ...read,
+              id: "f0000000-0000-4000-8000-000000000006",
+              tool_name: "read_asset_facts",
+              items: parent.material.items,
+            },
+            live,
+            history,
+            failed,
+            noData,
+            running,
+          ],
+          output: {
+            ...parent.output,
+            facts: [
+              {
+                text: "Live and historical evidence differ.",
+                citation_ids: [
+                  corruption === "invented"
+                    ? "never-read"
+                    : corruption === "conflict"
+                      ? "base-comparison"
+                      : "live-asset",
+                  "history-asset",
+                  "base-comparison",
+                ],
+              },
+            ],
+          },
+        }
+        const path = new URL(route.request().url()).pathname
+        return route.fulfill({
+          json: path.endsWith("/ai-investigations")
+            ? { data: [child], count: 2, can_create: false }
+            : path.endsWith(parent.id)
+              ? {
+                  ...parent,
+                  resource_id:
+                    corruption === "ancestor" ? "other-resource" : resourceId,
+                }
+              : child,
+        })
+      },
+    )
+    await page
+      .getByRole("link", { name: "Current assets", exact: true })
+      .click()
+    await page.getByRole("button", { name: "View details" }).click()
+    const panel = page.getByRole("region", { name: "AI investigation" })
+    await expect(panel).toContainText("Live and historical evidence differ.")
+    await expect(panel).toContainText(
+      "No facts or citations from this failed read.",
+    )
+    await expect(panel).toContainText("Read not yet confirmed")
+    await expect(panel).toContainText("No matching material returned")
+    await expect(panel).toContainText("NO_DATA")
+    await expect(panel).toContainText("no_published_asset_history")
+    const childArticle = panel
+      .locator("article")
+      .filter({ hasText: "Saved question" })
+    const citations = childArticle.getByRole("list", {
+      name: "Material citations",
+    })
+    const liveCitation = citations
+      .locator("summary")
+      .filter({ hasText: "live-asset" })
+    await liveCitation.focus()
+    await page.keyboard.press("Enter")
+    await expect(liveCitation.locator("..")).toContainText(
+      "Live CloudAtlas query",
+    )
+    await expect(liveCitation.locator("..")).toContainText("192.0.2.10")
+    const historyCitation = citations
+      .locator("summary")
+      .filter({ hasText: "history-asset" })
+    await historyCitation.click()
+    await expect(historyCitation.locator("..")).toContainText(
+      "Historical published snapshot",
+    )
+    await expect(historyCitation.locator("..")).toContainText("2026-07-01")
+    await expect(panel.getByLabel("Follow-up question")).toHaveCount(0)
+    await page.setViewportSize({ width: 390, height: 844 })
+    expect(
+      await page
+        .getByRole("dialog")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    ).toBe(true)
+    for (const invalid of [
+      "scope",
+      "failed",
+      "running",
+      "conflict",
+      "invented",
+      "ancestor",
+    ]) {
+      corruption = invalid
+      await page.reload()
+      await expect(panel).toContainText("Investigation could not be read")
+      await expect(panel).not.toContainText(
+        "Live and historical evidence differ.",
+      )
+    }
   })
 
   test("uses paginated Assets and Findings views with bounded source details", async ({
@@ -379,6 +770,9 @@ test.describe("Project result views", () => {
       resource_id: resourceId,
       run_id: runId,
       finding_id: null,
+      parent_investigation_id: null,
+      question: null,
+      tool_reads: [],
       status: "GENERATING",
       created_at: "2026-09-09T12:00:00Z",
       completed_at: null,
@@ -420,6 +814,20 @@ test.describe("Project result views", () => {
     await page.getByRole("button", { name: "View details" }).click()
     await page.getByRole("button", { name: "Investigate this asset" }).click()
     await expect(page.getByText("Start not yet confirmed")).toBeVisible()
+    // Recovery written by the initial-only UI has no follow-up fields.
+    await page.evaluate(() => {
+      const key = Object.keys(sessionStorage).find((entry) =>
+        entry.startsWith("exposure:ai-investigation:"),
+      )
+      if (!key) throw new Error("Missing durable investigation identity")
+      const { idempotencyKey, investigationId } = JSON.parse(
+        sessionStorage.getItem(key) ?? "null",
+      )
+      sessionStorage.setItem(
+        key,
+        JSON.stringify({ idempotencyKey, investigationId }),
+      )
+    })
     await page.route(
       new RegExp(`/api/v1/projects/${projectId}/ip-assets(?:\\?.*)?$`),
       (route) =>
@@ -505,9 +913,7 @@ test.describe("Project result views", () => {
     const citation = dialog.locator("summary").filter({ hasText: citationId })
     await citation.focus()
     await page.keyboard.press("Enter")
-    await expect(citation.locator("..").locator("pre")).toContainText(
-      resourceId,
-    )
+    await expect(citation.locator("..")).toContainText(resourceId)
   })
 
   test("keeps Viewer investigation citations readable and rejects cross-project results", async ({
@@ -536,6 +942,9 @@ test.describe("Project result views", () => {
       resource_id: resourceId,
       run_id: findingSummary.latest_occurrence_run_id,
       finding_id: findingId,
+      parent_investigation_id: null,
+      question: null,
+      tool_reads: [],
       status: "COMPLETED",
       created_at: "2026-09-09T12:00:00Z",
       completed_at: "2026-09-09T12:01:00Z",
@@ -601,6 +1010,7 @@ test.describe("Project result views", () => {
     await expect(
       panel.getByRole("button", { name: "Investigate this asset" }),
     ).toHaveCount(0)
+    await expect(panel.getByLabel("Follow-up question")).toHaveCount(0)
     await expect(
       panel.getByRole("heading", { name: "Explanations to verify" }),
     ).toBeVisible()
@@ -615,9 +1025,8 @@ test.describe("Project result views", () => {
     const citation = panel.locator("summary").filter({ hasText: citationId })
     await citation.focus()
     await page.keyboard.press("Enter")
-    await expect(panel.locator("pre")).toContainText(
-      '"customer_observed": true',
-    )
+    await expect(citation.locator("..")).toContainText("customer observed")
+    await expect(citation.locator("..")).toContainText("Yes")
     await page
       .getByRole("dialog")
       .getByRole("combobox", { name: "Language / 语言" })
