@@ -1721,6 +1721,102 @@ class Finding(SQLModel, table=True):
     )
 
 
+class ManualReview(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "manual_reviews"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            name="fk_manual_reviews_project_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            name="fk_manual_reviews_run_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["resource_id", "project_id", "tenant_id"],
+            ["resources.id", "resources.project_id", "resources.tenant_id"],
+            name="fk_manual_reviews_resource_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["finding_id", "project_id", "tenant_id"],
+            ["findings.id", "findings.project_id", "findings.tenant_id"],
+            name="fk_manual_reviews_finding_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["supersedes_id", "resource_id", "run_id", "project_id", "tenant_id"],
+            [
+                "manual_reviews.id",
+                "manual_reviews.resource_id",
+                "manual_reviews.run_id",
+                "manual_reviews.project_id",
+                "manual_reviews.tenant_id",
+            ],
+            name="fk_manual_reviews_predecessor_scope",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "id",
+            "resource_id",
+            "run_id",
+            "project_id",
+            "tenant_id",
+            name="uq_manual_reviews_scope",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "resource_id",
+            "run_id",
+            "finding_id",
+            "version",
+            name="uq_manual_reviews_scope_version",
+            postgresql_nulls_not_distinct=True,
+        ),
+        UniqueConstraint("supersedes_id", name="uq_manual_reviews_successor"),
+        CheckConstraint(
+            "(version = 1 AND supersedes_id IS NULL) OR "
+            "(version > 1 AND supersedes_id IS NOT NULL)",
+            name="ck_manual_reviews_version",
+        ),
+        CheckConstraint(
+            "btrim(conclusion) <> '' AND btrim(pending_verification) <> ''",
+            name="ck_manual_reviews_text",
+        ),
+        CheckConstraint(
+            "baseline_classification IN ('matched', 'customer_upload_only', "
+            "'cloudatlas_only', 'neither_source_observed')",
+            name="ck_manual_reviews_baseline",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    resource_id: uuid.UUID
+    run_id: uuid.UUID
+    finding_id: uuid.UUID | None = Field(default=None)
+    author_id: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    author_name: str = Field(max_length=255)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    conclusion: str = Field(max_length=4000)
+    pending_verification: str = Field(max_length=4000)
+    supersedes_id: uuid.UUID | None = Field(default=None)
+    version: int
+    baseline_classification: str = Field(max_length=40)
+
+
 class FindingOccurrence(SQLModel, table=True):
     __tablename__: ClassVar[str] = "finding_occurrences"
     __table_args__ = (

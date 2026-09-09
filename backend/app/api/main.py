@@ -8,6 +8,7 @@ from app.api.routes import (
     governance_runs,
     ip_results,
     login,
+    manual_reviews,
     model_qualification,
     project_memberships,
     projects,
@@ -26,3 +27,4 @@ api_router.include_router(model_qualification.router)
 api_router.include_router(project_memberships.router)
 api_router.include_router(audit_events.router)
 api_router.include_router(ai_investigations.router)
+api_router.include_router(manual_reviews.router)
