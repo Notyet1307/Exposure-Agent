@@ -131,7 +131,7 @@ function RunLineage() {
   }, [scope])
 
   return (
-    <div className="min-w-0 max-w-full space-y-6 overflow-hidden">
+    <div className="min-w-0 max-w-full space-y-4 overflow-hidden">
       <header className="space-y-2">
         <h1
           ref={heading}
@@ -140,24 +140,20 @@ function RunLineage() {
         >
           {t("Run lineage", "运行血缘")}
         </h1>
-        <details className="text-sm">
-          <summary className="cursor-pointer">
-            {t("Scope identifiers", "范围标识")}
-          </summary>
-          <div className="mt-2 space-y-2">
+        <div className="grid gap-x-4 gap-y-1 text-sm md:grid-cols-2">
+          <p className="break-all">
+            {t("Project ID", "项目 ID")}: {projectId}
+          </p>
+          <p className="break-all">
+            {t("Run ID", "运行 ID")}: {runId}
+          </p>
+          {resourceId !== undefined && (
             <p className="break-all">
-              {t("Project ID", "项目 ID")}: {projectId}
+              {t("Resource ID", "资产 ID")}: {resourceId}
             </p>
-            <p className="break-all">
-              {t("Run ID", "运行 ID")}: {runId}
-            </p>
-            {resourceId !== undefined && (
-              <p className="break-all">
-                {t("Resource ID", "资产 ID")}: {resourceId}
-              </p>
-            )}
-          </div>
-        </details>
+          )}
+        </div>
+
         <p className="break-all font-medium">
           {resourceId === undefined
             ? t("Overview", "概览")
@@ -364,7 +360,9 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
   const [reportOpen, setReportOpen] = useState(false)
   const reportTrigger = useRef<HTMLButtonElement | null>(null)
   const clearButton = useRef<HTMLButtonElement>(null)
-  const nodeButtons = useRef(new Map<string, HTMLButtonElement>())
+  const graph = useRef<HTMLElement>(null)
+  const detailPanel = useRef<HTMLElement>(null)
+  const [zoom, setZoom] = useState(1)
   const selected = data.nodes.find((node) => node.key === selectedKey)
   const upstream = directedPaths(data.edges, selected?.key ?? "", "upstream")
   const downstream = directedPaths(
@@ -390,6 +388,20 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
     240,
     ...grouped.map((group) => group.nodes.length * 90 + 80),
   )
+  useEffect(() => {
+    if (selectedKey && detailPanel.current) detailPanel.current.scrollTop = 0
+  }, [selectedKey])
+  const fitGraph = () => {
+    if (!graph.current) return
+    setZoom(
+      Math.min(
+        1,
+        graph.current.clientWidth / 1470,
+        graph.current.clientHeight / graphHeight,
+      ),
+    )
+    graph.current.scrollTo(0, 0)
+  }
   const openReport = (trigger: HTMLButtonElement) => {
     reportTrigger.current = trigger
     setReportOpen(true)
@@ -401,14 +413,12 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
         aria-label={t("Lineage scope and coverage", "血缘范围与覆盖")}
         className="min-w-0 space-y-3"
       >
-        {selected?.kind !== "REPORT" && (
-          <Button
-            type="button"
-            onClick={(event) => openReport(event.currentTarget)}
-          >
-            {t("Read report", "阅读报告")}
-          </Button>
-        )}
+        <Button
+          type="button"
+          onClick={(event) => openReport(event.currentTarget)}
+        >
+          {t("Read report", "阅读报告")}
+        </Button>
         <p role="status" className="text-sm">
           <Badge variant="secondary">{translateValue(data.status)}</Badge>{" "}
           {data.status === "EMPTY"
@@ -426,7 +436,7 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
                   "此投影未被截断；这不证明输入覆盖完整或风险为零。",
                 )}
         </p>
-        <dl className="grid gap-2 text-sm sm:grid-cols-2 [&_dt]:font-medium [&_dd]:break-all">
+        <dl className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-5 [&_dt]:font-medium [&_dd]:break-all">
           <Field label={t("Run total comparisons", "运行比较总数")}>
             {data.totals.comparison_count}
           </Field>
@@ -452,7 +462,7 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
             <h2 className="font-medium">
               {t("Truncation reasons", "截断原因")}
             </h2>
-            <ul className="list-inside list-disc break-all text-sm">
+            <ul className="flex list-inside list-disc flex-wrap gap-x-4 break-all text-sm">
               {data.truncation_reasons.map((reason) => (
                 <li key={reason}>{translateValue(reason)}</li>
               ))}
@@ -499,6 +509,316 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
         </details>
       </section>
 
+      <p className="text-sm font-medium">
+        {t(
+          "Published associations, not causation or proof of Evidence inclusion.",
+          "已发布关联，非因果，也不证明证据已被纳入。",
+        )}
+      </p>
+      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(18rem,2fr)]">
+        <div className="min-w-0 space-y-3">
+          <fieldset
+            aria-label={t("Graph controls", "画布操作")}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              disabled={zoom <= 0.1}
+              onClick={() => setZoom(Math.max(0.1, zoom - 0.25))}
+            >
+              {t("Zoom out", "缩小")}
+            </Button>
+            <output aria-live="polite" className="min-w-12 text-center text-sm">
+              {Math.round(zoom * 100)}%
+            </output>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={zoom >= 2}
+              onClick={() => setZoom(Math.min(2, zoom + 0.25))}
+            >
+              {t("Zoom in", "放大")}
+            </Button>
+            <Button type="button" variant="outline" onClick={fitGraph}>
+              {t("Fit graph", "适配画布")}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setZoom(1)}>
+              {t("Actual size", "实际大小")}
+            </Button>
+          </fieldset>
+          <section
+            ref={graph}
+            aria-label={t("Lineage graph", "血缘图")}
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users need to scroll this visual graph; equivalent nodes and paths follow in the DOM.
+            tabIndex={0}
+            className="h-[55vh] min-h-80 max-h-[520px] max-w-full overflow-auto rounded-lg border focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            <svg
+              aria-hidden="true"
+              width={1470 * zoom}
+              height={graphHeight * zoom}
+              viewBox={`0 0 1470 ${graphHeight}`}
+              className="text-foreground"
+            >
+              {grouped.map((group, column) => (
+                <text
+                  key={group.kind}
+                  x={30 + column * 240}
+                  y="28"
+                  fill="currentColor"
+                  fontSize="14"
+                >
+                  {t(group.title[0], group.title[1])}
+                </text>
+              ))}
+              {data.edges.map((edge) => {
+                const start = positions.get(edge.from)
+                const end = positions.get(edge.to)
+                if (!start || !end) return null
+                const active = highlightedEdges.has(edge.key)
+                const x1 = start.x + 195
+                const y1 = start.y + 26
+                const x2 = end.x
+                const y2 = end.y + 26
+                // Skip intervening result columns without drawing through sibling nodes.
+                const line =
+                  end.x - start.x > 240
+                    ? `M ${x1} ${y1} H ${x1 + 12} V 45 H ${x2 - 12} V ${y2} H ${x2}`
+                    : `M ${x1} ${y1} C ${x1 + 30} ${y1}, ${x2 - 30} ${y2}, ${x2} ${y2}`
+                return (
+                  <g key={edge.key} opacity={selected && !active ? 0.3 : 1}>
+                    <path
+                      d={line}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={active ? 4 : 1.5}
+                      strokeDasharray={EDGE_STYLES[edge.kind].dash}
+                    />
+                    <path
+                      d={`M ${x2 - 7} ${y2 - 4} L ${x2} ${y2} L ${x2 - 7} ${y2 + 4}`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={active ? 3 : 1.5}
+                    />
+                  </g>
+                )
+              })}
+              {data.nodes.map((node) => {
+                const position = positions.get(node.key)
+                if (!position) return null
+                const active =
+                  node.key === selected?.key ||
+                  upstream.reached.has(node.key) ||
+                  downstream.reached.has(node.key)
+                const label = nodeIdentifier(node)
+                return (
+                  <foreignObject
+                    key={node.key}
+                    x={position.x}
+                    y={position.y}
+                    width="195"
+                    height="54"
+                    opacity={selected && !active ? 0.4 : 1}
+                  >
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-label={`${translateValue(node.kind)} ${label}`}
+                      className={`h-full w-full cursor-pointer rounded-md border-foreground bg-background px-2 text-left text-xs ${node.key === selected?.key ? "border-4" : active ? "border-2" : "border"}`}
+                      onClick={() => {
+                        setSelectedKey(node.key)
+                        graph.current?.focus({ preventScroll: true })
+                      }}
+                    >
+                      <span className="block">
+                        {translateValue(node.kind)}
+                        {node.key === selected?.key
+                          ? t(" · Selected", " · 已选中")
+                          : active
+                            ? t(" · Path", " · 路径")
+                            : ""}
+                      </span>
+                      <span className="block truncate text-[11px]">
+                        {label}
+                      </span>
+                    </button>
+                  </foreignObject>
+                )
+              })}
+            </svg>
+          </section>
+
+          <section
+            aria-label={t("Lineage nodes", "血缘节点")}
+            className="min-w-0 space-y-3"
+          >
+            <details open>
+              <summary className="cursor-pointer font-semibold">
+                {t("Node directory", "节点目录")}
+              </summary>
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  "Select a node to read its facts and directed upstream/downstream associations. Tab or Shift+Tab navigates; Enter or Space selects.",
+                  "选择节点以阅读事实及有向上游/下游关联。使用 Tab 或 Shift+Tab 导航，按 Enter 或空格选择。",
+                )}
+              </p>
+              <Button
+                ref={clearButton}
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setSelectedKey(null)
+                  clearButton.current?.focus()
+                }}
+              >
+                {t("Clear selection", "清除选择")}
+              </Button>
+              <p role="status" className="break-all text-sm">
+                {selected
+                  ? t(
+                      `Selected ${selected.kind} ${nodeIdentifier(selected)}`,
+                      `已选中 ${translateValue(selected.kind)} ${nodeIdentifier(selected)}`,
+                    )
+                  : t("No node selected", "未选择节点")}
+              </p>
+              <div className="grid max-h-80 min-w-0 gap-4 overflow-auto p-1 md:grid-cols-2">
+                {grouped.map((group) => (
+                  <section
+                    key={group.kind}
+                    aria-label={t(group.title[0], group.title[1])}
+                    className="min-w-0 space-y-2"
+                  >
+                    <h3 className="font-semibold">
+                      {t(group.title[0], group.title[1])}
+                    </h3>
+                    <ul className="space-y-2">
+                      {group.nodes.map((node) => (
+                        <li key={node.key} className="min-w-0">
+                          <button
+                            type="button"
+                            aria-pressed={selected?.key === node.key}
+                            aria-label={`${translateValue(node.kind)} ${nodeIdentifier(node)}`}
+                            onClick={() => setSelectedKey(node.key)}
+                            className="w-full min-w-0 rounded-md border p-3 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-pressed:border-foreground aria-pressed:bg-muted"
+                          >
+                            <span className="block font-semibold">
+                              {translateValue(node.kind)}
+                              {selected?.key === node.key
+                                ? t(" · Selected", " · 已选中")
+                                : upstream.reached.has(node.key)
+                                  ? t(" · Upstream", " · 上游")
+                                  : downstream.reached.has(node.key)
+                                    ? t(" · Downstream", " · 下游")
+                                    : ""}
+                            </span>
+                            <span className="block break-all">
+                              {nodeIdentifier(node)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            </details>
+          </section>
+        </div>
+
+        <section
+          ref={detailPanel}
+          aria-label={t("Node reading panel", "节点阅读面板")}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users need to scroll all node facts without moving the page.
+          tabIndex={0}
+          className="max-h-[70vh] min-w-0 space-y-4 overflow-auto rounded-lg border p-1 focus-visible:outline-2 focus-visible:outline-ring lg:max-h-[calc(55vh+2.75rem)]"
+        >
+          {!selected && (
+            <p className="p-4 text-sm text-muted-foreground">
+              {t(
+                "Select a node in the graph or directory to read all facts and directed associations here.",
+                "在图中或目录中选择节点，在此阅读全部事实及有向关联。",
+              )}
+            </p>
+          )}
+          {selected && (
+            <>
+              <section
+                aria-label={t("Node details", "节点详情")}
+                className="min-w-0 space-y-3 rounded-lg border p-4"
+              >
+                <h2 className="text-xl font-semibold">
+                  {t("Node details", "节点详情")}
+                </h2>
+                <h3 className="break-all font-medium">
+                  {translateValue(selected.kind)} {nodeIdentifier(selected)}
+                </h3>
+                <NodeDetails node={selected} openReport={openReport} />
+              </section>
+              <section
+                aria-label={t("Selected paths", "所选路径")}
+                className="min-w-0 space-y-3 rounded-lg border p-4"
+              >
+                <h2 className="text-xl font-semibold">
+                  {t("Selected paths", "所选路径")}
+                </h2>
+                <p className="text-sm">
+                  {t(
+                    "Directed upstream and downstream associations only; report context is not causation or proof of Evidence inclusion.",
+                    "仅展示有向上游和下游关联；报告上下文不代表因果，也不证明证据已被纳入。",
+                  )}
+                </p>
+                {[
+                  {
+                    title: "Upstream associations",
+                    chinese: "上游关联",
+                    path: upstream.path,
+                  },
+                  {
+                    title: "Downstream associations",
+                    chinese: "下游关联",
+                    path: downstream.path,
+                  },
+                ].map(({ title, chinese, path }) => (
+                  <section key={title} aria-label={t(title, chinese)}>
+                    <h3 className="font-semibold">{t(title, chinese)}</h3>
+                    {path.size === 0 ? (
+                      <p className="text-sm">
+                        {t(
+                          "No returned associations in this direction.",
+                          "此方向没有返回的关联。",
+                        )}
+                      </p>
+                    ) : (
+                      <ul className="list-inside list-disc space-y-2 text-sm">
+                        {data.edges
+                          .filter((edge) => path.has(edge.key))
+                          .map((edge) => {
+                            const from = nodes.get(edge.from)
+                            const to = nodes.get(edge.to)
+                            return (
+                              <li key={edge.key} className="break-all">
+                                <strong>{edge.kind}</strong>:{" "}
+                                {from
+                                  ? `${translateValue(from.kind)} ${nodeIdentifier(from)}`
+                                  : edge.from}{" "}
+                                →{" "}
+                                {to
+                                  ? `${translateValue(to.kind)} ${nodeIdentifier(to)}`
+                                  : edge.to}
+                                . {t(...EDGE_STYLES[edge.kind].meaning)}
+                              </li>
+                            )
+                          })}
+                      </ul>
+                    )}
+                  </section>
+                ))}
+              </section>
+            </>
+          )}
+        </section>
+      </div>
       <section
         aria-label={t("Association semantics", "关联语义")}
         className="space-y-3"
@@ -554,261 +874,6 @@ function PublishedLineage({ data }: { data: GovernanceRunLineagePublic }) {
           </ul>
         </details>
       </section>
-
-      <section
-        aria-label={t("Lineage graph", "血缘图")}
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: Keyboard users need to scroll this visual graph; equivalent nodes and paths follow in the DOM.
-        tabIndex={0}
-        className="max-h-[60vh] max-w-full overflow-auto rounded-lg border focus-visible:outline-2 focus-visible:outline-ring"
-      >
-        <svg
-          aria-hidden="true"
-          width="1470"
-          height={graphHeight}
-          className="text-foreground"
-        >
-          {grouped.map((group, column) => (
-            <text
-              key={group.kind}
-              x={30 + column * 240}
-              y="28"
-              fill="currentColor"
-              fontSize="14"
-            >
-              {t(group.title[0], group.title[1])}
-            </text>
-          ))}
-          {data.edges.map((edge) => {
-            const start = positions.get(edge.from)
-            const end = positions.get(edge.to)
-            if (!start || !end) return null
-            const active = highlightedEdges.has(edge.key)
-            const x1 = start.x + 195
-            const y1 = start.y + 26
-            const x2 = end.x
-            const y2 = end.y + 26
-            // Skip intervening result columns without drawing through sibling nodes.
-            const line =
-              end.x - start.x > 240
-                ? `M ${x1} ${y1} H ${x1 + 12} V 45 H ${x2 - 12} V ${y2} H ${x2}`
-                : `M ${x1} ${y1} C ${x1 + 30} ${y1}, ${x2 - 30} ${y2}, ${x2} ${y2}`
-            return (
-              <g key={edge.key} opacity={selected && !active ? 0.3 : 1}>
-                <path
-                  d={line}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={active ? 4 : 1.5}
-                  strokeDasharray={EDGE_STYLES[edge.kind].dash}
-                />
-                <path
-                  d={`M ${x2 - 7} ${y2 - 4} L ${x2} ${y2} L ${x2 - 7} ${y2 + 4}`}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={active ? 3 : 1.5}
-                />
-              </g>
-            )
-          })}
-          {data.nodes.map((node) => {
-            const position = positions.get(node.key)
-            if (!position) return null
-            const active =
-              node.key === selected?.key ||
-              upstream.reached.has(node.key) ||
-              downstream.reached.has(node.key)
-            const label = nodeIdentifier(node)
-            return (
-              <foreignObject
-                key={node.key}
-                x={position.x}
-                y={position.y}
-                width="195"
-                height="54"
-                opacity={selected && !active ? 0.4 : 1}
-              >
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  aria-label={`${translateValue(node.kind)} ${label}`}
-                  className={`h-full w-full cursor-pointer rounded-md border-foreground bg-background px-2 text-left text-xs ${node.key === selected?.key ? "border-4" : active ? "border-2" : "border"}`}
-                  onClick={() => {
-                    setSelectedKey(node.key)
-                    nodeButtons.current.get(node.key)?.focus()
-                  }}
-                >
-                  <span className="block">
-                    {translateValue(node.kind)}
-                    {node.key === selected?.key
-                      ? t(" · Selected", " · 已选中")
-                      : active
-                        ? t(" · Path", " · 路径")
-                        : ""}
-                  </span>
-                  <span className="block truncate text-[11px]">{label}</span>
-                </button>
-              </foreignObject>
-            )
-          })}
-        </svg>
-      </section>
-
-      <div className="grid min-w-0 items-start gap-6 lg:grid-cols-2">
-        <section
-          aria-label={t("Lineage nodes", "血缘节点")}
-          className="min-w-0 space-y-3"
-        >
-          <h2 className="text-xl font-semibold">
-            {t("Lineage nodes", "血缘节点")}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {t(
-              "Select a node to read its facts and directed upstream/downstream associations. Tab or Shift+Tab navigates; Enter or Space selects.",
-              "选择节点以阅读事实及有向上游/下游关联。使用 Tab 或 Shift+Tab 导航，按 Enter 或空格选择。",
-            )}
-          </p>
-          <Button
-            ref={clearButton}
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setSelectedKey(null)
-              clearButton.current?.focus()
-            }}
-          >
-            {t("Clear selection", "清除选择")}
-          </Button>
-          <p role="status" className="text-sm">
-            {selected
-              ? t(
-                  `Selected ${selected.kind} ${nodeIdentifier(selected)}`,
-                  `已选中 ${translateValue(selected.kind)} ${nodeIdentifier(selected)}`,
-                )
-              : t("No node selected", "未选择节点")}
-          </p>
-          <div className="grid min-w-0 gap-4 md:grid-cols-2">
-            {grouped.map((group) => (
-              <section
-                key={group.kind}
-                aria-label={t(group.title[0], group.title[1])}
-                className="min-w-0 space-y-2"
-              >
-                <h3 className="font-semibold">
-                  {t(group.title[0], group.title[1])}
-                </h3>
-                <ul className="space-y-2">
-                  {group.nodes.map((node) => (
-                    <li key={node.key} className="min-w-0">
-                      <button
-                        ref={(button) => {
-                          if (button) nodeButtons.current.set(node.key, button)
-                          else nodeButtons.current.delete(node.key)
-                        }}
-                        type="button"
-                        aria-pressed={selected?.key === node.key}
-                        aria-label={`${translateValue(node.kind)} ${nodeIdentifier(node)}`}
-                        onClick={() => setSelectedKey(node.key)}
-                        className="w-full min-w-0 rounded-md border p-3 text-left text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-pressed:border-foreground aria-pressed:bg-muted"
-                      >
-                        <span className="block font-semibold">
-                          {translateValue(node.kind)}
-                          {selected?.key === node.key
-                            ? t(" · Selected", " · 已选中")
-                            : upstream.reached.has(node.key)
-                              ? t(" · Upstream", " · 上游")
-                              : downstream.reached.has(node.key)
-                                ? t(" · Downstream", " · 下游")
-                                : ""}
-                        </span>
-                        <span className="block break-all">
-                          {nodeIdentifier(node)}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
-        </section>
-
-        {selected && (
-          <div className="min-w-0 space-y-4 lg:sticky lg:top-4">
-            <section
-              aria-label={t("Node details", "节点详情")}
-              className="min-w-0 space-y-3 rounded-lg border p-4"
-            >
-              <h2 className="text-xl font-semibold">
-                {t("Node details", "节点详情")}
-              </h2>
-              <h3 className="break-all font-medium">
-                {translateValue(selected.kind)} {nodeIdentifier(selected)}
-              </h3>
-              <NodeDetails node={selected} openReport={openReport} />
-            </section>
-            <section
-              aria-label={t("Selected paths", "所选路径")}
-              className="min-w-0 space-y-3 rounded-lg border p-4"
-            >
-              <h2 className="text-xl font-semibold">
-                {t("Selected paths", "所选路径")}
-              </h2>
-              <p className="text-sm">
-                {t(
-                  "Directed upstream and downstream associations only; report context is not causation or proof of Evidence inclusion.",
-                  "仅展示有向上游和下游关联；报告上下文不代表因果，也不证明证据已被纳入。",
-                )}
-              </p>
-              {[
-                {
-                  title: "Upstream associations",
-                  chinese: "上游关联",
-                  path: upstream.path,
-                },
-                {
-                  title: "Downstream associations",
-                  chinese: "下游关联",
-                  path: downstream.path,
-                },
-              ].map(({ title, chinese, path }) => (
-                <section key={title} aria-label={t(title, chinese)}>
-                  <h3 className="font-semibold">{t(title, chinese)}</h3>
-                  {path.size === 0 ? (
-                    <p className="text-sm">
-                      {t(
-                        "No returned associations in this direction.",
-                        "此方向没有返回的关联。",
-                      )}
-                    </p>
-                  ) : (
-                    <ul className="list-inside list-disc space-y-2 text-sm">
-                      {data.edges
-                        .filter((edge) => path.has(edge.key))
-                        .map((edge) => {
-                          const from = nodes.get(edge.from)
-                          const to = nodes.get(edge.to)
-                          return (
-                            <li key={edge.key} className="break-all">
-                              <strong>{edge.kind}</strong>:{" "}
-                              {from
-                                ? `${translateValue(from.kind)} ${nodeIdentifier(from)}`
-                                : edge.from}{" "}
-                              →{" "}
-                              {to
-                                ? `${translateValue(to.kind)} ${nodeIdentifier(to)}`
-                                : edge.to}
-                              . {t(...EDGE_STYLES[edge.kind].meaning)}
-                            </li>
-                          )
-                        })}
-                    </ul>
-                  )}
-                </section>
-              ))}
-            </section>
-          </div>
-        )}
-      </div>
 
       {reportOpen && (
         <ReportDetailDialog
