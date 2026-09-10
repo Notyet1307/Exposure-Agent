@@ -2324,6 +2324,23 @@ export const IPAssetDetailPublicSchema = {
             ],
             title: 'Open Finding Type'
         },
+        latest_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Latest Run Id'
+        },
+        latest_run_completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Run Completed At'
+        },
         observations: {
             items: {
                 '$ref': '#/components/schemas/IPObservationPublic'
@@ -2333,7 +2350,7 @@ export const IPAssetDetailPublicSchema = {
         }
     },
     type: 'object',
-    required: ['id', 'resource_id', 'resource_type', 'canonical_key', 'canonical_ip', 'customer_observation_count', 'cloudatlas_observation_count', 'observation_count', 'customer_observed', 'cloudatlas_observed', 'open_finding_id', 'open_finding_type'],
+    required: ['id', 'resource_id', 'resource_type', 'canonical_key', 'canonical_ip', 'customer_observation_count', 'cloudatlas_observation_count', 'observation_count', 'customer_observed', 'cloudatlas_observed', 'open_finding_id', 'open_finding_type', 'latest_run_id', 'latest_run_completed_at'],
     title: 'IPAssetDetailPublic'
 } as const;
 

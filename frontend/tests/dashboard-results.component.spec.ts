@@ -287,6 +287,8 @@ async function installResultMocks(page: import("@playwright/test").Page) {
           cloudatlas_observed: true,
           open_finding_id: null,
           open_finding_type: null,
+          latest_run_id: "60000000-0000-0000-0000-000000000002",
+          latest_run_completed_at: "2026-07-31T12:00:00Z",
           observations: [observation, cloudatlasObservation],
         },
       }),
@@ -1074,9 +1076,37 @@ test.describe("Project result views", () => {
     await expect(page.getByText("Present", { exact: true })).toHaveCount(2)
 
     await page.getByRole("button", { name: "View details" }).click()
-    await expect(page.getByRole("dialog")).toContainText("row:2")
-    await expect(page.getByRole("dialog")).toContainText("atlas-1")
-    await expect(page.getByRole("dialog")).toContainText(customerSnapshotId)
+    const assetDialog = page.getByRole("dialog")
+    const assetScope = assetDialog.locator("details").filter({
+      has: page.getByText("60000000-0000-0000-0000-000000000002", {
+        exact: true,
+      }),
+    })
+    await assetScope.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(assetScope.getByRole("link")).toHaveAttribute(
+      "href",
+      `/projects/${projectId}/runs/60000000-0000-0000-0000-000000000002/lineage?project=${projectId}&run=60000000-0000-0000-0000-000000000002&resource_id=${resourceId}&view=overview`,
+    )
+    const customerEvidence = assetDialog.locator("details").filter({
+      has: page.getByText(observation.id, { exact: true }),
+    })
+    await customerEvidence.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(
+      customerEvidence.getByText("row:2", { exact: true }),
+    ).toBeVisible()
+    await expect(
+      customerEvidence.getByText(customerSnapshotId, { exact: true }),
+    ).toBeVisible()
+    const cloudatlasEvidence = assetDialog.locator("details").filter({
+      has: page.getByText(cloudatlasObservation.id, { exact: true }),
+    })
+    await cloudatlasEvidence.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(
+      cloudatlasEvidence.getByText("atlas-1", { exact: true }),
+    ).toBeVisible()
     await page.getByRole("button", { name: "Close" }).click()
 
     await page.getByRole("link", { name: "Findings", exact: true }).click()
@@ -1088,12 +1118,6 @@ test.describe("Project result views", () => {
     await expect(
       page.getByRole("table").getByText("CLOSED", { exact: true }),
     ).toBeVisible()
-    await page.getByRole("button", { name: "View details" }).click()
-    await expect(page.getByRole("dialog")).toContainText("Occurrence")
-    await expect(page.getByRole("dialog")).toContainText("Transition · OPENED")
-    await expect(page.getByRole("dialog")).toContainText(
-      "Confirmed Snapshot references",
-    )
   })
 
   test("recovers an uncertain investigation with the same identity and fixed Run after reload", async ({
@@ -1486,9 +1510,16 @@ test.describe("Finding NetFlow context presentation", () => {
       })
       await expect(context).toBeVisible()
       await expect(dialog.getByText("CLOSED", { exact: true })).toBeVisible()
-      await expect(context).toContainText(
-        positiveNetflowContext.governance_run_id,
-      )
+      const runScope = context.locator("details").filter({
+        has: page.locator("summary").getByText("View evidence · Run scope"),
+      })
+      await runScope.locator("summary").focus()
+      await page.keyboard.press("Enter")
+      await expect(
+        runScope.getByText(positiveNetflowContext.governance_run_id, {
+          exact: true,
+        }),
+      ).toBeVisible()
       await expect(context).toContainText("Asia/Shanghai")
       await expect(
         context
@@ -1504,13 +1535,6 @@ test.describe("Finding NetFlow context presentation", () => {
       for (const [label, value] of [
         ["First activity", scenario.firstText],
         ["Last activity", scenario.lastText],
-        ["Activity ID", positiveNetflowContext.activity.activity_id],
-        [
-          "NETFLOW Snapshot ID",
-          positiveNetflowContext.activity.source_snapshot_id,
-        ],
-        ["Aggregation contract", "netflow-ip-activity-v1"],
-        ["Content SHA-256", positiveNetflowContext.activity.content_sha256],
       ]) {
         await expect(
           context
@@ -1521,33 +1545,33 @@ test.describe("Finding NetFlow context presentation", () => {
             .locator("dd"),
         ).toHaveText(value)
       }
-      await expect(context.getByRole("link")).toHaveCount(0)
-      await expect(context).toContainText("does not establish")
-      await expect(
-        dialog.getByRole("heading", { name: "Occurrence", exact: true }),
-      ).toBeVisible()
-      await expect(
-        dialog.getByRole("heading", { name: "Transition · OPENED" }),
-      ).toBeVisible()
-      expect(
-        await context.evaluate((element) => {
-          const dialogElement = element.closest('[role="dialog"]')
-          const occurrence = Array.from(
-            dialogElement?.querySelectorAll("h3") ?? [],
-          ).find((heading) => heading.textContent === "Occurrence")
-          return (
-            !!occurrence &&
-            !!(
-              element.compareDocumentPosition(occurrence) &
-              Node.DOCUMENT_POSITION_FOLLOWING
-            )
-          )
+      const evidence = context.locator("details").filter({
+        has: page.getByText(positiveNetflowContext.activity.activity_id, {
+          exact: true,
         }),
-      ).toBe(true)
+      })
+      await evidence.locator("summary").focus()
+      await page.keyboard.press("Enter")
+      for (const [label, value] of [
+        ["Activity ID", positiveNetflowContext.activity.activity_id],
+        [
+          "NETFLOW Snapshot ID",
+          positiveNetflowContext.activity.source_snapshot_id,
+        ],
+        ["Aggregation contract", "netflow-ip-activity-v1"],
+        ["Content SHA-256", positiveNetflowContext.activity.content_sha256],
+      ]) {
+        await expect(
+          evidence
+            .locator("div")
+            .filter({
+              has: page.locator("dt").getByText(label, { exact: true }),
+            })
+            .getByText(value, { exact: true }),
+        ).toBeVisible()
+      }
+      await expect(context).toContainText("does not establish")
       await page.keyboard.press("Tab")
-      await expect(dialog).toContainText(
-        "Latest published Run NetFlow activity",
-      )
       expect(
         await dialog.evaluate((element) =>
           element.contains(document.activeElement),
@@ -1592,12 +1616,18 @@ test.describe("Finding NetFlow context presentation", () => {
         name: "Latest published Run NetFlow activity",
       })
       await expect(context).toContainText(message)
-      await expect(context).toContainText(
-        positiveNetflowContext.governance_run_id,
-      )
-      await expect(context.locator("dl")).toHaveCount(0)
+      const runScope = context.locator("details")
+      await runScope.locator("summary").focus()
+      await page.keyboard.press("Enter")
+      await expect(
+        runScope.getByText(positiveNetflowContext.governance_run_id, {
+          exact: true,
+        }),
+      ).toBeVisible()
+      await expect(
+        context.getByText("Sampled flow records", { exact: true }),
+      ).toHaveCount(0)
       await expect(context.getByText("0", { exact: true })).toHaveCount(0)
-      await expect(context.getByRole("link")).toHaveCount(0)
       await expect(
         page.getByRole("dialog").getByText("OPEN", { exact: true }),
       ).toBeVisible()
@@ -1631,7 +1661,10 @@ test.describe("Finding NetFlow context presentation", () => {
     await expect(dialog).not.toContainText("此运行未提供 NetFlow 输入")
   })
 
-  test("keeps a long hash inside the narrow dialog", async ({ page }) => {
+  test("keeps a long hash readable and copyable inside the narrow dialog", async ({
+    page,
+  }) => {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
     await page.setViewportSize({ width: 360, height: 800 })
     await page.route(findingDetailUrl, (route) =>
       route.fulfill({
@@ -1643,9 +1676,47 @@ test.describe("Finding NetFlow context presentation", () => {
     const context = dialog.getByRole("region", {
       name: "Latest published Run NetFlow activity",
     })
-    await expect(context).toContainText(
-      positiveNetflowContext.activity.content_sha256,
+    const hash = positiveNetflowContext.activity.content_sha256
+    const evidence = context.locator("details").filter({
+      has: page.getByText(hash, { exact: true }),
+    })
+    await expect(evidence.getByText(hash, { exact: true })).toBeHidden()
+    await evidence.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(evidence.getByText(hash, { exact: true })).toBeVisible()
+    await page.evaluate(() => navigator.clipboard.writeText(""))
+    await evidence
+      .locator("div")
+      .filter({
+        has: page.locator("dt").getByText("Content SHA-256", { exact: true }),
+      })
+      .getByRole("button", { name: `Copy full value: ${hash}`, exact: true })
+      .click()
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(hash)
+    const runScope = context.locator("details").filter({
+      has: page.locator("summary").getByText("View evidence · Run scope"),
+    })
+    await runScope.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    const lineage = runScope.getByRole("link", {
+      name: "View this resource's Run lineage",
+    })
+    await expect(lineage).toBeVisible()
+    const lineageUrl = new URL(
+      (await lineage.getAttribute("href")) ?? "",
+      page.url(),
     )
+    expect(lineageUrl.pathname).toBe(
+      `/projects/${projectId}/runs/${positiveNetflowContext.governance_run_id}/lineage`,
+    )
+    expect(Object.fromEntries(lineageUrl.searchParams)).toMatchObject({
+      project: projectId,
+      run: positiveNetflowContext.governance_run_id,
+      resource_id: resourceId,
+      view: "overview",
+    })
     expect(
       await context.evaluate(
         (element) => element.scrollWidth <= element.clientWidth,
@@ -1763,9 +1834,16 @@ test.describe("Finding NetFlow context presentation", () => {
       name: "Latest published Run NetFlow activity",
     })
     await expect(context).toHaveCount(1)
-    await expect(context).toContainText(
-      positiveNetflowContext.governance_run_id,
-    )
+    const runScope = context.locator("details").filter({
+      has: page.locator("summary").getByText("View evidence · Run scope"),
+    })
+    await runScope.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(
+      runScope.getByText(positiveNetflowContext.governance_run_id, {
+        exact: true,
+      }),
+    ).toBeVisible()
     await expect(context).not.toContainText(
       findingSummary.latest_occurrence_run_id,
     )

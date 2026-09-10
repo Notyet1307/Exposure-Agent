@@ -8,6 +8,7 @@ import {
   GovernanceReportsService,
 } from "@/client"
 import { AnalysisReportsPanel } from "@/components/AnalysisReportsPanel"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,14 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 
 import { useI18n } from "@/lib/i18n"
 
@@ -196,7 +189,10 @@ function ReportSection({
   children: React.ReactNode
 }) {
   return (
-    <section id={id} className="scroll-mt-6 space-y-3 rounded-lg border p-4">
+    <section
+      id={id}
+      className="min-w-0 scroll-mt-6 space-y-3 rounded-lg border p-4 [overflow-wrap:anywhere]"
+    >
       <h2 className="text-lg font-semibold">{title}</h2>
       {children}
     </section>
@@ -219,36 +215,50 @@ function InputCompleteness({ section }: { section: JsonObject }) {
               "已发布报告未将所有输入标记为完整。",
             )}
       </p>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("Source", "来源")}</TableHead>
-            <TableHead>{t("Snapshot reference", "快照引用")}</TableHead>
-            <TableHead>{t("Content SHA-256", "内容 SHA-256")}</TableHead>
-            <TableHead>{t("Schema", "结构版本")}</TableHead>
-            <TableHead>{t("Records", "记录数")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sources.map((source, index) => (
-            <TableRow key={`${stringField(source, "source_type")}-${index}`}>
-              <TableCell>
-                {translateValue(stringField(source, "source_type"))}
-              </TableCell>
-              <TableCell className="break-all font-mono text-xs">
-                {stringField(source, "source_snapshot_id")}
-              </TableCell>
-              <TableCell className="break-all font-mono text-xs">
-                {stringField(source, "content_sha256")}
-              </TableCell>
-              <TableCell className="break-all">
-                {stringField(source, "schema_version")}
-              </TableCell>
-              <TableCell>{numberField(source, "record_count")}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+      <ul className="grid min-w-0 gap-3 sm:grid-cols-2">
+        {sources.map((source, index) => (
+          <li
+            className="min-w-0 space-y-2 rounded-md border p-3 text-sm"
+            key={`${stringField(source, "source_type")}-${index}`}
+          >
+            <p className="font-medium">
+              {translateValue(stringField(source, "source_type"))}
+            </p>
+            <p>
+              {t("Records", "记录数")}: {numberField(source, "record_count")}
+            </p>
+            <details className="min-w-0">
+              <summary className="cursor-pointer">
+                {t("View evidence", "查看依据")}
+              </summary>
+              <dl className="mt-2 grid min-w-0 gap-2">
+                <div className="min-w-0">
+                  <dt>{t("Snapshot reference", "快照引用")}</dt>
+                  <dd>
+                    <TechnicalValue
+                      value={stringField(source, "source_snapshot_id", "")}
+                    />
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt>{t("Content SHA-256", "内容 SHA-256")}</dt>
+                  <dd>
+                    <TechnicalValue
+                      value={stringField(source, "content_sha256", "")}
+                    />
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("Schema", "结构版本")}</dt>
+                  <dd className="break-all">
+                    {stringField(source, "schema_version")}
+                  </dd>
+                </div>
+              </dl>
+            </details>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -282,18 +292,19 @@ function EvidenceCards({
           `显示 ${evidenceCount} 个有界证据引用中的 ${entries.length} 个。HTML 视图最多展示 ${HTML_EVIDENCE_LIMIT} 张卡片。`,
         )}
       </p>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
         {entries.map((entry, index) => {
           const reference = objectField(entry, "evidence_reference") ?? {}
           return (
             <article
               id={`report-evidence-${index + 1}`}
               data-testid="evidence-card"
-              className="space-y-2 rounded-md border p-3 text-sm"
+              className="min-w-0 space-y-2 rounded-md border p-3 text-sm"
               key={`${stringField(entry, "finding_id")}-${index}`}
             >
-              <h3 className="font-semibold">
-                {t("Evidence", "证据")} {index + 1}
+              <h3 className="break-all font-semibold">
+                {stringField(entry, "canonical_ip")} ·{" "}
+                {translateValue(stringField(entry, "finding_type"))}
               </h3>
               <dl className="grid gap-1">
                 <div>
@@ -302,25 +313,6 @@ function EvidenceCards({
                   </dt>
                   <dd className="inline">
                     {translateValue(stringField(entry, "coverage"))}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="inline font-medium">
-                    {t("Finding: ", "发现项：")}
-                  </dt>
-                  <dd className="inline break-all font-mono text-xs">
-                    {stringField(entry, "finding_id")}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="inline font-medium">
-                    {t("Type / IP: ", "类型 / IP：")}
-                  </dt>
-                  <dd className="inline break-all">
-                    {translateValue(stringField(entry, "finding_type"))} /{" "}
-                    <span className="font-mono">
-                      {stringField(entry, "canonical_ip")}
-                    </span>
                   </dd>
                 </div>
                 <div>
@@ -337,18 +329,45 @@ function EvidenceCards({
                     )}
                   </dd>
                 </div>
-                <div>
-                  <dt className="inline font-medium">
-                    {t("Source fact: ", "来源事实：")}
-                  </dt>
-                  <dd className="inline break-all font-mono text-xs">
-                    {translateValue(stringField(reference, "fact_type"))} /{" "}
-                    {stringField(reference, "fact_id")}
-                  </dd>
-                </div>
               </dl>
+              <details className="min-w-0">
+                <summary className="cursor-pointer">
+                  {t("View evidence", "查看依据")} · {index + 1}
+                </summary>
+                <dl className="mt-2 grid min-w-0 gap-2">
+                  <div>
+                    <dt className="font-medium">{t("Finding", "发现项")}</dt>
+                    <dd>
+                      <TechnicalValue
+                        value={stringField(entry, "finding_id", "")}
+                      />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium">
+                      {t("Governance Run", "治理运行")}
+                    </dt>
+                    <dd>
+                      <TechnicalValue
+                        value={stringField(reference, "governance_run_id", "")}
+                      />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium">
+                      {t("Source fact", "来源事实")}
+                    </dt>
+                    <dd>
+                      {translateValue(stringField(reference, "fact_type"))} /{" "}
+                      <TechnicalValue
+                        value={stringField(reference, "fact_id", "")}
+                      />
+                    </dd>
+                  </div>
+                </dl>
+              </details>
               <p className="flex flex-wrap gap-3 text-sm">
-                <a className="underline" href="#report-provenance">
+                <a className="underline" href="#report-source-references">
                   {t("Evidence provenance", "证据来源追溯")}
                 </a>
                 <a className="underline" href="#report-open-backlog">
@@ -598,7 +617,7 @@ function DraftGeneration({
                 const selected = selectedFindingIds.has(finding.id)
                 return (
                   <div
-                    className="flex cursor-pointer items-center gap-2 rounded-md border p-2 text-sm"
+                    className="flex min-w-0 flex-wrap items-start gap-2 rounded-md border p-2 text-sm"
                     key={finding.id}
                   >
                     <Checkbox
@@ -615,20 +634,26 @@ function DraftGeneration({
                       }
                     />
                     <label
-                      className="flex cursor-pointer items-center gap-2"
+                      className="min-w-0 cursor-pointer break-all font-mono"
                       htmlFor={`ai-draft-finding-${finding.id}`}
                     >
-                      <span className="font-mono text-xs">{finding.id}</span>
-                      <span className="text-muted-foreground">
-                        {finding.canonicalIp}
-                      </span>
+                      {finding.canonicalIp}
                     </label>
+                    <details className="min-w-0 basis-full">
+                      <summary className="cursor-pointer">
+                        {t("View evidence", "查看依据")}
+                      </summary>
+                      <TechnicalValue
+                        value={finding.id}
+                        label={t("Finding", "发现项")}
+                      />
+                    </details>
                   </div>
                 )
               })}
             </div>
           )}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button
               disabled={
                 selectedFindingIds.size === 0 || generationMutation.isPending
@@ -673,14 +698,25 @@ function DraftGeneration({
             {t("Generation", "生成状态")}{" "}
             <Badge>{translateValue(latestDraft.status)}</Badge>
           </p>
-          <p className="break-all font-mono text-xs">
-            {t("Draft", "草稿")} {latestDraft.id}
-          </p>
-          {latestDraft.session_id && (
-            <p className="break-all font-mono text-xs">
-              {t("Session", "会话")} {latestDraft.session_id}
+          <details className="mt-2 min-w-0">
+            <summary className="cursor-pointer">
+              {t("View evidence", "查看依据")}
+            </summary>
+            <p className="mt-2">
+              <TechnicalValue
+                value={latestDraft.id}
+                label={t("Draft", "草稿")}
+              />
             </p>
-          )}
+            {latestDraft.session_id && (
+              <p>
+                <TechnicalValue
+                  value={latestDraft.session_id}
+                  label={t("Session", "会话")}
+                />
+              </p>
+            )}
+          </details>
           {latestDraft.failure_code && (
             <p>
               {t("Failure:", "失败：")}{" "}
@@ -774,7 +810,7 @@ function PublishedReport({
             hash:
               typeof sourceSnapshotHashes[index] === "string"
                 ? sourceSnapshotHashes[index]
-                : "—",
+                : "",
           },
         ]
       : [],
@@ -782,69 +818,17 @@ function PublishedReport({
 
   return (
     <article
-      className="space-y-4"
+      className="min-w-0 space-y-4 [overflow-wrap:anywhere]"
       aria-label={t("Immutable governance report", "不可变治理报告")}
     >
-      <DraftGeneration detail={detail} projectId={projectId} />
-      <ReportSection
-        id="report-identity"
-        title={t("Report identity and generation mode", "报告身份与生成方式")}
-      >
-        <dl className="grid gap-3 text-sm md:grid-cols-2">
-          <div>
-            <dt className="font-medium">{t("Governance Run", "治理运行")}</dt>
-            <dd className="break-all font-mono">
-              {stringField(identity, "governance_run_id")}
-            </dd>
-          </div>
-          <div>
-            <dt className="font-medium">
-              {t("Run completed", "运行完成时间")}
-            </dt>
-            <dd>{formatDate(stringField(identity, "run_completed_at"))}</dd>
-          </div>
-          <div>
-            <dt className="font-medium">{t("Generation mode", "生成方式")}</dt>
-            <dd>
-              <Badge>
-                {translateValue(stringField(identity, "generation_mode"))}
-              </Badge>
-            </dd>
-          </div>
-          <div>
-            <dt className="font-medium">{t("Report contract", "报告合同")}</dt>
-            <dd className="break-all font-mono">
-              {stringField(identity, "report_contract_version")}
-            </dd>
-          </div>
-          <div>
-            <dt className="font-medium">
-              {t("HTML Artifact SHA-256", "HTML 产物 SHA-256")}
-            </dt>
-            <dd className="break-all font-mono text-xs">
-              {detail.html_sha256}
-            </dd>
-          </div>
-          <div>
-            <dt className="font-medium">
-              {t("CSV Artifact SHA-256", "CSV 产物 SHA-256")}
-            </dt>
-            <dd className="break-all font-mono text-xs">{detail.csv_sha256}</dd>
-          </div>
-        </dl>
-      </ReportSection>
-
-      <ReportSection
-        id="report-input-completeness"
-        title={t("Input completeness", "输入完整性")}
-      >
-        <InputCompleteness section={completeness} />
-      </ReportSection>
-
       <ReportSection
         id="report-ip-summary"
         title={t("IP consistency summary", "IP 一致性摘要")}
       >
+        <p className="text-sm text-muted-foreground">
+          {t("Data as of Run completion:", "数据截至运行完成时间：")}{" "}
+          {formatDate(stringField(identity, "run_completed_at"))}
+        </p>
         <div className="space-y-3 text-sm">
           <p>
             {t("Customer observed assets:", "客户观测资产：")}{" "}
@@ -882,6 +866,12 @@ function PublishedReport({
           />
         </div>
       </ReportSection>
+      <ReportSection
+        id="report-input-completeness"
+        title={t("Input completeness", "输入完整性")}
+      >
+        <InputCompleteness section={completeness} />
+      </ReportSection>
 
       <ReportSection
         id="report-lifecycle-changes"
@@ -902,32 +892,27 @@ function PublishedReport({
         title={t("Open backlog as of Run", "截至此运行的未关闭发现项积压")}
       >
         <p className="text-sm">
-          {t("OPEN Findings as of Run", "截至此运行的 OPEN（未关闭）发现项")}{" "}
-          <span className="break-all font-mono">
-            {stringField(backlog, "as_of_governance_run_id")}
-          </span>
-          : {numberField(backlog, "total")}
+          {t(
+            "OPEN Findings as of this Run:",
+            "截至此运行的 OPEN（未关闭）发现项：",
+          )}{" "}
+          {numberField(backlog, "total")}
         </p>
         <CountList
           items={objectArray(backlog, "finding_counts")}
           typeKey="finding_type"
         />
-      </ReportSection>
-
-      <ReportSection
-        id="report-evidence"
-        title={t("Bounded Evidence examples", "有界证据示例")}
-      >
-        <p className="text-sm text-muted-foreground">
-          {t("Selection owner:", "选择责任方：")}{" "}
-          {stringField(evidenceBoundary, "selection_owner")} ·
-          {t("published HTML maximum:", "已发布 HTML 最大条目数：")}{" "}
-          {numberField(evidenceBoundary, "max_rendered_entries")}
-        </p>
-        <EvidenceCards
-          evidencePlan={evidencePlan}
-          evidenceCount={detail.evidence_count}
-        />
+        <details className="min-w-0 text-sm">
+          <summary className="cursor-pointer">
+            {t("View evidence", "查看依据")}
+          </summary>
+          <div className="mt-2">
+            <TechnicalValue
+              value={stringField(backlog, "as_of_governance_run_id", "")}
+              label={t("Governance Run", "治理运行")}
+            />
+          </div>
+        </details>
       </ReportSection>
 
       <ReportSection
@@ -963,45 +948,148 @@ function PublishedReport({
           ))}
         </ul>
       </ReportSection>
-
-      <ReportSection id="report-provenance" title={t("Provenance", "来源追溯")}>
-        <dl className="grid gap-3 text-sm md:grid-cols-2">
-          <div>
-            <dt className="font-medium">{t("Governance Run", "治理运行")}</dt>
-            <dd className="break-all font-mono">
-              {stringField(provenance, "governance_run_id")}
-            </dd>
-          </div>
-          <div>
-            <dt className="font-medium">
-              {t("Processing contract", "处理合同")}
-            </dt>
-            <dd className="break-all font-mono">
-              {stringField(provenance, "processing_contract_version")}
-            </dd>
-          </div>
-          <div>
-            <dt className="font-medium">
-              {t("Finding lifecycle facts", "发现项生命周期事实")}
-            </dt>
-            <dd>{numberField(provenance, "finding_lifecycle_fact_count")}</dd>
-          </div>
-        </dl>
-        <ul className="space-y-2 text-sm">
-          {snapshotReferences.map((snapshot, index) => (
-            <li
-              className="rounded-md border p-2"
-              key={`${snapshot.id}-${index}`}
-            >
-              {t("Snapshot reference", "快照引用")}{" "}
-              <span className="break-all font-mono">{snapshot.id}</span>
-              <span className="block break-all font-mono text-xs text-muted-foreground">
-                SHA-256 {snapshot.hash}
-              </span>
-            </li>
-          ))}
-        </ul>
+      <ReportSection
+        id="report-evidence"
+        title={t("Bounded Evidence examples", "有界证据示例")}
+      >
+        <p className="text-sm text-muted-foreground">
+          {t("Selection owner:", "选择责任方：")}{" "}
+          {stringField(evidenceBoundary, "selection_owner")} ·
+          {t("published HTML maximum:", "已发布 HTML 最大条目数：")}{" "}
+          {numberField(evidenceBoundary, "max_rendered_entries")}
+        </p>
+        <EvidenceCards
+          evidencePlan={evidencePlan}
+          evidenceCount={detail.evidence_count}
+        />
       </ReportSection>
+      <details className="min-w-0 space-y-3 rounded-lg border p-4">
+        <summary className="cursor-pointer font-semibold">
+          {t("View evidence", "查看依据")} · {t("Report identity", "报告身份")}
+        </summary>
+        <ReportSection
+          id="report-identity"
+          title={t("Report identity and generation mode", "报告身份与生成方式")}
+        >
+          <dl className="grid gap-3 text-sm md:grid-cols-2">
+            <div className="min-w-0">
+              <dt className="font-medium">{t("Project", "项目")}</dt>
+              <dd>
+                <TechnicalValue
+                  value={stringField(identity, "project_id", "")}
+                />
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="font-medium">{t("Report", "报告")}</dt>
+              <dd>
+                <TechnicalValue value={detail.id} />
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">{t("Governance Run", "治理运行")}</dt>
+              <dd>
+                <TechnicalValue
+                  value={stringField(identity, "governance_run_id", "")}
+                />
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">
+                {t("Run completed", "运行完成时间")}
+              </dt>
+              <dd>{formatDate(stringField(identity, "run_completed_at"))}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">
+                {t("Generation mode", "生成方式")}
+              </dt>
+              <dd>
+                <Badge>
+                  {translateValue(stringField(identity, "generation_mode"))}
+                </Badge>
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">
+                {t("Report contract", "报告合同")}
+              </dt>
+              <dd className="break-all font-mono">
+                {stringField(identity, "report_contract_version")}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">
+                {t("HTML Artifact SHA-256", "HTML 产物 SHA-256")}
+              </dt>
+              <dd>
+                <TechnicalValue value={detail.html_sha256} />
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">
+                {t("CSV Artifact SHA-256", "CSV 产物 SHA-256")}
+              </dt>
+              <dd>
+                <TechnicalValue value={detail.csv_sha256} />
+              </dd>
+            </div>
+          </dl>
+        </ReportSection>
+      </details>
+
+      <details
+        id="report-provenance"
+        className="min-w-0 scroll-mt-6 space-y-3 rounded-lg border p-4"
+      >
+        <summary className="cursor-pointer font-semibold">
+          {t("View evidence", "查看依据")} · {t("Provenance", "来源追溯")}
+        </summary>
+        <ReportSection
+          id="report-source-references"
+          title={t("Provenance", "来源追溯")}
+        >
+          <dl className="grid gap-3 text-sm md:grid-cols-2">
+            <div>
+              <dt className="font-medium">{t("Governance Run", "治理运行")}</dt>
+              <dd>
+                <TechnicalValue
+                  value={stringField(provenance, "governance_run_id", "")}
+                />
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">
+                {t("Processing contract", "处理合同")}
+              </dt>
+              <dd className="break-all font-mono">
+                {stringField(provenance, "processing_contract_version")}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-medium">
+                {t("Finding lifecycle facts", "发现项生命周期事实")}
+              </dt>
+              <dd>{numberField(provenance, "finding_lifecycle_fact_count")}</dd>
+            </div>
+          </dl>
+          <ul className="space-y-2 text-sm">
+            {snapshotReferences.map((snapshot, index) => (
+              <li
+                className="rounded-md border p-2"
+                key={`${snapshot.id}-${index}`}
+              >
+                <TechnicalValue
+                  value={snapshot.id}
+                  label={t("Snapshot reference", "快照引用")}
+                />
+                <TechnicalValue value={snapshot.hash} label="SHA-256" />
+              </li>
+            ))}
+          </ul>
+        </ReportSection>
+      </details>
+      <DraftGeneration detail={detail} projectId={projectId} />
     </article>
   )
 }
@@ -1118,7 +1206,7 @@ export function ReportDetailDialog({
   return (
     <Dialog open={reportId !== null} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-h-[92vh] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-6xl"
+        className="max-h-[92vh] min-w-0 max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-6xl"
         onCloseAutoFocus={onCloseAutoFocus}
       >
         <DialogHeader>
@@ -1156,7 +1244,7 @@ export default function GovernanceReports({
 }) {
   const { t } = useI18n()
   return (
-    <section className="space-y-4" aria-labelledby="reports-title">
+    <section className="min-w-0 space-y-4" aria-labelledby="reports-title">
       <h2 id="reports-title" className="text-xl font-semibold">
         {t("Published deterministic report", "已发布的确定性报告")}
       </h2>

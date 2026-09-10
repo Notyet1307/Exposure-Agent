@@ -471,6 +471,11 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
   await expect(page.getByText(stage4CloudOnlyIp, { exact: true })).toBeVisible()
   await page.getByRole("link", { name: "Findings", exact: true }).click()
+  for (const ip of [stage4MissingIp, stage4CloudOnlyIp]) {
+    const row = page.getByRole("row").filter({ hasText: ip })
+    await row.locator("summary").focus()
+    await page.keyboard.press("Enter")
+  }
   await expect(
     page.getByRole("table").getByText("UNOBSERVED_ASSET", { exact: true }),
   ).toBeVisible()
@@ -494,10 +499,16 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     .getByRole("row")
     .filter({ hasText: stage4MissingIp })
   await missingFindingRow.getByRole("button", { name: "View details" }).click()
-  await expect(page.getByRole("dialog")).toContainText("row:3")
-  await expect(page.getByRole("dialog")).toContainText(
-    "Confirmed Snapshot references",
-  )
+  const observationEvidence = page
+    .getByRole("dialog")
+    .locator("details")
+    .filter({ has: page.getByText("row:3", { exact: true }) })
+    .first()
+  await observationEvidence.locator("summary").focus()
+  await page.keyboard.press("Enter")
+  await expect(
+    observationEvidence.getByText("row:3", { exact: true }),
+  ).toBeVisible()
   await page.getByRole("button", { name: "Close" }).click()
 
   await page.getByRole("link", { name: "Inputs", exact: true }).click()
@@ -576,8 +587,13 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   ).toBeVisible()
 
   await page.getByRole("link", { name: "Current assets", exact: true }).click()
+  const publishedAssetRow = page
+    .getByRole("row")
+    .filter({ hasText: stage4CloudOnlyIp })
+  await publishedAssetRow.locator("summary").focus()
+  await page.keyboard.press("Enter")
   await expect(
-    page.getByText(`Published Run ${secondRun.id}`, { exact: true }),
+    publishedAssetRow.getByText(secondRun.id, { exact: true }),
   ).toBeVisible()
   await expect(page.getByText(stage4CloudOnlyIp, { exact: true })).toBeVisible()
   await page.getByRole("link", { name: "Findings", exact: true }).click()

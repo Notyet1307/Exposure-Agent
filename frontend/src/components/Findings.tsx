@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 
 import {
@@ -14,6 +15,7 @@ import { AiInvestigationPanel } from "@/components/AiInvestigationPanel"
 import { ManualReviewPanel } from "@/components/ManualReviewPanel"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Stage4ResultNotice } from "@/components/Stage4ResultNotice"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -63,7 +65,7 @@ function findingLabel(findingType: string, t: ReturnType<typeof useI18n>["t"]) {
   return findingType
 }
 
-function ObservationTable({
+function ObservationRecords({
   observations,
 }: {
   observations: IPObservationPublic[] | undefined
@@ -77,42 +79,64 @@ function ObservationTable({
     )
   }
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>{t("Raw IP", "原始 IP")}</TableHead>
-          <TableHead>{t("Canonical IP", "规范化 IP")}</TableHead>
-          <TableHead>{t("Source", "来源")}</TableHead>
-          <TableHead>{t("Location", "位置")}</TableHead>
-          <TableHead>{t("CloudAtlas ID", "CloudAtlas ID")}</TableHead>
-          <TableHead>{t("CloudAtlas status", "CloudAtlas 状态")}</TableHead>
-          <TableHead>{t("Snapshot", "快照")}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {observations.map((observation) => (
-          <TableRow key={observation.id}>
-            <TableCell className="font-mono text-xs">
-              {observation.raw_ip}
-            </TableCell>
-            <TableCell className="font-mono text-xs">
-              {observation.canonical_ip}
-            </TableCell>
-            <TableCell>{translateValue(observation.source_type)}</TableCell>
-            <TableCell className="font-mono text-xs">
-              {observation.source_record_key}
-            </TableCell>
-            <TableCell className="font-mono text-xs">
-              {observation.cloudatlas_asset_id ?? "—"}
-            </TableCell>
-            <TableCell>{observation.cloudatlas_status ?? "—"}</TableCell>
-            <TableCell className="font-mono text-xs">
-              {observation.source_snapshot_id}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <div className="grid min-w-0 gap-3 md:grid-cols-2">
+      {observations.map((observation) => (
+        <div
+          key={observation.id}
+          className="min-w-0 space-y-2 rounded-md border p-3 text-sm"
+        >
+          <p className="break-all font-mono font-medium">
+            {observation.canonical_ip}
+          </p>
+          <p>{translateValue(observation.source_type)}</p>
+          <p className="break-all">
+            {t("CloudAtlas status", "CloudAtlas 状态")}:{" "}
+            {observation.cloudatlas_status ?? "—"}
+          </p>
+          <details className="min-w-0">
+            <summary className="cursor-pointer font-medium focus-visible:outline-2">
+              {t("View evidence", "查看依据")}
+            </summary>
+            <dl className="mt-2 min-w-0 space-y-2">
+              <div>
+                <dt>{t("Observation ID", "观测 ID")}</dt>
+                <dd>
+                  <TechnicalValue value={observation.id} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Raw IP", "原始 IP")}</dt>
+                <dd>
+                  <TechnicalValue value={observation.raw_ip} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Location", "位置")}</dt>
+                <dd>
+                  <TechnicalValue value={observation.source_record_key} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("CloudAtlas ID", "CloudAtlas ID")}</dt>
+                <dd>
+                  {observation.cloudatlas_asset_id === null ? (
+                    "—"
+                  ) : (
+                    <TechnicalValue value={observation.cloudatlas_asset_id} />
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Snapshot", "快照")}</dt>
+                <dd>
+                  <TechnicalValue value={observation.source_snapshot_id} />
+                </dd>
+              </div>
+            </dl>
+          </details>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -123,7 +147,7 @@ function SnapshotReferences({
   snapshotIds: string[] | undefined
   snapshots: SourceSnapshotPublic[] | undefined
 }) {
-  const { t, translateValue } = useI18n()
+  const { t, translateValue, formatDate } = useI18n()
   const references = snapshots ?? []
   if (references.length === 0 && (!snapshotIds || snapshotIds.length === 0)) {
     return (
@@ -133,22 +157,58 @@ function SnapshotReferences({
     )
   }
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       {references.map((snapshot) => (
-        <div key={snapshot.id} className="rounded-md border p-2 text-xs">
+        <div
+          key={snapshot.id}
+          className="min-w-0 rounded-md border p-2 text-xs"
+        >
           <div className="font-medium">
             {translateValue(snapshot.source_type)}
           </div>
-          <div className="break-all font-mono">
-            {t("Snapshot", "快照")} {snapshot.id}
-          </div>
-          <div className="break-all">
+          <p>
             {t(
               `${snapshot.record_count} records`,
               `${snapshot.record_count} 条记录`,
             )}{" "}
-            · SHA-256 {snapshot.content_sha256}
-          </div>
+            · {t("Snapshot created", "快照创建于")}{" "}
+            {formatDate(snapshot.created_at)}
+          </p>
+          <details className="mt-2 min-w-0">
+            <summary className="cursor-pointer font-medium focus-visible:outline-2">
+              {t("View evidence", "查看依据")}
+            </summary>
+            <dl className="mt-2 min-w-0 space-y-2">
+              <div>
+                <dt>{t("Snapshot", "快照")}</dt>
+                <dd>
+                  <TechnicalValue value={snapshot.id} />
+                </dd>
+              </div>
+              <div>
+                <dt>SHA-256</dt>
+                <dd>
+                  <TechnicalValue value={snapshot.content_sha256} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Schema fingerprint", "结构指纹")}</dt>
+                <dd>
+                  <TechnicalValue value={snapshot.schema_fingerprint} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Method fingerprint", "方法指纹")}</dt>
+                <dd>
+                  {snapshot.method_fingerprint === null ? (
+                    "—"
+                  ) : (
+                    <TechnicalValue value={snapshot.method_fingerprint} />
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </details>
         </div>
       ))}
       {snapshotIds
@@ -157,9 +217,13 @@ function SnapshotReferences({
             !references.some((snapshot) => snapshot.id === snapshotId),
         )
         .map((snapshotId) => (
-          <div key={snapshotId} className="break-all font-mono text-xs">
-            {t("Snapshot", "快照")} {snapshotId}
-          </div>
+          <details key={snapshotId} className="min-w-0 text-xs">
+            <summary className="cursor-pointer font-medium focus-visible:outline-2">
+              {t("View evidence", "查看依据")} ·{" "}
+              {t("Snapshot reference", "快照引用")}
+            </summary>
+            <TechnicalValue value={snapshotId} />
+          </details>
         ))}
     </div>
   )
@@ -168,21 +232,78 @@ function SnapshotReferences({
 function TraceSection({
   title,
   trace,
+  projectId,
+  resourceId,
 }: {
   title: string
   trace: FindingOccurrencePublic | FindingTransitionPublic
+  projectId: string
+  resourceId: string
 }) {
   const { t, formatDate } = useI18n()
   return (
-    <div className="space-y-3 rounded-md border p-3">
+    <div className="min-w-0 space-y-3 rounded-md border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-medium">{title}</h3>
-        <span className="break-all text-xs text-muted-foreground">
-          {t("Run", "运行")} {trace.governance_run_id} ·{" "}
+        <span className="text-xs text-muted-foreground">
           {formatDate(trace.created_at)}
         </span>
       </div>
-      <ObservationTable observations={trace.observations} />
+      <details className="min-w-0 text-sm">
+        <summary className="cursor-pointer font-medium focus-visible:outline-2">
+          {t("View evidence", "查看依据")}
+        </summary>
+        <dl className="mt-2 min-w-0 space-y-2">
+          <div>
+            <dt>{t("Project ID", "项目 ID")}</dt>
+            <dd>
+              <TechnicalValue value={projectId} />
+            </dd>
+          </div>
+          <div>
+            <dt>{t("Resource ID", "资源 ID")}</dt>
+            <dd>
+              <TechnicalValue value={resourceId} />
+            </dd>
+          </div>
+          <div>
+            <dt>{t("Run", "运行")}</dt>
+            <dd>
+              <TechnicalValue value={trace.governance_run_id} />
+            </dd>
+          </div>
+          <div>
+            <dt>{t("Record ID", "记录 ID")}</dt>
+            <dd>
+              <TechnicalValue value={trace.id} />
+            </dd>
+          </div>
+          <div>
+            <dt>{t("Observation references", "观测引用")}</dt>
+            <dd className="space-y-1">
+              {trace.observation_ids?.map((id) => (
+                <div key={id}>
+                  <TechnicalValue value={id} />
+                </div>
+              ))}
+            </dd>
+          </div>
+        </dl>
+        <Link
+          className="mt-2 inline-block underline"
+          to="/projects/$projectId/runs/$runId/lineage"
+          params={{ projectId, runId: trace.governance_run_id }}
+          search={{
+            project: projectId,
+            run: trace.governance_run_id,
+            resource_id: resourceId,
+            view: "overview",
+          }}
+        >
+          {t("View this resource's Run lineage", "查看此资源在该运行中的血缘")}
+        </Link>
+      </details>
+      <ObservationRecords observations={trace.observations} />
       <div>
         <p className="mb-2 text-sm font-medium">
           {t("Confirmed Snapshot references", "已确认的快照引用")}
@@ -230,8 +351,12 @@ const NETFLOW_EMPTY_MESSAGES: Record<
 
 function NetFlowContext({
   context,
+  projectId,
+  resourceId,
 }: {
   context: FindingDetailPublic["netflow_context"]
+  projectId: string
+  resourceId: string
 }) {
   const { t, language } = useI18n()
   const activity = context.activity
@@ -250,9 +375,6 @@ function NetFlowContext({
           "最近已发布运行的 NetFlow 活动",
         )}
       </h3>
-      <p className="break-all font-mono text-xs">
-        {t("Run", "运行")} {context.governance_run_id}
-      </p>
       <p className="text-muted-foreground">
         {t(
           "Activity is supplementary context only. It does not establish that the Finding still applies or change its status or lifecycle.",
@@ -300,37 +422,40 @@ function NetFlowContext({
                     )}
               </dd>
             </div>
-            <div className="min-w-0">
-              <dt className="font-medium">{t("Activity ID", "活动 ID")}</dt>
-              <dd className="break-all font-mono text-xs">
-                {activity.activity_id}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="font-medium">
-                {t("NETFLOW Snapshot ID", "NETFLOW 快照 ID")}
-              </dt>
-              <dd className="break-all font-mono text-xs">
-                {activity.source_snapshot_id}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="font-medium">
-                {t("Aggregation contract", "聚合合同")}
-              </dt>
-              <dd className="break-all font-mono text-xs">
-                {activity.aggregation_contract_version}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="font-medium">
-                {t("Content SHA-256", "内容 SHA-256")}
-              </dt>
-              <dd className="break-all font-mono text-xs">
-                {activity.content_sha256}
-              </dd>
-            </div>
           </dl>
+          <details className="min-w-0">
+            <summary className="cursor-pointer font-medium focus-visible:outline-2">
+              {t("View evidence", "查看依据")}
+            </summary>
+            <dl className="mt-2 min-w-0 space-y-2">
+              <div>
+                <dt>{t("Activity ID", "活动 ID")}</dt>
+                <dd>
+                  <TechnicalValue value={activity.activity_id} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("NETFLOW Snapshot ID", "NETFLOW 快照 ID")}</dt>
+                <dd>
+                  <TechnicalValue value={activity.source_snapshot_id} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Aggregation contract", "聚合合同")}</dt>
+                <dd>
+                  <TechnicalValue
+                    value={activity.aggregation_contract_version}
+                  />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Content SHA-256", "内容 SHA-256")}</dt>
+                <dd>
+                  <TechnicalValue value={activity.content_sha256} />
+                </dd>
+              </div>
+            </dl>
+          </details>
         </>
       ) : context.status !== "POSITIVE_ACTIVITY" ? (
         <p className="text-muted-foreground">
@@ -342,6 +467,49 @@ function NetFlowContext({
               )}
         </p>
       ) : null}
+      <details className="min-w-0">
+        <summary className="cursor-pointer font-medium focus-visible:outline-2">
+          {t("View evidence", "查看依据")} · {t("Run scope", "运行范围")}
+        </summary>
+        <dl className="mt-2 min-w-0 space-y-2">
+          <div>
+            <dt>{t("Project ID", "项目 ID")}</dt>
+            <dd>
+              <TechnicalValue value={projectId} />
+            </dd>
+          </div>
+          <div>
+            <dt>{t("Resource ID", "资源 ID")}</dt>
+            <dd>
+              <TechnicalValue value={resourceId} />
+            </dd>
+          </div>
+          <div>
+            <dt>{t("Run", "运行")}</dt>
+            <dd>
+              <TechnicalValue value={context.governance_run_id} />
+            </dd>
+          </div>
+        </dl>
+        {activity && (
+          <Link
+            className="mt-2 inline-block underline"
+            to="/projects/$projectId/runs/$runId/lineage"
+            params={{ projectId, runId: context.governance_run_id }}
+            search={{
+              project: projectId,
+              run: context.governance_run_id,
+              resource_id: resourceId,
+              view: "overview",
+            }}
+          >
+            {t(
+              "View this resource's Run lineage",
+              "查看此资源在该运行中的血缘",
+            )}
+          </Link>
+        )}
+      </details>
     </section>
   )
 }
@@ -476,16 +644,14 @@ function FindingDetailDialog({
           <div className="min-w-0 space-y-4">
             <div className="grid gap-3 text-sm md:grid-cols-4">
               <div>
-                <p className="font-medium">{t("Finding ID", "发现项 ID")}</p>
-                <p className="break-all font-mono text-xs">
-                  {detailQuery.data.id}
-                </p>
-              </div>
-              <div>
                 <p className="font-medium">{t("Canonical IP", "规范化 IP")}</p>
                 <p className="break-all font-mono">
                   {detailQuery.data.canonical_ip}
                 </p>
+              </div>
+              <div>
+                <p className="font-medium">{t("Finding type", "发现类型")}</p>
+                <p>{findingLabel(detailQuery.data.finding_type, t)}</p>
               </div>
               <div>
                 <p className="font-medium">{t("Status", "状态")}</p>
@@ -500,14 +666,77 @@ function FindingDetailDialog({
                     ? formatDate(detailQuery.data.latest_occurrence_at)
                     : "—"}
                 </p>
-                {detailQuery.data.latest_occurrence_run_id && (
-                  <p className="break-all font-mono text-xs text-muted-foreground">
-                    {t("Run", "运行")}{" "}
-                    {detailQuery.data.latest_occurrence_run_id}
-                  </p>
-                )}
               </div>
             </div>
+            <div className="grid gap-3 text-sm sm:grid-cols-3">
+              <div>
+                <p className="font-medium">{t("First detected", "首次发现")}</p>
+                <p>
+                  {detailQuery.data.first_detected_at
+                    ? formatDate(detailQuery.data.first_detected_at)
+                    : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="font-medium">{t("Last detected", "末次发现")}</p>
+                <p>
+                  {detailQuery.data.last_detected_at
+                    ? formatDate(detailQuery.data.last_detected_at)
+                    : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="font-medium">
+                  {t("Latest transition", "最近状态变更")}
+                </p>
+                <p>
+                  {detailQuery.data.latest_transition_at
+                    ? formatDate(detailQuery.data.latest_transition_at)
+                    : "—"}
+                </p>
+              </div>
+            </div>
+            <details className="min-w-0 rounded-md border p-3 text-sm">
+              <summary className="cursor-pointer font-medium focus-visible:outline-2">
+                {t("View evidence", "查看依据")}
+              </summary>
+              <dl className="mt-2 min-w-0 space-y-2">
+                <div>
+                  <dt>{t("Project ID", "项目 ID")}</dt>
+                  <dd>
+                    <TechnicalValue value={projectId} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("Resource ID", "资源 ID")}</dt>
+                  <dd>
+                    <TechnicalValue value={detailQuery.data.resource_id} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("Finding ID", "发现项 ID")}</dt>
+                  <dd>
+                    <TechnicalValue value={detailQuery.data.id} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t("Finding type", "发现类型")}</dt>
+                  <dd>
+                    <TechnicalValue value={detailQuery.data.finding_type} />
+                  </dd>
+                </div>
+                {detailQuery.data.latest_occurrence_run_id && (
+                  <div>
+                    <dt>{t("Last occurrence Run", "最近出现的运行")}</dt>
+                    <dd>
+                      <TechnicalValue
+                        value={detailQuery.data.latest_occurrence_run_id}
+                      />
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </details>
             {search.investigation_run && findingId && (
               <AiInvestigationPanel
                 key={`${projectId}:${detailQuery.data.resource_id}:${search.investigation_run}:${findingId}`}
@@ -526,7 +755,11 @@ function FindingDetailDialog({
                 findingId={findingId}
               />
             )}
-            <NetFlowContext context={detailQuery.data.netflow_context} />
+            <NetFlowContext
+              context={detailQuery.data.netflow_context}
+              projectId={projectId}
+              resourceId={detailQuery.data.resource_id}
+            />
             <div>
               <p className="mb-2 text-sm font-medium">
                 {t("Occurrences", "出现记录")}
@@ -542,6 +775,8 @@ function FindingDetailDialog({
                       key={occurrence.id}
                       title={t("Occurrence", "出现记录")}
                       trace={occurrence}
+                      projectId={projectId}
+                      resourceId={detailQuery.data.resource_id}
                     />
                   ))}
                   <ResultPagination
@@ -580,6 +815,8 @@ function FindingDetailDialog({
                         `状态变更 · ${translateValue(transition.transition_type)}`,
                       )}
                       trace={transition}
+                      projectId={projectId}
+                      resourceId={detailQuery.data.resource_id}
                     />
                   ))}
                   <ResultPagination
@@ -609,9 +846,11 @@ function FindingDetailDialog({
 
 function FindingRow({
   finding,
+  projectId,
   onDetails,
 }: {
   finding: FindingPublic
+  projectId: string
   onDetails: () => void
 }) {
   const { t, formatDate, translateValue } = useI18n()
@@ -625,29 +864,19 @@ function FindingRow({
 
   return (
     <TableRow>
-      <TableCell className="max-w-56 break-all font-mono text-xs">
-        {finding.id}
+      <TableCell className="break-all font-mono font-medium">
+        {finding.canonical_ip}
       </TableCell>
       <TableCell>
         <div>{findingLabel(finding.finding_type, t)}</div>
-        <div className="font-mono text-xs text-muted-foreground">
-          {finding.finding_type}
-        </div>
       </TableCell>
       <TableCell>
         <Badge variant={finding.status === "OPEN" ? "destructive" : "default"}>
           {translateValue(finding.status)}
         </Badge>
       </TableCell>
-      <TableCell className="font-mono">{finding.canonical_ip}</TableCell>
       <TableCell>
         <div>{latestActivity ? formatDate(latestActivity) : "—"}</div>
-        {finding.latest_occurrence_run_id && (
-          <div className="break-all font-mono text-xs text-muted-foreground">
-            {t("Last occurrence Run", "最近出现的运行")}{" "}
-            {finding.latest_occurrence_run_id}
-          </div>
-        )}
       </TableCell>
       <TableCell>{finding.occurrence_count}</TableCell>
       <TableCell>{finding.transition_count}</TableCell>
@@ -660,13 +889,52 @@ function FindingRow({
         >
           {t("View details", "查看详情")}
         </LoadingButton>
+        <details className="mt-2 min-w-0 max-w-64 whitespace-normal text-xs">
+          <summary className="cursor-pointer font-medium focus-visible:outline-2">
+            {t("View evidence", "查看依据")}
+          </summary>
+          <dl className="mt-2 min-w-0 space-y-2">
+            <div>
+              <dt>{t("Project ID", "项目 ID")}</dt>
+              <dd>
+                <TechnicalValue value={projectId} />
+              </dd>
+            </div>
+            <div>
+              <dt>{t("Resource ID", "资源 ID")}</dt>
+              <dd>
+                <TechnicalValue value={finding.resource_id} />
+              </dd>
+            </div>
+            <div>
+              <dt>{t("Finding ID", "发现项 ID")}</dt>
+              <dd>
+                <TechnicalValue value={finding.id} />
+              </dd>
+            </div>
+            <div>
+              <dt>{t("Finding type", "发现类型")}</dt>
+              <dd>
+                <TechnicalValue value={finding.finding_type} />
+              </dd>
+            </div>
+            {finding.latest_occurrence_run_id && (
+              <div>
+                <dt>{t("Last occurrence Run", "最近出现的运行")}</dt>
+                <dd>
+                  <TechnicalValue value={finding.latest_occurrence_run_id} />
+                </dd>
+              </div>
+            )}
+          </dl>
+        </details>
       </TableCell>
     </TableRow>
   )
 }
 
 export default function Findings({ projectId }: { projectId: string }) {
-  const { t, translateValue } = useI18n()
+  const { t, translateValue, formatDate } = useI18n()
   const search = useWorkspaceSearch()
   const navigate = useWorkspaceNavigate()
   const status = search.finding_status ?? "OPEN"
@@ -730,7 +998,7 @@ export default function Findings({ projectId }: { projectId: string }) {
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0 flex-1">
               <CardTitle id="findings-title">
                 {t("Findings", "发现项")}
               </CardTitle>
@@ -739,12 +1007,34 @@ export default function Findings({ projectId }: { projectId: string }) {
                   "Deterministic IP Findings from the latest compatible completed Run. OPEN Findings remain visible until positive matching evidence closes them.",
                   "来自最近一次兼容且已完成运行的确定性 IP 发现项。OPEN（未关闭）发现项会持续显示，直至明确的匹配证据将其关闭。",
                 )}
-                {findings.latest_run_id && (
-                  <span className="block break-all font-mono text-xs">
-                    {t("Published Run", "已发布运行")} {findings.latest_run_id}
+                {findings.latest_run_completed_at && (
+                  <span className="block">
+                    {t("Published Run completed", "已发布运行完成于")}{" "}
+                    {formatDate(findings.latest_run_completed_at)}
                   </span>
                 )}
               </CardDescription>
+              <details className="mt-2 min-w-0 text-sm">
+                <summary className="cursor-pointer font-medium focus-visible:outline-2">
+                  {t("View evidence", "查看依据")}
+                </summary>
+                <dl className="mt-2 min-w-0 space-y-2">
+                  <div>
+                    <dt>{t("Project ID", "项目 ID")}</dt>
+                    <dd>
+                      <TechnicalValue value={projectId} />
+                    </dd>
+                  </div>
+                  {findings.latest_run_id && (
+                    <div>
+                      <dt>{t("Published Run", "已发布运行")}</dt>
+                      <dd>
+                        <TechnicalValue value={findings.latest_run_id} />
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </details>
             </div>
             <div className="space-y-2">
               <label
@@ -799,10 +1089,9 @@ export default function Findings({ projectId }: { projectId: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{t("Finding ID", "发现项 ID")}</TableHead>
+                  <TableHead>{t("Canonical IP", "规范化 IP")}</TableHead>
                   <TableHead>{t("Type", "类型")}</TableHead>
                   <TableHead>{t("Status", "状态")}</TableHead>
-                  <TableHead>{t("Canonical IP", "规范化 IP")}</TableHead>
                   <TableHead>
                     {t("Latest occurrence / transition", "最近出现 / 状态变更")}
                   </TableHead>
@@ -816,6 +1105,7 @@ export default function Findings({ projectId }: { projectId: string }) {
                   <FindingRow
                     key={finding.id}
                     finding={finding}
+                    projectId={projectId}
                     onDetails={() =>
                       navigate({
                         search: (prev) => ({

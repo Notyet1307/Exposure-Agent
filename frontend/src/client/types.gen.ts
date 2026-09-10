@@ -543,6 +543,8 @@ export type IPAssetDetailPublic = {
     cloudatlas_observed: boolean;
     open_finding_id: (string | null);
     open_finding_type: (string | null);
+    latest_run_id: string;
+    latest_run_completed_at: (string | null);
     observations?: Array<IPObservationPublic>;
 };
 

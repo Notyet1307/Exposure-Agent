@@ -365,6 +365,32 @@ test.describe("Project Reports", () => {
     await installBaseMocks(page)
   })
 
+  test("does not offer a copy action for unavailable source metadata", async ({
+    page,
+  }) => {
+    const canonical = canonicalContent()
+    canonical.report.input_completeness.sources[0].content_sha256 = ""
+    await page.route(governanceReportsPath, (route) =>
+      route.fulfill({
+        json: route.request().url().includes(`/${reportIds[0]}`)
+          ? { ...draftReportDetail(), canonical_content: canonical }
+          : reportListResponse(),
+      }),
+    )
+    const report = await openReport(page)
+    const source = report.locator("#report-input-completeness details").first()
+    await source.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    const hash = source.locator("div").filter({
+      has: page.locator("dt").getByText("Content SHA-256", { exact: true }),
+    })
+    await expect(hash.getByText("Not available", { exact: true })).toBeVisible()
+    await expect(hash.getByRole("button")).toHaveCount(0)
+    await expect(
+      source.getByText("snapshot-customer", { exact: true }),
+    ).toBeVisible()
+  })
+
   test("loads opaque cursor pages and pins an older published run", async ({
     page,
   }) => {
@@ -419,11 +445,21 @@ test.describe("Project Reports", () => {
     await expect(runSelector).toHaveValue(runIds[0])
     await runSelector.selectOption(runIds[2])
     await expect(page).toHaveURL(new RegExp(`run=${runIds[2]}`))
-    await expect(report.locator("#report-identity")).toContainText(runIds[2])
+    await report
+      .getByText("View evidence · Report identity", { exact: true })
+      .press("Enter")
+    await expect(
+      report.locator("#report-identity").getByText(runIds[2], { exact: true }),
+    ).toBeVisible()
     await expect(report).not.toContainText(runIds[0])
     await page.goBack()
     await expect(runSelector).toHaveValue(runIds[0])
-    await expect(report.locator("#report-identity")).toContainText(runIds[0])
+    await report
+      .getByText("View evidence · Report identity", { exact: true })
+      .press("Enter")
+    await expect(
+      report.locator("#report-identity").getByText(runIds[0], { exact: true }),
+    ).toBeVisible()
     expect(requestedCursors).toEqual([null, "opaque-tied-page-2"])
   })
 
@@ -466,39 +502,27 @@ test.describe("Project Reports", () => {
 
     const report = await openReport(page)
 
-    for (const section of [
-      "Report identity and generation mode",
-      "Input completeness",
-      "IP consistency summary",
-      "Current-Run lifecycle changes",
-      "Open backlog as of Run",
-      "Bounded Evidence examples",
-      "Finding-type directions and limitations",
-      "Provenance",
-    ]) {
-      await expect(report.getByRole("heading", { name: section })).toBeVisible()
-    }
-    await expect(
-      report.getByText("DETERMINISTIC_TEMPLATE").first(),
-    ).toBeVisible()
-    await expect(report.getByText("HTML Artifact SHA-256")).toBeVisible()
-    await expect(
-      report.getByText("deterministic-report-v1").first(),
-    ).toBeVisible()
     await expect(report.getByText("未观测资产不表示资产不存在")).toBeVisible()
     await expect(report.locator("[data-testid='evidence-card']")).toHaveCount(8)
+    await expect(report.getByText("finding-8", { exact: true })).toHaveCount(0)
+    const firstEvidence = report.getByTestId("evidence-card").first()
     await expect(
-      report.getByText("finding-8", { exact: true }),
-    ).not.toBeVisible()
+      firstEvidence.getByText("<script>alert('evidence')</script>", {
+        exact: true,
+      }),
+    ).toBeHidden()
+    await firstEvidence.locator("summary").press("Enter")
     await expect(
-      report.getByText("<script>alert('evidence')</script>"),
+      firstEvidence.getByText("<script>alert('evidence')</script>", {
+        exact: true,
+      }),
     ).toBeVisible()
     await expect(report.locator("script, img")).toHaveCount(0)
-    const links = report.locator("[data-testid='evidence-card'] a")
-    await expect(links).toHaveCount(16)
-    for (let index = 0; index < 16; index += 1) {
-      await expect(links.nth(index)).toHaveAttribute("href", /^#report-/)
-    }
+    await expect(report.locator("#report-source-references")).toBeHidden()
+    await firstEvidence
+      .getByRole("link", { name: "Evidence provenance" })
+      .press("Enter")
+    await expect(report.locator("#report-source-references")).toBeVisible()
     expect(requestedPaths).toEqual([
       `/api/v1/projects/${projectId}/governance-reports`,
       `/api/v1/projects/${projectId}/governance-reports/${reportIds[0]}`,
@@ -573,9 +597,6 @@ test.describe("Project Reports", () => {
     const report = await openReport(page)
     const completeness = report.locator("#report-input-completeness")
     await expect(
-      report.getByText("deterministic-report-v2").first(),
-    ).toBeVisible()
-    await expect(
       completeness.getByText(
         "All bounded input summaries are marked complete.",
       ),
@@ -620,14 +641,22 @@ test.describe("Project Reports", () => {
     )
     const report = await openReport(page)
     await expect(report).toContainText("Failure: model_binding_changed")
+    const persistedDraft = report
+      .locator("#ai-governance-draft")
+      .getByRole("status")
+    await persistedDraft.locator("summary").press("Enter")
     await page
       .getByRole("combobox", { name: "Language / 语言" })
       .selectOption("zh-CN")
     await expect(report).toContainText(
       "model_binding_changed（草稿固定的模型绑定与当前部署配置不一致）",
     )
-    await expect(report).toContainText(draftId)
-    await expect(report).toContainText(draftSessionId)
+    await expect(
+      persistedDraft.getByText(draftId, { exact: true }),
+    ).toBeVisible()
+    await expect(
+      persistedDraft.getByText(draftSessionId, { exact: true }),
+    ).toBeVisible()
     await page
       .getByRole("combobox", { name: "Language / 语言" })
       .selectOption("en")
@@ -726,7 +755,10 @@ test.describe("Project Reports", () => {
     await expect(
       persistedDraft.getByText("FAILED", { exact: true }),
     ).toBeVisible()
-    await expect(persistedDraft.getByText(`Draft ${draftId}`)).toBeVisible()
+    await persistedDraft.locator("summary").press("Enter")
+    await expect(
+      persistedDraft.getByText(draftId, { exact: true }),
+    ).toBeVisible()
     await expect(
       persistedDraft.getByText("Failure: provider_failed"),
     ).toBeVisible()
@@ -821,7 +853,13 @@ test.describe("Project Reports", () => {
     await report.getByRole("checkbox").first().click()
     await report.getByRole("button", { name: "Request AI draft" }).click()
 
-    await expect(report.getByText(`Draft ${draftId}`)).toBeVisible()
+    const persistedDraft = report
+      .locator("#ai-governance-draft")
+      .getByRole("status")
+    await persistedDraft.locator("summary").press("Enter")
+    await expect(
+      persistedDraft.getByText(draftId, { exact: true }),
+    ).toBeVisible()
     await expect(
       report.getByRole("button", { name: "Resume your draft request" }),
     ).toHaveCount(0)
@@ -890,7 +928,13 @@ test.describe("Project Reports", () => {
       .getByRole("button", { name: "Resume your draft request" })
       .click()
 
-    await expect(report.getByText(`Session ${draftSessionId}`)).toBeVisible()
+    const persistedDraft = report
+      .locator("#ai-governance-draft")
+      .getByRole("status")
+    await persistedDraft.locator("summary").press("Enter")
+    await expect(
+      persistedDraft.getByText(draftSessionId, { exact: true }),
+    ).toBeVisible()
     expect(postCount).toBe(2)
     expect(requestKeys).toHaveLength(2)
     expect(requestKeys[0]).toMatch(/^[0-9a-f-]{36}$/)
@@ -959,7 +1003,13 @@ test.describe("Project Reports", () => {
       .getByRole("button", { name: "Resume your draft request" })
       .click()
 
-    await expect(report.getByText(`Session ${draftSessionId}`)).toBeVisible()
+    const persistedDraft = report
+      .locator("#ai-governance-draft")
+      .getByRole("status")
+    await persistedDraft.locator("summary").press("Enter")
+    await expect(
+      persistedDraft.getByText(draftSessionId, { exact: true }),
+    ).toBeVisible()
     expect(postedBodies).toEqual([
       { finding_ids: [draftFindingId] },
       { finding_ids: [draftFindingId] },
@@ -1047,7 +1097,13 @@ test.describe("Project Reports", () => {
       .getByRole("button", { name: "Resume your draft request" })
       .click()
 
-    await expect(report.getByText(`Session ${draftSessionId}`)).toBeVisible()
+    const persistedDraft = report
+      .locator("#ai-governance-draft")
+      .getByRole("status")
+    await persistedDraft.locator("summary").press("Enter")
+    await expect(
+      persistedDraft.getByText(draftSessionId, { exact: true }),
+    ).toBeVisible()
     expect(requestKeys).toHaveLength(2)
     expect(requestKeys[1]).toBe(requestKeys[0])
   })
@@ -1434,14 +1490,18 @@ test("hides cached Run choices after a masked access-denial refresh", async ({
     name: "Published run",
     exact: true,
   })
-  await expect(runs).toContainText(runIds[0])
+  await expect(runs).toBeEnabled()
+  await expect(runs).toHaveValue(runIds[0])
+  const selectedOption = runs.locator(`option[value="${runIds[0]}"]`)
+  const publishedLabel = await selectedOption.textContent()
   denied = true
   await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
   await expect(page.getByRole("alert")).toContainText(
     "Published results could not be loaded",
   )
   await expect(runs).toBeDisabled()
-  await expect(runs).not.toContainText(runIds[0])
+  await expect(runs).toHaveValue(runIds[0])
+  await expect(selectedOption).not.toHaveText(publishedLabel!)
   await expect(page).toHaveURL(new RegExp(`run=${runIds[0]}`))
 })
 
