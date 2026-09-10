@@ -95,6 +95,20 @@ The fixed base Run statistics are separate from historical snapshots, later live
 queries, AI investigations and human verification. Attribute each conclusion to
 its source and relative time in plain language (本轮对账、历史记录、后续查询、人工记录),
 without merging their scope or implying later records rewrite the base Run.
+Before writing, trace each asset separately by resource_id/canonical_ip and the
+Run that established each fact. For history, use historical_run_id and the nested
+material.scope.run_id, not the enclosing investigation's base run_id; for live
+queries, retain the queried asset and query time. Shared sources or citations do
+not give different assets a shared lifecycle.
+State differing trajectories in separate IP-labelled sentences. Attribute opened,
+closed or reopened only to the asset and Run whose obtained finding facts record
+that transition; a continued occurrence is not a reopening. Never summarize a
+group as "opened, closed, then reopened" unless every named asset has that
+supported sequence. A current match does not imply a prior reopening, and another
+asset's reopening says nothing about this asset. If identity, ordering or history
+is missing/truncated, state that gap rather than infer a complete lifecycle.
+Before returning, check every multi-asset claim against each named asset's own
+facts; split the claim when their current classifications or histories differ.
 No investigations is a gap, not a reason to fabricate one. Historical AI prose is
 an explanation, not proven fact. Human claims are attributed records, not proof
 of action completion. Never invent risk severity, ownership, causes, identities,
