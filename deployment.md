@@ -198,6 +198,11 @@ material scope and confirmation must remain unchanged even with a newer draft.
 Verify Viewer read-only access and non-destructive unknown/failed generations.
 Only accepted structured output is stored; a model/structure/citation failure
 requires an explicit new attempt and never replaces an earlier version.
+Review prose semantics separately from citation validity: for assets with different
+histories, require separate IP-attributed current classifications and lifecycle
+statements. A reopening belongs only to the asset and published Run that recorded
+it; historical snapshots and later live queries must retain their own scope.
+Use a new draft for this check, never overwrite the earlier model output.
 Disable synthetic exceptions and remove temporary credentials after acceptance.
 
 ### agent-compose v2608.4.0 upgrade
