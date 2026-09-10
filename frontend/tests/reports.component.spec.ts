@@ -1750,6 +1750,30 @@ test.describe("Analysis reports", () => {
     await panel
       .getByRole("button", { name: "Edit narrative", exact: true })
       .click()
+    const editors = panel.getByRole("textbox")
+    await expect(editors).toHaveCount(4)
+    for (const editor of await editors.all()) {
+      const layout = await editor.evaluate((element) => {
+        const style = getComputedStyle(element)
+        const bounds = element.getBoundingClientRect()
+        return {
+          visibleLines:
+            (element.clientHeight -
+              Number.parseFloat(style.paddingTop) -
+              Number.parseFloat(style.paddingBottom)) /
+            Number.parseFloat(style.lineHeight),
+          lineSpacing:
+            Number.parseFloat(style.lineHeight) /
+            Number.parseFloat(style.fontSize),
+          fitsViewport: bounds.left >= 0 && bounds.right <= window.innerWidth,
+          resizable: style.resize !== "none",
+        }
+      })
+      expect(layout.visibleLines).toBeGreaterThanOrEqual(8)
+      expect(layout.lineSpacing).toBeGreaterThanOrEqual(1.5)
+      expect(layout.fitsViewport).toBe(true)
+      expect(layout.resizable).toBe(true)
+    }
     await panel
       .getByLabel("Business summary", { exact: true })
       .fill("Retain my explanation during conflict.")
