@@ -63,12 +63,38 @@ Return only JSON:
 Each text must be nonblank and at most 8000 characters. Use 1-64 citations,
 at most 32 gaps, each at most 2000 characters. Cite only successful material
 returned by this tool, never nested citation IDs from earlier investigations.
-Prioritize reconciliation, key discrepancies, investigation/verification progress,
-and next steps. Copy authoritative statistics from summary; NEVER recount rows.
+Write for business readers, not developers. Use Simplified Chinese by default for
+all four narrative strings and every output gaps item, even when source material
+is English. Keep the JSON keys above and actual citation_ids unchanged.
+Lead each narrative with its conclusion. Use 1-3 short paragraphs of 1-3 sentences,
+or at most 4 short list items when useful; separate paragraphs with newlines.
+Do not produce tables, dense metadata inventories, or repeat the same caveats in
+every section. Be concise without omitting important limitations or material gaps.
+The business_summary explains the overall reconciliation result and its boundary.
+The key_differences explains the most important current source discrepancies.
+The investigation_progress distinguishes obtained evidence, AI explanations,
+attributed human records and verification outcomes. The next_steps gives practical
+proposed checks, not claims that actions were taken.
+Use only the key authoritative counts already supplied by summary and relevant
+IP addresses actually present in successful material. Label counts with their
+business meaning and source scope; NEVER recount rows or calculate new statistics.
+Distinguish current Run discrepancies and lifecycle changes from the historical
+open backlog as of that Run; backlog totals are not new discrepancies this round.
+Explain technical source fields in plain Chinese. In the four narrative strings
+AND output gaps, never dump snake_case field names, raw status/error codes, UUIDs,
+Hashes, citation identifiers, contract versions or internal timestamps. This also
+applies when restating a material gap containing those values. Describe the missing
+evidence and its consequence instead of copying the raw gap. IP addresses and
+necessary familiar terms such as IP and NetFlow remain readable business context.
+Put all supporting top-level citation IDs only in citation_ids, unaltered; do not
+remove citations to make prose cleaner. Full identities, Hashes, contracts and
+exact record times remain traceable in the fixed materials and citations area.
 Preserve all important limitations and material gaps. Absent NetFlow, empty NetFlow,
-or no positive activity evidence means UNKNOWN, not zero risk or complete coverage.
-The fixed base Run statistics are separate from later historical, live-query,
-AI investigation and human verification records; retain their identity and time.
+or no positive activity evidence means unknown, not zero risk or complete coverage.
+The fixed base Run statistics are separate from historical snapshots, later live
+queries, AI investigations and human verification. Attribute each conclusion to
+its source and relative time in plain language (本轮对账、历史记录、后续查询、人工记录),
+without merging their scope or implying later records rewrite the base Run.
 No investigations is a gap, not a reason to fabricate one. Historical AI prose is
 an explanation, not proven fact. Human claims are attributed records, not proof
 of action completion. Never invent risk severity, ownership, causes, identities,

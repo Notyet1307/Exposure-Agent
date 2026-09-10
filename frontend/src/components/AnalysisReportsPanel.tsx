@@ -277,9 +277,9 @@ export function AnalysisReportsPanel(scope: Scope) {
   }
   const renderText = (text: AnalysisReportText) =>
     textFields.map(([field, en, zh]) => (
-      <div key={field} className="min-w-0 space-y-1">
+      <div key={field} className="min-w-0 max-w-prose space-y-1">
         <h4 className="font-medium">{t(en, zh)}</h4>
-        <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+        <p className="whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">
           {text[field]}
         </p>
       </div>
@@ -627,7 +627,7 @@ export function AnalysisReportsPanel(scope: Scope) {
           )}
           {writable && editing && (
             <form
-              className="min-w-0 space-y-3"
+              className="min-w-0 max-w-prose space-y-4 text-sm"
               onSubmit={(event) => {
                 event.preventDefault()
                 if (!staleEdit && fresh && !busy) save.mutate()
@@ -654,7 +654,8 @@ export function AnalysisReportsPanel(scope: Scope) {
                   </label>
                   <textarea
                     id={`${formId}-${field}`}
-                    className="block min-h-24 w-full min-w-0 rounded-md border bg-background p-2 text-sm"
+                    className="block min-h-56 w-full min-w-0 resize-y rounded-md border bg-background p-3 text-sm leading-relaxed"
+                    rows={10}
                     required
                     maxLength={8000}
                     disabled={busy}
