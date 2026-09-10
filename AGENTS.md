@@ -5,13 +5,18 @@
 规划、实现或审阅前，按当前任务需要读取：
 
 1. 本文件；
-2. 当前已领取的 GitHub Issue / PRD；
-3. 与任务相邻的代码和测试；
-4. 仅与任务相关的已接受 ADR；
-5. 需要领域术语时再读 `CONTEXT.md`；
-6. 涉及部署或系统边界时再读 `docs/architecture/current-state.md` 和相关 Runbook。
+2. 当前工作、候选、下一步或停止：`docs/work/current.md`；
+3. 行为、验收标准或批准范围：`docs/specs/asset-governance-release-1.md`；
+4. 任务状态、依赖或授权：当前 GitHub Issue（须引用 Spec 路径与 commit）；
+5. 与任务相邻的代码和测试；
+6. 仅与任务相关的已接受 ADR；
+7. 需要领域术语时再读 `CONTEXT.md`；
+8. 涉及部署或系统边界时再读 `docs/architecture/current-state.md` 和相关 Runbook。
 
-当前已确认的 GitHub Issue 是本轮唯一 Spec/AC；本文件和相关已接受 ADR 是仓库 Standards。代码与已接受 ADR 冲突时必须停止并报告，不得静默覆盖。
+Git 中已批准且固定版本的 Spec 定义行为预期。GitHub Issue 是唯一任务状态、依赖与授权表面。本文件和相关已接受 ADR 是仓库 Standards。代码与已接受 ADR 冲突时必须停止并报告，不得静默覆盖。
+
+权威、验收结果、重试：`docs/adr/0016-pin-approved-spec-and-issue-status.md`。
+Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 
 ## 默认不读取
 
@@ -40,9 +45,9 @@
 
 ## OMP 原生工作流
 
-- 只实现当前对话已确认的 GitHub Issue；该 Issue 是本轮唯一 Spec/AC。
+- 只实现当前对话已确认的 GitHub Issue；行为预期以该 Issue 引用的批准 Spec 为准。
 - 当前 OMP 会话负责修改、验证和提交；用户明确要求远端操作后，同一会话可继续 push、创建 PR、观察 CI、merge，并按验收状态更新或关闭 Issue。
-- 实现完成后使用 OMP 原生 reviewer，分别按仓库 Standards 与当前 Issue Spec/AC 独立审阅；发现 blocker 时修复并重新审阅。
+- 实现完成后使用 OMP 原生 reviewer，分别按仓库 Standards 与批准 Spec 独立审阅；发现 blocker 时修复并重新审阅。独立业务验收与该两轴代码审阅分开。
 - 远端生命周期逐项验收：push 前确认本地提交和验证结果，merge 前确认所需 CI/Review，关闭 Issue 前确认 PR 已合并且任务要求的部署验收已完成或明确不适用。
 - GitHub 分支保护、必需 CI 和 Review 门禁始终有效。
 - 不设置独立 Controller、Admission 或外部 planning handoff。
@@ -78,3 +83,4 @@
 - Issue tracker：`docs/agents/issue-tracker.md`
 - Triage labels：`docs/agents/triage-labels.md`
 - Domain docs：`docs/agents/domain.md`
+- Skill 与方法：`docs/agents/skill-usage.md`
