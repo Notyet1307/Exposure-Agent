@@ -4,6 +4,7 @@ import { useEffect } from "react"
 
 import { ApiError, IpResultsService } from "@/client"
 import { ResultPagination } from "@/components/ResultPagination"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -131,28 +132,37 @@ function RunSourceComparison() {
         <h1 className="text-2xl font-bold tracking-tight">
           {t("Run source comparison", "运行来源比较")}
         </h1>
+        {ready && (
+          <p className="text-sm text-muted-foreground">
+            {translateValue(sources.run_status)} · {t("Completed", "完成于")}{" "}
+            {formatDate(sources.completed_at)} ·{" "}
+            {sources.report_contract_version}
+          </p>
+        )}
         <details className="text-sm">
           <summary className="cursor-pointer">
             {t("Published Run details", "已发布运行详情")}
           </summary>
           <div className="mt-2 space-y-2">
             <p className="break-all">
-              {t("Project ID", "项目 ID")}: {projectId}
+              {t("Project ID", "项目 ID")}:{" "}
+              <TechnicalValue
+                value={projectId}
+                label={t("Project ID", "项目 ID")}
+              />
             </p>
             <p className="break-all">
-              {t("Run ID", "运行 ID")}: {runId}
+              {t("Run ID", "运行 ID")}:{" "}
+              <TechnicalValue value={runId} label={t("Run ID", "运行 ID")} />
             </p>
             {ready && (
-              <>
-                <p className="break-all">
-                  {t("Report ID", "报告 ID")}: {sources.governance_report_id}
-                </p>
-                <p className="break-all text-muted-foreground">
-                  {translateValue(sources.run_status)} ·{" "}
-                  {t("Completed", "完成于")} {formatDate(sources.completed_at)}{" "}
-                  · {sources.report_contract_version}
-                </p>
-              </>
+              <p className="break-all">
+                {t("Report ID", "报告 ID")}:{" "}
+                <TechnicalValue
+                  value={sources.governance_report_id}
+                  label={t("Report ID", "报告 ID")}
+                />
+              </p>
             )}
           </div>
         </details>
@@ -446,6 +456,26 @@ function RunSourceComparison() {
                         {source.record_count ?? t("Not available", "不可用")}
                       </dd>
                     </div>
+                    <div>
+                      <dt>
+                        {t("Valid time start (UTC)", "有效时间起点（UTC）")}
+                      </dt>
+                      <dd>
+                        {source.valid_time_start_utc
+                          ? formatDate(source.valid_time_start_utc, "UTC")
+                          : t("Not available", "不可用")}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>
+                        {t("Valid time end (UTC)", "有效时间终点（UTC）")}
+                      </dt>
+                      <dd>
+                        {source.valid_time_end_utc
+                          ? formatDate(source.valid_time_end_utc, "UTC")
+                          : t("Not available", "不可用")}
+                      </dd>
+                    </div>
                   </dl>
                   <details>
                     <summary className="cursor-pointer">
@@ -458,33 +488,27 @@ function RunSourceComparison() {
                       <div>
                         <dt>{t("Snapshot ID", "快照 ID")}</dt>
                         <dd>
-                          {source.snapshot_id ?? t("Not available", "不可用")}
+                          {source.snapshot_id ? (
+                            <TechnicalValue
+                              value={source.snapshot_id}
+                              label={t("Snapshot ID", "快照 ID")}
+                            />
+                          ) : (
+                            t("Not available", "不可用")
+                          )}
                         </dd>
                       </div>
                       <div>
                         <dt>{t("Input ID", "输入 ID")}</dt>
                         <dd>
-                          {source.input_id ?? t("Not available", "不可用")}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>
-                          {t("Valid time start (UTC)", "有效时间起点（UTC）")}
-                        </dt>
-                        <dd>
-                          {source.valid_time_start_utc
-                            ? formatDate(source.valid_time_start_utc, "UTC")
-                            : t("Not available", "不可用")}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>
-                          {t("Valid time end (UTC)", "有效时间终点（UTC）")}
-                        </dt>
-                        <dd>
-                          {source.valid_time_end_utc
-                            ? formatDate(source.valid_time_end_utc, "UTC")
-                            : t("Not available", "不可用")}
+                          {source.input_id ? (
+                            <TechnicalValue
+                              value={source.input_id}
+                              label={t("Input ID", "输入 ID")}
+                            />
+                          ) : (
+                            t("Not available", "不可用")
+                          )}
                         </dd>
                       </div>
                     </dl>
@@ -492,22 +516,40 @@ function RunSourceComparison() {
                       <div>
                         <dt>{t("Content SHA-256", "内容 SHA-256")}</dt>
                         <dd>
-                          {source.content_sha256 ??
-                            t("Not available", "不可用")}
+                          {source.content_sha256 ? (
+                            <TechnicalValue
+                              value={source.content_sha256}
+                              label={t("Content SHA-256", "内容 SHA-256")}
+                            />
+                          ) : (
+                            t("Not available", "不可用")
+                          )}
                         </dd>
                       </div>
                       <div>
                         <dt>{t("Schema fingerprint", "结构指纹")}</dt>
                         <dd>
-                          {source.schema_fingerprint ??
-                            t("Not available", "不可用")}
+                          {source.schema_fingerprint ? (
+                            <TechnicalValue
+                              value={source.schema_fingerprint}
+                              label={t("Schema fingerprint", "结构指纹")}
+                            />
+                          ) : (
+                            t("Not available", "不可用")
+                          )}
                         </dd>
                       </div>
                       <div>
                         <dt>{t("Method fingerprint", "方法指纹")}</dt>
                         <dd>
-                          {source.method_fingerprint ??
-                            t("Not available", "不可用")}
+                          {source.method_fingerprint ? (
+                            <TechnicalValue
+                              value={source.method_fingerprint}
+                              label={t("Method fingerprint", "方法指纹")}
+                            />
+                          ) : (
+                            t("Not available", "不可用")
+                          )}
                         </dd>
                       </div>
                     </dl>

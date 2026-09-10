@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { useEffect } from "react"
 
 import {
@@ -10,6 +11,7 @@ import { AiInvestigationPanel } from "@/components/AiInvestigationPanel"
 import { ManualReviewPanel } from "@/components/ManualReviewPanel"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Stage4ResultNotice } from "@/components/Stage4ResultNotice"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -74,42 +76,64 @@ function ObservationRows({ detail }: { detail: IPAssetDetailPublic }) {
     )
   }
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>{t("Raw IP", "原始 IP")}</TableHead>
-          <TableHead>{t("Canonical IP", "规范化 IP")}</TableHead>
-          <TableHead>{t("Source", "来源")}</TableHead>
-          <TableHead>{t("Location", "位置")}</TableHead>
-          <TableHead>{t("CloudAtlas ID", "CloudAtlas ID")}</TableHead>
-          <TableHead>{t("CloudAtlas status", "CloudAtlas 状态")}</TableHead>
-          <TableHead>{t("Snapshot", "快照")}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {observations.map((observation) => (
-          <TableRow key={observation.id}>
-            <TableCell className="font-mono text-xs">
-              {observation.raw_ip}
-            </TableCell>
-            <TableCell className="font-mono text-xs">
-              {observation.canonical_ip}
-            </TableCell>
-            <TableCell>{translateValue(observation.source_type)}</TableCell>
-            <TableCell className="font-mono text-xs">
-              {observation.source_record_key}
-            </TableCell>
-            <TableCell className="font-mono text-xs">
-              {observation.cloudatlas_asset_id ?? "—"}
-            </TableCell>
-            <TableCell>{observation.cloudatlas_status ?? "—"}</TableCell>
-            <TableCell className="font-mono text-xs">
-              {observation.source_snapshot_id}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <div className="grid min-w-0 gap-3 md:grid-cols-2">
+      {observations.map((observation) => (
+        <div
+          key={observation.id}
+          className="min-w-0 space-y-2 rounded-md border p-3 text-sm"
+        >
+          <p className="break-all font-mono font-medium">
+            {observation.canonical_ip}
+          </p>
+          <p>{translateValue(observation.source_type)}</p>
+          <p className="break-all">
+            {t("CloudAtlas status", "CloudAtlas 状态")}:{" "}
+            {observation.cloudatlas_status ?? "—"}
+          </p>
+          <details className="min-w-0">
+            <summary className="cursor-pointer font-medium focus-visible:outline-2">
+              {t("View evidence", "查看依据")}
+            </summary>
+            <dl className="mt-2 min-w-0 space-y-2">
+              <div>
+                <dt>{t("Observation ID", "观测 ID")}</dt>
+                <dd>
+                  <TechnicalValue value={observation.id} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Raw IP", "原始 IP")}</dt>
+                <dd>
+                  <TechnicalValue value={observation.raw_ip} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Location", "位置")}</dt>
+                <dd>
+                  <TechnicalValue value={observation.source_record_key} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("CloudAtlas ID", "CloudAtlas ID")}</dt>
+                <dd>
+                  {observation.cloudatlas_asset_id === null ? (
+                    "—"
+                  ) : (
+                    <TechnicalValue value={observation.cloudatlas_asset_id} />
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Snapshot", "快照")}</dt>
+                <dd>
+                  <TechnicalValue value={observation.source_snapshot_id} />
+                </dd>
+              </div>
+            </dl>
+          </details>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -124,7 +148,7 @@ function AssetDetailDialog({
   publishedRunId: string | null
   onOpenChange: (open: boolean) => void
 }) {
-  const { t } = useI18n()
+  const { t, formatDate } = useI18n()
   const search = useWorkspaceSearch()
   const navigate = useWorkspaceNavigate()
   const page = (search.asset_page ?? 1) - 1
@@ -198,13 +222,15 @@ function AssetDetailDialog({
         )}
         {detailQuery.isSuccess &&
           detailQuery.data.resource_id === resourceId && (
-            <div className="space-y-4">
-              <div className="grid gap-3 text-sm md:grid-cols-4">
+            <div className="min-w-0 space-y-4">
+              <div className="grid min-w-0 gap-3 text-sm md:grid-cols-4">
                 <div>
                   <p className="font-medium">
                     {t("Canonical IP", "规范化 IP")}
                   </p>
-                  <p className="font-mono">{detailQuery.data.canonical_ip}</p>
+                  <p className="break-all font-mono">
+                    {detailQuery.data.canonical_ip}
+                  </p>
                 </div>
                 <div>
                   <p className="font-medium">{t("Customer side", "客户侧")}</p>
@@ -223,6 +249,16 @@ function AssetDetailDialog({
                   <p>{detailQuery.data.observation_count}</p>
                 </div>
               </div>
+              <p className="text-sm">
+                {t("Open Finding", "未关闭的发现项")}:{" "}
+                {findingLabel(detailQuery.data.open_finding_type, t)}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {t("Published Run completed", "已发布运行完成于")}{" "}
+                {detailQuery.data.latest_run_completed_at
+                  ? formatDate(detailQuery.data.latest_run_completed_at)
+                  : t("Not available", "不可用")}
+              </p>
               {search.investigation_run && resourceId && (
                 <AiInvestigationPanel
                   key={`${projectId}:${resourceId}:${search.investigation_run}`}
@@ -239,6 +275,85 @@ function AssetDetailDialog({
                   runId={search.investigation_run}
                 />
               )}
+              <details className="min-w-0 rounded-md border p-3 text-sm">
+                <summary className="cursor-pointer font-medium focus-visible:outline-2">
+                  {t("View evidence", "查看依据")}
+                </summary>
+                <dl className="mt-3 min-w-0 space-y-2">
+                  <div>
+                    <dt>{t("Published Run", "已发布运行")}</dt>
+                    <dd>
+                      <TechnicalValue value={detailQuery.data.latest_run_id} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("Project ID", "项目 ID")}</dt>
+                    <dd>
+                      <TechnicalValue value={projectId} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("Resource ID", "资源 ID")}</dt>
+                    <dd>
+                      <TechnicalValue value={detailQuery.data.resource_id} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("Asset ID", "资产 ID")}</dt>
+                    <dd>
+                      <TechnicalValue value={detailQuery.data.id} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("Resource type", "资源类型")}</dt>
+                    <dd>
+                      <TechnicalValue value={detailQuery.data.resource_type} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("Canonical key", "规范化键")}</dt>
+                    <dd>
+                      <TechnicalValue value={detailQuery.data.canonical_key} />
+                    </dd>
+                  </div>
+                  {detailQuery.data.open_finding_id && (
+                    <div>
+                      <dt>{t("Open Finding ID", "未关闭的发现项 ID")}</dt>
+                      <dd>
+                        <TechnicalValue
+                          value={detailQuery.data.open_finding_id}
+                        />
+                      </dd>
+                    </div>
+                  )}
+                  {detailQuery.data.open_finding_type && (
+                    <div>
+                      <dt>{t("Finding type", "发现类型")}</dt>
+                      <dd>
+                        <TechnicalValue
+                          value={detailQuery.data.open_finding_type}
+                        />
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                <Link
+                  className="mt-2 inline-block underline"
+                  to="/projects/$projectId/runs/$runId/lineage"
+                  params={{ projectId, runId: detailQuery.data.latest_run_id }}
+                  search={{
+                    project: projectId,
+                    run: detailQuery.data.latest_run_id,
+                    resource_id: detailQuery.data.resource_id,
+                    view: "overview",
+                  }}
+                >
+                  {t(
+                    "View this resource's Run lineage",
+                    "查看此资源在该运行中的血缘",
+                  )}
+                </Link>
+              </details>
               <ObservationRows detail={detailQuery.data} />
               <ResultPagination
                 label={t("Asset observations", "资产观测记录")}
@@ -263,15 +378,19 @@ function AssetDetailDialog({
 
 function AssetRow({
   asset,
+  projectId,
+  runId,
   onDetails,
 }: {
   asset: IPAssetPublic
+  projectId: string
+  runId: string | null
   onDetails: () => void
 }) {
   const { t } = useI18n()
   return (
     <TableRow>
-      <TableCell className="font-mono font-medium">
+      <TableCell className="break-all font-mono font-medium">
         {asset.canonical_ip}
       </TableCell>
       <TableCell>{observationStatus(asset.customer_observed, t)}</TableCell>
@@ -287,12 +406,7 @@ function AssetRow({
       </TableCell>
       <TableCell>
         {asset.open_finding_type ? (
-          <div>
-            <div>{findingLabel(asset.open_finding_type, t)}</div>
-            <div className="font-mono text-xs text-muted-foreground">
-              {asset.open_finding_type}
-            </div>
-          </div>
+          <div>{findingLabel(asset.open_finding_type, t)}</div>
         ) : (
           <span className="text-muted-foreground">{t("None", "无")}</span>
         )}
@@ -306,6 +420,51 @@ function AssetRow({
         >
           {t("View details", "查看详情")}
         </LoadingButton>
+        <details className="mt-2 min-w-0 max-w-64 whitespace-normal text-xs">
+          <summary className="cursor-pointer font-medium focus-visible:outline-2">
+            {t("View evidence", "查看依据")}
+          </summary>
+          <dl className="mt-2 min-w-0 space-y-2">
+            <div>
+              <dt>{t("Project ID", "项目 ID")}</dt>
+              <dd>
+                <TechnicalValue value={projectId} />
+              </dd>
+            </div>
+            <div>
+              <dt>{t("Resource ID", "资源 ID")}</dt>
+              <dd>
+                <TechnicalValue value={asset.resource_id} />
+              </dd>
+            </div>
+            {runId && (
+              <div>
+                <dt>{t("Published Run", "已发布运行")}</dt>
+                <dd>
+                  <TechnicalValue value={runId} />
+                </dd>
+              </div>
+            )}
+          </dl>
+          {runId && (
+            <Link
+              className="mt-2 inline-block underline"
+              to="/projects/$projectId/runs/$runId/lineage"
+              params={{ projectId, runId }}
+              search={{
+                project: projectId,
+                run: runId,
+                resource_id: asset.resource_id,
+                view: "overview",
+              }}
+            >
+              {t(
+                "View this resource's Run lineage",
+                "查看此资源在该运行中的血缘",
+              )}
+            </Link>
+          )}
+        </details>
       </TableCell>
     </TableRow>
   )
@@ -378,11 +537,6 @@ export default function IPAssets({ projectId }: { projectId: string }) {
               `Latest compatible completed Run · ${assets.count} IP Resource${assets.count === 1 ? "" : "s"}`,
               `最近完成的兼容运行 · ${assets.count} 个 IP 资源`,
             )}
-            {assets.latest_run_id && (
-              <span className="block break-all font-mono text-xs">
-                {t("Published Run", "已发布运行")} {assets.latest_run_id}
-              </span>
-            )}
             {assets.latest_run_completed_at && (
               <>
                 {" "}
@@ -391,6 +545,27 @@ export default function IPAssets({ projectId }: { projectId: string }) {
               </>
             )}
           </CardDescription>
+          <details className="min-w-0 text-sm">
+            <summary className="cursor-pointer font-medium focus-visible:outline-2">
+              {t("View evidence", "查看依据")}
+            </summary>
+            <dl className="mt-2 min-w-0 space-y-2">
+              <div>
+                <dt>{t("Project ID", "项目 ID")}</dt>
+                <dd>
+                  <TechnicalValue value={projectId} />
+                </dd>
+              </div>
+              {assets.latest_run_id && (
+                <div>
+                  <dt>{t("Published Run", "已发布运行")}</dt>
+                  <dd>
+                    <TechnicalValue value={assets.latest_run_id} />
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </details>
         </CardHeader>
         <CardContent className="space-y-4">
           {assets.data.length === 0 ? (
@@ -417,6 +592,8 @@ export default function IPAssets({ projectId }: { projectId: string }) {
                   <AssetRow
                     key={asset.id}
                     asset={asset}
+                    projectId={projectId}
+                    runId={assets.latest_run_id}
                     onDetails={() =>
                       navigate({
                         search: (prev) => ({

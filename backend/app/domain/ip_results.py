@@ -379,6 +379,8 @@ def get_ip_asset(
     )
     return IPAssetDetailPublic(
         **asset.model_dump(),
+        latest_run_id=run.id,
+        latest_run_completed_at=run.completed_at,
         observations=[_observation_public(item) for item in observations],
     )
 

@@ -148,6 +148,8 @@ def test_stage4_run_publishes_ip_results_and_is_reentrant(
     )
     assert asset_detail.status_code == 200, asset_detail.text
     assert len(asset_detail.json()["observations"]) == 1
+    assert asset_detail.json()["latest_run_id"] == run["id"]
+    assert asset_detail.json()["latest_run_completed_at"] == run["completed_at"]
 
     findings = client.get(
         f"{settings.API_V1_STR}/projects/{project['id']}/findings",

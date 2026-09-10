@@ -130,7 +130,8 @@ export default function WorkspaceSelector() {
             )}
           {runChoices?.map((report) => (
             <option key={report.id} value={report.governance_run_id}>
-              {formatDate(report.run_completed_at)} · {report.governance_run_id}
+              {formatDate(report.run_completed_at)} ·{" "}
+              {report.governance_run_id.slice(0, 8)}
             </option>
           ))}
         </select>

@@ -5,6 +5,7 @@ import {
   getVerifiedReportContent,
   useGovernanceReport,
 } from "@/components/GovernanceReports"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -235,11 +236,18 @@ export default function WorkspaceOverview({
         <dl className="mt-3 space-y-2">
           <div>
             <dt>{t("Governance Run", "治理运行")}</dt>
-            <dd className="break-all font-mono">{runId}</dd>
+            <dd>
+              <TechnicalValue value={runId} label={t("Run ID", "运行 ID")} />
+            </dd>
           </div>
           <div>
             <dt>{t("Report", "报告")}</dt>
-            <dd className="break-all font-mono">{reportId}</dd>
+            <dd>
+              <TechnicalValue
+                value={reportId}
+                label={t("Report ID", "报告 ID")}
+              />
+            </dd>
           </div>
           <div>
             <dt>{t("Report contract", "报告合同")}</dt>

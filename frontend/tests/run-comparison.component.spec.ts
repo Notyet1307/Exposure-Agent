@@ -336,18 +336,14 @@ test("opens an explicit historical Run from Runs while a newer Run exists", asyn
   await page.goto(`/?project=${projectId}&run=${oldRunId}&view=runs`)
   await page.getByRole("main").locator(`a[href^="${comparisonPath()}"]`).click()
   await expect(page).toHaveURL((url) => url.pathname === comparisonPath())
+  const runDetails = page.locator("details").filter({
+    has: page.getByText("Published Run details", { exact: true }),
+  })
+  await runDetails.locator("summary").press("Enter")
   await expect(
-    page.getByRole("heading", { level: 1, name: "Run source comparison" }),
+    runDetails.getByText(oldRun.sources.governance_report_id, { exact: true }),
   ).toBeVisible()
-  await page.getByText("Published Run details", { exact: true }).click()
-  await expect(
-    page.getByText(`Report ID: ${oldRun.sources.governance_report_id}`, {
-      exact: true,
-    }),
-  ).toBeVisible()
-  await expect(
-    page.getByText(`Run ID: ${oldRunId}`, { exact: true }),
-  ).toBeVisible()
+  await expect(runDetails.getByText(oldRunId, { exact: true })).toBeVisible()
   await expect(
     netflowCard(page).getByText("ABSENT", { exact: true }),
   ).toBeVisible()
@@ -766,13 +762,14 @@ for (const targetProject of [projectId, otherProjectId]) {
     await expect(tableRow(page, "203.0.113.99")).toBeVisible()
     await expect(tableRow(page, "192.0.2.1")).toHaveCount(0)
     await expect(
-      page.getByText(`Report ID: ${oldRun.sources.governance_report_id}`, {
-        exact: true,
-      }),
+      page.getByText(oldRun.sources.governance_report_id, { exact: true }),
     ).toHaveCount(0)
-    await page.getByText("Published Run details", { exact: true }).click()
+    const runDetails = page.locator("details").filter({
+      has: page.getByText("Published Run details", { exact: true }),
+    })
+    await runDetails.locator("summary").press("Enter")
     await expect(
-      page.getByText(`Report ID: ${newRun.sources.governance_report_id}`, {
+      runDetails.getByText(newRun.sources.governance_report_id, {
         exact: true,
       }),
     ).toBeVisible()

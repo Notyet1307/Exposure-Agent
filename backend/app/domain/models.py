@@ -2483,6 +2483,8 @@ class IPAssetPublic(SQLModel):
 
 
 class IPAssetDetailPublic(IPAssetPublic):
+    latest_run_id: uuid.UUID
+    latest_run_completed_at: datetime | None
     observations: list[IPObservationPublic] = Field(default_factory=list)
 
 
