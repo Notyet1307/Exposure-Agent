@@ -503,10 +503,11 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     .getByRole("dialog")
     .locator("details")
     .filter({ has: page.getByText("row:3", { exact: true }) })
+    .first()
   await observationEvidence.locator("summary").focus()
   await page.keyboard.press("Enter")
   await expect(
-    page.getByRole("dialog").getByText("row:3", { exact: true }),
+    observationEvidence.getByText("row:3", { exact: true }),
   ).toBeVisible()
   await page.getByRole("button", { name: "Close" }).click()
 
