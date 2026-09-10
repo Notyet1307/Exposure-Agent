@@ -165,7 +165,7 @@ function verifyScope(value: unknown, scope: Scope): Investigation {
   return result
 }
 
-function MaterialFields({ value }: { value: unknown }) {
+export function MaterialFields({ value }: { value: unknown }) {
   const { t } = useI18n()
   if (value === null || value === undefined)
     return <span>{t("Not recorded", "未记录")}</span>

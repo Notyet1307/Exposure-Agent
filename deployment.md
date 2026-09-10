@@ -164,6 +164,42 @@ identity must not start a replacement. Only a confirmed failure permits an
 explicit new attempt, preserving the failed record. Disable the business and
 qualification exceptions and remove test credentials after local acceptance.
 
+### Fixed-Run AI analysis reports
+
+The `ai-analysis-report` agent uses the same qualified, isolated Pi bridge but
+loads only `read_report_material({})`. It receives the complete deterministic
+aggregate summary, plus bounded previously obtained investigation/tool/history
+and human-review material. It has no CloudAtlas capability or Artifact mount.
+Install the updated backend and Runner, apply Alembic migrations, apply
+`agent-compose.yml`, then qualify the current model/build/runtime binding.
+
+Production keeps the private-model default. Local synthetic acceptance uses the
+separate, default-disabled `AI_ANALYSIS_REPORT_ALLOW_BAIZHI_TEST` switch.
+`AI_ANALYSIS_REPORT_SYNTHETIC_MANIFEST` is a single-line JSON array of exact
+`project_id`, `run_id`, `material_sha256`, and `sources` entries. Sources use the
+same `source_type`, `input_id`, `snapshot_id`, `content_sha256` shape as above.
+Deployment operators can prepare the DTO with
+`app.domain.ai_analysis_reports.prepare_material` in an authorized, read-only
+REPEATABLE READ session, and hash it with that module's `material_hash`.
+Only the capture wall-clock is excluded from the hash. Review the entire
+selected synthetic material, including later human text, before granting it;
+project membership or an older permission never authorizes new content.
+Apply matching permissions to backend and the report agent. The fixed budget
+settings are `AI_ANALYSIS_REPORT_TIMEOUT_SECONDS` (120),
+`AI_ANALYSIS_REPORT_MAX_TOOL_CALLS` (4),
+`AI_ANALYSIS_REPORT_MAX_MATERIAL_BYTES` (65536), and
+`AI_ANALYSIS_REPORT_MAX_OUTPUT_BYTES` (32768).
+
+Verify real no-investigation and material-rich v2 reports; distinguish empty
+NetFlow from absent input and neither from zero risk. Edit prose, inspect the
+preserved AI original, and confirm independently. Add material and use the
+prominent old-version notice to generate a new draft: old content, citations,
+material scope and confirmation must remain unchanged even with a newer draft.
+Verify Viewer read-only access and non-destructive unknown/failed generations.
+Only accepted structured output is stored; a model/structure/citation failure
+requires an explicit new attempt and never replaces an earlier version.
+Disable synthetic exceptions and remove temporary credentials after acceptance.
+
 ### agent-compose v2608.4.0 upgrade
 
 This runtime derives Project and Run IDs from the project name without the

@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AiInvestigationsCreateAiInvestigationData, AiInvestigationsCreateAiInvestigationResponse, AiInvestigationsReadAiInvestigationsData, AiInvestigationsReadAiInvestigationsResponse, AiInvestigationsCreateAiInvestigationFollowupData, AiInvestigationsCreateAiInvestigationFollowupResponse, AiInvestigationsReadAiInvestigationData, AiInvestigationsReadAiInvestigationResponse, AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, GovernanceReportsReadGovernanceReportsData, GovernanceReportsReadGovernanceReportsResponse, GovernanceReportsReadGovernanceReportData, GovernanceReportsReadGovernanceReportResponse, GovernanceReportsRequestAiGovernanceDraftData, GovernanceReportsRequestAiGovernanceDraftResponse, GovernanceReportsDownloadGovernanceReportCsvData, GovernanceReportsDownloadGovernanceReportCsvResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, IpResultsReadGovernanceRunSourcesData, IpResultsReadGovernanceRunSourcesResponse, IpResultsReadGovernanceRunIpSourceComparisonsData, IpResultsReadGovernanceRunIpSourceComparisonsResponse, IpResultsReadIpAssetsData, IpResultsReadIpAssetsResponse, IpResultsReadIpAssetData, IpResultsReadIpAssetResponse, IpResultsReadFindingsData, IpResultsReadFindingsResponse, IpResultsReadGovernanceRunLineageData, IpResultsReadGovernanceRunLineageResponse, IpResultsReadFindingData, IpResultsReadFindingResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ManualReviewsCreateManualReviewData, ManualReviewsCreateManualReviewResponse, ManualReviewsReadManualReviewsData, ManualReviewsReadManualReviewsResponse, ModelQualificationReadModelQualificationStatusResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsReadNetflowDatasetsData, ProjectsReadNetflowDatasetsResponse, ProjectsCreateNetflowDatasetData, ProjectsCreateNetflowDatasetResponse, ProjectsSelectCurrentNetflowDatasetData, ProjectsSelectCurrentNetflowDatasetResponse, ProjectsClearCurrentNetflowDatasetData, ProjectsClearCurrentNetflowDatasetResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsDeleteCustomerUploadData, ProjectsDeleteCustomerUploadResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+import type { AiInvestigationsCreateAiInvestigationData, AiInvestigationsCreateAiInvestigationResponse, AiInvestigationsReadAiInvestigationsData, AiInvestigationsReadAiInvestigationsResponse, AiInvestigationsCreateAiInvestigationFollowupData, AiInvestigationsCreateAiInvestigationFollowupResponse, AiInvestigationsReadAiInvestigationData, AiInvestigationsReadAiInvestigationResponse, AnalysisReportsCreateAnalysisReportData, AnalysisReportsCreateAnalysisReportResponse, AnalysisReportsReadAnalysisReportsData, AnalysisReportsReadAnalysisReportsResponse, AnalysisReportsReadAnalysisReportData, AnalysisReportsReadAnalysisReportResponse, AnalysisReportsUpdateAnalysisReportData, AnalysisReportsUpdateAnalysisReportResponse, AnalysisReportsConfirmAnalysisReportData, AnalysisReportsConfirmAnalysisReportResponse, AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, GovernanceReportsReadGovernanceReportsData, GovernanceReportsReadGovernanceReportsResponse, GovernanceReportsReadGovernanceReportData, GovernanceReportsReadGovernanceReportResponse, GovernanceReportsRequestAiGovernanceDraftData, GovernanceReportsRequestAiGovernanceDraftResponse, GovernanceReportsDownloadGovernanceReportCsvData, GovernanceReportsDownloadGovernanceReportCsvResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, IpResultsReadGovernanceRunSourcesData, IpResultsReadGovernanceRunSourcesResponse, IpResultsReadGovernanceRunIpSourceComparisonsData, IpResultsReadGovernanceRunIpSourceComparisonsResponse, IpResultsReadIpAssetsData, IpResultsReadIpAssetsResponse, IpResultsReadIpAssetData, IpResultsReadIpAssetResponse, IpResultsReadFindingsData, IpResultsReadFindingsResponse, IpResultsReadGovernanceRunLineageData, IpResultsReadGovernanceRunLineageResponse, IpResultsReadFindingData, IpResultsReadFindingResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ManualReviewsCreateManualReviewData, ManualReviewsCreateManualReviewResponse, ManualReviewsReadManualReviewsData, ManualReviewsReadManualReviewsResponse, ModelQualificationReadModelQualificationStatusResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsReadNetflowDatasetsData, ProjectsReadNetflowDatasetsResponse, ProjectsCreateNetflowDatasetData, ProjectsCreateNetflowDatasetResponse, ProjectsSelectCurrentNetflowDatasetData, ProjectsSelectCurrentNetflowDatasetResponse, ProjectsClearCurrentNetflowDatasetData, ProjectsClearCurrentNetflowDatasetResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsDeleteCustomerUploadData, ProjectsDeleteCustomerUploadResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
 
 export class AiInvestigationsService {
     /**
@@ -108,6 +108,131 @@ export class AiInvestigationsService {
                 project_id: data.projectId,
                 investigation_id: data.investigationId
             },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class AnalysisReportsService {
+    /**
+     * Create Analysis Report
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns AnalysisReportPublic Successful Response
+     * @throws ApiError
+     */
+    public static createAnalysisReport(data: AnalysisReportsCreateAnalysisReportData): CancelablePromise<AnalysisReportsCreateAnalysisReportResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/analysis-reports',
+            path: {
+                project_id: data.projectId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Analysis Reports
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.runId
+     * @returns AnalysisReportsPublic Successful Response
+     * @throws ApiError
+     */
+    public static readAnalysisReports(data: AnalysisReportsReadAnalysisReportsData): CancelablePromise<AnalysisReportsReadAnalysisReportsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/analysis-reports',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                run_id: data.runId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Analysis Report
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisReportId
+     * @returns AnalysisReportPublic Successful Response
+     * @throws ApiError
+     */
+    public static readAnalysisReport(data: AnalysisReportsReadAnalysisReportData): CancelablePromise<AnalysisReportsReadAnalysisReportResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/analysis-reports/{analysis_report_id}',
+            path: {
+                project_id: data.projectId,
+                analysis_report_id: data.analysisReportId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Analysis Report
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisReportId
+     * @param data.requestBody
+     * @returns AnalysisReportPublic Successful Response
+     * @throws ApiError
+     */
+    public static updateAnalysisReport(data: AnalysisReportsUpdateAnalysisReportData): CancelablePromise<AnalysisReportsUpdateAnalysisReportResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/projects/{project_id}/analysis-reports/{analysis_report_id}',
+            path: {
+                project_id: data.projectId,
+                analysis_report_id: data.analysisReportId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Confirm Analysis Report
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisReportId
+     * @param data.requestBody
+     * @returns AnalysisReportPublic Successful Response
+     * @throws ApiError
+     */
+    public static confirmAnalysisReport(data: AnalysisReportsConfirmAnalysisReportData): CancelablePromise<AnalysisReportsConfirmAnalysisReportResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/analysis-reports/{analysis_report_id}/confirm',
+            path: {
+                project_id: data.projectId,
+                analysis_report_id: data.analysisReportId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }

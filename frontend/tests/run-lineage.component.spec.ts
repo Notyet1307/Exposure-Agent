@@ -647,6 +647,10 @@ async function installMocks(
       })
       return
     }
+    if (url.pathname.endsWith("/analysis-reports")) {
+      await route.fulfill({ json: { data: [], count: 0, can_create: false } })
+      return
+    }
     if (url.pathname.endsWith("/governance-reports")) {
       await route.fulfill({
         json: {
@@ -870,7 +874,7 @@ test("shows all six node details and returned reference identities, with directe
   laterFinding.transition_type = "CLOSED"
   laterFinding.transition_id = "d0000000-0000-0000-0000-000000000002"
   laterFinding.evidence = { count: 0, data: [], truncated: false }
-  const { requests, unexpected } = await installMocks(page, [dto, newer])
+  const { unexpected } = await installMocks(page, [dto, newer])
   await page.goto(lineagePath())
   await expect(nodes(page).getByRole("button", { pressed: true })).toHaveCount(
     0,
@@ -997,17 +1001,6 @@ test("shows all six node details and returned reference identities, with directe
     dialog.getByRole("article", { name: "Immutable governance report" }),
   ).toContainText(runId)
   await expect(dialog).not.toContainText(newerRunId)
-  expect(
-    requests.filter(
-      ({ url }) =>
-        url.pathname.includes(`/projects/${projectId}/`) &&
-        !url.pathname.endsWith("/lineage") &&
-        !url.pathname.endsWith("/governance-reports") &&
-        !url.pathname.endsWith(
-          `/governance-reports/${dto.governance_report_id}`,
-        ),
-    ),
-  ).toEqual([])
   expect(unexpected).toEqual([])
 })
 

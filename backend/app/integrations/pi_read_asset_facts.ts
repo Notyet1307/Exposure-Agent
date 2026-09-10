@@ -45,7 +45,13 @@ export default function (pi: ExtensionAPI) {
     outputBytes += Buffer.byteLength(JSON.stringify(event.message.content), "utf8");
   });
 
-  const tools = [
+  const tools = process.env.INVESTIGATION_TASK === "analysis_report" ? [
+    {
+      name: "read_report_material",
+      label: "Read authorized fixed report material",
+      description: "Read the complete deterministic summary and bounded already-obtained investigation, history and human records for the server-fixed Run, with citation identities, times and explicit gaps. Required first. Exactly empty arguments; scope cannot change.",
+    },
+  ] : [
     {
       name: "read_asset_facts",
       label: "Read authorized asset facts",

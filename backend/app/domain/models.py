@@ -2985,6 +2985,97 @@ class AiInvestigation(SQLModel, table=True):
     completed_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
 
 
+class AnalysisReport(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "analysis_reports"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            ondelete="RESTRICT",
+            name="fk_analysis_reports_project_scope",
+        ),
+        ForeignKeyConstraint(
+            ["run_id", "project_id", "tenant_id"],
+            [
+                "governance_runs.id",
+                "governance_runs.project_id",
+                "governance_runs.tenant_id",
+            ],
+            ondelete="RESTRICT",
+            name="fk_analysis_reports_run_scope",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "idempotency_key",
+            name="uq_analysis_reports_idempotency",
+        ),
+        UniqueConstraint(
+            "agent_compose_run_id", name="uq_analysis_reports_compose_run"
+        ),
+        UniqueConstraint("session_id", name="uq_analysis_reports_session"),
+        CheckConstraint(
+            "(status = 'GENERATING' AND completed_at IS NULL AND original_output IS NULL AND text IS NULL) OR "
+            "(status = 'FAILED' AND completed_at IS NOT NULL AND failure_code IS NOT NULL AND original_output IS NULL AND text IS NULL) OR "
+            "(status IN ('DRAFT', 'CONFIRMED') AND completed_at IS NOT NULL AND failure_code IS NULL "
+            "AND original_output IS NOT NULL AND text IS NOT NULL AND successful_tool_calls > 0)",
+            name="ck_analysis_reports_terminal",
+        ),
+        CheckConstraint(
+            "(status = 'CONFIRMED' AND confirmed_at IS NOT NULL AND confirmed_by_id IS NOT NULL) OR "
+            "(status <> 'CONFIRMED' AND confirmed_at IS NULL AND confirmed_by_id IS NULL)",
+            name="ck_analysis_reports_confirmation",
+        ),
+        CheckConstraint(
+            "revision > 0 AND max_tool_calls > 0 AND max_material_bytes > 0 AND max_output_bytes > 0 AND timeout_seconds > 0 "
+            "AND successful_tool_calls >= 0 AND successful_tool_calls <= max_tool_calls "
+            "AND material_bytes_read >= 0 AND material_bytes_read <= max_material_bytes",
+            name="ck_analysis_reports_budgets",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    run_id: uuid.UUID = Field(index=True)
+    created_by_id: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    edited_by_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", ondelete="RESTRICT"
+    )
+    confirmed_by_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", ondelete="RESTRICT"
+    )
+    idempotency_key: str = Field(max_length=255)
+    config_fingerprint: str = Field(max_length=64)
+    material_sha256: str = Field(max_length=64)
+    material: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    sources: list[dict[str, Any]] = Field(sa_column=Column(JSONB, nullable=False))
+    agent_compose_run_id: str = Field(max_length=64)
+    agent_compose_project_id: str = Field(max_length=64)
+    agent_compose_agent_name: str = Field(max_length=255)
+    session_id: str | None = Field(default=None, max_length=64)
+    execution_started_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+    status: str = Field(default="GENERATING", max_length=30, index=True)
+    failure_code: str | None = Field(default=None, max_length=100)
+    original_output: dict[str, Any] | None = Field(
+        default=None, sa_column=Column(JSONB(none_as_null=True), nullable=True)
+    )
+    text: dict[str, Any] | None = Field(
+        default=None, sa_column=Column(JSONB(none_as_null=True), nullable=True)
+    )
+    revision: int = 1
+    max_tool_calls: int
+    max_material_bytes: int
+    max_output_bytes: int
+    timeout_seconds: float
+    successful_tool_calls: int = 0
+    material_bytes_read: int = 0
+    created_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_DRAFT_TIME)
+    completed_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+    edited_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+    confirmed_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+
+
 class AiGovernanceDraftFindingBinding(SQLModel, table=True):
     __tablename__: ClassVar[str] = "ai_governance_draft_finding_bindings"
     __table_args__ = (

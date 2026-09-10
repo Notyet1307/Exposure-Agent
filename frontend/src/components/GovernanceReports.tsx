@@ -7,6 +7,7 @@ import {
   type GovernanceReportDetailPublic,
   GovernanceReportsService,
 } from "@/client"
+import { AnalysisReportsPanel } from "@/components/AnalysisReportsPanel"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -1085,6 +1086,13 @@ function ReportReader({
   return (
     <>
       {loadError}
+      <AnalysisReportsPanel
+        key={`${projectId}:${detail.governance_run_id}:${reportId}`}
+        projectId={projectId}
+        runId={detail.governance_run_id}
+        reportId={reportId}
+        reportContractVersion={detail.report_contract_version}
+      />
       <PublishedReport detail={detail} projectId={projectId} />
     </>
   )
