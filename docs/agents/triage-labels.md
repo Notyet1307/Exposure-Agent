@@ -1,6 +1,6 @@
 # Triage labels
 
-Labels route work; they do not authorize implementation or replace the current confirmed Issue as Spec / Acceptance Criteria.
+Labels route work; they do not authorize implementation or replace the Git-pinned approved Spec. The current Issue records task status and must cite that Spec.
 
 | Repository label | Meaning |
 | --- | --- |
@@ -13,4 +13,4 @@ Labels route work; they do not authorize implementation or replace the current c
 | `wayfinder:grilling` | Decision stress-test classification only. |
 | `wayfinder:task` | Implementation-task classification only. |
 
-Legacy `ready-for-agent` and `ready-for-human` labels, if present on old issues, are historical metadata. Do not add them or treat them as workflow gates.
+Legacy `ready-for-agent` and `ready-for-human` labels, if present on old issues, are historical metadata. Do not add them or treat them as automatic authorization.

@@ -17,9 +17,10 @@ PostgreSQL 保存权威业务事实；OctoBus 提供外部能力边界；agent-c
 ## 文档入口
 
 - [文档事实源索引](docs/README.md)
+- [当前工作](docs/work/current.md)
 - [当前实现与运行边界](docs/architecture/current-state.md)
 - [稳定架构约束](docs/architecture/constraints.md)
 - [开发说明](development.md)
 - [部署与恢复](deployment.md)
 
-[目标状态](docs/product/target-state.md) 是非规范性产品方向，不表示已经实现，也不能替代当前 Issue / PRD。第三方基座的固定来源与许可证义务见 [ADR-0001](docs/adr/0001-use-full-stack-fastapi-template.md) 和 `THIRD_PARTY_NOTICES`。
+[目标状态](docs/product/target-state.md) 是非规范性产品方向，不表示已经实现，也不能替代 [当前批准 Spec](docs/specs/asset-governance-release-1.md)。第三方基座的固定来源与许可证义务见 [ADR-0001](docs/adr/0001-use-full-stack-fastapi-template.md) 和 `THIRD_PARTY_NOTICES`。
