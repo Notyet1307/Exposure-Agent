@@ -500,6 +500,7 @@ test("selects the first Project and switches its Profile and upload list", async
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })
   await expect(projectSelect).toHaveValue(projects[0].id)
+  await page.getByText("Profile details", { exact: true }).press("Enter")
   await expect(
     page.getByText(profiles[projects[0].id].id).first(),
   ).toBeVisible()
@@ -508,6 +509,7 @@ test("selects the first Project and switches its Profile and upload list", async
   await projectSelect.selectOption(projects[1].id)
 
   await expect(projectSelect).toHaveValue(projects[1].id)
+  await page.getByText("Profile details", { exact: true }).press("Enter")
   await expect(page.getByText(profiles[projects[1].id].id)).toBeVisible()
   await expect(page.getByText("No accepted uploads yet.")).toBeVisible()
 })
@@ -599,8 +601,20 @@ test("selects an accepted upload as the current Project input", async ({
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
   await page.getByRole("button", { name: "Set as current input" }).click()
 
-  await expect(page.getByText("Current CustomerUpload ID")).toBeVisible()
-  await expect(page.getByText(uploads[projects[0].id].data[0].id)).toBeVisible()
+  const currentDetails = page
+    .locator("details")
+    .filter({ has: page.getByText("Current input details", { exact: true }) })
+  await expect(
+    currentDetails.getByText(uploads[projects[0].id].data[0].id, {
+      exact: true,
+    }),
+  ).toBeHidden()
+  await currentDetails.locator("summary").press("Enter")
+  await expect(
+    currentDetails.getByText(uploads[projects[0].id].data[0].id, {
+      exact: true,
+    }),
+  ).toBeVisible()
   await expect(page.getByText("Current", { exact: true }).first()).toBeVisible()
   expect(selectionRequests).toBe(1)
 })

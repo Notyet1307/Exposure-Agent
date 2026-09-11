@@ -107,30 +107,64 @@ export default function WorkspaceOverview({
             <Link
               to="/projects/$projectId/runs/$runId/comparison"
               params={{ projectId, runId }}
-              search={(previous) => ({
-                ...previous,
-                project: projectId,
-                run: runId,
-              })}
+              search={{ project: projectId, run: runId }}
             >
-              {t("Assets & differences", "资产与差异")}
+              {t("View all assets & differences", "查看全部资产与差异")}
             </Link>
           </Button>
           <Button asChild variant="outline">
             <Link
               to="/projects/$projectId/runs/$runId/lineage"
               params={{ projectId, runId }}
-              search={(previous) => ({
-                ...previous,
-                project: projectId,
-                run: runId,
-              })}
+              search={{ project: projectId, run: runId }}
             >
               {t("Lineage", "血缘")}
             </Link>
           </Button>
         </nav>
       </div>
+      {!legacy && (
+        <section
+          className="space-y-3 rounded-lg border p-4"
+          aria-label={t("Priority review", "优先核查")}
+        >
+          <h3 className="font-semibold">{t("Priority review", "优先核查")}</h3>
+          <div className="flex flex-col items-start gap-3">
+            {(["cloudatlas_only", "customer_upload_only"] as const).map(
+              (classification) => (
+                <Link
+                  key={classification}
+                  to="/projects/$projectId/runs/$runId/comparison"
+                  params={{ projectId, runId }}
+                  search={{
+                    project: projectId,
+                    run: runId,
+                    classification,
+                    netflow_status: "ACTIVE",
+                  }}
+                  className="break-words text-sm underline underline-offset-4 focus-visible:outline-2"
+                >
+                  {classification === "cloudatlas_only"
+                    ? t(
+                        "Not registered, externally observed with activity",
+                        "台账未登记，外部已观测且有活动",
+                      )
+                    : t(
+                        "Registered, not externally observed but active",
+                        "台账已登记，外部未观测但有活动",
+                      )}
+                </Link>
+              ),
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {t(
+              "Review clues, not risk ratings or a complete risk list. Published totals below describe separate dimensions, not these combined filters.",
+              "这些入口是核查线索，不是风险等级或完整风险清单。下方批次总数分别描述各维度，不是这些组合筛选的数量。",
+            )}
+          </p>
+        </section>
+      )}
       {legacy ? (
         <Alert>
           <AlertTitle>

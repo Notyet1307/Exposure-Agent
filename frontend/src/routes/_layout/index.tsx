@@ -16,6 +16,7 @@ import GovernanceReports from "@/components/GovernanceReports"
 import GovernanceRuns from "@/components/GovernanceRuns"
 import IPAssets from "@/components/IPAssets"
 import NetFlowDatasets from "@/components/NetFlowDatasets"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -134,7 +135,6 @@ function UploadRows({
       <TableHeader>
         <TableRow>
           <TableHead>{t("File", "文件")}</TableHead>
-          <TableHead>SHA-256</TableHead>
           <TableHead>{t("Records", "记录数")}</TableHead>
           <TableHead>{t("Profile", "配置")}</TableHead>
           <TableHead>{t("Warnings", "警告")}</TableHead>
@@ -148,18 +148,37 @@ function UploadRows({
           const isCurrent = upload.id === currentUploadId
           return (
             <TableRow key={upload.id}>
-              <TableCell className="font-medium">
+              <TableCell className="max-w-72 whitespace-normal break-words font-medium">
                 {upload.display_filename}
-              </TableCell>
-              <TableCell className="max-w-72 whitespace-normal break-all font-mono text-xs">
-                {upload.raw_sha256}
+                <details className="mt-2 text-sm font-normal">
+                  <summary className="cursor-pointer">
+                    {t("Upload details", "上传详情")}
+                  </summary>
+                  <dl className="mt-2 space-y-2">
+                    <div>
+                      <dt>{t("CustomerUpload ID", "客户上传 ID")}</dt>
+                      <dd>
+                        <TechnicalValue value={upload.id} />
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>SHA-256</dt>
+                      <dd>
+                        <TechnicalValue value={upload.raw_sha256} />
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t("Profile ID", "配置 ID")}</dt>
+                      <dd>
+                        <TechnicalValue value={upload.profile_id} />
+                      </dd>
+                    </div>
+                  </dl>
+                </details>
               </TableCell>
               <TableCell>{upload.record_count}</TableCell>
               <TableCell>
                 <div>v{upload.profile_version}</div>
-                <div className="max-w-48 break-all text-xs text-muted-foreground">
-                  {upload.profile_id}
-                </div>
               </TableCell>
               <TableCell className="whitespace-normal">
                 <WarningSummary warnings={upload.warnings} />
@@ -197,7 +216,7 @@ function UploadRows({
 }
 
 function ProjectInputs({ project }: { project: ProjectPublic }) {
-  const { t, message } = useI18n()
+  const { t, message, formatDate } = useI18n()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
@@ -291,6 +310,9 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
 
   const profile = profileQuery.data
   const uploads = uploadsQuery.data
+  const currentUpload = uploads.data.find(
+    (upload) => upload.id === uploads.current_customer_upload_id,
+  )
   const canGoBack = page > 0
   const canGoForward = (page + 1) * UPLOAD_PAGE_SIZE < uploads.count
 
@@ -326,8 +348,6 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
             {t("Current CustomerUpload Profile", "当前客户上传配置")}
           </CardTitle>
           <CardDescription>
-            {t("Profile ID", "配置 ID")}{" "}
-            <span className="font-mono">{profile.id}</span> ·{" "}
             {t("Version", "版本")} {profile.version}
           </CardDescription>
         </CardHeader>
@@ -344,6 +364,17 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
             title={t("Optional headers", "可选表头")}
             headers={profile.optional_headers}
           />
+          <details className="min-w-0 text-sm md:col-span-3">
+            <summary className="cursor-pointer">
+              {t("Profile details", "配置详情")}
+            </summary>
+            <div className="mt-2">
+              <TechnicalValue
+                value={profile.id}
+                label={t("Profile ID", "配置 ID")}
+              />
+            </div>
+          </details>
         </CardContent>
       </Card>
 
@@ -359,12 +390,34 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
         </CardHeader>
         <CardContent className="space-y-2">
           {uploads.current_customer_upload_id ? (
-            <p>
-              {t("Current CustomerUpload ID", "当前客户上传 ID")}{" "}
-              <span className="break-all font-mono text-sm">
-                {uploads.current_customer_upload_id}
-              </span>
-            </p>
+            <div className="space-y-2">
+              <p className="break-words font-medium">
+                {currentUpload?.display_filename ??
+                  t("Current selected input", "当前已选输入")}
+              </p>
+              {currentUpload && (
+                <p className="text-sm text-muted-foreground">
+                  {formatDate(currentUpload.created_at)} ·{" "}
+                  {t(
+                    `${currentUpload.record_count} records`,
+                    `${currentUpload.record_count} 条记录`,
+                  )}{" "}
+                  · {t("Profile v", "配置版本 v")}
+                  {currentUpload.profile_version}
+                </p>
+              )}
+              <details className="text-sm">
+                <summary className="cursor-pointer">
+                  {t("Current input details", "当前输入详情")}
+                </summary>
+                <div className="mt-2">
+                  <TechnicalValue
+                    value={uploads.current_customer_upload_id}
+                    label={t("Current CustomerUpload ID", "当前客户上传 ID")}
+                  />
+                </div>
+              </details>
+            </div>
           ) : (
             <Alert>
               <AlertCircle />

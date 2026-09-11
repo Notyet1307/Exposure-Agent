@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { useI18n } from "@/lib/i18n"
 import { useWorkspaceContext } from "@/lib/workspace"
 
@@ -130,12 +131,19 @@ export default function WorkspaceSelector() {
             )}
           {runChoices?.map((report) => (
             <option key={report.id} value={report.governance_run_id}>
-              {formatDate(report.run_completed_at)} ·{" "}
-              {report.governance_run_id.slice(0, 8)}
+              {formatDate(report.run_completed_at)}
             </option>
           ))}
         </select>
       </label>
+      {runId !== undefined && (
+        <details className="min-w-0 max-w-full text-sm">
+          <summary className="cursor-pointer">
+            {t("Selected run details", "所选批次详情")}
+          </summary>
+          <TechnicalValue value={runId} label={t("Run ID", "运行 ID")} />
+        </details>
+      )}
     </div>
   )
 }

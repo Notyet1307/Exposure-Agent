@@ -8,6 +8,7 @@ import {
   type GovernanceRunPublic,
   GovernanceRunsService,
 } from "@/client"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -117,10 +118,6 @@ const MESSAGE_ZH: Record<string, string> = {
     "当前无法启动治理 Runner。",
 }
 
-function hashSummary(value: string) {
-  return `${value.slice(0, 12)}…`
-}
-
 function rejectionCode(error: unknown) {
   if (!(error instanceof ApiError)) return null
   const body = error.body
@@ -155,26 +152,23 @@ function RunDetails({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">
-            {t("Run", "运行")} {run.id.slice(0, 8)}
+            {t("Run", "运行")} · {formatDate(run.created_at)}
           </CardTitle>
           <Badge variant={run.status === "COMPLETED" ? "default" : "secondary"}>
             {translateValue(run.status)}
           </Badge>
         </div>
         <CardDescription>
-          {t("Triggered", "触发于")} {formatDate(run.created_at)} · Runner{" "}
-          {run.runner_build_version}
+          {run.completed_at
+            ? `${t("Completed", "完成于")} ${formatDate(run.completed_at)}`
+            : `${t("Triggered", "触发于")} ${formatDate(run.created_at)}`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid gap-3 text-sm md:grid-cols-2">
           <div>
             <p className="font-medium">{t("Customer input", "客户输入")}</p>
-            <p className="break-all text-muted-foreground">
-              {t("CustomerUpload", "客户上传")} {run.customer_upload_id}
-            </p>
-            <p className="font-mono text-xs">
-              {hashSummary(run.customer_upload_sha256)} ·{" "}
+            <p className="text-muted-foreground">
               {t("Profile v", "配置版本 v")}
               {run.customer_upload_profile_version}
             </p>
@@ -184,14 +178,59 @@ function RunDetails({
               {t("CloudAtlas input", "CloudAtlas 输入")}
             </p>
             <p className="break-all text-muted-foreground">
-              {t("SourceInstance", "来源实例")} {run.source_instance_id}
-            </p>
-            <p className="font-mono text-xs">
-              {hashSummary(run.cloudatlas_validated_fingerprint)} ·{" "}
               {run.cloudatlas_method}
             </p>
           </div>
         </div>
+        <details className="text-sm">
+          <summary className="cursor-pointer">
+            {t("Run technical details", "运行技术详情")}
+          </summary>
+          <dl className="mt-3 grid min-w-0 gap-3 md:grid-cols-2">
+            {(
+              [
+                [t("Run ID", "运行 ID"), run.id],
+                [t("Trigger ID", "触发 ID"), run.trigger_id],
+                [t("Session ID", "会话 ID"), run.session_id],
+                [t("CustomerUpload ID", "客户上传 ID"), run.customer_upload_id],
+                [
+                  t("Customer input SHA-256", "客户输入 SHA-256"),
+                  run.customer_upload_sha256,
+                ],
+                [t("Profile ID", "配置 ID"), run.customer_upload_profile_id],
+                [
+                  t("Source instance ID", "来源实例 ID"),
+                  run.source_instance_id,
+                ],
+                [
+                  t("CloudAtlas fingerprint", "CloudAtlas 指纹"),
+                  run.cloudatlas_validated_fingerprint,
+                ],
+                [
+                  t("CloudAtlas capability set ID", "CloudAtlas 能力集 ID"),
+                  run.cloudatlas_capset_id,
+                ],
+                [t("Package SHA-256", "包 SHA-256"), run.package_sha256],
+                [
+                  t("Descriptor SHA-256", "描述文件 SHA-256"),
+                  run.descriptor_sha256,
+                ],
+                [t("Runner build", "Runner 构建"), run.runner_build_version],
+                [
+                  t("Processing contract", "处理契约"),
+                  run.processing_contract_version,
+                ],
+              ] as const
+            ).map(([label, value]) => (
+              <div key={label} className="min-w-0">
+                <dt>{label}</dt>
+                <dd>
+                  <TechnicalValue value={value ?? ""} label={label} />
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </details>
 
         <Table>
           <TableHeader>
@@ -214,11 +253,36 @@ function RunDetails({
                   </Badge>
                 </TableCell>
                 <TableCell>{step.attempt}</TableCell>
-                <TableCell>
-                  {step.output_hash ? hashSummary(step.output_hash) : "—"}
+                <TableCell className="max-w-72 whitespace-normal break-words">
+                  {step.output_hash ? t("Output recorded", "已记录输出") : "—"}
                   {step.error_code
                     ? ` · ${translateValue(step.error_code)}`
                     : ""}
+                  {(step.input_hash || step.output_hash) && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer">
+                        {t("Step details", "步骤详情")}
+                      </summary>
+                      <dl className="mt-2 space-y-2">
+                        {step.input_hash && (
+                          <div>
+                            <dt>{t("Input hash", "输入哈希")}</dt>
+                            <dd>
+                              <TechnicalValue value={step.input_hash} />
+                            </dd>
+                          </div>
+                        )}
+                        {step.output_hash && (
+                          <div>
+                            <dt>{t("Output hash", "输出哈希")}</dt>
+                            <dd>
+                              <TechnicalValue value={step.output_hash} />
+                            </dd>
+                          </div>
+                        )}
+                      </dl>
+                    </details>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -238,7 +302,7 @@ function RunDetails({
               {run.snapshots.map((snapshot) => (
                 <div
                   key={snapshot.id}
-                  className="rounded-md border p-3 text-sm"
+                  className="min-w-0 rounded-md border p-3 text-sm"
                 >
                   <p className="font-medium">
                     {translateValue(snapshot.source_type)}
@@ -249,9 +313,44 @@ function RunDetails({
                       `${snapshot.record_count} 条记录`,
                     )}
                   </p>
-                  <p className="font-mono text-xs">
-                    SHA-256 {hashSummary(snapshot.content_sha256)}
+                  <p className="text-muted-foreground">
+                    {formatDate(snapshot.created_at)}
                   </p>
+                  <details className="mt-2">
+                    <summary className="cursor-pointer">
+                      {t("Snapshot details", "快照详情")}
+                    </summary>
+                    <dl className="mt-2 space-y-2">
+                      <div>
+                        <dt>{t("Snapshot ID", "快照 ID")}</dt>
+                        <dd>
+                          <TechnicalValue value={snapshot.id} />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>SHA-256</dt>
+                        <dd>
+                          <TechnicalValue value={snapshot.content_sha256} />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>{t("Schema fingerprint", "结构指纹")}</dt>
+                        <dd>
+                          <TechnicalValue value={snapshot.schema_fingerprint} />
+                        </dd>
+                      </div>
+                      {snapshot.method_fingerprint && (
+                        <div>
+                          <dt>{t("Method fingerprint", "方法指纹")}</dt>
+                          <dd>
+                            <TechnicalValue
+                              value={snapshot.method_fingerprint}
+                            />
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                  </details>
                 </div>
               ))}
             </div>

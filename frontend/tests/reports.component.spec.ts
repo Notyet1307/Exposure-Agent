@@ -1636,6 +1636,10 @@ test.describe("Analysis reports", () => {
       exact: true,
     })
     await panel.getByLabel("Analysis version").selectOption(old.id)
+    await expect(panel.getByLabel("Analysis version")).not.toContainText(old.id)
+    await expect(panel.getByLabel("Analysis version")).not.toContainText(
+      newer.id,
+    )
     await expect(
       panel.getByRole("region", { name: "Report narrative" }),
     ).toContainText(old.text!.business_summary)
@@ -1691,7 +1695,11 @@ test.describe("Analysis reports", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    let record = analysisVersion(0)
+    const version = analysisVersion(0)
+    let record = {
+      ...version,
+      material: { ...version.material, summary: canonicalContent().report },
+    }
     const originalGap = "No successful later verification is available."
     record.original_output!.gaps = [originalGap]
     let rejectFirstEdit = true
@@ -1749,6 +1757,51 @@ test.describe("Analysis reports", () => {
       name: "AI analysis reports",
       exact: true,
     })
+    const identities = panel.locator("details").filter({
+      has: page
+        .locator("summary")
+        .getByText("Report identifiers and authors", { exact: true }),
+    })
+    await expect(
+      identities.getByText(record.run_id, { exact: true }),
+    ).not.toBeVisible()
+    await expect(
+      panel.getByText("Material captured", { exact: true }),
+    ).toBeVisible()
+    await identities.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(
+      identities.getByText(record.run_id, { exact: true }),
+    ).toBeVisible()
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await identities
+      .getByRole("button", { name: "Copy Fixed base Run", exact: true })
+      .focus()
+    await page.keyboard.press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(record.run_id)
+    const summary = panel.getByRole("region", {
+      name: "Fixed deterministic summary",
+      exact: true,
+    })
+    const hash =
+      record.material.summary.input_completeness.sources[0].content_sha256
+    const hashDetails = summary
+      .locator("details")
+      .filter({ hasText: hash })
+      .first()
+    await expect(hashDetails.getByText(hash, { exact: true })).not.toBeVisible()
+    await hashDetails.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(hashDetails.getByText(hash, { exact: true })).toBeVisible()
+    await hashDetails
+      .getByRole("button", { name: `Copy full value: ${hash}`, exact: true })
+      .focus()
+    await page.keyboard.press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(hash)
     await panel
       .getByRole("button", { name: "Edit narrative", exact: true })
       .click()
@@ -1839,14 +1892,27 @@ test.describe("Analysis reports", () => {
     await expect(original).not.toContainText(
       "Human explanation after checking the current revision.",
     )
-    const source = panel
-      .locator("details")
-      .filter({ hasText: "Cited source · M-0" })
+    const source = panel.locator("details").filter({
+      has: page.locator("summary").filter({ hasText: "Cited source" }),
+    })
+    await expect(source.locator("summary")).not.toContainText(
+      record.material.items[0].citation_id,
+    )
+    await expect(
+      source.getByText(record.material.items[0].identity, { exact: true }),
+    ).not.toBeVisible()
     await source.locator("summary").focus()
     await page.keyboard.press("Enter")
     await expect(
       source.getByText(record.material.items[0].identity, { exact: true }),
     ).toBeVisible()
+    await source
+      .getByRole("button", { name: "Copy Full record identity", exact: true })
+      .focus()
+    await page.keyboard.press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(record.material.items[0].identity)
     await expect(
       source.getByText("Recorded time", { exact: true }),
     ).toBeVisible()

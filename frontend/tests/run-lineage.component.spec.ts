@@ -647,7 +647,11 @@ async function installMocks(
       })
       return
     }
-    if (url.pathname.endsWith("/analysis-reports")) {
+    if (
+      url.pathname.endsWith("/ai-investigations") ||
+      url.pathname.endsWith("/manual-reviews") ||
+      url.pathname.endsWith("/analysis-reports")
+    ) {
       await route.fulfill({ json: { data: [], count: 0, can_create: false } })
       return
     }
@@ -761,15 +765,21 @@ test("navigates the explicit historical Run and an asset outside overview, prese
   await page
     .getByRole("row")
     .filter({ has: page.getByRole("cell", { name: longIp, exact: true }) })
-    .getByRole("link", { name: `Trace asset ${longIp}`, exact: true })
+    .getByRole("link", { name: `Review asset ${longIp}`, exact: true })
     .click()
   await expect(page).toHaveURL(
     (url) =>
       url.searchParams.get("resource_id") === outsideResourceId &&
       url.searchParams.get("classification") === "customer_upload_only",
   )
+  await page
+    .getByText("Technical lineage, nodes and paths", { exact: true })
+    .press("Enter")
   await expect(node(page, "COMPARISON", longIp)).toBeVisible()
   await page.reload()
+  await page
+    .getByText("Technical lineage, nodes and paths", { exact: true })
+    .press("Enter")
   await expect(node(page, "COMPARISON", longIp)).toBeVisible()
   await page.goBack()
   await expect(page).toHaveURL(filteredUrl)
@@ -818,6 +828,9 @@ test("switches language without losing asset details, report identity or focus",
   const dto = publishedLineage({ resource: resourceId, netflow: "absent" })
   await installMocks(page, [dto])
   await page.goto(lineagePath(resourceId))
+  await page
+    .getByText("Technical lineage, nodes and paths", { exact: true })
+    .press("Enter")
   await node(page, "FINDING", "192.0.2.1").click()
   await expect(details(page)).toContainText(occurrenceId)
   await page
@@ -1117,6 +1130,9 @@ test("keeps partial coverage and bounded references distinct from complete Run r
     details(page).getByRole("region", { name: "Evidence references" }),
   ).toContainText("Count: 24 · Returned: 20 · Truncated: true")
   await page.goto(lineagePath(outsideResourceId))
+  await page
+    .getByText("Technical lineage, nodes and paths", { exact: true })
+    .press("Enter")
   await node(page, "REPORT", resource.governance_report_id).click()
   await expect(details(page)).toContainText(/full.run|完整 Run/i)
   for (const [label, value] of Object.entries(reportNode(resource).summary)) {
@@ -1139,6 +1155,12 @@ test("retains context for an EMPTY resource and does not equate zero Evidence wi
   await expect(details(page)).toContainText(findingId)
   await expect(details(page)).toContainText(/no.*sample|无.*样本/i)
   await page.goto(lineagePath(outsideResourceId))
+  await expect(
+    page.getByRole("region", { name: "AI investigation", exact: true }),
+  ).toHaveCount(0)
+  await page
+    .getByText("Technical lineage, nodes and paths", { exact: true })
+    .press("Enter")
   await expect(page.getByText("EMPTY", { exact: true })).toBeVisible()
   await expect(
     nodes(page).getByRole("button").filter({ hasText: "COMPARISON" }),
@@ -1186,6 +1208,9 @@ for (const mismatch of [
       /identity|scope|身份|范围/i,
     )
     await expect(nodes(page)).toHaveCount(0)
+    await expect(
+      page.getByRole("region", { name: "AI investigation", exact: true }),
+    ).toHaveCount(0)
     await expect(page.getByText(longIp, { exact: true })).toHaveCount(0)
   })
 }
@@ -1211,7 +1236,7 @@ test("clears selected facts during a scope request and ignores its late response
   await page
     .getByRole("row")
     .filter({ has: page.getByRole("cell", { name: longIp, exact: true }) })
-    .getByRole("link", { name: `Trace asset ${longIp}`, exact: true })
+    .getByRole("link", { name: `Review asset ${longIp}`, exact: true })
     .click()
   await expect.poll(() => pending).toBe(true)
   await expect(page.getByRole("status")).toContainText(/loading/i)
@@ -1269,6 +1294,9 @@ for (const status of [404, 422, 503]) {
     if (status === 503) {
       failing = false
       await page.getByRole("button", { name: /retry|try again/i }).click()
+      await page
+        .getByText("Technical lineage, nodes and paths", { exact: true })
+        .press("Enter")
       await expect(node(page, "COMPARISON", longIp)).toBeVisible()
     }
     expect(
@@ -1309,6 +1337,9 @@ test("supports keyboard selection, clearing, same-report reading and focus resto
     `customer_upload_only: ${"published bounded reason ".repeat(30)}`
   const { requests, unexpected } = await installMocks(page, [dto])
   await page.goto(lineagePath(outsideResourceId))
+  await page
+    .getByText("Technical lineage, nodes and paths", { exact: true })
+    .press("Enter")
   const comparison = node(page, "COMPARISON", longIp)
   await comparison.focus()
   await page.keyboard.press("Enter")
@@ -1503,3 +1534,189 @@ for (const width of [1280, 1073, 375]) {
     ).toBe(true)
   })
 }
+
+test("S1 priority entries preserve historical asset scope and keep full identities behind keyboard disclosures", async ({
+  page,
+}, testInfo) => {
+  const external = publishedLineage({ resource: resourceId })
+  const registered = publishedLineage({ resource: outsideResourceId })
+  Object.assign(comparisons(external)[0], {
+    canonical_ip: "192.0.2.46",
+    classification: "cloudatlas_only",
+    classification_reason: "cloudatlas_only",
+    customer_upload_present: false,
+    cloudatlas_present: true,
+  })
+  comparisons(registered)[0].canonical_ip = "192.0.2.20"
+  const overview = publishedLineage()
+  const rows = [comparisons(external)[0], comparisons(registered)[0]]
+  overview.nodes = [
+    ...overview.nodes.filter((item) => item.kind !== "COMPARISON"),
+    ...rows,
+  ]
+  const { requests, unexpected } = await installMocks(page, [
+    overview,
+    external,
+    registered,
+    publishedLineage({ run: newerRunId }),
+  ])
+  const detail = reportDetail(overview)
+  const content = detail.canonical_content as {
+    report: Record<string, unknown>
+  }
+  content.report.ip_source_comparison_summary = {
+    resource_count: 2,
+    classification_counts: {
+      matched: 0,
+      customer_upload_only: 1,
+      cloudatlas_only: 1,
+      neither_source_observed: 0,
+    },
+    netflow_status_counts: { ACTIVE: 2, UNKNOWN: 0 },
+    netflow_reason_counts: {
+      positive_activity_observed: 2,
+      netflow_input_absent: 0,
+      no_positive_activity_evidence: 0,
+    },
+  }
+  await page.route(
+    `**/governance-reports/${overview.governance_report_id}`,
+    (route) => route.fulfill({ json: detail }),
+  )
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  const startBodies: unknown[] = []
+  let writable = false
+  await page.route("**/ai-investigations*", async (route) => {
+    if (route.request().method() === "POST") {
+      startBodies.push(route.request().postDataJSON())
+      await route.fulfill({
+        status: 403,
+        json: { detail: { code: "scope_not_allowed" } },
+      })
+    } else {
+      await route.fulfill({
+        json: { data: [], count: 0, can_create: writable },
+      })
+    }
+  })
+  for (const [index, row] of rows.entries()) {
+    writable = index === 1
+    await page.goto(
+      `/?project=${projectId}&run=${runId}&page=7&resource_id=${outsideResourceId}&asset_id=${outsideResourceId}&investigation_run=${newerRunId}`,
+    )
+    const priorities = page.getByRole("region", {
+      name: "Priority review",
+      exact: true,
+    })
+    await expect(priorities).toBeVisible()
+    expect(await priorities.innerText()).not.toMatch(/\d/)
+    await priorities.getByRole("link").nth(index).press("Enter")
+    await expect(page).toHaveURL(
+      (url) =>
+        url.pathname === `/projects/${projectId}/runs/${runId}/comparison` &&
+        url.searchParams.get("classification") === row.classification &&
+        url.searchParams.get("netflow_status") === "ACTIVE" &&
+        !["page", "resource_id", "asset_id", "investigation_run"].some((key) =>
+          url.searchParams.has(key),
+        ),
+    )
+    const comparisonUrl = page.url()
+    await expect(
+      page.getByRole("cell", { name: row.canonical_ip, exact: true }),
+    ).toBeVisible()
+    await page
+      .getByRole("link", {
+        name: `Review asset ${row.canonical_ip}`,
+        exact: true,
+      })
+      .press("Enter")
+    const facts = page.getByRole("region", { name: "Asset facts", exact: true })
+    await expect(
+      facts.getByRole("heading", { name: row.canonical_ip, exact: true }),
+    ).toBeVisible()
+    const investigation = page.getByRole("region", {
+      name: "AI investigation",
+      exact: true,
+    })
+    await expect(investigation).toContainText("No saved investigations")
+    expect(startBodies).toEqual([])
+    await expect(
+      page.getByRole("region", { name: "Lineage nodes", exact: true }),
+    ).toBeHidden()
+    expect(await page.locator("main").last().innerText()).not.toContain(
+      row.resource_id,
+    )
+    expect(await page.locator("main").last().innerText()).not.toContain(hash)
+    if (!writable)
+      await expect(
+        investigation.getByRole("button", {
+          name: "Investigate this asset",
+          exact: true,
+        }),
+      ).toHaveCount(0)
+    await page.reload()
+    await expect(
+      facts.getByRole("heading", { name: row.canonical_ip, exact: true }),
+    ).toBeVisible()
+    const scope = page.locator("details").filter({
+      has: page.getByText("Full scope identifiers", { exact: true }),
+    })
+    await scope.locator("summary").press("Enter")
+    await scope
+      .getByRole("button", { name: "Copy Resource ID", exact: true })
+      .press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(row.resource_id)
+    await scope.locator("summary").press("Enter")
+    const identity = facts.locator("details")
+    await identity.locator("summary").press("Enter")
+    await identity
+      .getByRole("button", { name: "Copy Content hash", exact: true })
+      .press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(hash)
+    await identity.locator("summary").press("Enter")
+    await page.setViewportSize({ width: 390, height: 844 })
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: testInfo.outputPath(`s1-asset-${index}-mobile.png`),
+      fullPage: true,
+    })
+    await page
+      .getByRole("link", { name: "View source comparison", exact: true })
+      .click()
+    await expect(page).toHaveURL(
+      (url) =>
+        url.pathname.endsWith("/comparison") &&
+        url.searchParams.get("classification") === row.classification,
+    )
+    await page.goBack()
+    await expect(
+      facts.getByRole("heading", { name: row.canonical_ip, exact: true }),
+    ).toBeVisible()
+    if (writable) {
+      await investigation
+        .getByRole("button", { name: "Investigate this asset", exact: true })
+        .click()
+      await expect.poll(() => startBodies.length).toBe(1)
+      expect(startBodies[0]).toMatchObject({
+        run_id: runId,
+        resource_id: row.resource_id,
+      })
+      await expect(investigation.getByRole("alert")).toBeVisible()
+    }
+    expect(new URL(comparisonUrl).searchParams.get("run")).toBe(runId)
+  }
+  expect(
+    requests
+      .filter(({ url }) => url.pathname.endsWith("/lineage"))
+      .every(({ url }) => url.pathname.includes(runId)),
+  ).toBe(true)
+  expect(unexpected).toEqual([])
+})
