@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     AI_INVESTIGATION_ALLOW_BAIZHI_TEST: bool = False
     AI_INVESTIGATION_SYNTHETIC_MANIFEST: str = "[]"
     AI_INVESTIGATION_TIMEOUT_SECONDS: float = Field(default=120, gt=0, le=600)
+    AI_INVESTIGATION_FOLLOWUP_TIMEOUT_SECONDS: float = Field(default=120, gt=0, le=1200)
     AI_INVESTIGATION_MAX_TOOL_CALLS: int = Field(default=4, gt=0, le=16)
     AI_INVESTIGATION_MAX_MATERIAL_BYTES: int = Field(default=65536, gt=0, le=262144)
     AI_INVESTIGATION_MAX_OUTPUT_BYTES: int = Field(default=32768, gt=0, le=131072)
