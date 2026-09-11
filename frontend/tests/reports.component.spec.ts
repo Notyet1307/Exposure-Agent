@@ -1692,6 +1692,8 @@ test.describe("Analysis reports", () => {
   }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     let record = analysisVersion(0)
+    const originalGap = "No successful later verification is available."
+    record.original_output!.gaps = [originalGap]
     let rejectFirstEdit = true
     let confirmations = 0
     await page.route(analysisPath, async (route) => {
@@ -1801,6 +1803,12 @@ test.describe("Analysis reports", () => {
       "Human explanation after checking the current revision.",
     )
     expect(confirmations).toBe(0)
+    await expect(
+      panel.getByText(originalGap, { exact: true }),
+    ).not.toBeVisible()
+    await expect(
+      panel.getByText(record.material.gaps[0], { exact: true }),
+    ).toBeVisible()
     await panel
       .getByRole("button", { name: "Confirm this version", exact: true })
       .click()
@@ -1811,10 +1819,20 @@ test.describe("Analysis reports", () => {
       panel.getByText("Human-confirmed", { exact: true }),
     ).toBeVisible()
     expect(confirmations).toBe(1)
+    await expect(
+      panel.getByText(originalGap, { exact: true }),
+    ).not.toBeVisible()
     const original = panel.locator("details").filter({
       hasText: "Original AI draft · preserved unchanged",
     })
-    await original.locator("summary").click()
+    await original.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(original.getByText(originalGap, { exact: true })).toBeVisible()
+    await expect(
+      panel
+        .getByRole("region", { name: "Frozen materials and citations" })
+        .getByText(originalGap, { exact: true }),
+    ).toHaveCount(0)
     await expect(original).toContainText(
       analysisVersion(0).text!.business_summary,
     )

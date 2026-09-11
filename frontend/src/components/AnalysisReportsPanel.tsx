@@ -566,7 +566,31 @@ export function AnalysisReportsPanel(scope: Scope) {
                 )}
               </summary>
               <div className="mt-3 min-w-0 space-y-3 text-sm">
+                <p>
+                  {t(
+                    "This is the AI output at generation time, including its gap assessments. It is preserved for comparison and does not change when the narrative is edited or confirmed.",
+                    "这里保留生成时的 AI 正文和缺口判断，供对照追溯；不会随正文编辑或确认而更新。",
+                  )}
+                </p>
                 {renderText(current.original_output.text)}
+                {current.original_output.gaps.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">
+                      {t(
+                        "AI-noted gaps in original draft",
+                        "原稿中的 AI 缺口判断",
+                      )}
+                    </h4>
+                    {current.original_output.gaps.map((gap, index) => (
+                      <p
+                        key={`ai-${index}`}
+                        className="break-words [overflow-wrap:anywhere]"
+                      >
+                        {gap}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
             </details>
           )}
@@ -792,8 +816,7 @@ export function AnalysisReportsPanel(scope: Scope) {
                 )}
               </p>
             )}
-            {(current.material.gaps.length > 0 ||
-              !!current.original_output?.gaps.length) && (
+            {current.material.gaps.length > 0 && (
               <div className="space-y-2 rounded-md border p-3">
                 <h4 className="font-medium">
                   {t("Material gaps", "材料缺口")}
@@ -801,19 +824,6 @@ export function AnalysisReportsPanel(scope: Scope) {
                 {current.material.gaps.map((gap, index) => (
                   <p
                     key={`material-${index}`}
-                    className="break-words [overflow-wrap:anywhere]"
-                  >
-                    {gap}
-                  </p>
-                ))}
-                {!!current.original_output?.gaps.length && (
-                  <h4 className="font-medium">
-                    {t("AI-noted gaps", "AI 记录的缺口")}
-                  </h4>
-                )}
-                {current.original_output?.gaps.map((gap, index) => (
-                  <p
-                    key={`ai-${index}`}
                     className="break-words [overflow-wrap:anywhere]"
                   >
                     {gap}
