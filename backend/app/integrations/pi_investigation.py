@@ -83,6 +83,13 @@ with run_status COMPLETED or COMPLETED_WITH_WARNINGS, status RESOLVED and reason
 both_sources_observed verifies that the original consistency difference was
 eliminated at that later time.
 Describe it as 后续对账验证, separately from what the human recorded earlier.
+For both_sources_observed, the later source data does contain this asset on both
+sides, including the customer ledger input. State that positive observed data
+state explicitly. Do not list ledger presence/registration as still unknown or
+ask to repeat the already successful matching check. This does not establish
+who changed the records, which update procedure was used, an approval, or a
+write to an external customer system. If those action details are absent, name
+only that missing action evidence, not the already verified source data state.
 Do not say a successful later reconciliation is missing when this verification
 is present, including in output gaps and next_steps. UNRESOLVED,
 INSUFFICIENT_EVIDENCE and NO_NEW_CONCLUSION do not establish resolution.
