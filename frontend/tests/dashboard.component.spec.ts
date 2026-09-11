@@ -672,9 +672,10 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).not.toBeVisible()
 })
 
-test("shows current NetFlowDataset hash, counts, and bounded quality summary", async ({
+test("keeps NetFlow quality visible and identities behind keyboard-copyable details", async ({
   page,
 }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
   await page.route(
     `**/api/v1/projects/${projects[0].id}/netflow-datasets*`,
     (route) =>
@@ -691,11 +692,6 @@ test("shows current NetFlowDataset hash, counts, and bounded quality summary", a
   await expect(
     page.getByText("Current NetFlowDataset", { exact: true }),
   ).toBeVisible()
-  await expect(
-    page.getByText(netflowDatasets[projects[0].id].data[0].id).first(),
-  ).toBeVisible()
-  await expect(page.getByText("RAW SHA-256").first()).toBeVisible()
-  await expect(page.getByText("c".repeat(64)).first()).toBeVisible()
   await expect(page.getByText("Raw records").first()).toBeVisible()
   await expect(page.getByText("Valid activity records").first()).toBeVisible()
   await expect(page.getByText("Isolated records").first()).toBeVisible()
@@ -706,6 +702,99 @@ test("shows current NetFlowDataset hash, counts, and bounded quality summary", a
   await expect(page.getByText("Duplicate groups").first()).toBeVisible()
   await expect(page.getByText("Duplicate records").first()).toBeVisible()
   await expect(page.getByText(/2026-08-01 00:00:00 UTC/).first()).toBeVisible()
+  const netflow = page.getByRole("region", {
+    name: "NetFlowDatasets",
+    exact: true,
+  })
+  for (const width of [1365, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await expect(
+      netflow.getByText("north-netflow.csv", { exact: true }),
+    ).toBeVisible()
+    await expect(netflow.getByText("invalid_timestamp: 2")).toBeVisible()
+    await expect(
+      netflow
+        .getByText("Valid time range: Not available — Not available")
+        .filter({ visible: true }),
+    ).toBeVisible()
+    await expect(
+      netflow.getByText(/^Accepted: /).filter({ visible: true }),
+    ).toHaveCount(2)
+    for (const dataset of northNetflowDatasets) {
+      const details = netflow
+        .locator("details:visible")
+        .filter({ hasText: dataset.id })
+      await expect(
+        details.getByText(dataset.id, { exact: true }),
+      ).not.toBeVisible()
+      await expect(
+        details.getByText(dataset.raw_sha256, { exact: true }),
+      ).not.toBeVisible()
+      await details.locator("summary").focus()
+      await page.keyboard.press("Enter")
+      for (const [label, value] of [
+        ["Dataset ID", dataset.id],
+        ["RAW SHA-256", dataset.raw_sha256],
+      ]) {
+        await expect(details.getByText(value, { exact: true })).toBeVisible()
+        await details
+          .getByRole("button", { name: `Copy ${label}`, exact: true })
+          .focus()
+        await page.keyboard.press("Enter")
+        await expect
+          .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+          .toBe(value)
+      }
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+        .toBeLessThanOrEqual(width)
+      await details.locator("summary").focus()
+      await page.keyboard.press("Enter")
+    }
+  }
+})
+
+test("keeps both file pickers and upload actions within desktop and narrow viewports", async ({
+  page,
+}) => {
+  await page.goto("/?view=inputs")
+  for (const width of [1365, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const [label, extension] of [
+      ["XLSX file", "xlsx"],
+      ["NetFlow dataset file", "csv"],
+    ]) {
+      const input = page.getByLabel(label, { exact: true })
+      const form = page.locator("form").filter({ has: input })
+      const picker = form.getByRole("button", {
+        name: "Choose file",
+        exact: true,
+      })
+      await picker.focus()
+      const chooserPromise = page.waitForEvent("filechooser")
+      await page.keyboard.press("Enter")
+      const chooser = await chooserPromise
+      const filename = `${"long-selected-filename-".repeat(8)}.${extension}`
+      await chooser.setFiles({
+        name: filename,
+        mimeType: "application/octet-stream",
+        buffer: Buffer.from("mock input"),
+      })
+      await expect(form.getByText(filename, { exact: true })).toBeVisible()
+      await expect(input).toHaveValue(new RegExp(`\\.${extension}$`))
+      const upload = form.getByRole("button", { name: "Upload", exact: true })
+      await expect(upload).toBeEnabled()
+      for (const control of [input, picker, upload]) {
+        const bounds = await control.boundingBox()
+        expect(bounds).not.toBeNull()
+        expect(bounds!.x).toBeGreaterThanOrEqual(0)
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+      }
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+        .toBeLessThanOrEqual(width)
+    }
+  }
 })
 
 test("uploads a NetFlowDataset and refreshes the list", async ({ page }) => {

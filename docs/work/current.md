@@ -2,10 +2,12 @@
 
 - 批准 Spec：[asset-governance-release-1.md](../specs/asset-governance-release-1.md)
 - 正式任务：[Notyet1307/Exposure-Agent#228](https://github.com/Notyet1307/Exposure-Agent/issues/228) — S1 概览核查入口与固定批次资产阅读优化
-- 固定 Spec：[5ec88115742fca722b7de788520c8eeb482cc29e](https://github.com/Notyet1307/Exposure-Agent/blob/5ec88115742fca722b7de788520c8eeb482cc29e/docs/specs/asset-governance-release-1.md)
+- 固定 Spec：远端 #228 仍引用 [5ec88115742fca722b7de788520c8eeb482cc29e](https://github.com/Notyet1307/Exposure-Agent/blob/5ec88115742fca722b7de788520c8eeb482cc29e/docs/specs/asset-governance-release-1.md)；维护者在修正会话另行批准的新核查中文业务表述补充，以本地候选 commit 中的同路径 Spec 为准，尚未获准更新远端指针。
 - 范围：[current-scope.md](../product/current-scope.md)
 - 接管：以 #228 的候选 PR、逐 AC 记录及下一会话独立验收入口为准
 - 权威：[ADR-0016](../adr/0016-pin-approved-spec-and-issue-status.md)
 - 最近验收：[#225 B0](https://github.com/Notyet1307/Exposure-Agent/issues/225)，不代替 S1 独立业务验收
-- 下一步：接管 #228 中标明“待独立业务验收”的候选 PR，先固定候选 SHA，再以 B0 首轮及后续批次逐项执行 AC1–AC6；先读 Issue/PR 回执中的未通过项和未运行检查，开发检查及源码审阅不代替独立业务验收。
-- 停止：本轮不 merge、不部署、不改生产/演示配置、不关闭 Issue；不安装新依赖、不扩为 S2/S3 或整站重构。独立业务验收在下一会话进行，按 #228 和固定 Spec 逐项记录
+- 当前：原候选 `68a54279c2e355a541ee0cd8f62182d1cec66c3e` 的独立验收发现 NetFlow 默认身份、报告原始材料/哈希、隐藏文件输入溢出及图滚动检查问题；已在 #228 范围修正。四 worker 组件检查 120 项及图滚动重复 20 次通过，不代替业务验收。
+- 下一步：固定修正候选 SHA，并由未参与实现的验收者逐项复验 AC1–AC6；新核查中文指令必须使用真实新结果验证，历史原文不得回写或正则删改。两轴代码审阅与独立业务验收分别记录。
+- 本轮授权例外：维护者明确批准隔离 Viewer、隔离人工记录/新报告、B0 两资产核查与固定追问、临时精确合成材料许可，以及仅新核查指令和 build 身份变化的本地执行器验证。模型、预算、认证、DNS/出域与引用校验保持不变；不安装依赖，验收后恢复原白名单和执行器绑定，不覆盖 B0 历史事实、人工记录或确认报告。
+- 停止：只准备本地候选与证据，不 push、不 merge、不作正式部署、不关闭 Issue、不改远端验收勾选；不替换后端/前端应用镜像，不扩为 S2/S3 或整站重构。未通过或未运行的业务验收不得因开发检查通过而改记 PASS。

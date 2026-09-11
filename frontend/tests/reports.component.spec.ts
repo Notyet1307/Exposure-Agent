@@ -1698,8 +1698,28 @@ test.describe("Analysis reports", () => {
     const version = analysisVersion(0)
     let record = {
       ...version,
-      material: { ...version.material, summary: canonicalContent().report },
+      material: {
+        ...version.material,
+        summary: {
+          ...v2ReportDetail().canonical_content.report,
+          input_capabilities: {
+            netflow: {
+              status: "COMPLETED",
+              input_state: "present",
+              coverage: "UNKNOWN",
+              capability: "POSITIVE_IP_ACTIVITY",
+              source_snapshot_id: "snapshot-netflow",
+              positive_activity_resource_count: 5,
+            },
+          },
+        },
+      },
     }
+    record.material.summary.input_completeness.sources.forEach(
+      (source, index) => {
+        source.schema_version = String(index + 1).repeat(64)
+      },
+    )
     const originalGap = "No successful later verification is available."
     record.original_output!.gaps = [originalGap]
     let rejectFirstEdit = true
@@ -1785,9 +1805,69 @@ test.describe("Analysis reports", () => {
       name: "Fixed deterministic summary",
       exact: true,
     })
+    const fixedMaterial = summary.locator("details").filter({
+      has: page.locator("summary").getByText("View fixed source material", {
+        exact: true,
+      }),
+    })
+    await expect(fixedMaterial).not.toHaveAttribute("open", "")
+    await expect(
+      summary.getByText("generation mode", { exact: true }),
+    ).not.toBeVisible()
+    await expect(page.locator("#report-ip-summary")).toContainText(
+      "Customer observed assets: 2",
+    )
+    await expect(page.locator("#report-input-completeness")).toContainText(
+      "NETFLOW",
+    )
+    await expect(
+      summary
+        .locator(":scope > dl > div")
+        .filter({
+          has: page.locator("dt").getByText("UNKNOWN", { exact: true }),
+        })
+        .locator("dd"),
+    ).toHaveText("42")
+    await expect(
+      summary
+        .locator(":scope > dl > div")
+        .filter({
+          has: page
+            .locator("dt")
+            .getByText("NetFlow coverage", { exact: true }),
+        })
+        .getByText("UNKNOWN", { exact: true }),
+    ).toBeVisible()
+    for (const source of record.material.summary.input_completeness.sources) {
+      await expect(
+        fixedMaterial.getByText(source.schema_version, { exact: true }),
+      ).not.toBeVisible()
+    }
+    const schemaHash =
+      record.material.summary.input_completeness.sources[0].schema_version
+    await fixedMaterial.locator(":scope > summary").focus()
+    await page.keyboard.press("Enter")
+    const schemaDetails = fixedMaterial.locator("details").filter({
+      has: page.getByText(schemaHash, { exact: true }),
+    })
+    await schemaDetails.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(
+      schemaDetails.getByText(schemaHash, { exact: true }),
+    ).toBeVisible()
+    await schemaDetails
+      .getByRole("button", {
+        name: `Copy full value: ${schemaHash}`,
+        exact: true,
+      })
+      .focus()
+    await page.keyboard.press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(schemaHash)
     const hash =
       record.material.summary.input_completeness.sources[0].content_sha256
-    const hashDetails = summary
+    const hashDetails = fixedMaterial
       .locator("details")
       .filter({ hasText: hash })
       .first()
@@ -1802,6 +1882,11 @@ test.describe("Analysis reports", () => {
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toBe(hash)
+    await fixedMaterial.locator(":scope > summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(
+      fixedMaterial.getByText(schemaHash, { exact: true }),
+    ).not.toBeVisible()
     await panel
       .getByRole("button", { name: "Edit narrative", exact: true })
       .click()

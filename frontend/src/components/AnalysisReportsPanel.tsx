@@ -68,7 +68,7 @@ function readRecovery(storageKey: string) {
 }
 
 export function AnalysisReportsPanel(scope: Scope) {
-  const { t, formatDate } = useI18n()
+  const { t, formatDate, translateValue } = useI18n()
   const formId = useId()
   const queryClient = useQueryClient()
   const queryKey = ["analysis-reports", scope.projectId, scope.runId]
@@ -766,7 +766,99 @@ export function AnalysisReportsPanel(scope: Scope) {
               )}
             </p>
             {Object.keys(current.material.summary).length ? (
-              <MaterialFields value={current.material.summary} />
+              <>
+                <a className="inline-block underline" href="#report-ip-summary">
+                  {t(
+                    "Read published counts, sources and limitations",
+                    "阅读已发布统计、来源与局限性",
+                  )}
+                </a>
+                {current.material.summary.ip_source_comparison_summary !=
+                  null && (
+                  <dl className="grid min-w-0 grid-cols-2 gap-2">
+                    {[
+                      ["resource_count", "Compared resources", "比较资源总数"],
+                      ["matched", "Matched", "双方均观测"],
+                      [
+                        "customer_upload_only",
+                        "Customer upload only",
+                        "仅台账观测",
+                      ],
+                      ["cloudatlas_only", "CloudAtlas only", "仅外部观测"],
+                      [
+                        "neither_source_observed",
+                        "Neither source observed",
+                        "双方均未观测",
+                      ],
+                      ["ACTIVE", "ACTIVE", "ACTIVE（有活动）"],
+                      ["UNKNOWN", "UNKNOWN", "UNKNOWN（未知）"],
+                    ].map(([key, en, zh]) => {
+                      const group =
+                        key === "resource_count"
+                          ? []
+                          : [
+                              key === "ACTIVE" || key === "UNKNOWN"
+                                ? "netflow_status_counts"
+                                : "classification_counts",
+                            ]
+                      const value = [...group, key].reduce<unknown>(
+                        (entry, field) =>
+                          entry !== null && typeof entry === "object"
+                            ? (entry as Record<string, unknown>)[field]
+                            : undefined,
+                        current.material.summary.ip_source_comparison_summary,
+                      )
+                      return (
+                        <div key={key} className="min-w-0">
+                          <dt>{t(en, zh)}</dt>
+                          <dd className="font-medium tabular-nums">
+                            {typeof value === "number" &&
+                            Number.isInteger(value) &&
+                            value >= 0
+                              ? value
+                              : t("Not recorded", "未记录")}
+                          </dd>
+                        </div>
+                      )
+                    })}
+                  </dl>
+                )}
+                {current.material.summary.input_capabilities != null && (
+                  <dl className="grid min-w-0 gap-2 sm:grid-cols-3">
+                    {[
+                      ["status", "NetFlow processing", "NetFlow 处理状态"],
+                      ["input_state", "NetFlow input", "NetFlow 输入"],
+                      ["coverage", "NetFlow coverage", "NetFlow 覆盖范围"],
+                    ].map(([key, en, zh]) => {
+                      const value = ["netflow", key].reduce<unknown>(
+                        (entry, field) =>
+                          entry !== null && typeof entry === "object"
+                            ? (entry as Record<string, unknown>)[field]
+                            : undefined,
+                        current.material.summary.input_capabilities,
+                      )
+                      return (
+                        <div key={key} className="min-w-0">
+                          <dt>{t(en, zh)}</dt>
+                          <dd>
+                            {typeof value === "string"
+                              ? translateValue(value)
+                              : t("Not recorded", "未记录")}
+                          </dd>
+                        </div>
+                      )
+                    })}
+                  </dl>
+                )}
+                <details className="min-w-0">
+                  <summary className="cursor-pointer font-medium">
+                    {t("View fixed source material", "查看固定来源材料")}
+                  </summary>
+                  <div className="mt-2">
+                    <MaterialFields value={current.material.summary} />
+                  </div>
+                </details>
+              </>
             ) : (
               <p>
                 {t(

@@ -1502,11 +1502,20 @@ for (const width of [1280, 1073, 375]) {
     await page.keyboard.press("Space")
     await expect(node(page, "SOURCE", "NETFLOW")).toBeVisible()
     await graph.evaluate((element) => element.scrollTo(0, 0))
-    await graph.scrollIntoViewIfNeeded()
+    const graphNode = graph.locator("button").filter({ hasText: "NETFLOW" })
+    await graphNode.scrollIntoViewIfNeeded()
+    const nodeBox = await graphNode.boundingBox()
+    expect(nodeBox).not.toBeNull()
     const pageScroll = await page.evaluate(() => window.scrollY)
-    await graph.locator("button").filter({ hasText: "NETFLOW" }).click()
-    expect(await page.evaluate(() => window.scrollY)).toBe(pageScroll)
+    // Locator.click can scroll SVG foreignObject ancestors before pointerdown.
+    // Measure the real pointer interaction, not Playwright's scroll preparation.
+    await page.mouse.click(
+      nodeBox!.x + nodeBox!.width / 2,
+      nodeBox!.y + nodeBox!.height / 2,
+    )
     await expect(details(page)).toContainText("ABSENT")
+    await expect(graph).toBeFocused()
+    expect(await page.evaluate(() => window.scrollY)).toBe(pageScroll)
     const panel = page.getByRole("region", {
       name: "Node reading panel",
       exact: true,

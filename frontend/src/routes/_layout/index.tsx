@@ -27,7 +27,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LoadingButton } from "@/components/ui/loading-button"
 import {
@@ -454,12 +453,12 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
               className="flex flex-col gap-3 sm:flex-row sm:items-end"
               onSubmit={submitUpload}
             >
-              <div className="flex-1 space-y-2">
+              <div className="min-w-0 flex-1 space-y-2">
                 <Label htmlFor="customer-upload">
                   {t("XLSX file", "XLSX 文件")}
                 </Label>
                 <div className="flex items-center gap-3">
-                  <Input
+                  <input
                     ref={fileInputRef}
                     id="customer-upload"
                     name="file"
