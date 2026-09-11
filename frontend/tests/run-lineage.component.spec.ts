@@ -784,6 +784,13 @@ test("navigates the explicit historical Run and an asset outside overview, prese
   await page.goBack()
   await expect(page).toHaveURL(filteredUrl)
   await page.goForward()
+  const restoredLineage = page.getByText("Technical lineage, nodes and paths", {
+    exact: true,
+  })
+  // Native history may restore an open disclosure or recreate it closed.
+  if ((await restoredLineage.locator("..").getAttribute("open")) === null) {
+    await restoredLineage.press("Enter")
+  }
   await expect(node(page, "COMPARISON", longIp)).toBeVisible()
   await page
     .getByRole("link", { name: "View source comparison", exact: true })
