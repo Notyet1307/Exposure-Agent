@@ -128,9 +128,14 @@ The deployment fixes budgets before execution:
 | Setting | Default |
 | --- | --- |
 | `AI_INVESTIGATION_TIMEOUT_SECONDS` | 120 seconds |
+| `AI_INVESTIGATION_FOLLOWUP_TIMEOUT_SECONDS` | 120 seconds (maximum 1200) |
 | `AI_INVESTIGATION_MAX_TOOL_CALLS` | 4 |
 | `AI_INVESTIGATION_MAX_MATERIAL_BYTES` | 65536 cumulative bytes |
 | `AI_INVESTIGATION_MAX_OUTPUT_BYTES` | 32768 bytes |
+
+Initial investigations and followups pin their respective timeout when created.
+Changing either deployment setting does not alter existing records or replayed
+requests. The followup timeout does not change report or qualification budgets.
 
 The supervisor receives database and CloudAtlas credentials; the Pi child receives
 only an authenticated local bridge with the packaged `read_asset_facts`,

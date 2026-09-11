@@ -204,7 +204,11 @@ def _create_investigation(
         max_tool_calls=settings.AI_INVESTIGATION_MAX_TOOL_CALLS,
         max_material_bytes=settings.AI_INVESTIGATION_MAX_MATERIAL_BYTES,
         max_output_bytes=settings.AI_INVESTIGATION_MAX_OUTPUT_BYTES,
-        timeout_seconds=settings.AI_INVESTIGATION_TIMEOUT_SECONDS,
+        timeout_seconds=(
+            settings.AI_INVESTIGATION_FOLLOWUP_TIMEOUT_SECONDS
+            if parent is not None
+            else settings.AI_INVESTIGATION_TIMEOUT_SECONDS
+        ),
     )
     if parent is not None:
         try:
