@@ -940,13 +940,13 @@ test.describe("Project result views", () => {
       result: {},
     }
     const noData = {
-      ...history,
+      ...read,
       id: "f0000000-0000-4000-8000-000000000004",
       items: [],
       result: {
         result: "NO_DATA",
-        gaps: ["no_published_asset_history"],
-        source: "published_runs",
+        gaps: ["cloudatlas_asset_not_found"],
+        source: { source_type: "CLOUDATLAS", fingerprint: "a".repeat(64) },
       },
     }
     const running = {
@@ -1040,7 +1040,26 @@ test.describe("Project result views", () => {
     await expect(panel).toContainText("Read not yet confirmed")
     await expect(panel).toContainText("No matching material returned")
     await expect(panel).toContainText("NO_DATA")
-    await expect(panel).toContainText("no_published_asset_history")
+    await expect(panel).toContainText("cloudatlas_asset_not_found")
+    const fingerprint = panel.getByText("a".repeat(64), { exact: true })
+    await expect(fingerprint).toBeHidden()
+    const fingerprintDetails = panel
+      .locator("details")
+      .filter({
+        has: page.getByText("a".repeat(64), { exact: true }),
+      })
+      .last()
+    await fingerprintDetails.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(fingerprint).toBeVisible()
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await fingerprintDetails
+      .getByRole("button", { name: /^Copy full value:/ })
+      .focus()
+    await page.keyboard.press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe("a".repeat(64))
     const childArticle = panel
       .locator("article")
       .filter({ hasText: "Saved question" })

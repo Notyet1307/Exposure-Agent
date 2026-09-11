@@ -592,7 +592,7 @@ class CloudAtlasSourcePublic(SQLModel):
     capset_id: str
     enabled: bool
     validation_status: str
-    fingerprint_summary: str | None
+    validated_fingerprint: str | None
     created_at: datetime
     updated_at: datetime
 

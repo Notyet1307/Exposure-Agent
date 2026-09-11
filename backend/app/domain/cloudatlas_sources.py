@@ -457,11 +457,7 @@ def source_public(
         capset_id=source.capset_id,
         enabled=source.enabled,
         validation_status=status,
-        fingerprint_summary=(
-            source.validated_fingerprint[:12]
-            if source.validated_fingerprint is not None
-            else None
-        ),
+        validated_fingerprint=source.validated_fingerprint,
         created_at=source.created_at,
         updated_at=source.updated_at,
     )

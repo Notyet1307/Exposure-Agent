@@ -193,6 +193,7 @@ export function MaterialFields({ value }: { value: unknown }) {
             key === "identity" ||
             key === "hash" ||
             key === "sha256" ||
+            key === "fingerprint" ||
             key === "schema_version" ||
             key.endsWith("_hash") ||
             key.endsWith("_hashes") ||

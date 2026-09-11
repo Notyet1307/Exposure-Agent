@@ -139,7 +139,7 @@ export type CloudAtlasSourcePublic = {
     capset_id: string;
     enabled: boolean;
     validation_status: string;
-    fingerprint_summary: (string | null);
+    validated_fingerprint: (string | null);
     created_at: string;
     updated_at: string;
 };

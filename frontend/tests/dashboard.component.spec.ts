@@ -1,3 +1,4 @@
+import type { FileChooser } from "@playwright/test"
 import type { CloudAtlasSourcePublic } from "../src/client"
 import { expect, type Page, type Route, test } from "./fixtures"
 
@@ -59,7 +60,7 @@ const cloudatlasSources = {
         capset_id: "cloudatlas-readonly",
         enabled: false,
         validation_status: "not_validated",
-        fingerprint_summary: null,
+        validated_fingerprint: null,
         created_at: "2026-07-30T12:00:00Z",
         updated_at: "2026-07-30T12:00:00Z",
       },
@@ -757,6 +758,9 @@ test("keeps NetFlow quality visible and identities behind keyboard-copyable deta
 test("keeps both file pickers and upload actions within desktop and narrow viewports", async ({
   page,
 }) => {
+  // Keep interception active; one-shot listeners toggle it asynchronously.
+  const choosers: FileChooser[] = []
+  page.on("filechooser", (chooser) => choosers.push(chooser))
   await page.goto("/?view=inputs")
   for (const width of [1365, 390]) {
     await page.setViewportSize({ width, height: 844 })
@@ -770,10 +774,12 @@ test("keeps both file pickers and upload actions within desktop and narrow viewp
         name: "Choose file",
         exact: true,
       })
+      await expect(picker).toBeEnabled()
       await picker.focus()
-      const chooserPromise = page.waitForEvent("filechooser")
+      await expect(picker).toBeFocused()
       await page.keyboard.press("Enter")
-      const chooser = await chooserPromise
+      await expect.poll(() => choosers.length).toBe(1)
+      const chooser = choosers.shift()!
       const filename = `${"long-selected-filename-".repeat(8)}.${extension}`
       await chooser.setFiles({
         name: filename,
@@ -987,7 +993,7 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
       source = {
         ...source,
         validation_status: "validated",
-        fingerprint_summary: "abcdef012345",
+        validated_fingerprint: "abcdef0123456789".repeat(4),
       }
     } else if (url.pathname.endsWith("/enable")) {
       source = { ...source, enabled: true }
@@ -1004,7 +1010,7 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
         capset_id: body.capset_id,
         enabled: false,
         validation_status: "not_validated",
-        fingerprint_summary: null,
+        validated_fingerprint: null,
       }
     }
     await route.fulfill({ json: source })
@@ -1022,18 +1028,38 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   await page.getByRole("button", { name: "Validate source" }).click()
   await expect(page.getByText("Validated", { exact: true })).toBeVisible()
   await expect(tokenInput).toHaveValue("")
+  const sourceDetails = page.locator("details").filter({
+    has: page.getByText("Source details", { exact: true }),
+  })
+  const fingerprint = "abcdef0123456789".repeat(4)
+  await expect(
+    sourceDetails.getByText(fingerprint, { exact: true }),
+  ).toBeHidden()
+  await sourceDetails.locator("summary").focus()
+  await page.keyboard.press("Enter")
+  await expect(
+    sourceDetails.getByText(fingerprint, { exact: true }),
+  ).toBeVisible()
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  await sourceDetails.getByRole("button", { name: "Copy Fingerprint" }).focus()
+  await page.keyboard.press("Enter")
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(fingerprint)
 
   await page.getByRole("button", { name: "Enable source" }).click()
   await expect(page.getByText("Enabled", { exact: true })).toBeVisible()
   await page.getByLabel("OctoBus Instance ID").fill("cloudatlas-replacement")
   await page.getByRole("button", { name: "Save binding" }).click()
-  await expect(page.getByText("cloudatlas-replacement")).toBeVisible()
+  await expect(
+    page.getByRole("cell", { name: "cloudatlas-replacement", exact: true }),
+  ).toBeVisible()
 
   source = {
     ...source,
     enabled: true,
     validation_status: "validated",
-    fingerprint_summary: "abcdef012345",
+    validated_fingerprint: "abcdef0123456789".repeat(4),
   }
   await page.reload()
   await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
@@ -1123,7 +1149,7 @@ test("lets an Admin manage an older enabled source from disabled history", async
     instance_id: "cloudatlas-older-enabled",
     enabled: true,
     validation_status: "validated",
-    fingerprint_summary: "123456789abc",
+    validated_fingerprint: "123456789abcdef0".repeat(4),
   }
   let disablePath: string | null = null
   const sourceUrl = `**/api/v1/projects/${projects[0].id}/cloudatlas-source-instances`

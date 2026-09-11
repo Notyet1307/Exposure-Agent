@@ -301,7 +301,7 @@ def test_admin_configures_validates_and_enables_cloudatlas_source(
             "capset_id": octobus.capset_id,
             "enabled": False,
             "validation_status": "not_validated",
-            "fingerprint_summary": None,
+            "validated_fingerprint": None,
             "created_at": created["created_at"],
             "updated_at": created["updated_at"],
         }
@@ -316,7 +316,7 @@ def test_admin_configures_validates_and_enables_cloudatlas_source(
         assert validate_response.status_code == 200, validate_response.text
         validated = validate_response.json()
         assert validated["validation_status"] == "validated"
-        assert validated["fingerprint_summary"] == octobus.fingerprint()[:12]
+        assert validated["validated_fingerprint"] == octobus.fingerprint()
         assert CAPSET_TOKEN not in validate_response.text
         connect_requests = [
             request for request in octobus.requests if request["method"] == "POST"
@@ -476,7 +476,7 @@ def test_project_roles_only_receive_safe_summaries_for_their_own_project(
             "capset_id",
             "enabled",
             "validation_status",
-            "fingerprint_summary",
+            "validated_fingerprint",
             "created_at",
             "updated_at",
         }
@@ -650,7 +650,7 @@ def test_fingerprint_drift_and_binding_changes_invalidate_validation(
 
     assert update_response.status_code == 200
     assert update_response.json()["validation_status"] == "not_validated"
-    assert update_response.json()["fingerprint_summary"] is None
+    assert update_response.json()["validated_fingerprint"] is None
     source_row = db.execute(
         text(
             "SELECT instance_id, capset_id, enabled, validated_fingerprint, "
