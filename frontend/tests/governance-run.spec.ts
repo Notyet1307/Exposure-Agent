@@ -137,9 +137,10 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   await expect(page.getByText("CUSTOMER_UPLOAD")).toBeVisible()
   await expect(page.getByText("CLOUDATLAS", { exact: true })).toBeVisible()
   await expect(page.getByText("1 records")).toHaveCount(2)
-  const customerSnapshotDetails = page.locator("details").filter({
-    has: page.getByText(customerSnapshotSha256, { exact: true }),
-  })
+  const customerSnapshotDetails = page
+    .getByText("CUSTOMER_UPLOAD", { exact: true })
+    .locator("..")
+    .locator("details")
   await expect(
     customerSnapshotDetails.getByText(customerSnapshotSha256, { exact: true }),
   ).toBeHidden()
