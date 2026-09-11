@@ -137,6 +137,29 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   await expect(page.getByText("CUSTOMER_UPLOAD")).toBeVisible()
   await expect(page.getByText("CLOUDATLAS", { exact: true })).toBeVisible()
   await expect(page.getByText("1 records")).toHaveCount(2)
+  const customerSnapshotDetails = page
+    .getByText("CUSTOMER_UPLOAD", { exact: true })
+    .locator("..")
+    .locator("details")
+  await expect(
+    customerSnapshotDetails.getByText(customerSnapshotSha256, { exact: true }),
+  ).toBeHidden()
+  await customerSnapshotDetails.locator("summary").focus()
+  await page.keyboard.press("Enter")
+  await expect(
+    customerSnapshotDetails.getByText(customerSnapshotSha256, { exact: true }),
+  ).toBeVisible()
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  await customerSnapshotDetails
+    .getByRole("button", {
+      name: `Copy full value: ${customerSnapshotSha256}`,
+      exact: true,
+    })
+    .focus()
+  await page.keyboard.press("Enter")
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(customerSnapshotSha256)
 
   const armed = await request.post(
     "http://cloudatlas-fixture:18080/fixture/fail-next",

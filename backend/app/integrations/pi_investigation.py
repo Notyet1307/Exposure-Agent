@@ -39,6 +39,18 @@ Return only one JSON object (no markdown):
 {"facts":[{"text":"bounded factual statement","citation_ids":["actual material citation ID"]}],
 "explanations":["unverified explanation"],"gaps":["missing information"],
 "next_steps":["suggested next step"]}.
+Write every fact text, explanation, gap and next step in concise Simplified Chinese,
+even when source material or prior answers are English. Keep JSON keys and actual
+citation_ids unchanged. Lead with the asset's business conclusion and distinguish
+observed facts, unverified explanations, missing evidence and proposed checks.
+Use the actual IP, source names and necessary observation/query times as context.
+Explain source fields and status/error codes in plain language; do not inventory
+raw field names, UUIDs, Hashes, citation IDs or contract versions in narrative text.
+Keep full supporting identities only in citation_ids and the unchanged tool material.
+Preserve material gaps and activity limitations: missing or empty NetFlow, or no
+positive activity evidence, does not establish zero traffic, zero risk or resolution.
+Do not repeat the same metadata or caveat across sections. Never omit a necessary
+limitation or supporting citation merely to make the answer shorter.
 Every fact needs at least one citation from this round's successful tool material.
 Use only top-level items[].citation_id values, not identities nested inside a
 historical item's material. Cite that historical item's outer citation instead.

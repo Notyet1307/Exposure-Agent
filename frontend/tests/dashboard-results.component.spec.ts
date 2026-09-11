@@ -493,6 +493,29 @@ test.describe("Project result views", () => {
     await expect(
       page.getByRole("region", { name: "AI investigation" }),
     ).toContainText("Investigation could not be read")
+    const verificationDetails = panel.locator("details").filter({
+      hasText: "Verification Run · full identifier and reason",
+    })
+    await expect(
+      verificationDetails.getByText(original.verifications[0].run_id, {
+        exact: true,
+      }),
+    ).not.toBeVisible()
+    await verificationDetails.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(
+      verificationDetails.getByText(original.verifications[0].run_id, {
+        exact: true,
+      }),
+    ).toBeVisible()
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await verificationDetails
+      .getByRole("button", { name: "Copy Verification Run", exact: true })
+      .focus()
+    await page.keyboard.press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(original.verifications[0].run_id)
     await panel.getByRole("button", { name: "Correct current version" }).click()
     await expect(
       panel.getByLabel("Manual conclusion", { exact: true }),
@@ -518,7 +541,7 @@ test.describe("Project result views", () => {
     await expect(
       panel
         .getByRole("article", { name: "Manual record version 1", exact: true })
-        .getByRole("button"),
+        .getByRole("button", { name: "Correct current version", exact: true }),
     ).toHaveCount(0)
     await panel.getByRole("button", { name: "Correct current version" }).click()
     await expect(
@@ -917,13 +940,13 @@ test.describe("Project result views", () => {
       result: {},
     }
     const noData = {
-      ...history,
+      ...read,
       id: "f0000000-0000-4000-8000-000000000004",
       items: [],
       result: {
         result: "NO_DATA",
-        gaps: ["no_published_asset_history"],
-        source: "published_runs",
+        gaps: ["cloudatlas_asset_not_found"],
+        source: { source_type: "CLOUDATLAS", fingerprint: "a".repeat(64) },
       },
     }
     const running = {
@@ -1017,25 +1040,76 @@ test.describe("Project result views", () => {
     await expect(panel).toContainText("Read not yet confirmed")
     await expect(panel).toContainText("No matching material returned")
     await expect(panel).toContainText("NO_DATA")
-    await expect(panel).toContainText("no_published_asset_history")
+    await expect(panel).toContainText("cloudatlas_asset_not_found")
+    const fingerprint = panel.getByText("a".repeat(64), { exact: true })
+    await expect(fingerprint).toBeHidden()
+    const fingerprintDetails = panel
+      .locator("details")
+      .filter({
+        has: page.getByText("a".repeat(64), { exact: true }),
+      })
+      .last()
+    await fingerprintDetails.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(fingerprint).toBeVisible()
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await fingerprintDetails
+      .getByRole("button", { name: /^Copy full value:/ })
+      .focus()
+    await page.keyboard.press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe("a".repeat(64))
     const childArticle = panel
       .locator("article")
       .filter({ hasText: "Saved question" })
     const citations = childArticle.getByRole("list", {
       name: "Material citations",
     })
+    await expect(
+      panel.getByText("cloudatlas_upstream_failed", { exact: false }),
+    ).toBeVisible()
+    await expect(
+      citations.getByText("live-asset", { exact: true }),
+    ).not.toBeVisible()
+    const scopeDetails = panel.locator("details").filter({
+      has: page
+        .locator("summary")
+        .getByText("Fixed scope · technical details", { exact: true }),
+    })
+    await expect(
+      scopeDetails.getByText(parent.run_id, { exact: true }),
+    ).not.toBeVisible()
+    await scopeDetails.locator("summary").focus()
+    await page.keyboard.press("Enter")
+    await expect(
+      scopeDetails.getByText(parent.run_id, { exact: true }),
+    ).toBeVisible()
     const liveCitation = citations
       .locator("summary")
-      .filter({ hasText: "live-asset" })
+      .filter({ hasText: "Live CloudAtlas query" })
     await liveCitation.focus()
     await page.keyboard.press("Enter")
     await expect(liveCitation.locator("..")).toContainText(
       "Live CloudAtlas query",
     )
     await expect(liveCitation.locator("..")).toContainText("192.0.2.10")
+    await expect(liveCitation).not.toContainText("live-asset")
+    await expect(
+      liveCitation.locator("..").getByText("live-asset", { exact: true }),
+    ).toBeVisible()
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await liveCitation
+      .locator("..")
+      .getByRole("button", { name: "Copy Citation", exact: true })
+      .focus()
+    await page.keyboard.press("Enter")
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(read.items[0].citation_id)
     const historyCitation = citations
       .locator("summary")
-      .filter({ hasText: "history-asset" })
+      .filter({ hasText: "Historical published snapshot" })
     await historyCitation.click()
     await expect(historyCitation.locator("..")).toContainText(
       "Historical published snapshot",
@@ -1271,9 +1345,15 @@ test.describe("Project result views", () => {
         (element) => element.scrollWidth <= element.clientWidth + 1,
       ),
     ).toBe(true)
-    const citation = dialog.locator("summary").filter({ hasText: citationId })
+    const citation = dialog
+      .getByRole("list", { name: "Material citations" })
+      .locator("summary")
+      .first()
     await citation.focus()
     await page.keyboard.press("Enter")
+    await expect(
+      citation.locator("..").getByText(citationId, { exact: true }),
+    ).toBeVisible()
     await expect(citation.locator("..")).toContainText(resourceId)
   })
 
@@ -1383,9 +1463,15 @@ test.describe("Project result views", () => {
     ).toBeVisible()
     await expect(panel).toContainText(citationId)
     await page.setViewportSize({ width: 390, height: 844 })
-    const citation = panel.locator("summary").filter({ hasText: citationId })
+    const citation = panel
+      .getByRole("list", { name: "Material citations" })
+      .locator("summary")
+      .first()
     await citation.focus()
     await page.keyboard.press("Enter")
+    await expect(
+      citation.locator("..").getByText(citationId, { exact: true }),
+    ).toBeVisible()
     await expect(citation.locator("..")).toContainText("customer observed")
     await expect(citation.locator("..")).toContainText("Yes")
     await page

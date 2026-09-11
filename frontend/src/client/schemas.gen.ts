@@ -671,7 +671,7 @@ export const CloudAtlasSourcePublicSchema = {
             type: 'string',
             title: 'Validation Status'
         },
-        fingerprint_summary: {
+        validated_fingerprint: {
             anyOf: [
                 {
                     type: 'string'
@@ -680,7 +680,7 @@ export const CloudAtlasSourcePublicSchema = {
                     type: 'null'
                 }
             ],
-            title: 'Fingerprint Summary'
+            title: 'Validated Fingerprint'
         },
         created_at: {
             type: 'string',
@@ -694,7 +694,7 @@ export const CloudAtlasSourcePublicSchema = {
         }
     },
     type: 'object',
-    required: ['id', 'source_type', 'instance_id', 'capset_id', 'enabled', 'validation_status', 'fingerprint_summary', 'created_at', 'updated_at'],
+    required: ['id', 'source_type', 'instance_id', 'capset_id', 'enabled', 'validation_status', 'validated_fingerprint', 'created_at', 'updated_at'],
     title: 'CloudAtlasSourcePublic'
 } as const;
 

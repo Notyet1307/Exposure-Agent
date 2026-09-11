@@ -342,9 +342,7 @@ function RunSourceComparison() {
                       <TableHead scope="col">
                         {t("Classification", "分类")}
                       </TableHead>
-                      <TableHead scope="col">
-                        {t("Lineage", "血缘追溯")}
-                      </TableHead>
+                      <TableHead scope="col">{t("Review", "核查")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -383,12 +381,12 @@ function RunSourceComparison() {
                               resource_id: row.resource_id,
                             })}
                             aria-label={t(
-                              `Trace asset ${row.canonical_ip}`,
-                              `追溯资产 ${row.canonical_ip}`,
+                              `Review asset ${row.canonical_ip}`,
+                              `查看资产并核查 ${row.canonical_ip}`,
                             )}
                             className="underline underline-offset-4"
                           >
-                            {t("Trace asset", "追溯资产")}
+                            {t("View asset & investigate", "查看资产并核查")}
                           </Link>
                         </TableCell>
                       </TableRow>

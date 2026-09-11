@@ -10,7 +10,10 @@ import {
   type LineageEvidenceReferencesPublic,
   type LineageObservationReferencesPublic,
 } from "@/client"
+import { AiInvestigationPanel } from "@/components/AiInvestigationPanel"
 import { ReportDetailDialog } from "@/components/GovernanceReports"
+import { ManualReviewPanel } from "@/components/ManualReviewPanel"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -138,21 +141,37 @@ function RunLineage() {
           tabIndex={-1}
           className="text-2xl font-bold tracking-tight focus-visible:outline-2 focus-visible:outline-ring"
         >
-          {t("Run lineage", "运行血缘")}
+          {resourceId === undefined
+            ? t("Run lineage", "运行血缘")
+            : t("Asset review", "资产核查")}
         </h1>
-        <div className="grid gap-x-4 gap-y-1 text-sm md:grid-cols-2">
-          <p className="break-all">
-            {t("Project ID", "项目 ID")}: {projectId}
-          </p>
-          <p className="break-all">
-            {t("Run ID", "运行 ID")}: {runId}
-          </p>
-          {resourceId !== undefined && (
+        <details className="text-sm">
+          <summary className="cursor-pointer">
+            {t("Full scope identifiers", "完整范围标识")}
+          </summary>
+          <div className="grid gap-x-4 gap-y-1 text-sm md:grid-cols-2">
             <p className="break-all">
-              {t("Resource ID", "资产 ID")}: {resourceId}
+              {t("Project ID", "项目 ID")}:{" "}
+              <TechnicalValue
+                value={projectId}
+                label={t("Project ID", "项目 ID")}
+              />
             </p>
-          )}
-        </div>
+            <p className="break-all">
+              {t("Run ID", "运行 ID")}:{" "}
+              <TechnicalValue value={runId} label={t("Run ID", "运行 ID")} />
+            </p>
+            {resourceId !== undefined && (
+              <p className="break-all">
+                {t("Resource ID", "资产 ID")}:{" "}
+                <TechnicalValue
+                  value={resourceId}
+                  label={t("Resource ID", "资产 ID")}
+                />
+              </p>
+            )}
+          </div>
+        </details>
 
         <p className="break-all font-medium">
           {resourceId === undefined
@@ -229,7 +248,7 @@ function LineageScope({
   runId: string
   resourceId?: string
 }) {
-  const { t } = useI18n()
+  const { t, formatDate, translateValue } = useI18n()
   const invalidResource = resourceId !== undefined && resourceId.trim() === ""
   const query = useQuery({
     queryKey: ["governance-run-lineage", projectId, runId, resourceId],
@@ -325,7 +344,146 @@ function LineageScope({
   }
   if (!data)
     return <p role="status">{t("Loading Run lineage…", "正在加载运行血缘…")}</p>
-  return <PublishedLineage data={data} />
+  if (resourceId === undefined) return <PublishedLineage data={data} />
+  const comparison = data.nodes.find((node) => node.kind === "COMPARISON")
+  return (
+    <div className="min-w-0 space-y-4">
+      <section
+        className="space-y-3 rounded-lg border p-4"
+        aria-label={t("Asset facts", "资产情况")}
+      >
+        <h2 className="break-all text-xl font-semibold">
+          {comparison?.canonical_ip ??
+            t("Asset facts unavailable", "资产事实不可用")}
+        </h2>
+        <p className="text-sm">
+          {t("Base Run completed", "基础批次完成时间")} ·{" "}
+          {formatDate(data.completed_at)}
+        </p>
+        {comparison ? (
+          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+            <Field label={t("Classification", "差异类型")}>
+              {translateValue(comparison.classification)}
+            </Field>
+            <Field label={t("Customer register", "客户台账")}>
+              {comparison.customer_upload_present
+                ? t("Observed", "已观测")
+                : t("Not observed", "未观测")}
+            </Field>
+            <Field label="CloudAtlas">
+              {comparison.cloudatlas_present
+                ? t("Observed", "已观测")
+                : t("Not observed", "未观测")}
+            </Field>
+            <Field label={t("Activity evidence", "活动证据")}>
+              {translateValue(comparison.netflow_status)} ·{" "}
+              {translateValue(comparison.netflow_reason)}
+            </Field>
+          </dl>
+        ) : (
+          <p role="status">
+            {t(
+              "No comparison fact for this asset is available in this scope. Investigation cannot be started here; no latest Run has been substituted.",
+              "此范围没有可用的单资产比较事实，不能在此发起核查；未替换为最新批次。",
+            )}
+          </p>
+        )}
+        <p className="text-sm text-muted-foreground">
+          {t(
+            "Activity is a review clue, not a risk rating. UNKNOWN is not zero traffic or proof that the asset is absent.",
+            "活动仅是核查线索，不是风险等级。未知不代表零流量或资产不存在。",
+          )}
+        </p>
+        {data.truncated && (
+          <p role="status" className="text-sm">
+            {t(
+              "Supporting lineage is bounded and truncated. Missing references are not proof of absence.",
+              "配套血缘有界且已截断，缺少引用不代表事实不存在。",
+            )}
+          </p>
+        )}
+        <div className="grid gap-3 text-sm sm:grid-cols-3">
+          {data.nodes
+            .filter((node) => node.kind === "SOURCE")
+            .map((source) => {
+              const snapshot = data.nodes.find(
+                (node): node is Extract<LineageNode, { kind: "SNAPSHOT" }> =>
+                  node.kind === "SNAPSHOT" &&
+                  node.source_type === source.source_type,
+              )
+              return (
+                <section
+                  key={source.key}
+                  className="space-y-1"
+                  aria-label={translateValue(source.source_type)}
+                >
+                  <h3 className="font-medium">
+                    {translateValue(source.source_type)} ·{" "}
+                    {translateValue(source.state)}
+                  </h3>
+                  <p>
+                    {t("Data time start (UTC)", "数据时间起点（UTC）")} ·{" "}
+                    {snapshot?.valid_time_start_utc
+                      ? formatDate(snapshot.valid_time_start_utc, "UTC")
+                      : t("Not provided", "未提供")}
+                  </p>
+                  <p>
+                    {t("Data time end (UTC)", "数据时间终点（UTC）")} ·{" "}
+                    {snapshot?.valid_time_end_utc
+                      ? formatDate(snapshot.valid_time_end_utc, "UTC")
+                      : t("Not provided", "未提供")}
+                  </p>
+                </section>
+              )
+            })}
+        </div>
+        {comparison && (
+          <details className="text-sm">
+            <summary className="cursor-pointer">
+              {t("Comparison identity and hash", "比较事实身份与哈希")}
+            </summary>
+            <dl className="mt-2 space-y-2">
+              <Field label={t("Comparison fact ID", "比较事实 ID")}>
+                {comparison.comparison_fact_id ? (
+                  <TechnicalValue value={comparison.comparison_fact_id} />
+                ) : (
+                  t("Read-only projection", "只读投影")
+                )}
+              </Field>
+              <Field label={t("Content hash", "内容哈希")}>
+                <TechnicalValue
+                  value={comparison.content_hash}
+                  label={t("Content hash", "内容哈希")}
+                />
+              </Field>
+            </dl>
+          </details>
+        )}
+      </section>
+      {comparison && (
+        <>
+          <AiInvestigationPanel
+            projectId={projectId}
+            resourceId={resourceId}
+            runId={runId}
+          />
+          <ManualReviewPanel
+            projectId={projectId}
+            resourceId={resourceId}
+            runId={runId}
+          />
+        </>
+      )}
+      <details className="min-w-0 rounded-lg border p-3">
+        <summary className="cursor-pointer font-medium">
+          {t("Technical lineage, nodes and paths", "技术血缘、节点与路径")}
+        </summary>
+        <div className="mt-3 min-w-0 space-y-4">
+          <PublishedLineage data={data} />
+        </div>
+      </details>
+    </div>
+  )
 }
 
 // Traverse each direction independently: an upstream Process must never open a sibling result branch.

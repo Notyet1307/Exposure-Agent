@@ -3,6 +3,7 @@ import { useState } from "react"
 import { z } from "zod"
 
 import { AiInvestigationsService, ApiError } from "@/client"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -186,14 +187,53 @@ export function MaterialFields({ value }: { value: unknown }) {
   if (typeof value === "object")
     return (
       <dl className="min-w-0 space-y-1">
-        {Object.entries(value).map(([key, entry]) => (
-          <div key={key} className="min-w-0">
-            <dt className="font-medium">{key.replace(/_/g, " ")}</dt>
-            <dd className="break-all pl-2">
-              <MaterialFields value={entry} />
-            </dd>
-          </div>
-        ))}
+        {Object.entries(value).map(([key, entry]) => {
+          const technical =
+            key === "id" ||
+            key === "identity" ||
+            key === "hash" ||
+            key === "sha256" ||
+            key === "fingerprint" ||
+            key === "schema_version" ||
+            key.endsWith("_hash") ||
+            key.endsWith("_hashes") ||
+            key.endsWith("_id") ||
+            key.endsWith("_ids") ||
+            key.endsWith("_sha256") ||
+            key.endsWith("_fingerprint") ||
+            key.endsWith("_contract_version")
+          return (
+            <div key={key} className="min-w-0">
+              <dt className="font-medium">{key.replace(/_/g, " ")}</dt>
+              <dd className="break-all pl-2">
+                {technical && entry != null ? (
+                  <details>
+                    <summary className="cursor-pointer font-medium">
+                      {t("Technical details", "技术详情")}
+                    </summary>
+                    {Array.isArray(entry) && entry.length === 0
+                      ? t("No records", "无记录")
+                      : (Array.isArray(entry) ? entry : [entry]).map(
+                          (identity, index) => (
+                            <div key={index}>
+                              <TechnicalValue
+                                value={
+                                  typeof identity === "string"
+                                    ? identity
+                                    : JSON.stringify(identity)
+                                }
+                              />
+                            </div>
+                          ),
+                        )}
+                  </details>
+                ) : (
+                  <MaterialFields value={entry} />
+                )}
+              </dd>
+            </div>
+          )
+        })}
       </dl>
     )
   return <span className="break-all">{String(value)}</span>
@@ -451,21 +491,28 @@ export function AiInvestigationPanel(scope: Scope) {
           "仅对固定的已发布运行进行只读 AI 分析。解释仍待验证，不修改发现项或已发布事实。",
         )}
       </p>
-      <dl className="grid min-w-0 gap-2 text-xs sm:grid-cols-2">
-        {[
-          [t("Project", "项目"), scope.projectId],
-          [t("Resource", "资源"), scope.resourceId],
-          [t("Published Run", "已发布运行"), scope.runId],
-          ...(scope.findingId
-            ? [[t("Finding", "发现项"), scope.findingId]]
-            : []),
-        ].map(([label, value]) => (
-          <div key={label} className="min-w-0">
-            <dt className="font-medium">{label}</dt>
-            <dd className="break-all font-mono">{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <details className="min-w-0 text-xs">
+        <summary className="cursor-pointer font-medium">
+          {t("Fixed scope · technical details", "固定范围 · 技术详情")}
+        </summary>
+        <dl className="grid min-w-0 gap-2 text-xs sm:grid-cols-2">
+          {[
+            [t("Project", "项目"), scope.projectId],
+            [t("Resource", "资源"), scope.resourceId],
+            [t("Published Run", "已发布运行"), scope.runId],
+            ...(scope.findingId
+              ? [[t("Finding", "发现项"), scope.findingId]]
+              : []),
+          ].map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt className="font-medium">{label}</dt>
+              <dd>
+                <TechnicalValue value={value} label={label} />
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </details>
       {list.isSuccess && list.data.count > records.length && (
         <p className="text-xs text-muted-foreground">
           {t(
@@ -569,10 +616,18 @@ export function AiInvestigationPanel(scope: Scope) {
           <p className="break-words">
             {t("Pending question", "待确认追问")}: {recovery.question}
           </p>
-          <p className="break-all">
-            {t("Parent investigation", "上轮核查")}:{" "}
-            {recovery.parentInvestigationId}
-          </p>
+          <details className="text-xs">
+            <summary className="cursor-pointer">
+              {t(
+                "Parent investigation · technical details",
+                "上轮核查 · 技术详情",
+              )}
+            </summary>
+            <TechnicalValue
+              value={recovery.parentInvestigationId ?? ""}
+              label={t("Parent investigation", "上轮核查")}
+            />
+          </details>
         </div>
       )}
       {selectedId && detail.isPending && (
@@ -605,9 +660,24 @@ export function AiInvestigationPanel(scope: Scope) {
               </Badge>
               <span className="text-xs">{formatDate(item.created_at)}</span>
             </div>
-            <p className="break-all font-mono text-xs">
-              {t("Investigation", "核查")} {item.id}
-            </p>
+            <details className="min-w-0 text-xs">
+              <summary className="cursor-pointer font-medium">
+                {t("Investigation identifiers", "核查标识")}
+              </summary>
+              <TechnicalValue
+                value={item.id}
+                label={t("Investigation", "核查")}
+              />
+              {item.parent_investigation_id && (
+                <p>
+                  {t("Parent investigation", "上轮核查")}:{" "}
+                  <TechnicalValue
+                    value={item.parent_investigation_id}
+                    label={t("Parent investigation", "上轮核查")}
+                  />
+                </p>
+              )}
+            </details>
             {item.question && (
               <div className="space-y-1 text-sm">
                 <h3 className="font-medium">
@@ -615,10 +685,6 @@ export function AiInvestigationPanel(scope: Scope) {
                 </h3>
                 <p className="whitespace-pre-wrap break-words">
                   {item.question}
-                </p>
-                <p className="break-all text-xs">
-                  {t("Parent investigation", "上轮核查")}:{" "}
-                  {item.parent_investigation_id}
                 </p>
               </div>
             )}
@@ -677,9 +743,22 @@ export function AiInvestigationPanel(scope: Scope) {
                         ? formatDate(read.completed_at)
                         : t("Not recorded", "未记录")}
                     </p>
-                    <p className="break-all">
-                      {t("Fixed base Run", "固定基础运行")}: {read.run_id}
-                    </p>
+                    <details>
+                      <summary className="cursor-pointer">
+                        {t("Read identifiers", "读取标识")}
+                      </summary>
+                      <TechnicalValue
+                        value={read.id}
+                        label={t("Read record", "读取记录")}
+                      />
+                      <p>
+                        {t("Fixed base Run", "固定基础运行")}:{" "}
+                        <TechnicalValue
+                          value={read.run_id}
+                          label={t("Fixed base Run", "固定基础运行")}
+                        />
+                      </p>
+                    </details>
                     {read.failure_code && (
                       <p className="break-all">
                         {t("Read failure", "读取失败")}: {read.failure_code}
@@ -709,10 +788,14 @@ export function AiInvestigationPanel(scope: Scope) {
                     ) : (
                       read.items.map((material) => (
                         <details key={material.citation_id}>
-                          <summary className="cursor-pointer break-all">
-                            {t("Read material", "读取材料")} ·{" "}
-                            {material.citation_id}
+                          <summary className="cursor-pointer break-words">
+                            <ReadSource name={read.tool_name} /> ·{" "}
+                            {formatDate(read.queried_at)}
                           </summary>
+                          <TechnicalValue
+                            value={material.citation_id}
+                            label={t("Citation", "引用")}
+                          />
                           <MaterialFields value={material.fact} />
                         </details>
                       ))
@@ -775,10 +858,7 @@ export function AiInvestigationPanel(scope: Scope) {
                             return (
                               <li key={citation} className="min-w-0">
                                 <details>
-                                  <summary className="cursor-pointer break-all font-mono">
-                                    {citation}
-                                  </summary>
-                                  <p className="my-1">
+                                  <summary className="cursor-pointer break-words">
                                     {read ? (
                                       <ReadSource name={read.tool_name} />
                                     ) : (
@@ -796,7 +876,11 @@ export function AiInvestigationPanel(scope: Scope) {
                                       read?.queried_at ??
                                         item.material.published_at,
                                     )}
-                                  </p>
+                                  </summary>
+                                  <TechnicalValue
+                                    value={citation}
+                                    label={t("Citation", "引用")}
+                                  />
                                   <div className="rounded bg-muted p-2 text-xs">
                                     <MaterialFields value={material?.fact} />
                                   </div>
@@ -887,7 +971,8 @@ export function AiInvestigationPanel(scope: Scope) {
                     }
                   />
                   <p className="break-all text-xs text-muted-foreground">
-                    {t("Replying to", "追问对应核查")}: {item.id} ·{" "}
+                    {t("Replying to", "追问对应核查")}:{" "}
+                    {formatDate(item.created_at)} ·{" "}
                     {(questions[item.id] ?? "").length}/2000
                   </p>
                   {item.id === turnLimitReached && (

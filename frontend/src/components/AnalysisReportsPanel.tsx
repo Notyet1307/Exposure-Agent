@@ -9,6 +9,7 @@ import {
   ApiError,
 } from "@/client"
 import { MaterialFields } from "@/components/AiInvestigationPanel"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -67,7 +68,7 @@ function readRecovery(storageKey: string) {
 }
 
 export function AnalysisReportsPanel(scope: Scope) {
-  const { t, formatDate } = useI18n()
+  const { t, formatDate, translateValue } = useI18n()
   const formId = useId()
   const queryClient = useQueryClient()
   const queryKey = ["analysis-reports", scope.projectId, scope.runId]
@@ -275,6 +276,12 @@ export function AnalysisReportsPanel(scope: Scope) {
     CONFIRMED: t("Human-confirmed", "已人工确认"),
     FAILED: t("Generation failed", "生成失败"),
   }
+  const materialLabels: Record<string, string> = {
+    BASE_RUN_SUMMARY: t("Published base summary", "已发布基础摘要"),
+    INVESTIGATION: t("AI investigation", "AI 核查"),
+    OBTAINED_TOOL_READ: t("Read-only query", "只读查询"),
+    MANUAL_REVIEW: t("Manual review", "人工记录"),
+  }
   const renderText = (text: AnalysisReportText) =>
     textFields.map(([field, en, zh]) => (
       <div key={field} className="min-w-0 max-w-prose space-y-1">
@@ -420,18 +427,25 @@ export function AnalysisReportsPanel(scope: Scope) {
             )}
             {selectedId && !records.some((item) => item.id === selectedId) && (
               <option value={selectedId}>
-                {t("Selected version unavailable", "所选版本不可用")} ·{" "}
-                {selectedId}
+                {t("Selected version unavailable", "所选版本不可用")}
               </option>
             )}
             {records.map((item) => (
               <option key={item.id} value={item.id}>
                 {formatDate(item.created_at)} ·{" "}
                 {statusLabels[item.status] ?? t("Unknown status", "未知状态")} ·{" "}
-                {item.id}
+                {t("Revision", "修订号")} {item.revision}
               </option>
             ))}
           </select>
+          {selectedId && (
+            <details className="text-xs">
+              <summary className="cursor-pointer">
+                {t("Selected version identifier", "所选版本标识")}
+              </summary>
+              <TechnicalValue value={selectedId} label={t("Version", "版本")} />
+            </details>
+          )}
         </div>
       )}
       {selectedId && list.isSuccess && detail.isPending && (
@@ -507,22 +521,10 @@ export function AnalysisReportsPanel(scope: Scope) {
           </p>
           <dl className="grid min-w-0 gap-3 text-xs sm:grid-cols-2">
             {[
-              [t("Version", "版本"), current.id],
-              [t("Project", "项目"), current.project_id],
-              [t("Fixed base Run", "固定基础运行"), current.run_id],
-              [
-                t("Deterministic report", "确定性报告"),
-                current.material.report_id,
-              ],
-              [
-                t("Report contract", "报告合同"),
-                current.material.report_contract_version,
-              ],
               [
                 t("Material captured", "材料截取时间"),
                 formatDate(current.material.captured_at, "UTC"),
               ],
-              [t("Created by", "创建人"), current.created_by_id],
               [t("Created", "创建时间"), formatDate(current.created_at, "UTC")],
               [
                 t("AI completed", "AI 完成时间"),
@@ -531,18 +533,10 @@ export function AnalysisReportsPanel(scope: Scope) {
                   : t("Not recorded", "未记录"),
               ],
               [
-                t("Edited by", "编辑人"),
-                current.edited_by_id ?? t("Not edited", "未经编辑"),
-              ],
-              [
                 t("Edited", "编辑时间"),
                 current.edited_at
                   ? formatDate(current.edited_at, "UTC")
                   : t("Not recorded", "未记录"),
-              ],
-              [
-                t("Confirmed by", "确认人"),
-                current.confirmed_by_id ?? t("Not confirmed", "未经确认"),
               ],
               [
                 t("Confirmed", "确认时间"),
@@ -557,6 +551,42 @@ export function AnalysisReportsPanel(scope: Scope) {
               </div>
             ))}
           </dl>
+          <details className="min-w-0 text-xs">
+            <summary className="cursor-pointer font-medium">
+              {t("Report identifiers and authors", "报告标识与作者")}
+            </summary>
+            <dl className="mt-2 grid min-w-0 gap-3 sm:grid-cols-2">
+              {[
+                [t("Version", "版本"), current.id],
+                [t("Project", "项目"), current.project_id],
+                [t("Fixed base Run", "固定基础运行"), current.run_id],
+                [
+                  t("Deterministic report", "确定性报告"),
+                  current.material.report_id,
+                ],
+                [
+                  t("Report contract", "报告合同"),
+                  current.material.report_contract_version,
+                ],
+                [t("Created by", "创建人"), current.created_by_id],
+                [
+                  t("Edited by", "编辑人"),
+                  current.edited_by_id ?? t("Not edited", "未经编辑"),
+                ],
+                [
+                  t("Confirmed by", "确认人"),
+                  current.confirmed_by_id ?? t("Not confirmed", "未经确认"),
+                ],
+              ].map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="font-medium">{label}</dt>
+                  <dd>
+                    <TechnicalValue value={value} label={label} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </details>
           {current.original_output && (
             <details className="min-w-0 rounded-md border p-3">
               <summary className="cursor-pointer font-medium">
@@ -736,7 +766,99 @@ export function AnalysisReportsPanel(scope: Scope) {
               )}
             </p>
             {Object.keys(current.material.summary).length ? (
-              <MaterialFields value={current.material.summary} />
+              <>
+                <a className="inline-block underline" href="#report-ip-summary">
+                  {t(
+                    "Read published counts, sources and limitations",
+                    "阅读已发布统计、来源与局限性",
+                  )}
+                </a>
+                {current.material.summary.ip_source_comparison_summary !=
+                  null && (
+                  <dl className="grid min-w-0 grid-cols-2 gap-2">
+                    {[
+                      ["resource_count", "Compared resources", "比较资源总数"],
+                      ["matched", "Matched", "双方均观测"],
+                      [
+                        "customer_upload_only",
+                        "Customer upload only",
+                        "仅台账观测",
+                      ],
+                      ["cloudatlas_only", "CloudAtlas only", "仅外部观测"],
+                      [
+                        "neither_source_observed",
+                        "Neither source observed",
+                        "双方均未观测",
+                      ],
+                      ["ACTIVE", "ACTIVE", "ACTIVE（有活动）"],
+                      ["UNKNOWN", "UNKNOWN", "UNKNOWN（未知）"],
+                    ].map(([key, en, zh]) => {
+                      const group =
+                        key === "resource_count"
+                          ? []
+                          : [
+                              key === "ACTIVE" || key === "UNKNOWN"
+                                ? "netflow_status_counts"
+                                : "classification_counts",
+                            ]
+                      const value = [...group, key].reduce<unknown>(
+                        (entry, field) =>
+                          entry !== null && typeof entry === "object"
+                            ? (entry as Record<string, unknown>)[field]
+                            : undefined,
+                        current.material.summary.ip_source_comparison_summary,
+                      )
+                      return (
+                        <div key={key} className="min-w-0">
+                          <dt>{t(en, zh)}</dt>
+                          <dd className="font-medium tabular-nums">
+                            {typeof value === "number" &&
+                            Number.isInteger(value) &&
+                            value >= 0
+                              ? value
+                              : t("Not recorded", "未记录")}
+                          </dd>
+                        </div>
+                      )
+                    })}
+                  </dl>
+                )}
+                {current.material.summary.input_capabilities != null && (
+                  <dl className="grid min-w-0 gap-2 sm:grid-cols-3">
+                    {[
+                      ["status", "NetFlow processing", "NetFlow 处理状态"],
+                      ["input_state", "NetFlow input", "NetFlow 输入"],
+                      ["coverage", "NetFlow coverage", "NetFlow 覆盖范围"],
+                    ].map(([key, en, zh]) => {
+                      const value = ["netflow", key].reduce<unknown>(
+                        (entry, field) =>
+                          entry !== null && typeof entry === "object"
+                            ? (entry as Record<string, unknown>)[field]
+                            : undefined,
+                        current.material.summary.input_capabilities,
+                      )
+                      return (
+                        <div key={key} className="min-w-0">
+                          <dt>{t(en, zh)}</dt>
+                          <dd>
+                            {typeof value === "string"
+                              ? translateValue(value)
+                              : t("Not recorded", "未记录")}
+                          </dd>
+                        </div>
+                      )
+                    })}
+                  </dl>
+                )}
+                <details className="min-w-0">
+                  <summary className="cursor-pointer font-medium">
+                    {t("View fixed source material", "查看固定来源材料")}
+                  </summary>
+                  <div className="mt-2">
+                    <MaterialFields value={current.material.summary} />
+                  </div>
+                </details>
+              </>
             ) : (
               <p>
                 {t(
@@ -781,18 +903,36 @@ export function AnalysisReportsPanel(scope: Scope) {
                 key={item.citation_id}
                 className="min-w-0 rounded-md border p-3"
               >
-                <summary className="cursor-pointer break-all font-medium">
+                <summary className="cursor-pointer break-words font-medium">
                   {current.original_output?.citation_ids.includes(
                     item.citation_id,
                   )
                     ? t("Cited source", "已引用来源")
                     : t("Available material", "可用材料")}{" "}
-                  · {item.citation_id} · {item.kind}
+                  ·{" "}
+                  {materialLabels[item.kind] ??
+                    t("Recorded material", "已记录材料")}{" "}
+                  ·{" "}
+                  {item.recorded_at
+                    ? formatDate(item.recorded_at, "UTC")
+                    : t("Time not recorded", "时间未记录")}
                 </summary>
                 <dl className="my-2 min-w-0 space-y-1 text-xs">
+                  <dt>{t("Citation", "引用")}</dt>
+                  <dd>
+                    <TechnicalValue
+                      value={item.citation_id}
+                      label={t("Citation", "引用")}
+                    />
+                  </dd>
+                  <dt>{t("Material kind", "材料类型")}</dt>
+                  <dd>{item.kind}</dd>
                   <dt>{t("Full record identity", "完整记录身份")}</dt>
-                  <dd className="select-text break-all font-mono">
-                    {item.identity}
+                  <dd>
+                    <TechnicalValue
+                      value={item.identity}
+                      label={t("Full record identity", "完整记录身份")}
+                    />
                   </dd>
                   <dt>{t("Recorded time", "记录时间")}</dt>
                   <dd>

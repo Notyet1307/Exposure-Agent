@@ -70,7 +70,36 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
     .getByRole("row")
     .filter({ hasText: "customer-upload-v1.xlsx" })
   await expect(uploadRow).toBeVisible()
-  await expect(uploadRow.getByText(/^[a-f0-9]{64}$/)).toBeVisible()
+  const acceptedInputs = await ProjectsService.readCustomerUploads({
+    projectId: project.id,
+  })
+  const acceptedUpload = acceptedInputs.data[0]
+  const uploadDetails = uploadRow.locator("details")
+  await expect(
+    uploadDetails.getByText(acceptedUpload.raw_sha256, { exact: true }),
+  ).toBeHidden()
+  await uploadDetails.locator("summary").focus()
+  await page.keyboard.press("Enter")
+  await expect(
+    uploadDetails.getByText(acceptedUpload.raw_sha256, { exact: true }),
+  ).toBeVisible()
+  await expect(
+    uploadDetails.getByText(acceptedUpload.id, { exact: true }),
+  ).toBeVisible()
+  await expect(
+    uploadDetails.getByText(acceptedUpload.profile_id, { exact: true }),
+  ).toBeVisible()
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  await uploadDetails
+    .getByRole("button", {
+      name: `Copy full value: ${acceptedUpload.raw_sha256}`,
+      exact: true,
+    })
+    .focus()
+  await page.keyboard.press("Enter")
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(acceptedUpload.raw_sha256)
   await expect(uploadRow.getByText("v1", { exact: true })).toBeVisible()
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
 
@@ -83,4 +112,48 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
   expect(selectedInputs.current_customer_upload_id).toBe(
     selectedInputs.data[0].id,
   )
+
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${project.id}/customer-uploads`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...selectedInputs,
+          count: 11,
+          data: [
+            {
+              ...acceptedUpload,
+              id: crypto.randomUUID(),
+              display_filename: "different-page-input.xlsx",
+            },
+          ],
+        },
+      }),
+  )
+  await page.goto(`/?project=${project.id}&view=inputs&upload_page=2`)
+  await expect(
+    page.getByText("Current selected input", { exact: true }),
+  ).toBeVisible()
+  const currentInputDetails = page.locator("details").filter({
+    has: page
+      .locator("summary")
+      .getByText("Current input details", { exact: true }),
+  })
+  await expect(
+    currentInputDetails.getByText(acceptedUpload.id, { exact: true }),
+  ).toBeHidden()
+  await currentInputDetails.locator("summary").focus()
+  await page.keyboard.press("Enter")
+  await expect(
+    currentInputDetails.getByText(acceptedUpload.id, { exact: true }),
+  ).toBeVisible()
+  await currentInputDetails
+    .getByRole("button", {
+      name: "Copy Current CustomerUpload ID",
+      exact: true,
+    })
+    .click()
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(acceptedUpload.id)
 })

@@ -5,6 +5,7 @@ import {
   type CloudAtlasSourcePublic,
   CloudatlasSourceInstancesService,
 } from "@/client"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -110,8 +111,33 @@ function SourceRows({
                   : source.validation_status}
               </Badge>
             </TableCell>
-            <TableCell className="font-mono text-xs">
-              {source.fingerprint_summary ?? "—"}
+            <TableCell className="max-w-xs whitespace-normal text-xs">
+              <details>
+                <summary className="cursor-pointer font-medium">
+                  {t("Source details", "来源详情")}
+                </summary>
+                <dl className="space-y-2 pt-2">
+                  {(
+                    [
+                      [t("Source ID", "来源 ID"), source.id],
+                      [t("Instance binding", "实例绑定"), source.instance_id],
+                      [t("Capset", "能力集（Capset）"), source.capset_id],
+                      [t("Fingerprint", "指纹"), source.validated_fingerprint],
+                    ] as const
+                  ).map(([label, value]) => (
+                    <div key={label}>
+                      <dt className="font-medium">{label}</dt>
+                      <dd>
+                        {value ? (
+                          <TechnicalValue value={value} label={label} />
+                        ) : (
+                          "—"
+                        )}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </details>
             </TableCell>
             <TableCell>
               <Badge variant={source.enabled ? "default" : "outline"}>

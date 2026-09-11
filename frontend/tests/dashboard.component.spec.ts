@@ -1,3 +1,4 @@
+import type { FileChooser } from "@playwright/test"
 import type { CloudAtlasSourcePublic } from "../src/client"
 import { expect, type Page, type Route, test } from "./fixtures"
 
@@ -59,7 +60,7 @@ const cloudatlasSources = {
         capset_id: "cloudatlas-readonly",
         enabled: false,
         validation_status: "not_validated",
-        fingerprint_summary: null,
+        validated_fingerprint: null,
         created_at: "2026-07-30T12:00:00Z",
         updated_at: "2026-07-30T12:00:00Z",
       },
@@ -500,6 +501,7 @@ test("selects the first Project and switches its Profile and upload list", async
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })
   await expect(projectSelect).toHaveValue(projects[0].id)
+  await page.getByText("Profile details", { exact: true }).press("Enter")
   await expect(
     page.getByText(profiles[projects[0].id].id).first(),
   ).toBeVisible()
@@ -508,6 +510,7 @@ test("selects the first Project and switches its Profile and upload list", async
   await projectSelect.selectOption(projects[1].id)
 
   await expect(projectSelect).toHaveValue(projects[1].id)
+  await page.getByText("Profile details", { exact: true }).press("Enter")
   await expect(page.getByText(profiles[projects[1].id].id)).toBeVisible()
   await expect(page.getByText("No accepted uploads yet.")).toBeVisible()
 })
@@ -599,8 +602,20 @@ test("selects an accepted upload as the current Project input", async ({
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
   await page.getByRole("button", { name: "Set as current input" }).click()
 
-  await expect(page.getByText("Current CustomerUpload ID")).toBeVisible()
-  await expect(page.getByText(uploads[projects[0].id].data[0].id)).toBeVisible()
+  const currentDetails = page
+    .locator("details")
+    .filter({ has: page.getByText("Current input details", { exact: true }) })
+  await expect(
+    currentDetails.getByText(uploads[projects[0].id].data[0].id, {
+      exact: true,
+    }),
+  ).toBeHidden()
+  await currentDetails.locator("summary").press("Enter")
+  await expect(
+    currentDetails.getByText(uploads[projects[0].id].data[0].id, {
+      exact: true,
+    }),
+  ).toBeVisible()
   await expect(page.getByText("Current", { exact: true }).first()).toBeVisible()
   expect(selectionRequests).toBe(1)
 })
@@ -658,9 +673,10 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).not.toBeVisible()
 })
 
-test("shows current NetFlowDataset hash, counts, and bounded quality summary", async ({
+test("keeps NetFlow quality visible and identities behind keyboard-copyable details", async ({
   page,
 }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
   await page.route(
     `**/api/v1/projects/${projects[0].id}/netflow-datasets*`,
     (route) =>
@@ -677,11 +693,6 @@ test("shows current NetFlowDataset hash, counts, and bounded quality summary", a
   await expect(
     page.getByText("Current NetFlowDataset", { exact: true }),
   ).toBeVisible()
-  await expect(
-    page.getByText(netflowDatasets[projects[0].id].data[0].id).first(),
-  ).toBeVisible()
-  await expect(page.getByText("RAW SHA-256").first()).toBeVisible()
-  await expect(page.getByText("c".repeat(64)).first()).toBeVisible()
   await expect(page.getByText("Raw records").first()).toBeVisible()
   await expect(page.getByText("Valid activity records").first()).toBeVisible()
   await expect(page.getByText("Isolated records").first()).toBeVisible()
@@ -692,6 +703,104 @@ test("shows current NetFlowDataset hash, counts, and bounded quality summary", a
   await expect(page.getByText("Duplicate groups").first()).toBeVisible()
   await expect(page.getByText("Duplicate records").first()).toBeVisible()
   await expect(page.getByText(/2026-08-01 00:00:00 UTC/).first()).toBeVisible()
+  const netflow = page.getByRole("region", {
+    name: "NetFlowDatasets",
+    exact: true,
+  })
+  for (const width of [1365, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await expect(
+      netflow.getByText("north-netflow.csv", { exact: true }),
+    ).toBeVisible()
+    await expect(netflow.getByText("invalid_timestamp: 2")).toBeVisible()
+    await expect(
+      netflow
+        .getByText("Valid time range: Not available — Not available")
+        .filter({ visible: true }),
+    ).toBeVisible()
+    await expect(
+      netflow.getByText(/^Accepted: /).filter({ visible: true }),
+    ).toHaveCount(2)
+    for (const dataset of northNetflowDatasets) {
+      const details = netflow
+        .locator("details:visible")
+        .filter({ hasText: dataset.id })
+      await expect(
+        details.getByText(dataset.id, { exact: true }),
+      ).not.toBeVisible()
+      await expect(
+        details.getByText(dataset.raw_sha256, { exact: true }),
+      ).not.toBeVisible()
+      await details.locator("summary").focus()
+      await page.keyboard.press("Enter")
+      for (const [label, value] of [
+        ["Dataset ID", dataset.id],
+        ["RAW SHA-256", dataset.raw_sha256],
+      ]) {
+        await expect(details.getByText(value, { exact: true })).toBeVisible()
+        await details
+          .getByRole("button", { name: `Copy ${label}`, exact: true })
+          .focus()
+        await page.keyboard.press("Enter")
+        await expect
+          .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+          .toBe(value)
+      }
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+        .toBeLessThanOrEqual(width)
+      await details.locator("summary").focus()
+      await page.keyboard.press("Enter")
+    }
+  }
+})
+
+test("keeps both file pickers and upload actions within desktop and narrow viewports", async ({
+  page,
+}) => {
+  // Keep interception active; one-shot listeners toggle it asynchronously.
+  const choosers: FileChooser[] = []
+  page.on("filechooser", (chooser) => choosers.push(chooser))
+  await page.goto("/?view=inputs")
+  for (const width of [1365, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const [label, extension] of [
+      ["XLSX file", "xlsx"],
+      ["NetFlow dataset file", "csv"],
+    ]) {
+      const input = page.getByLabel(label, { exact: true })
+      const form = page.locator("form").filter({ has: input })
+      const picker = form.getByRole("button", {
+        name: "Choose file",
+        exact: true,
+      })
+      await expect(picker).toBeEnabled()
+      await picker.focus()
+      await expect(picker).toBeFocused()
+      await page.keyboard.press("Enter")
+      await expect.poll(() => choosers.length).toBe(1)
+      const chooser = choosers.shift()!
+      const filename = `${"long-selected-filename-".repeat(8)}.${extension}`
+      await chooser.setFiles({
+        name: filename,
+        mimeType: "application/octet-stream",
+        buffer: Buffer.from("mock input"),
+      })
+      await expect(form.getByText(filename, { exact: true })).toBeVisible()
+      await expect(input).toHaveValue(new RegExp(`\\.${extension}$`))
+      const upload = form.getByRole("button", { name: "Upload", exact: true })
+      await expect(upload).toBeEnabled()
+      for (const control of [input, picker, upload]) {
+        const bounds = await control.boundingBox()
+        expect(bounds).not.toBeNull()
+        expect(bounds!.x).toBeGreaterThanOrEqual(0)
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+      }
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+        .toBeLessThanOrEqual(width)
+    }
+  }
 })
 
 test("uploads a NetFlowDataset and refreshes the list", async ({ page }) => {
@@ -884,7 +993,7 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
       source = {
         ...source,
         validation_status: "validated",
-        fingerprint_summary: "abcdef012345",
+        validated_fingerprint: "abcdef0123456789".repeat(4),
       }
     } else if (url.pathname.endsWith("/enable")) {
       source = { ...source, enabled: true }
@@ -901,7 +1010,7 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
         capset_id: body.capset_id,
         enabled: false,
         validation_status: "not_validated",
-        fingerprint_summary: null,
+        validated_fingerprint: null,
       }
     }
     await route.fulfill({ json: source })
@@ -919,18 +1028,38 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   await page.getByRole("button", { name: "Validate source" }).click()
   await expect(page.getByText("Validated", { exact: true })).toBeVisible()
   await expect(tokenInput).toHaveValue("")
+  const sourceDetails = page.locator("details").filter({
+    has: page.getByText("Source details", { exact: true }),
+  })
+  const fingerprint = "abcdef0123456789".repeat(4)
+  await expect(
+    sourceDetails.getByText(fingerprint, { exact: true }),
+  ).toBeHidden()
+  await sourceDetails.locator("summary").focus()
+  await page.keyboard.press("Enter")
+  await expect(
+    sourceDetails.getByText(fingerprint, { exact: true }),
+  ).toBeVisible()
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  await sourceDetails.getByRole("button", { name: "Copy Fingerprint" }).focus()
+  await page.keyboard.press("Enter")
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(fingerprint)
 
   await page.getByRole("button", { name: "Enable source" }).click()
   await expect(page.getByText("Enabled", { exact: true })).toBeVisible()
   await page.getByLabel("OctoBus Instance ID").fill("cloudatlas-replacement")
   await page.getByRole("button", { name: "Save binding" }).click()
-  await expect(page.getByText("cloudatlas-replacement")).toBeVisible()
+  await expect(
+    page.getByRole("cell", { name: "cloudatlas-replacement", exact: true }),
+  ).toBeVisible()
 
   source = {
     ...source,
     enabled: true,
     validation_status: "validated",
-    fingerprint_summary: "abcdef012345",
+    validated_fingerprint: "abcdef0123456789".repeat(4),
   }
   await page.reload()
   await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
@@ -1020,7 +1149,7 @@ test("lets an Admin manage an older enabled source from disabled history", async
     instance_id: "cloudatlas-older-enabled",
     enabled: true,
     validation_status: "validated",
-    fingerprint_summary: "123456789abc",
+    validated_fingerprint: "123456789abcdef0".repeat(4),
   }
   let disablePath: string | null = null
   const sourceUrl = `**/api/v1/projects/${projects[0].id}/cloudatlas-source-instances`

@@ -7,6 +7,7 @@ import {
   ManualReviewsService,
 } from "@/client"
 import { ResultPagination } from "@/components/ResultPagination"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -197,7 +198,9 @@ export function ManualReviewPanel(scope: Scope) {
           ].map(([label, value]) => (
             <div key={label} className="min-w-0">
               <dt className="font-medium">{label}</dt>
-              <dd className="select-text break-all font-mono">{value}</dd>
+              <dd>
+                <TechnicalValue value={value} label={label} />
+              </dd>
             </div>
           ))}
         </dl>
@@ -385,7 +388,9 @@ export function ManualReviewPanel(scope: Scope) {
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="font-medium">{label}</dt>
-                  <dd className="select-text break-all font-mono">{value}</dd>
+                  <dd>
+                    <TechnicalValue value={value} label={label} />
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -467,9 +472,10 @@ export function ManualReviewPanel(scope: Scope) {
                     "验证运行 · 完整标识与原因",
                   )}
                 </summary>
-                <p className="select-text break-all font-mono">
-                  {verification.run_id}
-                </p>
+                <TechnicalValue
+                  value={verification.run_id}
+                  label={t("Verification Run", "验证运行")}
+                />
                 <p className="break-all">
                   {t("Reason code", "原因代码")}: {verification.reason}
                 </p>

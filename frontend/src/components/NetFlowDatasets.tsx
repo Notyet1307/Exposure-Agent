@@ -9,6 +9,7 @@ import {
   ProjectsService,
 } from "@/client"
 import { ResultPagination } from "@/components/ResultPagination"
+import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,7 +20,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LoadingButton } from "@/components/ui/loading-button"
 import {
@@ -161,26 +161,51 @@ function QualitySummary({ dataset }: { dataset: NetFlowDatasetPublic }) {
   )
 }
 
-function DatasetDetails({ dataset }: { dataset: NetFlowDatasetPublic }) {
+function DatasetIdentity({ dataset }: { dataset: NetFlowDatasetPublic }) {
   const { t } = useI18n()
+  return (
+    <details className="min-w-0 text-sm">
+      <summary className="cursor-pointer">
+        {t("Dataset details", "数据集详情")}
+      </summary>
+      <dl className="mt-2 space-y-2">
+        <div>
+          <dt>{t("Dataset ID", "数据集 ID")}</dt>
+          <dd>
+            <TechnicalValue
+              value={dataset.id}
+              label={t("Dataset ID", "数据集 ID")}
+            />
+          </dd>
+        </div>
+        <div>
+          <dt>{t("RAW SHA-256", "原始 SHA-256")}</dt>
+          <dd>
+            <TechnicalValue
+              value={dataset.raw_sha256}
+              label={t("RAW SHA-256", "原始 SHA-256")}
+            />
+          </dd>
+        </div>
+      </dl>
+    </details>
+  )
+}
+
+function DatasetDetails({ dataset }: { dataset: NetFlowDatasetPublic }) {
+  const { t, formatDate } = useI18n()
   return (
     <div className="space-y-3">
       <div>
-        <p className="font-medium">{dataset.display_filename}</p>
-        <p className="break-all font-mono text-xs text-muted-foreground">
-          {t("Dataset ID:", "数据集 ID：")} {dataset.id}
+        <p className="break-all font-medium">{dataset.display_filename}</p>
+        <p className="text-sm text-muted-foreground">
+          {t("Accepted: ", "接受时间：")}
+          {formatDate(dataset.created_at)}
         </p>
       </div>
-      <dl>
-        <div>
-          <dt className="text-muted-foreground">
-            {t("RAW SHA-256", "原始 SHA-256")}
-          </dt>
-          <dd className="break-all font-mono text-xs">{dataset.raw_sha256}</dd>
-        </div>
-      </dl>
       <CountSummary dataset={dataset} />
       <QualitySummary dataset={dataset} />
+      <DatasetIdentity dataset={dataset} />
     </div>
   )
 }
@@ -226,7 +251,7 @@ function DatasetTable({
   selectingId: string | null
   onSelect: (datasetId: string) => void
 }) {
-  const { t } = useI18n()
+  const { t, formatDate } = useI18n()
   if (datasets.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -241,13 +266,10 @@ function DatasetTable({
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-1/5">{t("Dataset", "数据集")}</TableHead>
-              <TableHead className="w-1/5">
-                {t("RAW SHA-256", "原始 SHA-256")}
+              <TableHead className="w-[35%]">
+                {t("Dataset", "数据集")}
               </TableHead>
-              <TableHead className="w-[15%]">
-                {t("Records", "记录数")}
-              </TableHead>
+              <TableHead className="w-1/5">{t("Records", "记录数")}</TableHead>
               <TableHead className="w-[30%]">{t("Quality", "质量")}</TableHead>
               <TableHead className="w-[15%] text-right">
                 {t("Action", "操作")}
@@ -259,17 +281,18 @@ function DatasetTable({
               const isCurrent = dataset.id === currentId
               return (
                 <TableRow key={dataset.id}>
-                  <TableCell>
-                    <p className="font-medium">{dataset.display_filename}</p>
-                    <p className="break-all font-mono text-xs text-muted-foreground">
-                      {t("Dataset ID:", "数据集 ID：")} {dataset.id}
+                  <TableCell className="whitespace-normal">
+                    <p className="break-all font-medium">
+                      {dataset.display_filename}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {t("Accepted: ", "接受时间：")}
+                      {formatDate(dataset.created_at)}
                     </p>
                     {isCurrent && (
                       <Badge className="mt-1">{t("Current", "当前")}</Badge>
                     )}
-                  </TableCell>
-                  <TableCell className="max-w-xs break-all font-mono text-xs">
-                    {dataset.raw_sha256}
+                    <DatasetIdentity dataset={dataset} />
                   </TableCell>
                   <TableCell>
                     <p>
@@ -283,7 +306,7 @@ function DatasetTable({
                       {t("Isolated:", "隔离：")} {dataset.isolated_record_count}
                     </p>
                   </TableCell>
-                  <TableCell className="break-all">
+                  <TableCell className="whitespace-normal break-all">
                     <QualitySummary dataset={dataset} />
                   </TableCell>
                   <TableCell className="text-right">
@@ -558,12 +581,12 @@ export default function NetFlowDatasets({
               className="flex flex-col gap-3 sm:flex-row sm:items-end"
               onSubmit={submitUpload}
             >
-              <div className="flex-1 space-y-2">
+              <div className="min-w-0 flex-1 space-y-2">
                 <Label htmlFor="netflow-dataset-file">
                   {t("NetFlow dataset file", "NetFlow 数据集文件")}
                 </Label>
                 <div className="flex items-center gap-3">
-                  <Input
+                  <input
                     ref={fileInputRef}
                     id="netflow-dataset-file"
                     name="file"
