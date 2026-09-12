@@ -1,4 +1,5 @@
-import { Link } from "@tanstack/react-router"
+import { Link, useRouterState } from "@tanstack/react-router"
+import { useEffect, useRef } from "react"
 import { z } from "zod"
 
 import {
@@ -42,6 +43,15 @@ export default function WorkspaceOverview({
 }) {
   const { t, formatDate, translateValue } = useI18n()
   const detailQuery = useGovernanceReport(projectId, reportId)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const hash = useRouterState({ select: (state) => state.location.hash })
+  useEffect(() => {
+    if (
+      detailQuery.isSuccess &&
+      hash.replace(/^#/, "") === "workspace-overview-title"
+    )
+      heading.current?.focus()
+  }, [detailQuery.isSuccess, hash])
   if (detailQuery.isPending) {
     return <p role="status">{t("Loading overview…", "正在加载概览…")}</p>
   }
@@ -91,7 +101,12 @@ export default function WorkspaceOverview({
     <section className="space-y-4" aria-labelledby="workspace-overview-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="workspace-overview-title" className="text-xl font-semibold">
+          <h2
+            ref={heading}
+            tabIndex={-1}
+            id="workspace-overview-title"
+            className="text-xl font-semibold"
+          >
             {t("Published overview", "已发布结果概览")}
           </h2>
           <p className="text-sm text-muted-foreground">

@@ -358,6 +358,7 @@ export default function NetFlowDatasets({
   const { t, message: translateMessage } = useI18n()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const inputHeading = useRef<HTMLHeadingElement>(null)
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
   const search = useWorkspaceSearch()
   const navigate = useWorkspaceNavigate()
@@ -436,6 +437,7 @@ export default function NetFlowDatasets({
     onSuccess: async () => {
       setMessage("Current NetFlowDataset updated successfully.")
       await invalidateAfterMutation()
+      inputHeading.current?.focus()
     },
     onError: (error: Error) =>
       setMessage(
@@ -454,6 +456,7 @@ export default function NetFlowDatasets({
     onSuccess: async () => {
       setMessage("Current NetFlowDataset cleared successfully.")
       await invalidateAfterMutation()
+      inputHeading.current?.focus()
     },
     onError: (error: Error) =>
       setMessage(
@@ -505,6 +508,8 @@ export default function NetFlowDatasets({
     <section aria-labelledby="netflow-datasets-title" className="space-y-6">
       <div>
         <h2
+          ref={inputHeading}
+          tabIndex={-1}
           id="netflow-datasets-title"
           className="text-xl font-semibold tracking-tight"
         >

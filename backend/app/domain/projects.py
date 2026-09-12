@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, select
 
 from app.core.time import get_datetime_utc
@@ -9,6 +9,7 @@ from app.domain.customer_upload_profiles import (
     default_customer_upload_profile_definition,
 )
 from app.domain.models import (
+    DEPLOYMENT_TENANT_ID,
     AiGovernanceDraft,
     AiGovernanceDraftStatus,
     AuditEvent,
@@ -66,17 +67,48 @@ def _project_lifecycle_audit_event(
     )
 
 
+class ProjectCreationConflict(Exception):
+    pass
+
+
+def _creation_replay(
+    session: Session, actor: str, key: str, name: str
+) -> Project | None:
+    project = session.exec(
+        select(Project).where(
+            Project.tenant_id == DEPLOYMENT_TENANT_ID,
+            Project.creation_actor == actor,
+            Project.creation_key == key,
+        )
+    ).one_or_none()
+    if project is not None and project.creation_name != name:
+        raise ProjectCreationConflict
+    return project
+
+
 def create_project(
     *,
     session: Session,
     project_in: ProjectCreate,
     actor_subject: str,
     ip_address: str | None,
+    idempotency_key: str | None = None,
 ) -> Project:
+    if idempotency_key is not None:
+        replay = _creation_replay(
+            session, actor_subject, idempotency_key, project_in.name
+        )
+        if replay is not None:
+            return replay
     profile_id = uuid.uuid4()
     project = Project.model_validate(
         project_in,
-        update={"current_customer_upload_profile_id": profile_id},
+        update={
+            "current_customer_upload_profile_id": profile_id,
+            "creation_actor": actor_subject if idempotency_key is not None else None,
+            "creation_key": idempotency_key,
+            "creation_name": project_in.name if idempotency_key is not None else None,
+        },
     )
     profile = CustomerUploadProfile(
         id=profile_id,
@@ -100,6 +132,19 @@ def create_project(
         session.flush()
         session.add(audit_event)
         session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        if (
+            idempotency_key is not None
+            and getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+            == "uq_projects_creation_key"
+        ):
+            replay = _creation_replay(
+                session, actor_subject, idempotency_key, project_in.name
+            )
+            if replay is not None:
+                return replay
+        raise
     except SQLAlchemyError:
         session.rollback()
         raise
@@ -155,9 +200,7 @@ def archive_project(
         before_archived_at=None,
         ip_address=ip_address,
     )
-    return commit_with_audit(
-        session=session, record=project, audit_event=audit_event
-    )
+    return commit_with_audit(session=session, record=project, audit_event=audit_event)
 
 
 def reactivate_project(
@@ -181,9 +224,7 @@ def reactivate_project(
         before_archived_at=before_archived_at,
         ip_address=ip_address,
     )
-    return commit_with_audit(
-        session=session, record=project, audit_event=audit_event
-    )
+    return commit_with_audit(session=session, record=project, audit_event=audit_event)
 
 
 def rename_project(
@@ -204,6 +245,4 @@ def rename_project(
         before_name=previous_name,
         ip_address=ip_address,
     )
-    return commit_with_audit(
-        session=session, record=project, audit_event=audit_event
-    )
+    return commit_with_audit(session=session, record=project, audit_event=audit_event)

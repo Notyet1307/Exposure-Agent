@@ -1377,6 +1377,15 @@ test("waits for fresh reports before pinning a cached project's latest Run", asy
   page,
 }) => {
   await installBaseMocks(page)
+  let preparationReads = 0
+  page.on("request", (request) => {
+    if (
+      /\/(customer-uploads|customer-upload-profile|netflow-datasets|cloudatlas-source-instances)$/.test(
+        new URL(request.url()).pathname,
+      )
+    )
+      preparationReads++
+  })
   const otherProjectId = "00000000-0000-0000-0000-000000000002"
   await page.route(/\/api\/v1\/projects\/\?/, (route) =>
     route.fulfill({
@@ -1440,12 +1449,26 @@ test("waits for fresh reports before pinning a cached project's latest Run", asy
   })
   await page.goto(`/?project=${projectId}`)
   await expect(page).toHaveURL(new RegExp(`run=${runIds[0]}`))
+  await expect(
+    page.getByRole("heading", { name: "Published overview" }),
+  ).toBeVisible()
+  expect(
+    preparationReads,
+    "pinning an existing result must not mount input preparation",
+  ).toBe(0)
+  await page.goto(`/?project=${projectId}&run=`)
+  await expect(
+    page.getByText("Published Run unavailable", { exact: true }),
+  ).toBeVisible()
+  expect(preparationReads).toBe(0)
+  await page.goBack()
+  await expect(page).toHaveURL(new RegExp(`run=${runIds[0]}`))
   await page
     .getByRole("combobox", { name: "Project", exact: true })
     .selectOption(otherProjectId)
-  await expect(page.getByRole("alert")).toContainText(
-    "Results are being prepared",
-  )
+  await expect(
+    page.getByRole("heading", { name: "Prepare this comparison" }),
+  ).toBeVisible()
   newestPublished = true
   const refresh = page.waitForRequest(
     (request) =>

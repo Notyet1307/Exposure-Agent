@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { Play, Repeat2, RotateCcw } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
-
+import { useCallback, useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
+import { z } from "zod"
 import {
   ApiError,
   type GovernanceRunPublic,
@@ -11,6 +12,7 @@ import {
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -27,6 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import useAuth, { isInactiveAccountError } from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
 
 const READINESS_MESSAGES: Record<string, string> = Object.setPrototypeOf(
@@ -71,6 +74,15 @@ const BLOCKING_MESSAGES: Record<string, string> = Object.setPrototypeOf(
 )
 
 const MESSAGE_ZH: Record<string, string> = {
+  "The comparison failed. Its inputs and run record are preserved.":
+    "本轮比对失败，输入和运行记录已保留。",
+  "Inputs changed. Review and confirm the current versions again.":
+    "输入已变化，请重新查看并确认当前版本。",
+  "This request is bound to different inputs. Keep the saved request; no new comparison was started.":
+    "此请求已绑定其他输入，请保留原请求；没有另启新的比对。",
+  "The result is not confirmed. Resume the same saved request; do not start another comparison.":
+    "结果尚未确认，请恢复同一已保存请求，不要另启新的比对。",
+
   "Archived Projects cannot start a Governance Run.":
     "已归档项目无法启动治理运行。",
   "Select an accepted CustomerUpload before starting a Run.":
@@ -438,10 +450,92 @@ function RunDetails({
   )
 }
 
+const runIntentSchema = z
+  .object({
+    key: z.string().uuid(),
+    confirmationHash: z.string().regex(/^[0-9a-f]{64}$/),
+    runId: z.string().uuid().nullable(),
+    controlId: z.string().nullable(),
+  })
+  .strict()
+
 export default function GovernanceRuns({ projectId }: { projectId: string }) {
+  const { user, userError, refetchUser, logout } = useAuth()
+  const { t } = useI18n()
+  if (userError)
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>
+          {t(
+            "Permissions could not be read. Retry or sign in again before continuing.",
+            "无法读取权限。请重试或重新登录后再操作。",
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => void refetchUser()}>
+              {t("Retry permission check", "重新读取权限")}
+            </Button>
+            <Button variant="ghost" onClick={logout}>
+              {t("Sign in again", "重新登录")}
+            </Button>
+          </div>
+        </AlertDescription>
+      </Alert>
+    )
+  if (!user)
+    return <p role="status">{t("Checking permissions…", "正在读取权限…")}</p>
+  return (
+    <RunManager
+      key={`${user.id}:${projectId}`}
+      projectId={projectId}
+      actor={user.id}
+    />
+  )
+}
+
+function RunManager({
+  projectId,
+  actor,
+}: {
+  projectId: string
+  actor: string
+}) {
   const { t, translateValue } = useI18n()
   const queryClient = useQueryClient()
-  const triggerId = useRef<string | null>(null)
+  const navigate = useNavigate()
+  const storageKey = `exposure:comparison-start:${actor}:${projectId}`
+  const [initial] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(storageKey)
+      return {
+        intent: raw ? runIntentSchema.parse(JSON.parse(raw)) : null,
+        error: false,
+      }
+    } catch {
+      return { intent: null, error: true }
+    }
+  })
+  const [intent, setIntent] = useState(initial.intent)
+  const [storageFailed, setStorageFailed] = useState(initial.error)
+  const [confirmedHash, setConfirmedHash] = useState<string | null>(null)
+  const entryTitle = useRef<HTMLDivElement>(null)
+  const confirmationTitle = useRef<HTMLHeadingElement>(null)
+  const entryFocused = useRef(false)
+  const active = useRef(true)
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
+  const clearIntent = useCallback(() => {
+    try {
+      sessionStorage.removeItem(storageKey)
+      setIntent(null)
+      setConfirmedHash(null)
+    } catch {
+      setStorageFailed(true)
+    }
+  }, [storageKey])
   const rerunIds = useRef<Record<string, string>>({})
   const runCountBeforeTrigger = useRef(0)
   const [message, setMessage] = useState<string | null>(null)
@@ -452,10 +546,17 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
     queryFn: () => GovernanceRunsService.readGovernanceRuns({ projectId }),
     refetchInterval: (query) =>
       sessionPending ||
+      intent !== null ||
       query.state.data?.data.some((run) => run.status === "RUNNING")
         ? 2000
         : false,
   })
+  useEffect(() => {
+    if (runsQuery.isSuccess && !entryFocused.current) {
+      ;(confirmationTitle.current ?? entryTitle.current)?.focus()
+      entryFocused.current = true
+    }
+  }, [runsQuery.isSuccess])
   const completedRunId = runsQuery.data?.data.find(
     (run) =>
       (run.status === "COMPLETED" ||
@@ -472,48 +573,142 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
   useEffect(() => {
     const data = runsQuery.data
     if (data?.launch_blocking_code === "run_launch_terminal_use_new_trigger") {
-      triggerId.current = null
+      if (intent) clearIntent()
       rerunIds.current = {}
       setSessionPending(false)
     }
     if (
       sessionPending &&
+      !intent &&
       data &&
       data.count > runCountBeforeTrigger.current &&
       !data.data.some((run) => run.status === "RUNNING")
     ) {
       setSessionPending(false)
     }
-  }, [runsQuery.data, sessionPending])
+  }, [runsQuery.data, sessionPending, clearIntent, intent])
+  useEffect(() => {
+    if (!intent || !runsQuery.data || !active.current) return
+    const run = runsQuery.data.data.find(
+      (item) => item.trigger_id === intent.key,
+    )
+    if (!run) return
+    if (intent.runId && run.id !== intent.runId) {
+      setStorageFailed(true)
+      return
+    }
+    if (run.published) {
+      try {
+        sessionStorage.removeItem(storageKey)
+      } catch {
+        setStorageFailed(true)
+        return
+      }
+      setIntent(null)
+      toast.success(
+        t(
+          "Comparison published. Review the asset differences.",
+          "本轮比对已完成，可以查看资产差异。",
+        ),
+      )
+      const explicitRun = new URLSearchParams(window.location.search).get("run")
+      if (!explicitRun || explicitRun === run.id)
+        void navigate({
+          to: "/",
+          search: { project: projectId, run: run.id, view: "overview" },
+          hash: "workspace-overview-title",
+        })
+    } else if (
+      run.status === "FAILED_DATA" ||
+      run.status === "FAILED_PROCESSING"
+    ) {
+      setMessage(
+        "The comparison failed. Its inputs and run record are preserved.",
+      )
+      clearIntent()
+      setSessionPending(false)
+    }
+  }, [intent, runsQuery.data, navigate, projectId, storageKey, clearIntent, t])
   const triggerMutation = useMutation({
-    mutationFn: () => {
-      triggerId.current ??= crypto.randomUUID()
-      return GovernanceRunsService.triggerGovernanceRun({
-        projectId,
-        idempotencyKey: triggerId.current,
-      })
+    mutationFn: async () => {
+      const pending =
+        intent ??
+        runIntentSchema.parse({
+          key: crypto.randomUUID(),
+          confirmationHash: confirmedHash,
+          runId: null,
+          controlId: null,
+        })
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify(pending))
+      } catch {
+        setStorageFailed(true)
+        throw new Error("Recovery storage unavailable")
+      }
+      setIntent(pending)
+      const token = localStorage.getItem("access_token")
+      try {
+        const result = await GovernanceRunsService.triggerGovernanceRun({
+          projectId,
+          idempotencyKey: pending.key,
+          requestBody: { confirmation_input_hash: pending.confirmationHash },
+        })
+        if (
+          (pending.runId && result.governance_run_id !== pending.runId) ||
+          (pending.controlId &&
+            result.agent_compose_run_id !== pending.controlId)
+        )
+          throw new Error("Run recovery identity mismatch")
+        return { result, pending, token }
+      } catch (failure) {
+        if (token !== localStorage.getItem("access_token"))
+          throw new Error("Account changed")
+        throw failure
+      }
     },
-    onSuccess: async (result) => {
+    onSuccess: async ({ result, pending, token }) => {
+      if (!active.current || token !== localStorage.getItem("access_token"))
+        return
+      const reserved = {
+        ...pending,
+        runId: result.governance_run_id,
+        controlId: result.agent_compose_run_id,
+      }
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify(reserved))
+      } catch {
+        /* The original saved key and hash remain replayable. */
+      }
+      setIntent(reserved)
       setMessage(
         result.governance_run_id
           ? "The existing idempotent Run was found."
           : "Governance Session accepted. Waiting for the Runner to start.",
       )
-      setSessionPending(result.governance_run_id === null)
-      triggerId.current = null
+      setSessionPending(true)
       await queryClient.invalidateQueries({ queryKey })
     },
     onError: async (error) => {
+      if (!active.current) return
       const code = rejectionCode(error)
-      if (code === "run_launch_terminal_use_new_trigger") {
-        triggerId.current = null
-        rerunIds.current = {}
+      if (
+        code === "run_launch_terminal_use_new_trigger" ||
+        code === "run_inputs_changed" ||
+        (error instanceof ApiError &&
+          !isInactiveAccountError(error) &&
+          [400, 422].includes(error.status))
+      ) {
+        clearIntent()
         setSessionPending(false)
       }
       setMessage(
-        code === "run_launch_terminal_use_new_trigger"
-          ? BLOCKING_MESSAGES[code]
-          : "The Governance Session could not be started. Retrying will reuse the same Trigger ID.",
+        code === "run_inputs_changed"
+          ? "Inputs changed. Review and confirm the current versions again."
+          : code === "run_confirmation_conflict"
+            ? "This request is bound to different inputs. Keep the saved request; no new comparison was started."
+            : code === "run_launch_terminal_use_new_trigger"
+              ? BLOCKING_MESSAGES[code]
+              : "The result is not confirmed. Resume the same saved request; do not start another comparison.",
       )
       await queryClient.invalidateQueries({ queryKey })
     },
@@ -590,20 +785,133 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
     <section className="space-y-4" aria-labelledby="governance-runs-title">
       <Card>
         <CardHeader>
-          <CardTitle id="governance-runs-title">
+          <CardTitle
+            ref={entryTitle}
+            tabIndex={-1}
+            role="heading"
+            aria-level={2}
+            id="governance-runs-title"
+          >
             {t("Governance Runs", "治理运行")}
           </CardTitle>
           <CardDescription>
             {t(
-              "Run LOAD_CUSTOMER, PULL_CLOUDATLAS, NORMALIZE, RESOLVE, CHECK_FINDINGS, then atomically PUBLISH immutable CustomerUpload and CloudAtlas SourceSnapshots, with an optional third NetFlow SourceSnapshot.",
-              "依次执行 LOAD_CUSTOMER（加载客户输入）、PULL_CLOUDATLAS（拉取 CloudAtlas）、NORMALIZE（标准化）、RESOLVE（解析资产）、CHECK_FINDINGS（检查发现项），最后通过 PUBLISH 原子发布不可变的客户上传与 CloudAtlas 来源快照，并可包含第三种 NetFlow 来源快照。",
+              "Compare the selected register and external observations, with optional NetFlow activity. A result appears only after publication succeeds.",
+              "比对已选台账与外部观测，可附加 NetFlow 活动。发布成功后才展示本轮结果。",
             )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {runs.input_preview && (
+            <div className="space-y-3 rounded-lg bg-muted/50 p-4">
+              <h3
+                ref={confirmationTitle}
+                tabIndex={-1}
+                className="font-semibold"
+              >
+                {t("Confirm these input versions", "确认本轮输入版本")}
+              </h3>
+              <dl className="grid gap-3 text-sm sm:grid-cols-3">
+                <div>
+                  <dt className="text-muted-foreground">
+                    {t("Asset register", "资产台账")}
+                  </dt>
+                  <dd className="break-words">
+                    {runs.input_preview.customer_filename} · v
+                    {runs.input_preview.customer_profile_version} ·{" "}
+                    {runs.input_preview.customer_record_count}{" "}
+                    {t("records", "条")}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">
+                    {t("External observations", "外部观测")}
+                  </dt>
+                  <dd className="break-words">
+                    {runs.input_preview.source_instance_name}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">NetFlow</dt>
+                  <dd className="break-words">
+                    {runs.input_preview.netflow_filename
+                      ? `${runs.input_preview.netflow_filename} · ${runs.input_preview.netflow_record_count} ${t("records", "条")}`
+                      : t(
+                          "Not selected · two-source comparison",
+                          "未选择 · 两来源比对",
+                        )}
+                  </dd>
+                </div>
+              </dl>
+              <details>
+                <summary className="cursor-pointer text-sm">
+                  {t("Input identities", "输入版本详情")}
+                </summary>
+                <div className="space-y-2 py-2">
+                  <TechnicalValue
+                    value={runs.input_preview.customer_upload_id}
+                    label={t("Asset register version", "台账版本")}
+                  />
+                  <TechnicalValue
+                    value={runs.input_preview.source_fingerprint}
+                    label={t("Source validation identity", "来源验证身份")}
+                  />
+                  {runs.input_preview.netflow_dataset_id && (
+                    <TechnicalValue
+                      value={runs.input_preview.netflow_dataset_id}
+                      label={t("NetFlow version", "NetFlow 版本")}
+                    />
+                  )}
+                </div>
+              </details>
+              {(runs.can_operate ?? runs.can_trigger) && !intent && (
+                <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={
+                      confirmedHash ===
+                      runs.input_preview.confirmation_input_hash
+                    }
+                    onChange={(event) =>
+                      setConfirmedHash(
+                        event.target.checked
+                          ? runs.input_preview!.confirmation_input_hash
+                          : null,
+                      )
+                    }
+                  />
+                  {t(
+                    "Use these versions for this comparison",
+                    "使用以上版本进行本轮比对",
+                  )}
+                </label>
+              )}
+            </div>
+          )}
+          {intent && (
+            <p role="status" className="text-sm">
+              {t(
+                "A saved request is being tracked. Refresh only reads its status. Resume explicitly if needed; this may submit the original intent if it never reached the server.",
+                "正在追踪已保存的请求。刷新只读取状态；必要时显式恢复，若原请求从未到达服务端，恢复会提交同一次已确认意图。",
+              )}
+            </p>
+          )}
+          {storageFailed && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                {t(
+                  "Recovery storage is unavailable or invalid. No new request will be sent until browser storage is restored.",
+                  "恢复存储不可用或内容异常。恢复浏览器存储前不会发送新的请求。",
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <Badge variant={runs.ready ? "default" : "secondary"}>
+              <Badge
+                className={runs.ready ? "text-black" : undefined}
+                variant={runs.ready ? "default" : "secondary"}
+              >
                 {runs.ready
                   ? t("Inputs ready", "输入已就绪")
                   : t("Not ready", "尚未就绪")}
@@ -628,11 +936,25 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
                 </Alert>
               )}
             </div>
-            {runs.can_trigger && (
+            {(runs.can_operate ?? runs.can_trigger) && intent && (
+              <Button
+                disabled={storageFailed || triggerMutation.isPending}
+                onClick={() => triggerMutation.mutate()}
+              >
+                {t("Resume saved request", "恢复原启动请求")}
+              </Button>
+            )}
+            {runs.can_trigger && !intent && (
               <LoadingButton
                 type="button"
+                className="text-black"
                 loading={triggerMutation.isPending}
-                disabled={!runs.ready}
+                disabled={
+                  !runs.ready ||
+                  storageFailed ||
+                  !runs.input_preview ||
+                  confirmedHash !== runs.input_preview.confirmation_input_hash
+                }
                 onClick={() => {
                   setMessage(null)
                   runCountBeforeTrigger.current = runs.count
@@ -640,7 +962,7 @@ export default function GovernanceRuns({ projectId }: { projectId: string }) {
                 }}
               >
                 <Play />
-                {t("Trigger Run", "触发运行")}
+                {t("Trigger Run", "开始比对")}
               </LoadingButton>
             )}
           </div>

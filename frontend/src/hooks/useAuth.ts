@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
 
 import {
   type Body_login_login_access_token as AccessToken,
+  ApiError,
   LoginService,
   type UserPublic,
   UsersService,
@@ -14,12 +14,23 @@ const isLoggedIn = () => {
   return localStorage.getItem("access_token") !== null
 }
 
+export const isInactiveAccountError = (error: unknown) =>
+  error instanceof ApiError &&
+  error.status === 400 &&
+  typeof error.body === "object" &&
+  error.body !== null &&
+  "detail" in error.body &&
+  error.body.detail === "Inactive user"
+
 const useAuth = () => {
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { showErrorToast } = useCustomToast()
 
-  const { data: user } = useQuery<UserPublic | null, Error>({
+  const {
+    data: user,
+    error: userError,
+    refetch: refetchUser,
+  } = useQuery<UserPublic | null, Error>({
     queryKey: ["currentUser"],
     queryFn: UsersService.readUserMe,
     enabled: isLoggedIn(),
@@ -35,7 +46,8 @@ const useAuth = () => {
   const loginMutation = useMutation({
     mutationFn: login,
     onSuccess: () => {
-      navigate({ to: "/" })
+      queryClient.clear()
+      window.location.href = "/"
     },
     onError: handleError.bind(showErrorToast),
     onSettled: () => {
@@ -44,14 +56,18 @@ const useAuth = () => {
   })
 
   const logout = () => {
+    void queryClient.cancelQueries()
+    queryClient.clear()
     localStorage.removeItem("access_token")
-    navigate({ to: "/login" })
+    window.location.href = "/login"
   }
 
   return {
     loginMutation,
     logout,
     user,
+    userError,
+    refetchUser,
   }
 }
 

@@ -9,6 +9,7 @@ import {
 } from "@/client"
 
 const views = [
+  "create",
   "overview",
   "reports",
   "inputs",

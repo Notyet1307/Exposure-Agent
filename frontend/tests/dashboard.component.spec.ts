@@ -75,6 +75,23 @@ const cloudatlasSources = {
   },
 }
 
+const confirmedInputs = {
+  confirmation_input_hash: "a".repeat(64),
+  customer_upload_id: "20000000-0000-0000-0000-000000000001",
+  customer_filename: "north-assets.xlsx",
+  customer_record_count: 2,
+  customer_profile_version: 1,
+  customer_accepted_at: "2026-07-30T12:00:00Z",
+  source_instance_id: "50000000-0000-0000-0000-000000000001",
+  source_instance_name: "cloudatlas-north",
+  source_fingerprint: "b".repeat(64),
+  source_validated_at: "2026-07-30T12:00:00Z",
+  netflow_dataset_id: null,
+  netflow_filename: null,
+  netflow_record_count: null,
+  netflow_accepted_at: null,
+}
+
 const governanceRuns = {
   [projects[0].id]: {
     data: [],
@@ -318,7 +335,7 @@ test("explains a known unavailable Run input without enabling its trigger", asyn
     ),
   ).toBeVisible()
   await expect(
-    page.getByRole("button", { name: "触发运行", exact: true }),
+    page.getByRole("button", { name: "开始比对", exact: true }),
   ).toBeDisabled()
   await page
     .getByRole("combobox", { name: "Language / 语言" })
@@ -445,6 +462,8 @@ test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
             count: 0,
             can_trigger: true,
             ready: true,
+            input_preview: confirmedInputs,
+            can_operate: true,
             readiness_code: null,
             launch_blocking_code: null,
           },
@@ -478,10 +497,12 @@ test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
 
   await page.goto("/?view=inputs")
   await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(page.getByRole("status")).toHaveText(
     "The previous launch ended before creating a Run. Use a new Trigger ID.",
   )
+  await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(
     page.getByText(
@@ -562,7 +583,7 @@ test("shows loading, empty, and failure states for Projects", async ({
   )
   await page.reload()
   await expect(
-    page.getByText("No accessible Projects are available."),
+    page.getByRole("heading", { name: "Your first comparison starts here" }),
   ).toBeVisible()
 
   await page.route("**/api/v1/projects/?*", (route) =>
@@ -1307,6 +1328,8 @@ test("shows the six Run steps and triggers with a caller-owned stable ID", async
           count: 1,
           can_trigger: true,
           ready: true,
+          input_preview: confirmedInputs,
+          can_operate: true,
           readiness_code: null,
         },
       })
@@ -1329,6 +1352,7 @@ test("shows the six Run steps and triggers with a caller-owned stable ID", async
   await expect(page.getByText("CUSTOMER_UPLOAD")).toBeVisible()
   await expect(page.getByText("CLOUDATLAS", { exact: true })).toBeVisible()
 
+  await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(
     page.getByText(
@@ -1449,6 +1473,8 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
           count: 1,
           can_trigger: false,
           ready: true,
+          input_preview: confirmedInputs,
+          can_operate: true,
           readiness_code: null,
           launch_blocking_code: terminalLaunch
             ? "run_launch_terminal_use_new_trigger"
@@ -1535,6 +1561,8 @@ test("hides Rerun while a same-Session Retry is in progress", async ({
           count: 1,
           can_trigger: false,
           ready: true,
+          input_preview: confirmedInputs,
+          can_operate: true,
           readiness_code: null,
         },
       }),
@@ -1605,6 +1633,8 @@ for (const role of ["Viewer", "Approver"] as const) {
             count: 1,
             can_trigger: false,
             ready: true,
+            input_preview: confirmedInputs,
+            can_operate: true,
             readiness_code: null,
           },
         }),

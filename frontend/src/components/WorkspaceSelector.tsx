@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router"
 import { useEffect } from "react"
 
+import { CreateProjectLink } from "@/components/CreateProject"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { useI18n } from "@/lib/i18n"
 import { useWorkspaceContext } from "@/lib/workspace"
@@ -17,6 +18,7 @@ export default function WorkspaceSelector() {
       : undefined
   useEffect(() => {
     if (
+      search.view !== "create" &&
       projectId === undefined &&
       projects.isSuccess &&
       !projects.isFetching &&
@@ -38,6 +40,7 @@ export default function WorkspaceSelector() {
   ])
   useEffect(() => {
     if (
+      !["create", "inputs", "runs", "cloudatlas"].includes(search.view ?? "") &&
       projectId !== undefined &&
       runId === undefined &&
       projects.isSuccess &&
@@ -69,6 +72,7 @@ export default function WorkspaceSelector() {
   ])
   return (
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+      <CreateProjectLink />
       <label className="flex min-w-0 items-center gap-2 text-sm">
         <span>{t("Project", "项目")}</span>
         <select

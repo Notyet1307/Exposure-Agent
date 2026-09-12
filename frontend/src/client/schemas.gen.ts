@@ -1691,6 +1691,113 @@ export const GovernanceRunActionPublicSchema = {
     title: 'GovernanceRunActionPublic'
 } as const;
 
+export const GovernanceRunInputPreviewSchema = {
+    properties: {
+        confirmation_input_hash: {
+            type: 'string',
+            pattern: '^[0-9a-f]{64}$',
+            title: 'Confirmation Input Hash'
+        },
+        customer_upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Customer Upload Id'
+        },
+        customer_filename: {
+            type: 'string',
+            title: 'Customer Filename'
+        },
+        customer_record_count: {
+            type: 'integer',
+            title: 'Customer Record Count'
+        },
+        customer_profile_version: {
+            type: 'integer',
+            title: 'Customer Profile Version'
+        },
+        customer_accepted_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Customer Accepted At'
+        },
+        source_instance_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Instance Id'
+        },
+        source_instance_name: {
+            type: 'string',
+            title: 'Source Instance Name'
+        },
+        source_fingerprint: {
+            type: 'string',
+            title: 'Source Fingerprint'
+        },
+        source_validated_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Validated At'
+        },
+        netflow_dataset_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Netflow Dataset Id'
+        },
+        netflow_filename: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Netflow Filename'
+        },
+        netflow_record_count: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Netflow Record Count'
+        },
+        netflow_accepted_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Netflow Accepted At'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['confirmation_input_hash', 'customer_upload_id', 'customer_filename', 'customer_record_count', 'customer_profile_version', 'customer_accepted_at', 'source_instance_id', 'source_instance_name', 'source_fingerprint', 'source_validated_at', 'netflow_dataset_id', 'netflow_filename', 'netflow_record_count', 'netflow_accepted_at'],
+    title: 'GovernanceRunInputPreview'
+} as const;
+
 export const GovernanceRunLineagePublicSchema = {
     properties: {
         projection_version: {
@@ -1990,6 +2097,11 @@ export const GovernanceRunPublicSchema = {
                 }
             ],
             title: 'Blocking Code'
+        },
+        published: {
+            type: 'boolean',
+            title: 'Published',
+            default: false
         }
     },
     type: 'object',
@@ -2194,6 +2306,20 @@ export const GovernanceRunTriggerPublicSchema = {
     title: 'GovernanceRunTriggerPublic'
 } as const;
 
+export const GovernanceRunTriggerRequestSchema = {
+    properties: {
+        confirmation_input_hash: {
+            type: 'string',
+            pattern: '^[0-9a-f]{64}$',
+            title: 'Confirmation Input Hash'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['confirmation_input_hash'],
+    title: 'GovernanceRunTriggerRequest'
+} as const;
+
 export const GovernanceRunsPublicSchema = {
     properties: {
         data: {
@@ -2236,6 +2362,21 @@ export const GovernanceRunsPublicSchema = {
                 }
             ],
             title: 'Launch Blocking Code'
+        },
+        input_preview: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/GovernanceRunInputPreview'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        can_operate: {
+            type: 'boolean',
+            title: 'Can Operate',
+            default: false
         }
     },
     type: 'object',
