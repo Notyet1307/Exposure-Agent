@@ -4655,3 +4655,162 @@ def test_runner_requires_the_cloudatlas_run_credential_before_establishing(
             ).one()
             == 0
         )
+
+
+def test_confirmed_first_run_rejects_changed_inputs_before_launch(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client, headers=superuser_token_headers, project=project
+    )
+    url = f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs"
+    ready = client.get(url, headers=superuser_token_headers).json()
+    confirmed = ready["input_preview"]["confirmation_input_hash"]
+    assert len(confirmed) == 64
+    # The external source's identity drifts after the user confirmed the preview.
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient,
+        "current_fingerprint",
+        lambda _client, _source: CloudAtlasFingerprint(value="2" * 64),
+    )
+    response = client.post(
+        url,
+        headers={**superuser_token_headers, "Idempotency-Key": str(uuid.uuid4())},
+        json={"confirmation_input_hash": confirmed},
+    )
+    assert response.status_code == 409
+    assert not client.get(url, headers=superuser_token_headers).json()["data"]
+    with Session(engine) as session:
+        stored = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored is not None and stored.governance_launch_trigger_id is None
+
+
+def test_confirmed_launch_replays_original_control_and_rejects_conflicting_hash(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client, headers=superuser_token_headers, project=project
+    )
+    url = f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs"
+    confirmed = client.get(url, headers=superuser_token_headers).json()[
+        "input_preview"
+    ]["confirmation_input_hash"]
+    headers = {**superuser_token_headers, "Idempotency-Key": str(uuid.uuid4())}
+    starts: list[str] = []
+
+    def start(
+        _client: object,
+        *,
+        client_request_id: str,
+        environment: dict[str, str],
+        session_id: str | None = None,
+    ) -> AgentComposeRunStart:
+        del environment, session_id
+        starts.append(client_request_id)
+        return AgentComposeRunStart(
+            run_id=AgentComposeClient().expected_run_id(client_request_id),
+            started=True,
+            status="RUN_STATUS_PENDING",
+        )
+
+    monkeypatch.setattr(AgentComposeClient, "start_governance_run", start)
+    first = client.post(
+        url, headers=headers, json={"confirmation_input_hash": confirmed}
+    )
+    assert first.status_code == 202
+    control_id = first.json()["agent_compose_run_id"]
+    monkeypatch.setattr(
+        AgentComposeClient,
+        "get_run",
+        lambda _client, _id: AgentComposeRunStart(
+            run_id=control_id, started=False, status="RUN_STATUS_PENDING"
+        ),
+    )
+    # A change in the external fingerprint cannot change an already reserved intent.
+    monkeypatch.setattr(
+        OctobusCloudAtlasClient,
+        "current_fingerprint",
+        lambda _client, _source: CloudAtlasFingerprint(value="2" * 64),
+    )
+    replay = client.post(
+        url, headers=headers, json={"confirmation_input_hash": confirmed}
+    )
+    assert replay.status_code == 200
+    assert replay.json()["agent_compose_run_id"] == control_id
+    conflict = client.post(
+        url, headers=headers, json={"confirmation_input_hash": "f" * 64}
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "run_confirmation_conflict"
+    assert len(starts) == 1
+    with Session(engine) as session:
+        stored = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored is not None and stored.governance_launch_input_hash == confirmed
+
+
+def test_changed_netflow_selection_invalidates_confirmation_without_reservation(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("fixture-capset-token")
+    )
+    _mock_cloudatlas(monkeypatch)
+    project = _create_project(client, superuser_token_headers)
+    _prepare_ready_project(
+        client=client, headers=superuser_token_headers, project=project
+    )
+    url = f"{settings.API_V1_STR}/projects/{project['id']}/governance-runs"
+    confirmed = client.get(url, headers=superuser_token_headers).json()[
+        "input_preview"
+    ]["confirmation_input_hash"]
+    dataset = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/netflow-datasets",
+        headers=superuser_token_headers,
+        files={
+            "file": (
+                "flow.csv",
+                b"IP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT\n192.0.2.10,192.0.2.20,6,443,80\n",
+                "text/csv",
+            )
+        },
+    )
+    assert dataset.status_code == 201
+    assert (
+        client.post(
+            f"{settings.API_V1_STR}/projects/{project['id']}/netflow-datasets/{dataset.json()['id']}/select",
+            headers=superuser_token_headers,
+        ).status_code
+        == 200
+    )
+    response = client.post(
+        url,
+        headers={**superuser_token_headers, "Idempotency-Key": str(uuid.uuid4())},
+        json={"confirmation_input_hash": confirmed},
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "run_inputs_changed"
+    with Session(engine) as session:
+        stored = session.get(Project, uuid.UUID(str(project["id"])))
+        assert stored is not None and stored.governance_launch_trigger_id is None

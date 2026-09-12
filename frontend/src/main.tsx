@@ -19,6 +19,8 @@ OpenAPI.TOKEN = async () => {
   return localStorage.getItem("access_token") || ""
 }
 
+const initialAccountToken = localStorage.getItem("access_token")
+
 const handleApiError = (error: Error) => {
   if (!(error instanceof ApiError)) return
   const detail =
@@ -32,6 +34,13 @@ const handleApiError = (error: Error) => {
       error.request.url === "/api/v1/users/me" &&
       detail === "User not found")
   if (!localAuthenticationFailed) return
+  void queryClient.cancelQueries()
+  queryClient.clear()
+  // An old request must not log out an account that signed in in another tab.
+  if (localStorage.getItem("access_token") !== initialAccountToken) {
+    window.location.href = localStorage.getItem("access_token") ? "/" : "/login"
+    return
+  }
   localStorage.removeItem("access_token")
   window.location.href = "/login"
 }
@@ -42,6 +51,17 @@ const queryClient = new QueryClient({
   mutationCache: new MutationCache({
     onError: handleApiError,
   }),
+})
+
+window.addEventListener("storage", (event) => {
+  if (
+    (event.key === "access_token" || event.key === null) &&
+    localStorage.getItem("access_token") !== initialAccountToken
+  ) {
+    void queryClient.cancelQueries()
+    queryClient.clear()
+    window.location.href = localStorage.getItem("access_token") ? "/" : "/login"
+  }
 })
 
 const router = createRouter({ routeTree })

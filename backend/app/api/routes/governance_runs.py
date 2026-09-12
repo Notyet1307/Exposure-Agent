@@ -15,15 +15,20 @@ from app.domain import governance_runs as governance_run_service
 from app.domain.governance_publication import COMPLETED_RUN_STATUSES, is_published_run
 from app.domain.models import (
     AuditEvent,
+    CustomerUpload,
     GovernanceRun,
     GovernanceRunActionPublic,
+    GovernanceRunInputPreview,
     GovernanceRunsPublic,
     GovernanceRunStatus,
     GovernanceRunTriggerPublic,
+    GovernanceRunTriggerRequest,
+    NetFlowDataset,
     Project,
     ProjectRole,
     RunStep,
     RunStepStatus,
+    SourceInstance,
 )
 from app.integrations.agent_compose import (
     AgentComposeBoundaryError,
@@ -34,6 +39,8 @@ from app.integrations.agent_compose import (
 router = APIRouter(prefix="/projects", tags=["governance-runs"])
 
 _ERROR_MESSAGES = {
+    "run_inputs_changed": "Inputs changed after confirmation. Review and confirm them again.",
+    "run_confirmation_conflict": "This request is already bound to different confirmed inputs.",
     "run_idempotency_key_required": "Provide a stable Idempotency-Key.",
     "run_customer_upload_not_ready": (
         "Select a validated CustomerUpload before triggering a Run."
@@ -190,14 +197,39 @@ def read_governance_runs(
         else None
     )
     readiness_code: str | None = None
+    input_preview = None
     if project.archived_at is not None:
         readiness_code = "run_project_archived"
     else:
         try:
-            governance_run_service.require_trigger_readiness(
+            pinned = governance_run_service.require_trigger_readiness(
                 session=session,
                 project=project,
                 verify_current_fingerprint=False,
+            )
+            upload = session.get(CustomerUpload, pinned.customer_upload_id)
+            source = session.get(SourceInstance, pinned.source_instance_id)
+            dataset = (
+                session.get(NetFlowDataset, pinned.netflow_dataset_id)
+                if pinned.netflow_dataset_id
+                else None
+            )
+            assert upload is not None and source is not None
+            input_preview = GovernanceRunInputPreview(
+                confirmation_input_hash=pinned.input_hash(),
+                customer_upload_id=upload.id,
+                customer_filename=upload.display_filename,
+                customer_record_count=upload.record_count,
+                customer_profile_version=upload.profile_version,
+                customer_accepted_at=upload.created_at,
+                source_instance_id=source.id,
+                source_instance_name=source.instance_id,
+                source_fingerprint=pinned.cloudatlas_validated_fingerprint,
+                source_validated_at=source.validated_at,
+                netflow_dataset_id=dataset.id if dataset else None,
+                netflow_filename=dataset.display_filename if dataset else None,
+                netflow_record_count=dataset.raw_record_count if dataset else None,
+                netflow_accepted_at=dataset.created_at if dataset else None,
             )
         except governance_run_service.GovernanceRunStateError as error:
             readiness_code = error.code
@@ -205,7 +237,9 @@ def read_governance_runs(
         session=session, project_id=project.id
     )
     run_views = [
-        governance_run_service.governance_run_public(session=session, run=run)
+        governance_run_service.governance_run_public(
+            session=session, run=run
+        ).model_copy(update={"published": is_published_run(run)})
         for run in runs
     ]
     if (
@@ -295,6 +329,8 @@ def read_governance_runs(
         ready=readiness_code is None,
         readiness_code=readiness_code,
         launch_blocking_code=launch_blocking_code,
+        input_preview=input_preview,
+        can_operate=has_operator_access > 0 and project.archived_at is None,
     )
 
 
@@ -311,6 +347,7 @@ def trigger_governance_run(
     response: Response,
     request: Request,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    confirmation: GovernanceRunTriggerRequest | None = None,
 ) -> Any:
     trigger_id = _trigger_id(idempotency_key)
     project = get_authorized_project(
@@ -321,6 +358,63 @@ def trigger_governance_run(
         writable=True,
         lock=True,
     )
+    if confirmation is not None:
+        fixed = session.exec(
+            select(GovernanceRun).where(
+                GovernanceRun.project_id == project.id,
+                GovernanceRun.tenant_id == project.tenant_id,
+                GovernanceRun.trigger_id == trigger_id,
+            )
+        ).one_or_none()
+        bound_hash = (
+            fixed.input_hash
+            if fixed
+            else (
+                project.governance_launch_input_hash
+                if project.governance_launch_trigger_id == trigger_id
+                else None
+            )
+        )
+        if (
+            fixed is not None or bound_hash is not None
+        ) and bound_hash != confirmation.confirmation_input_hash:
+            raise _run_action_error("run_confirmation_conflict")
+        if fixed is not None:
+            response.status_code = status.HTTP_200_OK
+            return GovernanceRunTriggerPublic(
+                accepted=False,
+                agent_compose_run_id=AgentComposeClient().expected_run_id(
+                    f"{project.id}:{trigger_id}"
+                ),
+                agent_compose_status="BUSINESS_RUN_ESTABLISHED",
+                governance_run_id=fixed.id,
+            )
+        if bound_hash is not None:
+            recovery_client = AgentComposeClient()
+            try:
+                reconciled = governance_run_service.reconcile_launch_reservation(
+                    session=session,
+                    project=project,
+                    client=recovery_client,
+                    actor_subject=str(current_user.id),
+                    request_ip=get_request_ip_address(request),
+                )
+                if reconciled == trigger_id:
+                    session.commit()
+                    raise _run_action_error("run_launch_terminal_use_new_trigger")
+                control = recovery_client.get_run(
+                    recovery_client.expected_run_id(f"{project.id}:{trigger_id}")
+                )
+            except AgentComposeBoundaryError as error:
+                raise _agent_compose_http_error(error)
+            if control is not None:
+                response.status_code = status.HTTP_200_OK
+                return GovernanceRunTriggerPublic(
+                    accepted=False,
+                    agent_compose_run_id=control.run_id,
+                    agent_compose_status=control.status,
+                    governance_run_id=None,
+                )
     latest_run = session.exec(
         select(GovernanceRun)
         .where(
@@ -483,6 +577,16 @@ def trigger_governance_run(
             after_data={"reason": readiness_error.code},
         )
         raise _state_http_error(readiness_error)
+    if (
+        confirmation is not None
+        and pinned.input_hash() != confirmation.confirmation_input_hash
+    ):
+        session.rollback()
+        raise _run_action_error(
+            "run_confirmation_conflict"
+            if project.governance_launch_trigger_id == trigger_id
+            else "run_inputs_changed"
+        )
     try:
         launch_reserved = governance_run_service.reserve_run_launch(
             session=session,

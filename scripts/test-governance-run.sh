@@ -55,11 +55,13 @@ finish() {
               --file /config/agent-compose.yml inspect run "$run_id" --json || true
           done
       ' || true
-    while read -r container_id; do
-      docker logs --tail 200 "$container_id" || true
-    done < <(
-      docker ps --all --quiet --filter ancestor=governance-runner:latest
-    )
+    runner_image_for_diagnostics="$(docker compose "${compose_files[@]}" config --format json |
+      python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["governance-runner-image"]["image"])')" || runner_image_for_diagnostics=""
+    if [[ "$runner_image_for_diagnostics" == *":$RUNNER_BUILD_VERSION" ]]; then
+      while read -r container_id; do
+        docker logs --tail 200 "$container_id" || true
+      done < <(docker ps --all --quiet --filter "ancestor=$runner_image_for_diagnostics")
+    fi
   fi
   stack_cleanup
   cleanup_artifacts
@@ -69,13 +71,36 @@ finish() {
 }
 trap finish EXIT
 
+without_model=0
+if [[ "${1:-}" == "--without-model" ]]; then
+  without_model=1
+  shift
+fi
+test_files=("$@")
+if ((${#test_files[@]} == 0)); then
+  test_files=(tests/governance-run.spec.ts tests/first-comparison.spec.ts)
+fi
 stack_cleanup
 docker compose "${compose_files[@]}" build playwright
 docker compose "${compose_files[@]}" up --build -d --wait frontend
 ./scripts/test-model-qualification-fixture.sh
 ./scripts/qualify-model.sh
+if ((without_model)); then
+  # Keep the existing qualification checks, then test this stack's backend without a model.
+  cat > "$test_root/without-model.yml" <<'YAML'
+services:
+  backend:
+    environment:
+      MODEL_API_KEY: ""
+      MODEL_API_ENDPOINT: ""
+YAML
+  compose_files+=(-f "$test_root/without-model.yml")
+  docker compose "${compose_files[@]}" up -d --no-deps --force-recreate --wait backend
+  docker compose "${compose_files[@]}" exec -T backend python -c \
+    'from app.core.config import settings; assert not settings.MODEL_API_KEY.get_secret_value(); assert not settings.MODEL_API_ENDPOINT; print("backend model unconfigured: PASS")'
+fi
 docker compose "${compose_files[@]}" run --rm --no-deps \
-  -e RUN_GOVERNANCE_E2E=1 playwright \
-  bunx playwright test tests/governance-run.spec.ts \
+  -e RUN_GOVERNANCE_E2E=1 -e EXPECT_BACKEND_MODEL_UNCONFIGURED="$without_model" playwright \
+  bunx playwright test "${test_files[@]}" \
   --project=chromium --workers=1 --retries=0 --fail-on-flaky-tests \
   --trace=retain-on-failure

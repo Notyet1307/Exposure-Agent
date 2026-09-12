@@ -549,17 +549,15 @@ def test_openapi_exposes_supported_project_and_read_only_audit_contracts(
         "patch",
     }
     assert set(
-        paths[
-            f"{settings.API_V1_STR}/projects/{{project_id}}/customer-upload-profile"
-        ]
+        paths[f"{settings.API_V1_STR}/projects/{{project_id}}/customer-upload-profile"]
     ) == {"get"}
     customer_uploads_path = (
         f"{settings.API_V1_STR}/projects/{{project_id}}/customer-uploads"
     )
     assert set(paths[customer_uploads_path]) == {"get", "post"}
-    upload_file_schema = paths[customer_uploads_path]["post"]["requestBody"][
-        "content"
-    ]["multipart/form-data"]["schema"]["properties"]["file"]
+    upload_file_schema = paths[customer_uploads_path]["post"]["requestBody"]["content"][
+        "multipart/form-data"
+    ]["schema"]["properties"]["file"]
     assert upload_file_schema["type"] == "string"
     assert upload_file_schema["format"] == "binary"
     select_upload_path = f"{customer_uploads_path}/{{upload_id}}/select"
@@ -597,3 +595,104 @@ def test_openapi_exposes_supported_project_and_read_only_audit_contracts(
     ]
     assert set(paths[f"{settings.API_V1_STR}/audit-events/"]) == {"get"}
     assert not any("tenant" in path for path in paths)
+
+
+def test_project_creation_replays_the_same_intent_after_lost_response(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    key = str(uuid.uuid4())
+    name = f"First comparison {uuid.uuid4()}"
+    headers = {**superuser_token_headers, "Idempotency-Key": key}
+    first = client.post(
+        f"{settings.API_V1_STR}/projects/",
+        headers=headers,
+        json={"name": f"  {name}  "},
+    )
+    replay = client.post(
+        f"{settings.API_V1_STR}/projects/",
+        headers=headers,
+        json={"name": name},
+    )
+    assert first.status_code == 201
+    assert replay.status_code in (200, 201)
+    assert first.json()["id"] == replay.json()["id"]
+    assert replay.json()["name"] == name
+    conflict = client.post(
+        f"{settings.API_V1_STR}/projects/",
+        headers=headers,
+        json={"name": "Different intent"},
+    )
+    assert conflict.status_code == 409
+    audit = client.get(f"{settings.API_V1_STR}/audit-events/", headers=headers)
+    assert (
+        sum(
+            event["action"] == "project.created"
+            and event["project_id"] == first.json()["id"]
+            for event in audit.json()["data"]
+        )
+        == 1
+    )
+
+
+def test_concurrent_creation_has_one_project_and_preserves_renamed_result(
+    client: TestClient, superuser_token_headers: dict[str, str]
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    name = f"Concurrent {uuid.uuid4()}"
+    headers = {**superuser_token_headers, "Idempotency-Key": str(uuid.uuid4())}
+    url = f"{settings.API_V1_STR}/projects/"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                lambda _: client.post(url, headers=headers, json={"name": name}),
+                range(2),
+            )
+        )
+    assert all(result.status_code in (200, 201) for result in results)
+    assert results[0].json()["id"] == results[1].json()["id"]
+    created = results[0].json()
+    renamed = client.patch(
+        f"{url}{created['id']}",
+        headers=headers,
+        json={"name": "Renamed after creation"},
+    )
+    assert renamed.status_code == 200
+    replay = client.post(url, headers=headers, json={"name": name})
+    assert replay.json()["id"] == created["id"]
+    assert replay.json()["name"] == "Renamed after creation"
+    audit = client.get(f"{settings.API_V1_STR}/audit-events/", headers=headers).json()
+    assert (
+        sum(
+            event["action"] == "project.created"
+            and event["project_id"] == created["id"]
+            for event in audit["data"]
+        )
+        == 1
+    )
+
+
+def test_creation_rejects_blank_names_and_unprivileged_replay(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    url = f"{settings.API_V1_STR}/projects/"
+    key = str(uuid.uuid4())
+    headers = {**superuser_token_headers, "Idempotency-Key": key}
+    assert client.post(url, headers=headers, json={"name": "   "}).status_code == 422
+    assert client.post(url, headers=headers, json={"name": "valid"}).status_code == 201
+    assert (
+        client.post(
+            url,
+            headers={**normal_user_token_headers, "Idempotency-Key": key},
+            json={"name": "valid"},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            url, headers=headers, json={"name": "valid", "tenant_id": str(uuid.uuid4())}
+        ).status_code
+        == 422
+    )

@@ -45,6 +45,11 @@ class ProjectBase(SQLModel):
 class ProjectCreate(ProjectBase):
     model_config = SQLModel.model_config | {"extra": "forbid"}
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
 
 class ProjectUpdate(ProjectBase):
     model_config = SQLModel.model_config | {"extra": "forbid"}
@@ -99,6 +104,17 @@ class Project(ProjectBase, table=True):
             initially="DEFERRED",
         ),
         UniqueConstraint("id", "tenant_id", name="uq_projects_id_tenant"),
+        UniqueConstraint(
+            "tenant_id",
+            "creation_actor",
+            "creation_key",
+            name="uq_projects_creation_key",
+        ),
+        CheckConstraint(
+            "(creation_actor IS NULL AND creation_key IS NULL AND creation_name IS NULL) OR "
+            "(creation_actor IS NOT NULL AND creation_key IS NOT NULL AND creation_name IS NOT NULL)",
+            name="ck_projects_creation_intent",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -124,6 +140,9 @@ class Project(ProjectBase, table=True):
     current_customer_upload_id: uuid.UUID | None = Field(default=None, index=True)
     current_netflow_dataset_id: uuid.UUID | None = Field(default=None, index=True)
     latest_completed_run_id: uuid.UUID | None = Field(default=None, index=True)
+    creation_actor: str | None = Field(default=None, max_length=255)
+    creation_key: str | None = Field(default=None, max_length=255)
+    creation_name: str | None = Field(default=None, max_length=255)
     governance_launch_trigger_id: str | None = Field(default=None, max_length=255)
     governance_launch_control_run_id: str | None = Field(default=None, max_length=64)
     governance_launch_input_hash: str | None = Field(default=None, max_length=64)
@@ -2445,6 +2464,28 @@ class GovernanceRunPublic(SQLModel):
     can_retry: bool = False
     can_rerun: bool = False
     blocking_code: str | None = None
+    published: bool = False
+
+
+class GovernanceRunTriggerRequest(SQLModel):
+    model_config = SQLModel.model_config | {"extra": "forbid"}
+    confirmation_input_hash: str = PydanticField(pattern="^[0-9a-f]{64}$")
+
+
+class GovernanceRunInputPreview(GovernanceRunTriggerRequest):
+    customer_upload_id: uuid.UUID
+    customer_filename: str
+    customer_record_count: int
+    customer_profile_version: int
+    customer_accepted_at: datetime
+    source_instance_id: uuid.UUID
+    source_instance_name: str
+    source_fingerprint: str
+    source_validated_at: datetime | None
+    netflow_dataset_id: uuid.UUID | None
+    netflow_filename: str | None
+    netflow_record_count: int | None
+    netflow_accepted_at: datetime | None
 
 
 class GovernanceRunsPublic(SQLModel):
@@ -2454,6 +2495,8 @@ class GovernanceRunsPublic(SQLModel):
     ready: bool
     readiness_code: str | None
     launch_blocking_code: str | None = None
+    input_preview: GovernanceRunInputPreview | None = None
+    can_operate: bool = False
 
 
 class IPObservationPublic(SQLModel):

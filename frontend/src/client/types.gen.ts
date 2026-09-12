@@ -337,6 +337,23 @@ export type GovernanceRunActionPublic = {
     code?: (string | null);
 };
 
+export type GovernanceRunInputPreview = {
+    confirmation_input_hash: string;
+    customer_upload_id: string;
+    customer_filename: string;
+    customer_record_count: number;
+    customer_profile_version: number;
+    customer_accepted_at: string;
+    source_instance_id: string;
+    source_instance_name: string;
+    source_fingerprint: string;
+    source_validated_at: (string | null);
+    netflow_dataset_id: (string | null);
+    netflow_filename: (string | null);
+    netflow_record_count: (number | null);
+    netflow_accepted_at: (string | null);
+};
+
 export type GovernanceRunLineagePublic = {
     projection_version: "published-lineage/v1";
     project_id: string;
@@ -394,6 +411,7 @@ export type GovernanceRunPublic = {
     can_retry?: boolean;
     can_rerun?: boolean;
     blocking_code?: (string | null);
+    published?: boolean;
 };
 
 export type GovernanceRunSourcePublic = {
@@ -432,6 +450,8 @@ export type GovernanceRunsPublic = {
     ready: boolean;
     readiness_code: (string | null);
     launch_blocking_code?: (string | null);
+    input_preview?: (GovernanceRunInputPreview | null);
+    can_operate?: boolean;
 };
 
 export type GovernanceRunTriggerPublic = {
@@ -439,6 +459,10 @@ export type GovernanceRunTriggerPublic = {
     agent_compose_run_id: string;
     agent_compose_status: string;
     governance_run_id: (string | null);
+};
+
+export type GovernanceRunTriggerRequest = {
+    confirmation_input_hash: string;
 };
 
 export type HTTPValidationError = {
@@ -1110,6 +1134,7 @@ export type GovernanceRunsReadGovernanceRunsResponse = (GovernanceRunsPublic);
 export type GovernanceRunsTriggerGovernanceRunData = {
     idempotencyKey?: (string | null);
     projectId: string;
+    requestBody?: (GovernanceRunTriggerRequest | null);
 };
 
 export type GovernanceRunsTriggerGovernanceRunResponse = (GovernanceRunTriggerPublic);
@@ -1262,6 +1287,7 @@ export type ProjectMembershipsRegrantProjectMembershipData = {
 export type ProjectMembershipsRegrantProjectMembershipResponse = (ProjectMembershipPublic);
 
 export type ProjectsCreateProjectData = {
+    idempotencyKey?: (string | null);
     requestBody: ProjectCreate;
 };
 

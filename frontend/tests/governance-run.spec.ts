@@ -15,7 +15,7 @@ import {
   firstSuperuserPassword,
   testApiUrl,
 } from "./config"
-import { expect, test } from "./fixtures"
+import { expect, type Page, test } from "./fixtures"
 import { randomEmail, randomPassword } from "./utils/random"
 
 const validWorkbook = fileURLToPath(
@@ -42,11 +42,25 @@ test.skip(
 )
 test.describe.configure({ mode: "serial" })
 
+function publishedRunCard(page: Page) {
+  const runId = new URL(page.url()).searchParams.get("run")
+  expect(runId).toBeTruthy()
+  return page
+    .locator('[data-slot="card"]')
+    .filter({ has: page.getByText(runId!, { exact: true }) })
+}
+
 test("Operator completes Retry and explicit Rerun recovery with real Sessions", async ({
   page,
   request,
 }) => {
   test.setTimeout(300_000)
+  // Each scenario owns its fixture state, independent of other test files.
+  const reset = await request.post(
+    "http://cloudatlas-fixture:18080/fixture/set-assets",
+    { data: { items: [{ id: 1, ip: "192.0.2.10", status: "valid" }] } },
+  )
+  expect(reset.ok()).toBe(true)
   OpenAPI.BASE = testApiUrl
   const adminToken = await LoginService.loginAccessToken({
     formData: {
@@ -113,13 +127,19 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
 
   await page.getByRole("link", { name: "Runs", exact: true }).click()
   await expect(page.getByText("Inputs ready")).toBeVisible()
+  await page.goto(`/?project=${project.id}&view=runs`)
+  await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(
     page.getByText(
       "Governance Session accepted. Waiting for the Runner to start.",
     ),
   ).toBeVisible()
-  await expect(page.getByText("COMPLETED", { exact: true })).toBeVisible({
+  await expect(page).toHaveURL(/view=overview/, { timeout: 120_000 })
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await expect(
+    publishedRunCard(page).getByText("COMPLETED", { exact: true }),
+  ).toBeVisible({
     timeout: 120_000,
   })
   for (const step of [
@@ -136,7 +156,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   }
   await expect(page.getByText("CUSTOMER_UPLOAD")).toBeVisible()
   await expect(page.getByText("CLOUDATLAS", { exact: true })).toBeVisible()
-  await expect(page.getByText("1 records")).toHaveCount(2)
+  await expect(page.getByText("1 records", { exact: true })).toHaveCount(2)
   const customerSnapshotDetails = page
     .getByText("CUSTOMER_UPLOAD", { exact: true })
     .locator("..")
@@ -165,6 +185,8 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     "http://cloudatlas-fixture:18080/fixture/fail-next",
   )
   expect(armed.ok()).toBeTruthy()
+  await page.goto(`/?project=${project.id}&view=runs`)
+  await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect
     .poll(
@@ -250,6 +272,8 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   await expect(page.getByRole("button", { name: "Trigger Run" })).toBeVisible({
     timeout: 5_000,
   })
+  await page.goto(`/?project=${project.id}&view=runs`)
+  await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect
     .poll(
@@ -482,8 +506,14 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   })
   await page.getByRole("link", { name: "Runs", exact: true }).click()
   await expect(page.getByText("Inputs ready")).toBeVisible()
+  await page.goto(`/?project=${project.id}&view=runs`)
+  await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
-  await expect(page.getByText("COMPLETED", { exact: true })).toBeVisible({
+  await expect(page).toHaveURL(/view=overview/, { timeout: 120_000 })
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await expect(
+    publishedRunCard(page).getByText("COMPLETED", { exact: true }),
+  ).toBeVisible({
     timeout: 120_000,
   })
   const firstRun = await waitForLatestStatus("COMPLETED")
@@ -532,7 +562,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await expect(
     observationEvidence.getByText("row:3", { exact: true }),
   ).toBeVisible()
-  await page.getByRole("button", { name: "Close" }).click()
+  await page.getByRole("button", { name: "Close", exact: true }).click()
 
   await page.getByRole("link", { name: "Inputs", exact: true }).click()
   await page.getByLabel("XLSX file").setInputFiles(stage4SecondWorkbook)
@@ -556,8 +586,14 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     },
   })
   await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await page.goto(`/?project=${project.id}&view=runs`)
+  await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
-  await expect(page.getByText("COMPLETED", { exact: true })).toBeVisible({
+  await expect(page).toHaveURL(/view=overview/, { timeout: 120_000 })
+  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await expect(
+    publishedRunCard(page).getByText("COMPLETED", { exact: true }),
+  ).toBeVisible({
     timeout: 120_000,
   })
   const secondRun = await waitForLatestStatus("COMPLETED", firstRun.id)
@@ -575,7 +611,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await closedRow.getByRole("button", { name: "View details" }).click()
   await expect(page.getByRole("dialog")).toContainText("Transition · CLOSED")
   await expect(page.getByRole("dialog")).toContainText("CLOUDATLAS")
-  await page.getByRole("button", { name: "Close" }).click()
+  await page.getByRole("button", { name: "Close", exact: true }).click()
   const closedFindings = await IpResultsService.readFindings({
     projectId: project.id,
     status: "CLOSED",
@@ -597,6 +633,8 @@ test("Project readers see published IP lifecycle results and safe failure fallba
 
   await request.post(`${stage4FixtureUrl}/fixture/fail-next`)
   await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await page.goto(`/?project=${project.id}&view=runs`)
+  await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   const failedRun = await waitForLatestStatus("FAILED_DATA", secondRun.id)
   expect(failedRun.id).not.toBe(secondRun.id)
@@ -606,7 +644,10 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   ])
   await expect(page.getByText("FAILED_DATA", { exact: true })).toBeVisible()
   await expect(
-    page.getByText("COMPLETED", { exact: true }).first(),
+    page
+      .locator('[data-slot="card"]')
+      .filter({ has: page.getByText(secondRun.id, { exact: true }) })
+      .getByText("COMPLETED", { exact: true }),
   ).toBeVisible()
 
   await page.getByRole("link", { name: "Current assets", exact: true }).click()

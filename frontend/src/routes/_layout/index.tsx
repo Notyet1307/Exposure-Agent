@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { AlertCircle, Archive, Upload } from "lucide-react"
 import { type FormEvent, useEffect, useRef, useState } from "react"
 
@@ -11,11 +11,13 @@ import {
   ProjectsService,
 } from "@/client"
 import CloudAtlasSources from "@/components/CloudAtlasSources"
+import CreateProject, { CreateProjectLink } from "@/components/CreateProject"
 import Findings from "@/components/Findings"
 import GovernanceReports from "@/components/GovernanceReports"
 import GovernanceRuns from "@/components/GovernanceRuns"
 import IPAssets from "@/components/IPAssets"
 import NetFlowDatasets from "@/components/NetFlowDatasets"
+import ProjectPreparation from "@/components/ProjectPreparation"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -218,6 +220,7 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
   const { t, message, formatDate } = useI18n()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const currentInputTitle = useRef<HTMLDivElement>(null)
   const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
   const search = useWorkspaceSearch()
   const navigate = useWorkspaceNavigate()
@@ -283,6 +286,7 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
           queryKey: ["governance-runs", project.id],
         }),
       ])
+      currentInputTitle.current?.focus()
     },
     onError: () =>
       setSelectionMessage("The current Project input could not be changed."),
@@ -379,7 +383,14 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>{t("Current Project input", "项目当前输入")}</CardTitle>
+          <CardTitle
+            ref={currentInputTitle}
+            role="heading"
+            aria-level={3}
+            tabIndex={-1}
+          >
+            {t("Current Project input", "项目当前输入")}
+          </CardTitle>
           <CardDescription>
             {t(
               "Governance uses one explicitly selected accepted CustomerUpload.",
@@ -577,6 +588,7 @@ function Dashboard() {
       "项目工作区 - Exposure Agent",
     )
   }, [t])
+  if (view === "create") return <CreateProject />
   if (projects.isPending)
     return <p role="status">{t("Loading Projects…", "正在加载项目…")}</p>
   if (projects.isError)
@@ -592,7 +604,18 @@ function Dashboard() {
     )
   if (!projects.data.data.length)
     return (
-      <p>{t("No accessible Projects are available.", "暂无可访问的项目。")}</p>
+      <section className="mx-auto max-w-2xl space-y-5 py-10">
+        <h1 className="text-3xl font-semibold tracking-tight">
+          {t("Your first comparison starts here", "从这里开始首轮比对")}
+        </h1>
+        <p className="text-muted-foreground">
+          {t(
+            "No accessible projects yet. Create one to prepare your asset register and external observations. If you cannot create projects, ask an administrator for access.",
+            "暂无可访问的项目。创建项目后准备资产台账和外部观测；没有创建权限时，请联系管理员授予访问权限。",
+          )}
+        </p>
+        <CreateProjectLink />
+      </section>
     )
   if (!project)
     return (
@@ -611,17 +634,35 @@ function Dashboard() {
     case "inputs":
       content = (
         <>
-          <ProjectInputs key={project.id} project={project} />
-          <NetFlowDatasets
-            key={`netflow:${project.id}`}
+          <ProjectPreparation
+            key={`preparation:${project.id}`}
             projectId={project.id}
             archived={project.archived_at !== null}
           />
+          <div id="customer-inputs" tabIndex={-1} className="scroll-mt-32">
+            <ProjectInputs key={project.id} project={project} />
+          </div>
+          <div id="netflow-inputs" tabIndex={-1} className="scroll-mt-32">
+            <NetFlowDatasets
+              key={`netflow:${project.id}`}
+              projectId={project.id}
+              archived={project.archived_at !== null}
+            />
+          </div>
         </>
       )
       break
     case "cloudatlas":
-      content = <CloudAtlasSources key={project.id} projectId={project.id} />
+      content = (
+        <>
+          <ProjectPreparation
+            key={`preparation:${project.id}`}
+            projectId={project.id}
+            archived={project.archived_at !== null}
+          />
+          <CloudAtlasSources key={project.id} projectId={project.id} />
+        </>
+      )
       break
     case "runs":
       content = <GovernanceRuns key={project.id} projectId={project.id} />
@@ -659,34 +700,37 @@ function Dashboard() {
       } else if (
         reports.isPending ||
         (runId === undefined &&
-          (reports.isFetching || latest.isPending || latest.isFetching))
+          (reports.isFetching ||
+            latest.isPending ||
+            latest.isFetching ||
+            latest.data !== null))
       ) {
         content = (
           <p role="status">
             {t("Loading published results…", "正在加载已发布结果…")}
           </p>
         )
-      } else if (!runId || !report) {
-        content = (
-          <Alert>
-            <AlertTitle>
-              {runId
-                ? t("Published Run unavailable", "已发布运行不可用")
-                : t("Results are being prepared", "结果准备中")}
-            </AlertTitle>
-            <AlertDescription>
-              {runId
-                ? t(
-                    "This explicit Run is unavailable. No other Run has been substituted.",
-                    "所选运行不可用，未替换为其他运行。",
-                  )
-                : t(
-                    "No compatible published result is available. Use input, source and run management to prepare a result.",
-                    "暂无兼容的已发布结果，可通过输入、来源和运行管理准备结果。",
-                  )}
-            </AlertDescription>
-          </Alert>
-        )
+      } else if (runId === undefined || !report) {
+        content =
+          runId === undefined ? (
+            <ProjectPreparation
+              key={`preparation:${project.id}`}
+              projectId={project.id}
+              archived={project.archived_at !== null}
+            />
+          ) : (
+            <Alert>
+              <AlertTitle>
+                {t("Published Run unavailable", "已发布运行不可用")}
+              </AlertTitle>
+              <AlertDescription>
+                {t(
+                  "This explicit Run is unavailable. No other Run has been substituted.",
+                  "所选运行不可用，未替换为其他运行。",
+                )}
+              </AlertDescription>
+            </Alert>
+          )
       } else {
         content =
           view === "reports" ? (
@@ -708,8 +752,15 @@ function Dashboard() {
   }
   return (
     <div className="min-w-0 space-y-6">
-      <header>
+      <header className="flex flex-wrap items-start justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+        {view === "overview" && report && (
+          <Button asChild variant="outline">
+            <Link to="/" search={{ project: project.id, view: "inputs" }}>
+              {t("Start a new comparison", "开始新一轮比对")}
+            </Link>
+          </Button>
+        )}
         {view !== "overview" && view !== "reports" && (
           <p className="text-sm text-muted-foreground">
             {t(

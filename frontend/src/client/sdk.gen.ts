@@ -530,6 +530,7 @@ export class GovernanceRunsService {
      * @param data The data for the request.
      * @param data.projectId
      * @param data.idempotencyKey
+     * @param data.requestBody
      * @returns GovernanceRunTriggerPublic Successful Response
      * @throws ApiError
      */
@@ -543,6 +544,8 @@ export class GovernanceRunsService {
             headers: {
                 'Idempotency-Key': data.idempotencyKey
             },
+            body: data.requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: 'Validation Error'
             }
@@ -1052,6 +1055,7 @@ export class ProjectsService {
      * Create Project
      * @param data The data for the request.
      * @param data.requestBody
+     * @param data.idempotencyKey
      * @returns ProjectPublic Successful Response
      * @throws ApiError
      */
@@ -1059,6 +1063,9 @@ export class ProjectsService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/projects/',
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
             body: data.requestBody,
             mediaType: 'application/json',
             errors: {

@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from fastapi import (
     APIRouter,
     Depends,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -184,13 +185,29 @@ def create_project(
     project_in: ProjectCreate,
     current_user: CurrentUser,
     request: Request,
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> Any:
-    return project_service.create_project(
-        session=session,
-        project_in=project_in,
-        actor_subject=str(current_user.id),
-        ip_address=get_request_ip_address(request),
-    )
+    if idempotency_key is not None and (
+        not idempotency_key
+        or idempotency_key != idempotency_key.strip()
+        or len(idempotency_key) > 255
+        or any(ord(c) < 32 or ord(c) == 127 for c in idempotency_key)
+    ):
+        raise HTTPException(
+            status_code=400, detail={"code": "project_idempotency_key_invalid"}
+        )
+    try:
+        return project_service.create_project(
+            session=session,
+            project_in=project_in,
+            actor_subject=str(current_user.id),
+            ip_address=get_request_ip_address(request),
+            idempotency_key=idempotency_key,
+        )
+    except project_service.ProjectCreationConflict:
+        raise HTTPException(
+            status_code=409, detail={"code": "project_creation_conflict"}
+        )
 
 
 @router.get("/", response_model=ProjectsPublic)
@@ -285,9 +302,7 @@ def read_netflow_datasets(
     datasets = session.exec(
         select(NetFlowDataset)
         .where(*dataset_scope)
-        .order_by(
-            col(NetFlowDataset.created_at).desc(), col(NetFlowDataset.id).desc()
-        )
+        .order_by(col(NetFlowDataset.created_at).desc(), col(NetFlowDataset.id).desc())
         .offset(skip)
         .limit(limit)
     ).all()
