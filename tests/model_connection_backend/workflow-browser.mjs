@@ -1,7 +1,24 @@
 // Uses real backend replies in an owned synthetic stack; only forwards the API origin.
 import { chromium, expect } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
+import {createServer, request as httpRequest} from 'node:http'
+import {createHash} from 'node:crypto'
 const input=JSON.parse(readFileSync(0,'utf8'))
+// Serve the unchanged Compose frontend over loopback so secure-context APIs work.
+// This is only a local acceptance transport, not a product ingress override.
+let proxy
+if(input.create_published_run) {
+  const upstream=new URL(input.ui)
+  proxy=createServer((request,response)=>{
+    const forwarded=httpRequest(new URL(request.url,upstream),{method:request.method,headers:{...request.headers,host:upstream.host}},result=>{
+      response.writeHead(result.statusCode,result.headers);result.pipe(response)
+    })
+    forwarded.on('error',()=>{response.writeHead(502);response.end()})
+    request.pipe(forwarded)
+  })
+  await new Promise(resolve=>proxy.listen(0,'127.0.0.1',resolve))
+  input.ui='http://127.0.0.1:'+proxy.address().port
+}
 const browser=await chromium.launch()
 let step='open fixed Run'
 try {
@@ -64,6 +81,14 @@ try {
     calls.splice(0);replies.splice(0)
   }
   const {project_id:project,run_id:run,resource_id:resource}=fixture
+  const findingSnapshot=async()=>{
+    const response=await context.request.get(input.api+`/api/v1/projects/${project}/findings?limit=100`,{headers:{Authorization:'Bearer '+input.token}})
+    if(response.status()!==200)throw new Error('Finding readback failed')
+    const data=await response.json()
+    if(data.count>100)throw new Error('Finding snapshot truncated')
+    return createHash('sha256').update(JSON.stringify(data.data.sort((a,b)=>a.id.localeCompare(b.id)))).digest('hex')
+  }
+  const findingBefore=input.create_published_run?await findingSnapshot():null
   await page.goto(input.ui+`/?project=${project}&run=${run}&view=overview`)
   await expect(page.getByRole('region',{name:'AI workspace for this Run'})).toBeVisible({timeout:15000})
   await expect(page.getByText('Available',{exact:true})).toBeVisible()
@@ -115,11 +140,14 @@ try {
   if(result.run_id!==run || result.connection_version_id!==input.connection_version)throw new Error('report lost fixed identity')
   const investigation=await (await context.request.get(input.api+`/api/v1/projects/${project}/ai-investigations/${first.id}`,{headers:auth})).json()
   if(investigation.status!=='COMPLETED' || investigation.resource_id!==resource || investigation.run_id!==run || investigation.connection_version_id!==input.connection_version)throw new Error('investigation identity not fixed')
-  writeFileSync(input.output,JSON.stringify({status:'PASS',project_id:project,run_id:run,resource_id:resource,navigation_posts:0,shortcut_posts:0,creation_publication_calls:creationPublicationCalls,investigation:first.id,report:report.id,report_status:result.status,original_preserved:true,connection_version:result.connection_version_id,calls},null,2))
+  const findingAfter=input.create_published_run?await findingSnapshot():null
+  if(findingBefore!==findingAfter)throw new Error('AI workflow changed Finding facts')
+  await page.unrouteAll({behavior:'wait'})
+  writeFileSync(input.output,JSON.stringify({finding_before: findingBefore,finding_after: findingAfter,status:'PASS',project_id:project,run_id:run,resource_id:resource,navigation_posts:0,shortcut_posts:0,creation_publication_calls:creationPublicationCalls,investigation:first.id,report:report.id,report_status:result.status,original_preserved:true,connection_version:result.connection_version_id,calls},null,2))
   console.log('Real bounded AI workflow: PASS')
 } catch (error) {
   const message=String(error).replaceAll(input.token,'[REDACTED]')
   writeFileSync(input.output.replace('.json','-failure.json'),JSON.stringify({step,message},null,2))
   console.error('Real AI workflow failed at: '+step)
   process.exitCode=1
-} finally {await browser.close()}
+} finally {await browser.close();if(proxy){proxy.closeAllConnections();await new Promise(resolve=>proxy.close(resolve))}}
