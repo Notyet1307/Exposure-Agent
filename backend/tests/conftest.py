@@ -20,7 +20,9 @@ def db() -> Generator[Session]:
         yield session
         session.execute(
             text(
-                "TRUNCATE TABLE ip_source_comparison_facts, netflow_ip_activities, "
+                "TRUNCATE TABLE model_connection_leases, model_connection_operations, "
+                "model_connection_states, model_connection_versions, model_connection_secrets, "
+                "ip_source_comparison_facts, netflow_ip_activities, "
                 "model_qualification_results, source_snapshots, "
                 "run_steps, governance_runs, netflow_datasets, "
                 "source_instances, project_memberships, audit_events, "

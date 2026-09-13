@@ -16,6 +16,7 @@ from app.api.project_authorization import (
 from app.core.config import settings
 from app.core.time import get_datetime_utc
 from app.domain import ai_analysis_reports as service
+from app.domain.model_connections import ConnectionBinding, client_for_binding
 from app.domain.models import AnalysisReport, GovernanceRun, Project, ProjectRole
 from app.integrations.agent_compose import AgentComposeClient
 
@@ -105,7 +106,11 @@ def create_analysis_report(
     if active is not None:
         raise _error(service.AnalysisReportError("analysis_report_already_generating"))
     record_id = uuid.uuid4()
-    client = AgentComposeClient()
+    client = (
+        client_for_binding(binding)
+        if isinstance(binding, ConnectionBinding)
+        else AgentComposeClient()
+    )
     record = AnalysisReport(
         id=record_id,
         tenant_id=project.tenant_id,
@@ -114,6 +119,7 @@ def create_analysis_report(
         created_by_id=current_user.id,
         idempotency_key=idempotency_key,
         config_fingerprint=binding.config_fingerprint,
+        connection_version_id=getattr(binding, "connection_version_id", None),
         material_sha256=service.material_hash(material),
         material=material,
         sources=sources,

@@ -13,6 +13,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as LayoutRouteImport } from './routes/_layout'
 import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
+import { Route as LayoutAiSettingsRouteImport } from './routes/_layout/ai-settings'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
 import { Route as LayoutProjectsProjectIdRunsRunIdLineageRouteImport } from './routes/_layout/projects.$projectId.runs.$runId.lineage'
 import { Route as LayoutProjectsProjectIdRunsRunIdComparisonRouteImport } from './routes/_layout/projects.$projectId.runs.$runId.comparison'
@@ -34,6 +35,11 @@ const LayoutIndexRoute = LayoutIndexRouteImport.update({
 const LayoutSettingsRoute = LayoutSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => LayoutRoute,
+} as any)
+const LayoutAiSettingsRoute = LayoutAiSettingsRouteImport.update({
+  id: '/ai-settings',
+  path: '/ai-settings',
   getParentRoute: () => LayoutRoute,
 } as any)
 const LayoutAdminRoute = LayoutAdminRouteImport.update({
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/': typeof LayoutIndexRoute
   '/login': typeof LoginRoute
   '/admin': typeof LayoutAdminRoute
+  '/ai-settings': typeof LayoutAiSettingsRoute
   '/settings': typeof LayoutSettingsRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
@@ -65,6 +72,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/admin': typeof LayoutAdminRoute
+  '/ai-settings': typeof LayoutAiSettingsRoute
   '/settings': typeof LayoutSettingsRoute
   '/': typeof LayoutIndexRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   '/_layout': typeof LayoutRouteWithChildren
   '/login': typeof LoginRoute
   '/_layout/admin': typeof LayoutAdminRoute
+  '/_layout/ai-settings': typeof LayoutAiSettingsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
@@ -86,6 +95,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/admin'
+    | '/ai-settings'
     | '/settings'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
@@ -93,6 +103,7 @@ export interface FileRouteTypes {
   to:
     | '/login'
     | '/admin'
+    | '/ai-settings'
     | '/settings'
     | '/'
     | '/projects/$projectId/runs/$runId/comparison'
@@ -102,6 +113,7 @@ export interface FileRouteTypes {
     | '/_layout'
     | '/login'
     | '/_layout/admin'
+    | '/_layout/ai-settings'
     | '/_layout/settings'
     | '/_layout/'
     | '/_layout/projects/$projectId/runs/$runId/comparison'
@@ -143,6 +155,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutSettingsRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/ai-settings': {
+      id: '/_layout/ai-settings'
+      path: '/ai-settings'
+      fullPath: '/ai-settings'
+      preLoaderRoute: typeof LayoutAiSettingsRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/admin': {
       id: '/_layout/admin'
       path: '/admin'
@@ -169,6 +188,7 @@ declare module '@tanstack/react-router' {
 
 interface LayoutRouteChildren {
   LayoutAdminRoute: typeof LayoutAdminRoute
+  LayoutAiSettingsRoute: typeof LayoutAiSettingsRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
   LayoutProjectsProjectIdRunsRunIdComparisonRoute: typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
@@ -177,6 +197,7 @@ interface LayoutRouteChildren {
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminRoute: LayoutAdminRoute,
+  LayoutAiSettingsRoute: LayoutAiSettingsRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutIndexRoute: LayoutIndexRoute,
   LayoutProjectsProjectIdRunsRunIdComparisonRoute:

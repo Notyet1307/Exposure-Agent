@@ -159,6 +159,52 @@ export type CloudAtlasSourceValidationRequest = {
     capset_token: string;
 };
 
+export type ConnectionActionPublic = {
+    operation: OperationPublic;
+    state: ConnectionStatePublic;
+};
+
+export type ConnectionPublic = {
+    id: string;
+    name: string;
+    endpoint: string;
+    protocol: string;
+    model_identity: string;
+    validation_status: string;
+    validation_operation_id: (string | null);
+    created_at: string;
+    activated_at: (string | null);
+    revoked_at: (string | null);
+    discarded_at: (string | null);
+    key_configured?: boolean;
+    validation_evidence?: ({
+    [key: string]: unknown;
+} | null);
+    validation_completed_at?: (string | null);
+};
+
+export type ConnectionStatePublic = {
+    generation: number;
+    adopted: boolean;
+    active_id: (string | null);
+    pending_id: (string | null);
+    connections: Array<ConnectionPublic>;
+};
+
+export type ConnectionStatus = {
+    state: 'legacy' | 'unconfigured' | 'active' | 'disabled' | 'unavailable';
+    configured: boolean;
+    /**
+     * Connection readiness only; project material access is checked separately.
+     */
+    ready: boolean;
+    active_version_id?: (string | null);
+    model_identity?: (string | null);
+    reason?: (string | null);
+};
+
+export type state = 'legacy' | 'unconfigured' | 'active' | 'disabled' | 'unavailable';
+
 export type CustomerUploadProfilePublic = {
     required_headers: Array<(string)>;
     warning_headers: Array<(string)>;
@@ -197,6 +243,10 @@ export type EvidenceReferencePublic = {
     governance_run_id: string;
     fact_type: string;
     fact_id: string;
+};
+
+export type ExpectedGeneration = {
+    expected_generation: number;
 };
 
 export type FindingDetailPublic = {
@@ -429,7 +479,7 @@ export type GovernanceRunSourcePublic = {
 
 export type source_type = 'CUSTOMER_UPLOAD' | 'CLOUDATLAS' | 'NETFLOW';
 
-export type state = 'ABSENT' | 'PRESENT';
+export type state2 = 'ABSENT' | 'PRESENT';
 
 export type GovernanceRunSourcesPublic = {
     project_id: string;
@@ -850,6 +900,20 @@ export type NetFlowDatasetsPublic = {
     can_select: boolean;
 };
 
+export type OperationPublic = {
+    expected_generation: number;
+    id: string;
+    connection_id: string;
+    action: string;
+    status: string;
+    error_code: (string | null);
+    evidence: ({
+    [key: string]: unknown;
+} | null);
+    created_at: string;
+    completed_at: (string | null);
+};
+
 export type ProjectCreate = {
     name: string;
 };
@@ -909,6 +973,17 @@ export type RunStepPublic = {
     started_at: string;
     completed_at: (string | null);
 };
+
+export type SaveConnection = {
+    expected_generation: number;
+    name: string;
+    endpoint: string;
+    protocol: 'responses' | 'chat_completions';
+    model_identity: string;
+    api_key: string;
+};
+
+export type protocol = 'responses' | 'chat_completions';
 
 export type SourceSnapshotPublic = {
     id: string;
@@ -1245,6 +1320,46 @@ export type ManualReviewsReadManualReviewsData = {
 };
 
 export type ManualReviewsReadManualReviewsResponse = (ManualReviewsPublic);
+
+export type ModelConnectionsStatusResponse = (ConnectionStatus);
+
+export type ModelConnectionsReadConnectionsResponse = (ConnectionStatePublic);
+
+export type ModelConnectionsSaveData = {
+    idempotencyKey: string;
+    requestBody: SaveConnection;
+};
+
+export type ModelConnectionsSaveResponse = (ConnectionActionPublic);
+
+export type ModelConnectionsAdoptLegacyData = {
+    idempotencyKey: string;
+    requestBody: ExpectedGeneration;
+};
+
+export type ModelConnectionsAdoptLegacyResponse = (ConnectionActionPublic);
+
+export type ModelConnectionsActionData = {
+    action: string;
+    connectionId: string;
+    idempotencyKey: string;
+    requestBody: ExpectedGeneration;
+};
+
+export type ModelConnectionsActionResponse = (ConnectionActionPublic);
+
+export type ModelConnectionsRecoverOperationData = {
+    action: string;
+    idempotencyKey: string;
+};
+
+export type ModelConnectionsRecoverOperationResponse = (ConnectionActionPublic);
+
+export type ModelConnectionsOperationData = {
+    operationId: string;
+};
+
+export type ModelConnectionsOperationResponse = (ConnectionActionPublic);
 
 export type ModelQualificationReadModelQualificationStatusResponse = (ModelQualificationStatus);
 

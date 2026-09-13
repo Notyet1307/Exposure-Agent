@@ -18,6 +18,7 @@ from app.api.project_authorization import get_authorized_project
 from app.core.config import settings
 from app.core.db import engine
 from app.core.time import get_datetime_utc
+from app.domain import model_connections
 from app.domain.ip_source_comparison import IPSourceComparisonError
 from app.domain.lineage import read_governance_run_lineage
 from app.domain.model_qualification import (
@@ -198,6 +199,12 @@ def public(record: AiInvestigation) -> InvestigationPublic:
 def require_model(
     session: Session, record: AiInvestigation | None = None
 ) -> ModelBinding:
+    try:
+        managed = model_connections.binding_for_task(session, "investigation", record)
+    except model_connections.ModelConnectionError as error:
+        raise InvestigationError(error.code) from None
+    if managed is not None:
+        return managed
     if not settings.MODEL_API_KEY.get_secret_value():
         raise InvestigationError("model_not_qualified")
     try:
@@ -677,13 +684,19 @@ def reconcile(record: AiInvestigation, *, launch: bool = False) -> AiInvestigati
                 ),
                 record=record,
             )
-            observation = client.start_ai_investigation(
-                client_request_id=f"ai-investigation:{record.id}",
-                investigation_id=str(record.id),
-            )
+            if record.connection_version_id is not None:
+                from app.integrations.model_connection_runtime import (
+                    start_business_task,
+                )
+                observation = start_business_task(record, "investigation")
+            else:
+                observation = client.start_ai_investigation(
+                    client_request_id=f"ai-investigation:{record.id}",
+                    investigation_id=str(record.id),
+                )
         else:
             observation = client.get_run(record.agent_compose_run_id)
-    except InvestigationError as error:
+    except (InvestigationError, model_connections.ModelConnectionError) as error:
         return finish(investigation_id=record.id, failure_code=error.code)
     except AgentComposeBoundaryError:
         unknown_code = "agent_compose_unavailable"

@@ -19,6 +19,7 @@ class _Provider(BaseHTTPRequestHandler):
     requests: list[
         tuple[str, str | None, str | None, str | None, str | None, bytes]
     ] = []
+    authorization_values: list[list[str]] = []
 
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", "0"))
@@ -32,6 +33,7 @@ class _Provider(BaseHTTPRequestHandler):
                 self.rfile.read(length),
             )
         )
+        self.authorization_values.append(self.headers.get_all("Authorization") or [])
         self.send_response(200)
         self.send_header("Content-Length", str(len(self.response_body)))
         self.end_headers()
@@ -113,6 +115,43 @@ def test_proxy_pins_the_address_validated_by_model_binding(
             None,
             b"fixture",
         )
+    finally:
+        proxy.shutdown()
+        proxy.server_close()
+        proxy_thread.join()
+        provider.shutdown()
+        provider.server_close()
+        provider_thread.join()
+
+
+def test_proxy_replaces_lowercase_loopback_authorization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ThreadingHTTPServer(("127.0.0.1", 0), _Provider)
+    provider_thread = threading.Thread(target=provider.serve_forever, daemon=True)
+    provider_thread.start()
+    original_getaddrinfo = socket.getaddrinfo
+
+    def resolve_internal(host: str, port: int | None, *args: Any, **kwargs: Any) -> Any:
+        if host == "model.internal":
+            return original_getaddrinfo("127.0.0.1", port, *args, **kwargs)
+        return original_getaddrinfo(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve_internal)
+    proxy, proxy_thread = _start_provider_proxy(
+        _binding(provider.server_port), capability="loopback", upstream_token="lease"
+    )
+    try:
+        connection = http.client.HTTPConnection("127.0.0.1", proxy.server_port)
+        connection.putrequest("POST", "/chat/completions")
+        connection.putheader("authorization", "Bearer loopback")
+        connection.putheader("Content-Length", "7")
+        connection.endheaders(b"fixture")
+        response = connection.getresponse()
+
+        assert response.status == 200
+        assert response.read() == _Provider.response_body
+        assert _Provider.authorization_values[-1] == ["Bearer lease"]
     finally:
         proxy.shutdown()
         proxy.server_close()

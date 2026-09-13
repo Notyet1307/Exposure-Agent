@@ -10,6 +10,7 @@ from app.api.routes import (
     ip_results,
     login,
     manual_reviews,
+    model_connections,
     model_qualification,
     project_memberships,
     projects,
@@ -25,6 +26,7 @@ api_router.include_router(governance_reports.router)
 api_router.include_router(governance_runs.router)
 api_router.include_router(ip_results.router)
 api_router.include_router(model_qualification.router)
+api_router.include_router(model_connections.router)
 api_router.include_router(project_memberships.router)
 api_router.include_router(audit_events.router)
 api_router.include_router(ai_investigations.router)

@@ -31,6 +31,10 @@ class AgentComposeRunStart:
     status: str
     session_id: str | None = None
     output: str | None = None
+    project_id: str | None = None
+    agent_name: str | None = None
+    project_revision: str | None = None
+    agent_id: str | None = None
 
     @property
     def succeeded(self) -> bool:
@@ -229,6 +233,18 @@ class AgentComposeClient:
             status=status,
             session_id=session_id,
             output=output,
+            project_id=_required_string(summary["projectId"])
+            if "projectId" in summary
+            else None,
+            agent_name=_required_string(summary["agentName"])
+            if "agentName" in summary
+            else None,
+            agent_id=_required_string(summary["agentId"])
+            if "agentId" in summary
+            else None,
+            project_revision=str(summary["projectRevision"])
+            if "projectRevision" in summary
+            else None,
         )
 
     def get_session(self, session_id: str) -> AgentComposeSession | None:
@@ -390,6 +406,14 @@ class AgentComposeClient:
         if returned_id != run_id:
             raise AgentComposeBoundaryError("agent_compose_response_contract_failed")
         status = _required_string(summary.get("status"))
+        if "started" not in body:
+            # Proto3 omits false on replay; confirm the already persisted Run.
+            confirmed = self.get_run(run_id)
+            if confirmed is None:
+                raise AgentComposeBoundaryError(
+                    "agent_compose_response_contract_failed"
+                )
+            return confirmed
         started = body.get("started")
         if not isinstance(started, bool):
             raise AgentComposeBoundaryError("agent_compose_response_contract_failed")

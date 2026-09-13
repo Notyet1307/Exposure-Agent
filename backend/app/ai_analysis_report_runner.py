@@ -28,6 +28,11 @@ except ValueError, OSError:
 _FAILURE_CODES = frozenset(
     {
         "model_run_failed",
+        "model_connection_revoked",
+        "model_connection_disabled",
+        "model_connection_lease_expired",
+        "model_connection_proxy_denied",
+        "model_connection_secret_unavailable",
         "model_output_invalid",
         "tool_required",
         "tool_scope_denied",
@@ -120,9 +125,14 @@ def main() -> int:
             run_id=record.run_id,
             record=record,
         )
+        api_key = settings.MODEL_API_KEY.get_secret_value()
+        transport = binding
+        if record.connection_version_id is not None:
+            from app.domain.model_connection_proxy import transport_binding
+            transport, api_key = transport_binding(binding, "analysis_report")
         output = run_pi_investigation(
-            binding=binding,
-            api_key=settings.MODEL_API_KEY.get_secret_value(),
+            binding=transport,
+            api_key=api_key,
             tools={"read_report_material": read_tool},
             task="analysis_report",
             before_model_call=authorize,

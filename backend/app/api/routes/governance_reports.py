@@ -20,12 +20,14 @@ from app.api.project_authorization import (
 from app.core.config import settings
 from app.domain import ai_governance_drafts as draft_service
 from app.domain import governance_reports as report_service
+from app.domain import model_connections as model_connection_service
 from app.domain.model_qualification import (
     ModelBinding,
     current_model_is_qualified,
     model_binding,
 )
 from app.domain.models import (
+    DEPLOYMENT_TENANT_ID,
     AiGovernanceDraft,
     AiGovernanceDraftPublic,
     AiGovernanceDraftRequest,
@@ -34,6 +36,7 @@ from app.domain.models import (
     GovernanceReport,
     GovernanceReportDetailPublic,
     GovernanceReportsPublic,
+    ModelConnectionState,
     Project,
     ProjectRole,
 )
@@ -186,6 +189,45 @@ def _require_current_model_binding(
     return binding
 
 
+def _require_draft_model_binding(
+    *, session: SessionDep, draft: AiGovernanceDraft | None = None
+) -> ModelBinding:
+    state = session.get(ModelConnectionState, DEPLOYMENT_TENANT_ID)
+    if state is None or not state.adopted:
+        return _require_current_model_binding(session=session, draft=draft)
+    try:
+        # Revoke and activation serialize through this deployment state lock;
+        # pinning a new Draft must observe one of those states, never race it.
+        model_connection_service.state_for_write(session)
+        binding = model_connection_service.binding_for_task(
+            session, "qualification", draft
+        )
+        if binding is None:
+            raise model_connection_service.ModelConnectionError("model_not_qualified")
+        version = model_connection_service.get_version(
+            session, binding.connection_version_id
+        )
+        model_connection_service.provider_key(session, version)
+        if "ai-governance-draft" not in (version.runtime_agents or {}):
+            raise model_connection_service.ModelConnectionError("model_not_qualified")
+    except model_connection_service.ModelConnectionError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "model_not_qualified",
+                "message": _DRAFT_ERROR_MESSAGES["model_not_qualified"],
+            },
+        ) from None
+    return binding
+
+
+def _draft_client(*, session: SessionDep, draft: AiGovernanceDraft) -> AgentComposeClient:
+    if draft.connection_version_id is None:
+        return AgentComposeClient()
+    binding = _require_draft_model_binding(session=session, draft=draft)
+    return model_connection_service.client_for_binding(binding)
+
+
 def _start_draft_or_recover_response(
     *,
     client: AgentComposeClient,
@@ -228,7 +270,7 @@ def _launch_or_reconcile_draft_session(
         # The deterministic Run can only be derived before its first durable
         # reservation.  Persist the namespace alongside it so config changes
         # cannot retarget a later replay.
-        initial_client = AgentComposeClient()
+        initial_client = _draft_client(session=session, draft=draft)
         namespace = initial_client.ai_governance_draft_namespace()
         expected_run_id = initial_client.expected_ai_governance_draft_run_id(
             client_request_id
@@ -537,7 +579,7 @@ def request_ai_governance_draft(
                 session=session,
                 draft=existing,
                 launch_now=False,
-                authorize_start=lambda: _require_current_model_binding(
+                authorize_start=lambda: _require_draft_model_binding(
                     session=session, draft=existing
                 ),
             )
@@ -587,7 +629,7 @@ def request_ai_governance_draft(
         )
     except draft_service.AiGovernanceDraftStateError as error:
         raise _draft_state_error(error) from None
-    binding = _require_current_model_binding(session=session)
+    binding = _require_draft_model_binding(session=session)
     try:
         creation = draft_service.create_ai_governance_draft(
             session=session,
@@ -597,6 +639,7 @@ def request_ai_governance_draft(
             model_identity=binding.model_identity,
             config_fingerprint=binding.config_fingerprint,
             bindings=bindings,
+            connection_version_id=getattr(binding, "connection_version_id", None),
         )
     except draft_service.AiGovernanceDraftStateError as error:
         raise _draft_state_error(error) from None
@@ -605,7 +648,7 @@ def request_ai_governance_draft(
             session=session,
             draft=creation.draft,
             launch_now=creation.created,
-            authorize_start=lambda: _require_current_model_binding(
+            authorize_start=lambda: _require_draft_model_binding(
                 session=session, draft=creation.draft
             ),
         )

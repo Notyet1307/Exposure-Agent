@@ -741,13 +741,18 @@ def test_draft_schema_has_no_sensitive_persistence_fields_and_matches_model(
     assert set(scoped_fks) == {
         "fk_ai_governance_drafts_report_scope",
         "fk_ai_governance_drafts_project_scope",
+        "fk_ai_governance_drafts_model_connection",
         "fk_ai_governance_draft_finding_bindings_draft_scope",
         "fk_ai_governance_draft_finding_bindings_finding_scope",
         "fk_ai_governance_draft_finding_bindings_evidence_scope",
     }
     assert all(
         "project_id" in definition and "tenant_id" in definition
-        for definition in scoped_fks.values()
+        for name, definition in scoped_fks.items()
+        if name != "fk_ai_governance_drafts_model_connection"
+    )
+    assert scoped_fks["fk_ai_governance_drafts_model_connection"] == (
+        "FOREIGN KEY (connection_version_id) REFERENCES model_connection_versions(id) ON DELETE RESTRICT"
     )
 
 
