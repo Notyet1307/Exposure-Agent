@@ -31,7 +31,7 @@
 
 ## 可重复验证入口
 
-`frontend/tests/first-comparison.spec.ts` 覆盖真实隔离环境的创建、输入拒绝、来源准备、首轮发布及有/无/零记录 NetFlow；`tests/model_connection_backend/workflow-browser.mjs` 覆盖固定 Run 的核查至报告流程。组合链路与运行参数以仓库当前测试脚本为准，禁止把预置发布事实的短测试作为真实首轮发布证据。
+`frontend/tests/first-comparison.spec.ts` 覆盖真实隔离环境的创建、输入拒绝、来源准备、首轮发布及有/无/零记录 NetFlow；`tests/model_connection_backend/workflow-browser.mjs` 覆盖固定 Run 的核查至报告流程。完整同项目链路使用 `./scripts/test-governance-run.sh --with-model-connection-workflow`：先建立一次性隔离栈和本地固定响应模型连接，再通过界面真实创建/发布，并继续核查至报告；随后执行既有首轮与来源恢复回归。fresh worktree 缺少 `.env` 时仅从 `.env.example` 准备本地测试默认值，脚本生成随机测试凭据；不得复制现场 `.env`。通过 `EXPUX04_CHAIN_EVIDENCE_DIR` 指定私有目录导出脱敏结果，日志单独保管，结束自动清理本次栈。禁止把预置发布事实的短测试作为真实首轮发布证据。
 
 组件测试用于权限、弱网/晚响应、历史范围、三宽度和界面反馈。固定 Provider 只能证明调用、材料与状态合同；外部模型语义、客户生产环境、用户亲自确认须分别记录。截图说明布局，连续请求/操作记录说明动态行为，两者不可互换。
 
