@@ -170,6 +170,13 @@ try:
     if faults:
         from faults import exercise
         fault_receipt = exercise(locals())
+    workflow_receipt = None
+    if os.environ.get('MODEL_WORKFLOW_BROWSER_URL'):
+        finding_hash_before = dbsql("select md5(coalesce(jsonb_agg(to_jsonb(f) order by id)::text,'[]')) from findings f")
+        payload = {'ui':os.environ['MODEL_WORKFLOW_BROWSER_URL'],'api':base,'token':token,'fixture':fixture,'output':str(root/'workflow-browser-result.json')}
+        cmd(['node',str(Path(__file__).with_name('workflow-browser.mjs').resolve())],json.dumps(payload).encode())
+        workflow_receipt=json.loads((root/'workflow-browser-result.json').read_text())
+        assert dbsql("select md5(coalesce(jsonb_agg(to_jsonb(f) order by id)::text,'[]')) from findings f")==finding_hash_before,'finding facts changed by workflow'
     browser_receipt = None
     if os.environ.get('MODEL_CONNECTION_BROWSER_URL'):
         browser_input = {'ui':os.environ['MODEL_CONNECTION_BROWSER_URL'], 'api':base,
@@ -196,7 +203,7 @@ print(json.dumps({'files':files,'original_key_hits':hits})); assert hits==0
         p=subprocess.run(['docker','logs',names[role]],capture_output=True)
         assert not any(k.encode() in p.stdout+p.stderr for k in [key_a,key_b])
     result={'status':'PASS','image_tag':tag,'version_a':a,'version_b':b,'old_report':old_report,'new_report':new_report,
-        'faults':fault_receipt,'browser':browser_receipt,'runtime_state_scan':scan,'provider_a':stats_a,'provider_b':stats_b,'validation_receipts':receipts}
+        'workflow':workflow_receipt,'faults':fault_receipt,'browser':browser_receipt,'runtime_state_scan':scan,'provider_a':stats_a,'provider_b':stats_b,'validation_receipts':receipts}
     root.joinpath('result.json').write_text(json.dumps(result,indent=2));print('Managed backend/Pi/proxy: PASS',flush=True)
 except Exception as error:
     logs={}

@@ -1,16 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 
 import {
   ApiError,
   type ManualReviewPublic,
   ManualReviewsService,
 } from "@/client"
+import { useAiSectionAnchor } from "@/components/AiWorkflow"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import useAuth from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
 
 type Scope = {
@@ -23,6 +25,26 @@ type Scope = {
 const PAGE_SIZE = 20
 
 export function ManualReviewPanel(scope: Scope) {
+  const { user, userError } = useAuth()
+  const { t } = useI18n()
+  if (userError)
+    return (
+      <p role="alert">
+        {t("Permissions could not be read.", "无法读取权限。")}
+      </p>
+    )
+  if (!user)
+    return <p role="status">{t("Checking permissions…", "正在读取权限…")}</p>
+  return (
+    <ManualReviewPanelForActor
+      key={`${user.id}:${scope.projectId}:${scope.resourceId}:${scope.runId}:${scope.findingId ?? "asset"}`}
+      {...scope}
+      actor={user.id}
+    />
+  )
+}
+
+function ManualReviewPanelForActor(scope: Scope & { actor: string }) {
   const { t, formatDate, translateValue } = useI18n()
   const formId = useId()
   const queryClient = useQueryClient()
@@ -30,13 +52,25 @@ export function ManualReviewPanel(scope: Scope) {
   const [conclusion, setConclusion] = useState("")
   const [pendingVerification, setPendingVerification] = useState("")
   const [supersedesId, setSupersedesId] = useState<string | null>(null)
+  const active = useRef(true)
+  const [token] = useState(() => localStorage.getItem("access_token"))
+  const currentActor = () =>
+    active.current && token === localStorage.getItem("access_token")
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
   const queryKey = [
     "manual-reviews",
+    scope.actor,
     scope.projectId,
     scope.resourceId,
     scope.runId,
     scope.findingId ?? null,
   ]
+  const sectionHeading = useAiSectionAnchor("manual-review-title", true)
   const verifyScope = (item: ManualReviewPublic) => {
     if (
       item.project_id !== scope.projectId ||
@@ -66,8 +100,9 @@ export function ManualReviewPanel(scope: Scope) {
   const fresh = list.isSuccess && !list.isFetching
   const staleCorrection = supersedesId !== null && current?.id !== supersedesId
   const save = useMutation({
-    mutationFn: async () =>
-      verifyScope(
+    mutationFn: async () => {
+      if (!currentActor()) throw new Error("Account changed")
+      const result = verifyScope(
         await ManualReviewsService.createManualReview({
           projectId: scope.projectId,
           requestBody: {
@@ -79,15 +114,21 @@ export function ManualReviewPanel(scope: Scope) {
             supersedes_id: supersedesId,
           },
         }),
-      ),
+      )
+      if (!currentActor()) throw new Error("Account changed")
+      return result
+    },
     onSuccess: async () => {
+      if (!currentActor()) return
       await queryClient.invalidateQueries({ queryKey })
+      if (!currentActor()) return
       setPage(0)
       setSupersedesId(null)
       setConclusion("")
       setPendingVerification("")
     },
     onError: (error) => {
+      if (!currentActor()) return
       if (error instanceof ApiError && error.status === 409)
         void queryClient.invalidateQueries({ queryKey })
     },
@@ -165,7 +206,12 @@ export function ManualReviewPanel(scope: Scope) {
       className="min-w-0 space-y-3 rounded-lg border p-4"
       aria-label={t("Manual review", "人工核查")}
     >
-      <h2 className="text-lg font-semibold">
+      <h2
+        ref={sectionHeading}
+        id="manual-review-title"
+        tabIndex={-1}
+        className="scroll-mt-28 text-lg font-semibold"
+      >
         {t("Manual review", "人工核查")}
       </h2>
       <p className="text-sm text-muted-foreground">

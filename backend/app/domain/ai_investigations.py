@@ -140,6 +140,7 @@ class InvestigationPublic(InvestigationRequest):
     material: InvestigationMaterial
     parent_investigation_id: uuid.UUID | None
     question: str | None
+    connection_version_id: uuid.UUID | None
     tool_reads: list[InvestigationToolRead]
 
 

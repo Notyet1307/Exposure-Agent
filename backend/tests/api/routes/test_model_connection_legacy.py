@@ -186,6 +186,8 @@ def test_legacy_pending_unknown_and_terminal_preserve_record(
         url, headers={**headers, "Idempotency-Key": "legacy-record"}, json=body
     )
     assert response.status_code == (202 if family == "draft" else 201), response.text
+    if family != "draft":
+        assert response.json()["connection_version_id"] is None
     record_id = uuid.UUID(response.json()["id"])
     model = {
         "investigation": AiInvestigation,

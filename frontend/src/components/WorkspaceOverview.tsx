@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { z } from "zod"
-
+import { AiWorkspace } from "@/components/AiWorkflow"
 import {
   getVerifiedReportContent,
   useGovernanceReport,
@@ -138,6 +138,7 @@ export default function WorkspaceOverview({
           </Button>
         </nav>
       </div>
+      <AiWorkspace projectId={projectId} runId={runId} />
       {!legacy && (
         <section
           className="space-y-3 rounded-lg border p-4"

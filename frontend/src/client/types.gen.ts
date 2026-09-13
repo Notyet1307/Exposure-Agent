@@ -62,6 +62,7 @@ export type AnalysisReportPublic = {
     text: (AnalysisReportText | null);
     material: AnalysisReportMaterial;
     materials_changed: boolean;
+    connection_version_id: (string | null);
 };
 
 export type status = 'GENERATING' | 'DRAFT' | 'CONFIRMED' | 'FAILED';
@@ -565,6 +566,7 @@ export type InvestigationPublic = {
     material: InvestigationMaterial;
     parent_investigation_id: (string | null);
     question: (string | null);
+    connection_version_id: (string | null);
     tool_reads: Array<InvestigationToolRead>;
 };
 

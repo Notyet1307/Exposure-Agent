@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
 import { AiInvestigationsService, ApiError } from "@/client"
+import { AiModelStatus, useAiSectionAnchor } from "@/components/AiWorkflow"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import useAuth from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
 
 const outputSchema = z.object({
@@ -50,6 +52,7 @@ const investigationSchema = z
     finding_id: z.string().nullable(),
     parent_investigation_id: z.string().uuid().nullable(),
     question: z.string().trim().min(1).max(2000).nullable(),
+    connection_version_id: z.string().uuid().nullable().default(null),
     tool_reads: z.array(toolReadSchema),
     status: z.enum(["GENERATING", "COMPLETED", "FAILED"]),
     created_at: z.string(),
@@ -253,14 +256,45 @@ function ReadSource({
 }
 
 export function AiInvestigationPanel(scope: Scope) {
+  const { user, userError } = useAuth()
+  const { t } = useI18n()
+  if (userError)
+    return (
+      <p role="alert">
+        {t("Permissions could not be read.", "无法读取权限。")}
+      </p>
+    )
+  if (!user)
+    return <p role="status">{t("Checking permissions…", "正在读取权限…")}</p>
+  return (
+    <AiInvestigationPanelForActor
+      key={`${user.id}:${scope.projectId}:${scope.resourceId}:${scope.runId}:${scope.findingId ?? "asset"}`}
+      {...scope}
+      actor={user.id}
+    />
+  )
+}
+
+function AiInvestigationPanelForActor(scope: Scope & { actor: string }) {
   const { t, formatDate } = useI18n()
   const queryClient = useQueryClient()
-  const storageKey = `exposure:ai-investigation:${scope.projectId}:${scope.resourceId}:${scope.runId}:${scope.findingId ?? "asset"}:idempotency-key`
+  const storageKey = `exposure:ai-investigation:${scope.actor}:${scope.projectId}:${scope.resourceId}:${scope.runId}:${scope.findingId ?? "asset"}:idempotency-key`
+  const active = useRef(true)
+  const [token] = useState(() => localStorage.getItem("access_token"))
+  const currentActor = () =>
+    active.current && token === localStorage.getItem("access_token")
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
   const [recovery, setRecovery] = useState(() => readRecovery(storageKey))
   const [storageFailed, setStorageFailed] = useState(false)
   const [questions, setQuestions] = useState<Record<string, string>>({})
   const queryKey = [
     "ai-investigations",
+    scope.actor,
     scope.projectId,
     scope.resourceId,
     scope.runId,
@@ -331,6 +365,7 @@ export function AiInvestigationPanel(scope: Scope) {
   }
   const start = useMutation({
     mutationFn: async (operation: Operation | null) => {
+      if (!currentActor()) throw new Error("Account changed")
       const pending = operation
         ? {
             ...operation,
@@ -365,6 +400,7 @@ export function AiInvestigationPanel(scope: Scope) {
             }),
         scope,
       )
+      if (!currentActor()) throw new Error("Account changed")
       if (pending.investigationId && result.id !== pending.investigationId)
         throw new Error("Investigation identity mismatch")
       if (
@@ -376,11 +412,13 @@ export function AiInvestigationPanel(scope: Scope) {
       return result
     },
     onSuccess: (result) => {
+      if (!currentActor()) return
       queryClient.setQueryData([...queryKey, result.id], result)
       setQuestions({})
       void queryClient.invalidateQueries({ queryKey })
     },
     onError: (error) => {
+      if (!currentActor()) return
       // Confirmed API rejection is not an unknown launch; keep timeouts replayable.
       if (
         !(error instanceof ApiError) ||
@@ -434,6 +472,10 @@ export function AiInvestigationPanel(scope: Scope) {
     !start.isPending &&
     (canReplay || (!selectedId && !recovery) || current?.status === "FAILED")
   // A cached successful response is hidden after any failed scope-authorized read.
+  const sectionHeading = useAiSectionAnchor(
+    "ai-investigation-title",
+    list.isSuccess,
+  )
   const records = list.isSuccess ? list.data.data : []
   const visibleRecords =
     list.isSuccess && !ancestors.isError
@@ -482,9 +524,15 @@ export function AiInvestigationPanel(scope: Scope) {
       className="min-w-0 space-y-3 rounded-lg border p-4"
       aria-label={t("AI investigation", "AI 核查")}
     >
-      <h2 className="text-lg font-semibold">
+      <h2
+        ref={sectionHeading}
+        id="ai-investigation-title"
+        tabIndex={-1}
+        className="scroll-mt-28 text-lg font-semibold"
+      >
         {t("AI investigation", "AI 核查")}
       </h2>
+      <AiModelStatus />
       <p className="text-sm text-muted-foreground">
         {t(
           "Read-only AI analysis of this fixed published Run. Explanations require verification; this does not change findings or published facts.",
@@ -659,6 +707,14 @@ export function AiInvestigationPanel(scope: Scope) {
                     : t("Generating", "生成中")}
               </Badge>
               <span className="text-xs">{formatDate(item.created_at)}</span>
+              <span className="text-xs text-muted-foreground">
+                {item.connection_version_id
+                  ? t(
+                      `Connection ${item.connection_version_id.slice(0, 8)}`,
+                      `连接版本 ${item.connection_version_id.slice(0, 8)}`,
+                    )
+                  : t("Legacy connection", "历史连接")}
+              </span>
             </div>
             <details className="min-w-0 text-xs">
               <summary className="cursor-pointer font-medium">
@@ -668,6 +724,12 @@ export function AiInvestigationPanel(scope: Scope) {
                 value={item.id}
                 label={t("Investigation", "核查")}
               />
+              {item.connection_version_id && (
+                <TechnicalValue
+                  value={item.connection_version_id}
+                  label={t("Connection version", "连接版本")}
+                />
+              )}
               {item.parent_investigation_id && (
                 <p>
                   {t("Parent investigation", "上轮核查")}:{" "}
@@ -956,6 +1018,52 @@ export function AiInvestigationPanel(scope: Scope) {
                   >
                     {t("Follow-up question", "继续追问")}
                   </label>
+                  <fieldset
+                    className="flex flex-wrap gap-2"
+                    aria-label={t("Question shortcuts", "快捷追问")}
+                  >
+                    {[
+                      [
+                        "Which evidence supports this difference?",
+                        "哪些证据支持当前差异？",
+                      ],
+                      [
+                        "What information is still missing?",
+                        "还有哪些信息缺口？",
+                      ],
+                      [
+                        "How should I verify this next?",
+                        "接下来应如何人工验证？",
+                      ],
+                    ].map(([en, zh]) => (
+                      <Button
+                        key={en}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto whitespace-normal text-left"
+                        disabled={!canFollowup || item.id === turnLimitReached}
+                        onClick={() => {
+                          if (!currentActor()) return
+                          setQuestions((previous) => ({
+                            ...previous,
+                            [item.id]: t(en, zh),
+                          }))
+                          document
+                            .getElementById(`followup-${item.id}`)
+                            ?.focus()
+                        }}
+                      >
+                        {t(en, zh)}
+                      </Button>
+                    ))}
+                  </fieldset>
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      "Choose a question to edit it. Only Submit follow-up starts a new task.",
+                      "点击快捷问题只填入文本，提交追问才会创建新任务。",
+                    )}
+                  </p>
                   <textarea
                     id={`followup-${item.id}`}
                     className="block min-h-20 w-full min-w-0 rounded-md border bg-background p-2 text-sm"

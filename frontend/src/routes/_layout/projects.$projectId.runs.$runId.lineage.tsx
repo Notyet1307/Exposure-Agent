@@ -348,6 +348,30 @@ function LineageScope({
   const comparison = data.nodes.find((node) => node.kind === "COMPARISON")
   return (
     <div className="min-w-0 space-y-4">
+      {comparison && (
+        <nav
+          className="flex flex-wrap gap-3"
+          aria-label={t("Asset workflow", "资产工作流")}
+        >
+          <Button asChild variant="outline">
+            <a href="#ai-investigation-title">
+              {t("AI investigation", "AI 核查")}
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <a href="#manual-review-title">{t("Manual record", "人工记录")}</a>
+          </Button>
+          <Button asChild variant="ghost">
+            <Link
+              to="/"
+              search={{ project: projectId, run: runId, view: "reports" }}
+              hash="analysis-reports-title"
+            >
+              {t("This Run's report", "本轮报告")}
+            </Link>
+          </Button>
+        </nav>
+      )}
       <section
         className="space-y-3 rounded-lg border p-4"
         aria-label={t("Asset facts", "资产情况")}

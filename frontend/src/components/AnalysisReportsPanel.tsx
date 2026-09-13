@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useId, useState } from "react"
+import { useCallback, useEffect, useId, useRef, useState } from "react"
 import { z } from "zod"
 
 import {
@@ -9,10 +9,12 @@ import {
   ApiError,
 } from "@/client"
 import { MaterialFields } from "@/components/AiInvestigationPanel"
+import { AiModelStatus, useAiSectionAnchor } from "@/components/AiWorkflow"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import useAuth from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
 
 const materialSchema = z.object({
@@ -68,11 +70,50 @@ function readRecovery(storageKey: string) {
 }
 
 export function AnalysisReportsPanel(scope: Scope) {
+  const { user, userError } = useAuth()
+  const { t } = useI18n()
+  if (userError)
+    return (
+      <p role="alert">
+        {t("Permissions could not be read.", "无法读取权限。")}
+      </p>
+    )
+  if (!user)
+    return <p role="status">{t("Checking permissions…", "正在读取权限…")}</p>
+  return (
+    <AnalysisReportsPanelForActor
+      key={`${user.id}:${scope.projectId}:${scope.runId}:${scope.reportId}:${scope.reportContractVersion}`}
+      {...scope}
+      actor={user.id}
+    />
+  )
+}
+
+function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
   const { t, formatDate, translateValue } = useI18n()
   const formId = useId()
   const queryClient = useQueryClient()
-  const queryKey = ["analysis-reports", scope.projectId, scope.runId]
-  const storageKey = `exposure:analysis-report:${scope.projectId}:${scope.runId}:idempotency-key`
+  const queryKey = [
+    "analysis-reports",
+    scope.actor,
+    scope.projectId,
+    scope.runId,
+    scope.reportId,
+    scope.reportContractVersion,
+  ]
+  const storageKey = `exposure:analysis-report:${scope.actor}:${scope.projectId}:${scope.runId}:idempotency-key`
+  const active = useRef(true)
+  const [token] = useState(() => localStorage.getItem("access_token"))
+  const currentActor = useCallback(
+    () => active.current && token === localStorage.getItem("access_token"),
+    [token],
+  )
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
   const [recovery, setRecovery] = useState(() => readRecovery(storageKey))
   const requestKey = recovery?.key
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -113,6 +154,10 @@ export function AnalysisReportsPanel(scope: Scope) {
         ? 2000
         : false,
   })
+  const sectionHeading = useAiSectionAnchor(
+    "analysis-reports-title",
+    list.isSuccess,
+  )
   const records = list.isSuccess ? list.data.data : []
   // Pin the initial version only after a fresh authorized read. Later appends never replace it.
   useEffect(() => {
@@ -145,7 +190,13 @@ export function AnalysisReportsPanel(scope: Scope) {
   })
   const current = list.isSuccess && detail.isSuccess ? detail.data : undefined
   useEffect(() => {
-    if (!recovery?.reportId || !list.isSuccess || list.isFetching) return
+    if (
+      !currentActor() ||
+      !recovery?.reportId ||
+      !list.isSuccess ||
+      list.isFetching
+    )
+      return
     const reserved = list.data.data.find(
       (item) => item.id === recovery.reportId,
     )
@@ -156,14 +207,23 @@ export function AnalysisReportsPanel(scope: Scope) {
     } catch {
       /* Keep the same reservation replayable if storage cannot be cleared. */
     }
-  }, [recovery, list.isSuccess, list.isFetching, list.data, storageKey])
+  }, [
+    recovery,
+    list.isSuccess,
+    list.isFetching,
+    list.data,
+    storageKey,
+    currentActor,
+  ])
   const writable = list.isSuccess && list.data.can_create
   const fresh =
     list.isSuccess &&
     !list.isFetching &&
     (!selectedId || (detail.isSuccess && !detail.isFetching))
-  const invalidate = () => queryClient.invalidateQueries({ queryKey })
+  const invalidate = () =>
+    currentActor() && queryClient.invalidateQueries({ queryKey })
   const reject = (error: unknown) => {
+    if (!currentActor()) return
     if (
       error instanceof ApiError &&
       [401, 403, 404, 409].includes(error.status)
@@ -172,6 +232,7 @@ export function AnalysisReportsPanel(scope: Scope) {
   }
   const generate = useMutation({
     mutationFn: async () => {
+      if (!currentActor()) throw new Error("Account changed")
       const pending = recovery ?? { key: crypto.randomUUID(), reportId: null }
       // Persist before dispatch so an ambiguous response can be replayed after reload.
       window.sessionStorage.setItem(storageKey, JSON.stringify(pending))
@@ -183,6 +244,7 @@ export function AnalysisReportsPanel(scope: Scope) {
           requestBody: { run_id: scope.runId },
         }),
       )
+      if (!currentActor()) throw new Error("Account changed")
       if (pending.reportId && pending.reportId !== result.id)
         throw new Error("Analysis report reservation mismatch")
       const reserved = { ...pending, reportId: result.id }
@@ -195,11 +257,13 @@ export function AnalysisReportsPanel(scope: Scope) {
       return result
     },
     onSuccess: (result) => {
+      if (!currentActor()) return
       queryClient.setQueryData([...queryKey, result.id], result)
       if (selectedId === null) setSelectedId(result.id)
       void invalidate()
     },
     onError: (error) => {
+      if (!currentActor()) return
       if (
         !recovery?.reportId &&
         error instanceof ApiError &&
@@ -217,6 +281,7 @@ export function AnalysisReportsPanel(scope: Scope) {
   })
   const save = useMutation({
     mutationFn: async () => {
+      if (!currentActor()) throw new Error("Account changed")
       if (!editing) throw new Error("No analysis report edit")
       const result = verifyScope(
         await AnalysisReportsService.updateAnalysisReport({
@@ -230,17 +295,20 @@ export function AnalysisReportsPanel(scope: Scope) {
       )
       if (result.id !== editing.id)
         throw new Error("Analysis report identity mismatch")
+      if (!currentActor()) throw new Error("Account changed")
       return result
     },
     onSuccess: (result) => {
+      if (!currentActor()) return
       queryClient.setQueryData([...queryKey, result.id], result)
       setEditing(null)
       void invalidate()
     },
-    onError: reject,
+    onError: (error) => reject(error),
   })
   const confirm = useMutation({
     mutationFn: async () => {
+      if (!currentActor()) throw new Error("Account changed")
       if (!current) throw new Error("No analysis report selected")
       const result = verifyScope(
         await AnalysisReportsService.confirmAnalysisReport({
@@ -251,13 +319,15 @@ export function AnalysisReportsPanel(scope: Scope) {
       )
       if (result.id !== current.id)
         throw new Error("Analysis report identity mismatch")
+      if (!currentActor()) throw new Error("Account changed")
       return result
     },
     onSuccess: (result) => {
+      if (!currentActor()) return
       queryClient.setQueryData([...queryKey, result.id], result)
       void invalidate()
     },
-    onError: reject,
+    onError: (error) => reject(error),
   })
   const busy = generate.isPending || save.isPending || confirm.isPending
   const canGenerate =
@@ -311,8 +381,14 @@ export function AnalysisReportsPanel(scope: Scope) {
       className="min-w-0 space-y-4 rounded-lg border p-4"
       aria-label={t("AI analysis reports", "AI 分析报告")}
     >
+      <AiModelStatus />
       <header className="min-w-0 space-y-3">
-        <h2 className="text-xl font-semibold">
+        <h2
+          ref={sectionHeading}
+          id="analysis-reports-title"
+          tabIndex={-1}
+          className="scroll-mt-28 text-xl font-semibold"
+        >
           {t("AI analysis reports", "AI 分析报告")}
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -435,6 +511,9 @@ export function AnalysisReportsPanel(scope: Scope) {
                 {formatDate(item.created_at)} ·{" "}
                 {statusLabels[item.status] ?? t("Unknown status", "未知状态")} ·{" "}
                 {t("Revision", "修订号")} {item.revision}
+                {item.connection_version_id
+                  ? ` · ${t("Connection", "连接版本")} ${item.connection_version_id.slice(0, 8)}`
+                  : ` · ${t("Legacy connection", "历史连接")}`}
               </option>
             ))}
           </select>
@@ -461,6 +540,14 @@ export function AnalysisReportsPanel(scope: Scope) {
             </Badge>
             <span className="text-sm">
               {t("Revision", "修订号")} {current.revision}
+            </span>
+            <span className="text-sm text-muted-foreground">
+              {current.connection_version_id
+                ? t(
+                    `Connection ${current.connection_version_id.slice(0, 8)}`,
+                    `连接版本 ${current.connection_version_id.slice(0, 8)}`,
+                  )
+                : t("Legacy connection", "历史连接")}
             </span>
           </div>
           {current.status === "GENERATING" && (
@@ -551,6 +638,17 @@ export function AnalysisReportsPanel(scope: Scope) {
               </div>
             ))}
           </dl>
+          {current.connection_version_id && (
+            <details className="text-xs">
+              <summary className="cursor-pointer">
+                {t("Connection version identifier", "连接版本标识")}
+              </summary>
+              <TechnicalValue
+                value={current.connection_version_id}
+                label={t("Connection version", "连接版本")}
+              />
+            </details>
+          )}
           <details className="min-w-0 text-xs">
             <summary className="cursor-pointer font-medium">
               {t("Report identifiers and authors", "报告标识与作者")}
