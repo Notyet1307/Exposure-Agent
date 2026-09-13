@@ -1769,3 +1769,38 @@ test("asset workflow anchors keep fixed scope and never create tasks", async ({
   expect(requests.filter((request) => request.method !== "GET")).toHaveLength(0)
   expect(unexpected).toEqual([])
 })
+
+for (const width of [1366, 1920, 390]) {
+  test(`delivery asset in both themes at ${width}px`, async ({ page }) => {
+    await installMocks(page, [publishedLineage({ resource: resourceId })])
+    await page.setViewportSize({
+      width,
+      height: width === 390 ? 844 : width === 1366 ? 768 : 1080,
+    })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.goto(lineagePath(resourceId))
+    for (const [language, theme] of [
+      ["en", "dark"],
+      ["zh-CN", "light"],
+    ]) {
+      await page.evaluate(
+        ({ language, theme }) => {
+          localStorage.setItem("exposure:language", language)
+          localStorage.setItem("vite-ui-theme", theme)
+        },
+        { language, theme },
+      )
+      await page.reload()
+      await expect(page.locator("#ai-investigation-title")).toBeVisible()
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+      await page.screenshot({
+        path: `/tmp/expux04-asset-${width}-${language}.png`,
+        fullPage: true,
+      })
+    }
+  })
+}

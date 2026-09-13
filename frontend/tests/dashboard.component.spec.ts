@@ -1,6 +1,7 @@
 import type { FileChooser } from "@playwright/test"
 import type { CloudAtlasSourcePublic } from "../src/client"
 import { expect, type Page, type Route, test } from "./fixtures"
+import { feedback, recordFeedback } from "./utils/interaction-feedback"
 
 const projects = [
   {
@@ -1654,3 +1655,44 @@ for (const role of ["Viewer", "Approver"] as const) {
     )
   })
 }
+
+test("delivery measures five upload feedback samples and preserves rejection", async ({
+  page,
+}) => {
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback()
+      await new Promise((resolve) => setTimeout(resolve, 350))
+      return route.fulfill({
+        status: 422,
+        json: {
+          detail: {
+            code: "invalid_workbook",
+            message: "The workbook is malformed.",
+          },
+        },
+      })
+    },
+  )
+  const samples = []
+  for (let i = 0; i < 5; i++) {
+    await page.goto("/?view=inputs")
+    const input = page.getByLabel("XLSX file")
+    await input.setInputFiles({
+      name: "invalid.xlsx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: Buffer.from("invalid"),
+    })
+    const button = page
+      .locator("form")
+      .filter({ has: input })
+      .getByRole("button", { name: "Upload", exact: true })
+    samples.push(await feedback(button))
+    await expect(
+      page.getByText("The workbook is malformed.", { exact: false }),
+    ).toBeVisible()
+  }
+  recordFeedback("upload", samples)
+})

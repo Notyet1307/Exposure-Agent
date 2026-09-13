@@ -2470,3 +2470,38 @@ test("measures five local report-start feedback samples", async ({ page }) => {
   expect(Math.max(...samples)).toBeLessThanOrEqual(100)
   expect(longTasks.every((duration) => duration <= 200)).toBe(true)
 })
+
+for (const width of [1366, 1920, 390]) {
+  test(`delivery report in both themes at ${width}px`, async ({ page }) => {
+    await installWorkflow(page)
+    await page.setViewportSize({
+      width,
+      height: width === 390 ? 844 : width === 1366 ? 768 : 1080,
+    })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.goto(`/?project=${projectId}&run=${runIds[0]}&view=reports`)
+    for (const [language, theme] of [
+      ["en", "dark"],
+      ["zh-CN", "light"],
+    ]) {
+      await page.evaluate(
+        ({ language, theme }) => {
+          localStorage.setItem("exposure:language", language)
+          localStorage.setItem("vite-ui-theme", theme)
+        },
+        { language, theme },
+      )
+      await page.reload()
+      await expect(page.locator("#analysis-reports-title")).toBeVisible()
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+      await page.screenshot({
+        path: `/tmp/expux04-report-${width}-${language}.png`,
+        fullPage: true,
+      })
+    }
+  })
+}

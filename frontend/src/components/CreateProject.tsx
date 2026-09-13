@@ -278,7 +278,6 @@ function ProjectForm({ actor }: { actor: string }) {
         )}
         <div className="flex flex-wrap gap-3">
           <LoadingButton
-            className="text-black"
             type="submit"
             loading={mutation.isPending}
             disabled={

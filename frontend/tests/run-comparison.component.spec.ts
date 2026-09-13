@@ -7,6 +7,7 @@ import type {
   IPSourceComparisonsPublic,
 } from "../src/client"
 import { expect, type Page, type Route, test } from "./fixtures"
+import { feedback, recordFeedback } from "./utils/interaction-feedback"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
 const otherProjectId = "00000000-0000-0000-0000-000000000002"
@@ -826,4 +827,29 @@ test("keeps narrow-screen content contained and the matrix keyboard-scrollable",
   await expect
     .poll(() => scrollRegion.evaluate((element) => element.scrollLeft))
     .toBeGreaterThan(0)
+})
+
+test("delivery measures five fixed-Run navigations across 400 synthetic assets", async ({
+  page,
+}) => {
+  const run = publishedRun({ netflow: "positive", size: 400 })
+  run.comparisons.data.forEach((row, index) => {
+    row.canonical_ip = `198.18.${Math.floor(index / 254)}.${(index % 254) + 1}`
+  })
+  await installMocks(page, [run])
+  const samples = []
+  for (let i = 0; i < 5; i++) {
+    await page.goto(comparisonPath())
+    const next = page.getByRole("button", { name: "Next", exact: true })
+    await expect(next).toBeEnabled()
+    samples.push(await feedback(next))
+    await expect(page).toHaveURL((url) => url.searchParams.get("page") === "2")
+    expect(new URL(page.url()).pathname).toContain(oldRunId)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+  }
+  recordFeedback("navigate-400", samples)
 })
