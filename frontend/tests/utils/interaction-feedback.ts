@@ -44,5 +44,6 @@ export function recordFeedback(
     samples.every(
       ({ elapsed, tasks }) => elapsed <= 100 && tasks.every((ms) => ms <= 200),
     ),
+    JSON.stringify(samples),
   ).toBe(true)
 }
