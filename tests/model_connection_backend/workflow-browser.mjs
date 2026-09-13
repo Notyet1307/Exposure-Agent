@@ -21,11 +21,20 @@ if(input.create_published_run) {
 }
 const browser=await chromium.launch()
 let step='open fixed Run'
+let page
+const calls=[]
 try {
   const context=await browser.newContext({viewport:{width:1366,height:768}})
   await context.addInitScript(token=>{localStorage.setItem('access_token',token);localStorage.setItem('exposure:language','en')},input.token)
-  const page=await context.newPage(); const calls=[]; const replies=[]
-  await page.route('**/api/v1/**',async route=>{
+  page=await context.newPage(); const replies=[]
+  if(input.create_published_run) page.on('response',async response=>{
+    const request=response.request(),url=new URL(response.url())
+    if(url.pathname.startsWith('/api/v1/')&&request.method()!=='GET') {
+      calls.push({method:request.method(),path:url.pathname,status:response.status()})
+      try {replies.push({path:url.pathname,body:await response.json()})} catch {}
+    }
+  })
+  else await page.route('**/api/v1/**',async route=>{
     const request=route.request(),url=new URL(request.url())
     const response=await route.fetch({url:input.api+url.pathname+url.search,timeout:180000})
     if(request.method()!=='GET') {
@@ -147,7 +156,7 @@ try {
   console.log('Real bounded AI workflow: PASS')
 } catch (error) {
   const message=String(error).replaceAll(input.token,'[REDACTED]')
-  writeFileSync(input.output.replace('.json','-failure.json'),JSON.stringify({step,message},null,2))
+  writeFileSync(input.output.replace('.json','-failure.json'),JSON.stringify({step,message,calls,visible_text:page?(await page.locator('body').innerText()).slice(0,4000):null},null,2))
   console.error('Real AI workflow failed at: '+step)
   process.exitCode=1
 } finally {await browser.close();if(proxy){proxy.closeAllConnections();await new Promise(resolve=>proxy.close(resolve))}}
