@@ -9,7 +9,7 @@
 | 当前实现行为 | 代码、测试、迁移和 Compose |
 | 稳定架构约束 | `docs/adr/` 中已接受 ADR 与 `architecture/constraints.md` |
 | 领域词汇 | `../CONTEXT.md` |
-| 开发与部署 | `../development.md`、`../deployment.md` 和当前 Runbook |
+| 开发与部署 | `../development.md`、`../deployment.md` 和当前 Runbook（[模型连接部署与恢复准备](runbooks/model-connections.md)） |
 | 未来目标 | `product/target-state.md`；非规范性且不是实现范围 |
 | 历史证据 | Git 历史、关闭的 Issue / PR；不进入默认上下文 |
 

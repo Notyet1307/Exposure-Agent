@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     AI_ANALYSIS_REPORT_MAX_TOOL_CALLS: int = Field(default=4, gt=0, le=16)
     AI_ANALYSIS_REPORT_MAX_MATERIAL_BYTES: int = Field(default=65536, gt=0, le=262144)
     AI_ANALYSIS_REPORT_MAX_OUTPUT_BYTES: int = Field(default=32768, gt=0, le=131072)
+    MODEL_CONNECTION_KEY_DIRECTORY: Path | None = None
+    MODEL_CONNECTION_KEY_ID: str = "v1"
+    MODEL_CONNECTION_INTERNAL_URL: str = "http://backend:8000"
+    DOCKER_IMAGE_RUNNER: str = "governance-runner"
     MODEL_API_ENDPOINT: str = ""
     MODEL_API_PROTOCOL: Literal["responses", "chat_completions"] = "chat_completions"
     MODEL_API_KEY: SecretStr = SecretStr("")

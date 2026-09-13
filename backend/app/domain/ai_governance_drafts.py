@@ -707,6 +707,7 @@ def create_ai_governance_draft(
     model_identity: str,
     config_fingerprint: str,
     bindings: Sequence[DraftFindingBinding],
+    connection_version_id: uuid.UUID | None = None,
 ) -> AiGovernanceDraftCreation:
     _require_nonblank(initiated_by, max_length=255, code="draft_request_invalid")
     _require_nonblank(idempotency_key, max_length=255, code="draft_request_invalid")
@@ -758,6 +759,7 @@ def create_ai_governance_draft(
         idempotency_key=idempotency_key,
         model_identity=model_identity,
         config_fingerprint=config_fingerprint,
+        connection_version_id=connection_version_id,
         status=AiGovernanceDraftStatus.GENERATING.value,
     )
     session.add(draft)

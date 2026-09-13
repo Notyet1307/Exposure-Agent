@@ -42,6 +42,7 @@ def _runner_build_version() -> str:
 
 def _start_provider_proxy(
     binding: ModelBinding,
+    *, capability: str | None = None, upstream_token: str | None = None,
 ) -> tuple[ThreadingHTTPServer, threading.Thread]:
     target_path = (
         "/responses" if binding.protocol == "responses" else "/chat/completions"
@@ -64,17 +65,22 @@ def _start_provider_proxy(
             if parsed.path != target_path or parsed.query:
                 self.send_error(404)
                 return
+            if capability is not None and self.headers.get("Authorization") != "Bearer " + capability:
+                self.send_error(403)
+                return
             length = int(self.headers.get("Content-Length", "0"))
             if length > 1_000_000:
                 self.send_error(413)
                 return
             request_body = self.rfile.read(length)
             headers = {
-                name: value
+                name.lower(): value
                 for name, value in self.headers.items()
                 if name.lower() in {"authorization", "content-type"}
             }
-            headers["Host"] = provider_host
+            headers["host"] = provider_host
+            if upstream_token is not None:
+                headers["authorization"] = "Bearer " + upstream_token
             try:
                 with httpx.Client(
                     follow_redirects=False, timeout=120, trust_env=False

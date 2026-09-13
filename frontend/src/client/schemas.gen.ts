@@ -759,6 +759,238 @@ export const CloudAtlasSourcesPublicSchema = {
     title: 'CloudAtlasSourcesPublic'
 } as const;
 
+export const ConnectionActionPublicSchema = {
+    properties: {
+        operation: {
+            '$ref': '#/components/schemas/OperationPublic'
+        },
+        state: {
+            '$ref': '#/components/schemas/ConnectionStatePublic'
+        }
+    },
+    type: 'object',
+    required: ['operation', 'state'],
+    title: 'ConnectionActionPublic'
+} as const;
+
+export const ConnectionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        name: {
+            type: 'string',
+            title: 'Name'
+        },
+        endpoint: {
+            type: 'string',
+            title: 'Endpoint'
+        },
+        protocol: {
+            type: 'string',
+            title: 'Protocol'
+        },
+        model_identity: {
+            type: 'string',
+            title: 'Model Identity'
+        },
+        validation_status: {
+            type: 'string',
+            title: 'Validation Status'
+        },
+        validation_operation_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Validation Operation Id'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        activated_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Activated At'
+        },
+        revoked_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Revoked At'
+        },
+        discarded_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Discarded At'
+        },
+        key_configured: {
+            type: 'boolean',
+            title: 'Key Configured',
+            default: true
+        },
+        validation_evidence: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Validation Evidence'
+        },
+        validation_completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Validation Completed At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'name', 'endpoint', 'protocol', 'model_identity', 'validation_status', 'validation_operation_id', 'created_at', 'activated_at', 'revoked_at', 'discarded_at'],
+    title: 'ConnectionPublic'
+} as const;
+
+export const ConnectionStatePublicSchema = {
+    properties: {
+        generation: {
+            type: 'integer',
+            title: 'Generation'
+        },
+        adopted: {
+            type: 'boolean',
+            title: 'Adopted'
+        },
+        active_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Active Id'
+        },
+        pending_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Pending Id'
+        },
+        connections: {
+            items: {
+                '$ref': '#/components/schemas/ConnectionPublic'
+            },
+            type: 'array',
+            title: 'Connections'
+        }
+    },
+    type: 'object',
+    required: ['generation', 'adopted', 'active_id', 'pending_id', 'connections'],
+    title: 'ConnectionStatePublic'
+} as const;
+
+export const ConnectionStatusSchema = {
+    properties: {
+        state: {
+            type: 'string',
+            enum: ['legacy', 'unconfigured', 'active', 'disabled', 'unavailable'],
+            title: 'State'
+        },
+        configured: {
+            type: 'boolean',
+            title: 'Configured'
+        },
+        ready: {
+            type: 'boolean',
+            title: 'Ready',
+            description: 'Connection readiness only; project material access is checked separately.'
+        },
+        active_version_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Active Version Id'
+        },
+        model_identity: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Model Identity'
+        },
+        reason: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Reason'
+        }
+    },
+    type: 'object',
+    required: ['state', 'configured', 'ready'],
+    title: 'ConnectionStatus'
+} as const;
+
 export const CustomerUploadProfilePublicSchema = {
     properties: {
         required_headers: {
@@ -935,6 +1167,20 @@ export const EvidenceReferencePublicSchema = {
     type: 'object',
     required: ['id', 'governance_run_id', 'fact_type', 'fact_id'],
     title: 'EvidenceReferencePublic'
+} as const;
+
+export const ExpectedGenerationSchema = {
+    properties: {
+        expected_generation: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Expected Generation'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['expected_generation'],
+    title: 'ExpectedGeneration'
 } as const;
 
 export const FindingDetailPublicSchema = {
@@ -4158,6 +4404,76 @@ export const NetFlowDatasetsPublicSchema = {
     title: 'NetFlowDatasetsPublic'
 } as const;
 
+export const OperationPublicSchema = {
+    properties: {
+        expected_generation: {
+            type: 'integer',
+            title: 'Expected Generation'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        connection_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Connection Id'
+        },
+        action: {
+            type: 'string',
+            title: 'Action'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        error_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Code'
+        },
+        evidence: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Evidence'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        }
+    },
+    type: 'object',
+    required: ['expected_generation', 'id', 'connection_id', 'action', 'status', 'error_code', 'evidence', 'created_at', 'completed_at'],
+    title: 'OperationPublic'
+} as const;
+
 export const ProjectCreateSchema = {
     properties: {
         name: {
@@ -4443,6 +4759,51 @@ export const RunStepPublicSchema = {
     type: 'object',
     required: ['step_code', 'status', 'attempt', 'input_hash', 'output_hash', 'error_code', 'started_at', 'completed_at'],
     title: 'RunStepPublic'
+} as const;
+
+export const SaveConnectionSchema = {
+    properties: {
+        expected_generation: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Expected Generation'
+        },
+        name: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Name'
+        },
+        endpoint: {
+            type: 'string',
+            maxLength: 2048,
+            minLength: 1,
+            title: 'Endpoint'
+        },
+        protocol: {
+            type: 'string',
+            enum: ['responses', 'chat_completions'],
+            title: 'Protocol'
+        },
+        model_identity: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Model Identity'
+        },
+        api_key: {
+            type: 'string',
+            maxLength: 8192,
+            minLength: 1,
+            format: 'password',
+            title: 'Api Key',
+            writeOnly: true
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['expected_generation', 'name', 'endpoint', 'protocol', 'model_identity', 'api_key'],
+    title: 'SaveConnection'
 } as const;
 
 export const SourceSnapshotPublicSchema = {

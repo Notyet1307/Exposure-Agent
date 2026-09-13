@@ -3,10 +3,12 @@ from sqlmodel import SQLModel
 
 from app.api.deps import SessionDep, get_current_active_superuser
 from app.core.config import settings
+from app.domain import model_connections
 from app.domain.model_qualification import (
     current_model_is_qualified,
     model_binding,
 )
+from app.domain.models import DEPLOYMENT_TENANT_ID, ModelConnectionState
 
 router = APIRouter(
     prefix="/model-qualification",
@@ -21,6 +23,18 @@ class ModelQualificationStatus(SQLModel):
 
 @router.get("/status", response_model=ModelQualificationStatus)
 def read_model_qualification_status(session: SessionDep) -> ModelQualificationStatus:
+    state = session.get(ModelConnectionState, DEPLOYMENT_TENANT_ID)
+    if state is not None and state.adopted:
+        try:
+            model_connections.binding_for_task(session, "qualification")
+            if state.active_id is None:
+                return ModelQualificationStatus(qualified=False)
+            model_connections.provider_key(
+                session, model_connections.get_version(session, state.active_id)
+            )
+        except model_connections.ModelConnectionError:
+            return ModelQualificationStatus(qualified=False)
+        return ModelQualificationStatus(qualified=True)
     if not settings.MODEL_API_KEY.get_secret_value():
         return ModelQualificationStatus(qualified=False)
     try:

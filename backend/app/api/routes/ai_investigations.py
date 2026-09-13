@@ -15,6 +15,7 @@ from app.api.project_authorization import (
 )
 from app.core.config import settings
 from app.domain import ai_investigations as service
+from app.domain.model_connections import ConnectionBinding, client_for_binding
 from app.domain.models import (
     AiInvestigation,
     Finding,
@@ -182,7 +183,11 @@ def _create_investigation(
     if active is not None:
         raise _error(service.InvestigationError("investigation_already_generating"))
     record_id = uuid.uuid4()
-    client = AgentComposeClient()
+    client = (
+        client_for_binding(binding)
+        if isinstance(binding, ConnectionBinding)
+        else AgentComposeClient()
+    )
     record = AiInvestigation(
         id=record_id,
         tenant_id=project.tenant_id,
@@ -193,6 +198,7 @@ def _create_investigation(
         question=question,
         idempotency_key=idempotency_key,
         config_fingerprint=binding.config_fingerprint,
+        connection_version_id=getattr(binding, "connection_version_id", None),
         material_sha256=service.material_hash(material),
         material=material,
         sources=sources,

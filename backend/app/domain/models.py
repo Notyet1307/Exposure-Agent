@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     String,
     UniqueConstraint,
     text,
@@ -2735,6 +2736,176 @@ class ProjectMembershipsPublic(SQLModel):
     count: int
 
 
+_MODEL_CONNECTION_TIME: Any = DateTime(timezone=True)
+
+
+class ModelConnectionSecret(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "model_connection_secrets"
+    __table_args__ = (
+        UniqueConstraint("key_id", "nonce", name="uq_model_connection_secret_nonce"),
+        CheckConstraint(
+            "octet_length(nonce) = 12 AND octet_length(ciphertext) >= 16",
+            name="ck_model_connection_secret_cipher",
+        ).ddl_if(dialect="postgresql"),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(
+        default=DEPLOYMENT_TENANT_ID, foreign_key="tenants.id", ondelete="RESTRICT"
+    )
+    key_id: str = Field(max_length=128)
+    nonce: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    ciphertext: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=_MODEL_CONNECTION_TIME
+    )
+
+
+class ModelConnectionVersion(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "model_connection_versions"
+    __table_args__ = (
+        UniqueConstraint("secret_id", name="uq_model_connection_version_secret"),
+        CheckConstraint(
+            "protocol IN ('responses', 'chat_completions')",
+            name="ck_model_connection_protocol",
+        ),
+        CheckConstraint(
+            "validation_status IN ('UNVERIFIED', 'VALIDATING', 'VALIDATED', 'FAILED', 'ACTIVATING')",
+            name="ck_model_connection_validation_status",
+        ),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(
+        default=DEPLOYMENT_TENANT_ID, foreign_key="tenants.id", ondelete="RESTRICT"
+    )
+    secret_id: uuid.UUID = Field(
+        foreign_key="model_connection_secrets.id", ondelete="RESTRICT"
+    )
+    name: str = Field(max_length=255)
+    endpoint: str = Field(max_length=2048)
+    protocol: str = Field(max_length=50)
+    model_identity: str = Field(max_length=255)
+    resolved_address: str = Field(max_length=100)
+    fingerprint: str = Field(max_length=64)
+    runner_build_version: str = Field(max_length=255)
+    runtime_version: str = Field(max_length=255)
+    runtime_project_name: str = Field(max_length=255)
+    runtime_spec_hash: str | None = Field(default=None, max_length=100)
+    runtime_project_id: str | None = Field(default=None, max_length=64)
+    runtime_project_revision: str | None = Field(default=None, max_length=30)
+    runtime_agents: dict[str, str] | None = Field(default=None, sa_type=JSONB)
+    validation_status: str = Field(default="UNVERIFIED", max_length=20)
+    validation_operation_id: uuid.UUID | None = None
+    created_by: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=_MODEL_CONNECTION_TIME
+    )
+    activated_at: datetime | None = Field(default=None, sa_type=_MODEL_CONNECTION_TIME)
+    revoked_at: datetime | None = Field(default=None, sa_type=_MODEL_CONNECTION_TIME)
+    discarded_at: datetime | None = Field(default=None, sa_type=_MODEL_CONNECTION_TIME)
+
+
+class ModelConnectionState(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "model_connection_states"
+    __table_args__ = (
+        CheckConstraint("generation >= 0", name="ck_model_connection_generation"),
+    )
+    tenant_id: uuid.UUID = Field(
+        default=DEPLOYMENT_TENANT_ID,
+        foreign_key="tenants.id",
+        ondelete="RESTRICT",
+        primary_key=True,
+    )
+    active_id: uuid.UUID | None = Field(
+        default=None, foreign_key="model_connection_versions.id", ondelete="RESTRICT"
+    )
+    pending_id: uuid.UUID | None = Field(
+        default=None, foreign_key="model_connection_versions.id", ondelete="RESTRICT"
+    )
+    generation: int = 0
+    adopted: bool = False
+
+
+class ModelConnectionOperation(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "model_connection_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "actor_id",
+            "action",
+            "idempotency_key",
+            name="uq_model_connection_operation_intent",
+        ),
+        CheckConstraint(
+            "action IN ('SAVE', 'ADOPT', 'VALIDATE', 'ACTIVATE', 'REVOKE', 'DISCARD')",
+            name="ck_model_connection_operation_action",
+        ),
+        CheckConstraint(
+            "status IN ('PENDING', 'RUNNING', 'UNKNOWN', 'SUCCEEDED', 'FAILED')",
+            name="ck_model_connection_operation_status",
+        ),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(
+        default=DEPLOYMENT_TENANT_ID, foreign_key="tenants.id", ondelete="RESTRICT"
+    )
+    actor_id: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    action: str = Field(max_length=20)
+    idempotency_key: str = Field(max_length=255)
+    request_fingerprint: str = Field(max_length=64)
+    key_id: str = Field(max_length=128)
+    connection_id: uuid.UUID = Field(
+        foreign_key="model_connection_versions.id", ondelete="RESTRICT"
+    )
+    expected_generation: int
+    status: str = Field(default="PENDING", max_length=20)
+    error_code: str | None = Field(default=None, max_length=100)
+    agent_run_id: str | None = Field(default=None, max_length=64)
+    session_id: str | None = Field(default=None, max_length=64)
+    evidence: dict[str, Any] | None = Field(default=None, sa_type=JSONB)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=_MODEL_CONNECTION_TIME
+    )
+    completed_at: datetime | None = Field(default=None, sa_type=_MODEL_CONNECTION_TIME)
+
+
+class ModelConnectionLease(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "model_connection_leases"
+    __table_args__ = (
+        UniqueConstraint(
+            "family", "task_id", "purpose", name="uq_model_connection_lease_task"
+        ),
+        CheckConstraint(
+            "family IN ('validation', 'investigation', 'report')",
+            name="ck_model_connection_lease_family",
+        ),
+        CheckConstraint(
+            "purpose IN ('qualification', 'investigation', 'analysis_report')",
+            name="ck_model_connection_lease_purpose",
+        ),
+        CheckConstraint(
+            "request_count >= 0 AND max_requests > 0 AND request_count <= max_requests",
+            name="ck_model_connection_lease_budget",
+        ),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    connection_id: uuid.UUID = Field(
+        foreign_key="model_connection_versions.id", ondelete="RESTRICT"
+    )
+    family: str = Field(max_length=20)
+    purpose: str = Field(max_length=30)
+    task_id: uuid.UUID
+    agent_run_id: str = Field(max_length=64)
+    token_hash: str = Field(max_length=64)
+    # Only a task-scoped expiring capability, encrypted for same-intent replay.
+    token_nonce: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    token_ciphertext: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    key_id: str = Field(max_length=128)
+    expires_at: datetime = Field(sa_type=_MODEL_CONNECTION_TIME)
+    max_requests: int
+    request_count: int = 0
+    failure_code: str | None = Field(default=None, max_length=100)
+
+
 class ModelQualificationResult(SQLModel, table=True):
     __tablename__: ClassVar[str] = "model_qualification_results"
     __table_args__ = (
@@ -2898,6 +3069,12 @@ class AiGovernanceDraft(SQLModel, table=True):
     idempotency_key: str = Field(max_length=255)
     model_identity: str = Field(max_length=255)
     config_fingerprint: str = Field(max_length=64, index=True)
+    connection_version_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="model_connection_versions.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
     agent_compose_run_id: str | None = Field(default=None, max_length=64)
     agent_compose_project_id: str | None = Field(default=None, max_length=64)
     agent_compose_agent_name: str | None = Field(default=None, max_length=255)
@@ -3006,6 +3183,12 @@ class AiInvestigation(SQLModel, table=True):
     )
     initiated_by: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
     idempotency_key: str = Field(max_length=255)
+    connection_version_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="model_connection_versions.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
     config_fingerprint: str = Field(max_length=64)
     material_sha256: str = Field(max_length=64)
     material: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
@@ -3091,6 +3274,12 @@ class AnalysisReport(SQLModel, table=True):
         default=None, foreign_key="user.id", ondelete="RESTRICT"
     )
     idempotency_key: str = Field(max_length=255)
+    connection_version_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="model_connection_versions.id",
+        ondelete="RESTRICT",
+        index=True,
+    )
     config_fingerprint: str = Field(max_length=64)
     material_sha256: str = Field(max_length=64)
     material: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))

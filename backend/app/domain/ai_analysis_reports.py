@@ -16,7 +16,7 @@ from app.api.project_authorization import get_authorized_project
 from app.core.config import settings
 from app.core.db import engine
 from app.core.time import get_datetime_utc
-from app.domain import ai_investigations, manual_reviews
+from app.domain import ai_investigations, manual_reviews, model_connections
 from app.domain.ai_investigations import (
     Citation,
     Digest,
@@ -390,6 +390,12 @@ def prepare_material(
 def require_model(
     session: Session, record: AnalysisReport | None = None
 ) -> ModelBinding:
+    try:
+        managed = model_connections.binding_for_task(session, "analysis_report", record)
+    except model_connections.ModelConnectionError as error:
+        raise AnalysisReportError(error.code) from None
+    if managed is not None:
+        return managed
     if not settings.MODEL_API_KEY.get_secret_value():
         raise AnalysisReportError("model_not_qualified")
     try:
@@ -655,13 +661,19 @@ def reconcile(record: AnalysisReport, *, launch: bool = False) -> AnalysisReport
                 run_id=record.run_id,
                 record=record,
             )
-            observation = client.start_analysis_report(
-                client_request_id=f"analysis-report:{record.id}",
-                analysis_report_id=str(record.id),
-            )
+            if record.connection_version_id is not None:
+                from app.integrations.model_connection_runtime import (
+                    start_business_task,
+                )
+                observation = start_business_task(record, "report")
+            else:
+                observation = client.start_analysis_report(
+                    client_request_id=f"analysis-report:{record.id}",
+                    analysis_report_id=str(record.id),
+                )
         else:
             observation = client.get_run(record.agent_compose_run_id)
-    except AnalysisReportError as error:
+    except (AnalysisReportError, model_connections.ModelConnectionError) as error:
         return finish(analysis_report_id=record.id, failure_code=error.code)
     except AgentComposeBoundaryError:
         unknown_code = "agent_compose_unavailable"

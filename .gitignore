@@ -12,3 +12,7 @@ node_modules/
 
 .omp/*
 !.omp/config.yml
+
+# Python bytecode from local acceptance scripts
+__pycache__/
+*.py[cod]

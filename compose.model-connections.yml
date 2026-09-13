@@ -1,0 +1,15 @@
+# Explicit opt-in; do not mount model master keys in workers or the control plane.
+services:
+  backend:
+    environment:
+      MODEL_CONNECTION_KEY_DIRECTORY: /run/model-keys
+      MODEL_CONNECTION_KEY_ID: ${MODEL_CONNECTION_KEY_ID:-v1}
+      MODEL_CONNECTION_INTERNAL_URL: http://backend:8000
+      DOCKER_IMAGE_RUNNER: ${DOCKER_IMAGE_RUNNER:?Variable not set or empty}
+    volumes:
+      - type: bind
+        source: ${MODEL_CONNECTION_KEY_HOST_DIRECTORY:?Set an existing protected directory outside the repository and database backups}
+        target: /run/model-keys
+        read_only: true
+        bind:
+          create_host_path: false

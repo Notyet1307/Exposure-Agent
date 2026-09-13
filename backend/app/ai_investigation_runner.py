@@ -29,6 +29,11 @@ except ValueError, OSError:
 _FAILURE_CODES = frozenset(
     {
         "model_run_failed",
+        "model_connection_revoked",
+        "model_connection_disabled",
+        "model_connection_lease_expired",
+        "model_connection_proxy_denied",
+        "model_connection_secret_unavailable",
         "model_output_invalid",
         "tool_required",
         "tool_scope_denied",
@@ -203,14 +208,24 @@ def main() -> int:
         remaining = record.timeout_seconds - (time.monotonic() - started)
         if remaining <= 0:
             raise service.InvestigationError("investigation_timeout")
+        api_key = settings.MODEL_API_KEY.get_secret_value()
+        transport = binding
+        if record.connection_version_id is not None:
+            from app.domain.model_connection_proxy import transport_binding
+            transport, api_key = transport_binding(binding, "investigation")
+        def authorize_model() -> None:
+            service.load_material(project_id=record.project_id, user_id=record.initiated_by,
+                                  scope=scope, record=record)
+
         output = run_pi_investigation(
-            binding=binding,
-            api_key=settings.MODEL_API_KEY.get_secret_value(),
+            binding=transport,
+            api_key=api_key,
             tools={
                 "read_asset_facts": partial(read_tool, "read_asset_facts"),
                 "read_asset_history": partial(read_tool, "read_asset_history"),
                 "read_cloudatlas_asset": partial(read_tool, "read_cloudatlas_asset"),
             },
+            before_model_call=authorize_model,
             conversation=context,
             timeout_seconds=remaining,
             max_tool_calls=record.max_tool_calls,

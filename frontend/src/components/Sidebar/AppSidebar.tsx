@@ -6,6 +6,7 @@ import {
   Home,
   ListChecks,
   Play,
+  Settings2,
   Upload,
   Users,
   Waypoints,
@@ -73,6 +74,11 @@ export function AppSidebar() {
     home("assets", t("Current assets", "当前资产"), Boxes),
     home("findings", t("Findings", "发现项"), ListChecks),
   ]
+  management.push({
+    icon: Settings2,
+    title: t("AI settings", "AI 设置"),
+    path: "/ai-settings",
+  })
   if (currentUser?.is_superuser)
     management.push({
       icon: Users,
