@@ -1,5 +1,6 @@
 """Management contracts; actual Pi/proxy execution has a separate acceptance path."""
 
+import os
 import secrets
 import uuid
 from collections.abc import Generator
@@ -20,6 +21,7 @@ from sqlmodel import Session, delete, select
 from app.api.routes import model_connections as routes
 from app.core.config import settings
 from app.core.db import engine
+from app.domain import model_connection_proxy as proxy
 from app.domain import model_connections as service
 from app.domain.models import (
     DEPLOYMENT_TENANT_ID,
@@ -31,6 +33,10 @@ from app.domain.models import (
     ModelConnectionVersion,
 )
 from app.integrations import model_connection_runtime as runtime
+
+REAL_START_VALIDATION = runtime.start_validation
+REAL_RECONCILE_VALIDATION = runtime.reconcile_validation
+REAL_START_BUSINESS_TASK = runtime.start_business_task
 
 BASE = settings.API_V1_STR + "/model-connections"
 
@@ -637,6 +643,160 @@ def test_recover_by_key_is_actor_scoped_and_read_only(
             session.add(user)
             session.commit()
         assert len(session.exec(select(AuditEvent)).all()) == before
+
+
+def test_runtime_validation_attests_and_uses_connection_runner_version(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.integrations.agent_compose import AgentComposeRunStart
+
+    monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "global-old")
+    monkeypatch.setattr(
+        settings, "MODEL_CONNECTION_RUNNER_BUILD_VERSION", "connection-new"
+    )
+    connection = save(client, superuser_token_headers).json()["operation"]["connection_id"]
+    op_id = act(client, superuser_token_headers, connection, "validate").json()["operation"]["id"]
+    captured: dict[str, Any] = {}
+
+    class Native:
+        project_id = "native-project"
+
+        def _start_run(self, **kwargs: Any) -> AgentComposeRunStart:
+            captured.update(kwargs)
+            return AgentComposeRunStart(
+                run_id="r" * 64,
+                started=True,
+                status="RUN_STATUS_RUNNING",
+                session_id="s" * 64,
+            )
+
+    def attest(version: ModelConnectionVersion, *, create: bool) -> dict[str, Any]:
+        assert create and version.runner_build_version == "connection-new"
+        return {
+            "spec_hash": "sha256:attested",
+            "project_id": "native-project",
+            "project_revision": "2",
+            "agents": {role: role for role in runtime.ROLES},
+        }
+
+    monkeypatch.setattr(runtime, "ensure_project", attest)
+    monkeypatch.setattr(runtime, "client_for_version", lambda _: Native())
+    monkeypatch.setattr(runtime, "runner_environment", lambda: ({"BASE": "1"}, {}))
+    REAL_START_VALIDATION(uuid.UUID(op_id))
+
+    assert captured["agent_name"] == "model-connection-validator"
+    assert captured["environment"]["RUNNER_BUILD_VERSION"] == "connection-new"
+    assert captured["environment"]["MODEL_VALIDATION_OPERATION_ID"] == op_id
+    assert captured["secret_environment"]["MODEL_LEASE_QUALIFICATION"]
+    with Session(engine) as session:
+        op = session.get(ModelConnectionOperation, uuid.UUID(op_id))
+        version = session.get(ModelConnectionVersion, uuid.UUID(connection))
+        assert op and op.status == "RUNNING" and op.session_id == "s" * 64
+        assert version and version.runtime_spec_hash == "sha256:attested"
+        assert version.runtime_project_revision == "2"
+
+
+def test_runtime_reconcile_terminal_validation_marks_missing_result_failed(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = save(client, superuser_token_headers).json()["operation"]["connection_id"]
+    op_id = act(client, superuser_token_headers, connection, "validate").json()["operation"]["id"]
+    monkeypatch.setattr(
+        runtime,
+        "client_for_version",
+        lambda _: SimpleNamespace(
+            get_run=lambda _: SimpleNamespace(is_terminal=True), project_id="unused"
+        ),
+    )
+    REAL_RECONCILE_VALIDATION(uuid.UUID(op_id))
+    with Session(engine) as session:
+        op = session.get(ModelConnectionOperation, uuid.UUID(op_id))
+        assert op and op.status == "FAILED"
+        assert op.error_code == "model_connection_validation_result_missing"
+
+
+@pytest.mark.parametrize(
+    ("family", "purpose", "agent", "module"),
+    [
+        ("investigation", "investigation", "ai-investigation", "app.ai_investigation_runner"),
+        ("report", "analysis_report", "ai-analysis-report", "app.ai_analysis_report_runner"),
+    ],
+)
+def test_runtime_business_task_creates_scoped_lease_and_runner_override(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    family: str,
+    purpose: str,
+    agent: str,
+    module: str,
+) -> None:
+    from app.integrations.agent_compose import AgentComposeRunStart
+
+    monkeypatch.setattr(settings, "MODEL_CONNECTION_RUNNER_BUILD_VERSION", "specific")
+    connection = save(client, superuser_token_headers).json()["operation"]["connection_id"]
+    record = SimpleNamespace(
+        id=uuid.uuid4(),
+        connection_version_id=uuid.UUID(connection),
+        agent_compose_run_id="a" * 64,
+        timeout_seconds=20,
+        max_tool_calls=2,
+    )
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(service, "binding_for_task", lambda *_: object())
+    monkeypatch.setattr(
+        runtime, "ensure_project", lambda *_args, **_kwargs: {"spec_hash": "x"}
+    )
+    monkeypatch.setattr(runtime, "runner_environment", lambda: ({}, {}))
+    monkeypatch.setattr(
+        runtime,
+        "client_for_version",
+        lambda _: SimpleNamespace(
+            _start_run=lambda **kwargs: captured.update(kwargs)
+            or AgentComposeRunStart("b" * 64, True, "RUN_STATUS_RUNNING")
+        ),
+    )
+    result = REAL_START_BUSINESS_TASK(record, family)
+
+    assert result.run_id == "b" * 64
+    assert captured["agent_name"] == agent
+    assert captured["command"].endswith(module)
+    assert captured["environment"]["RUNNER_BUILD_VERSION"] == "specific"
+    assert "MODEL_LEASE_" + purpose.upper() in captured["secret_environment"]
+    with Session(engine) as session:
+        lease = session.exec(
+            select(ModelConnectionLease).where(ModelConnectionLease.task_id == record.id)
+        ).one()
+        assert lease.family == family and lease.purpose == purpose and lease.max_requests == 3
+
+
+def test_proxy_task_and_transport_bindings_are_scoped_and_hide_provider_key(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lease_id, token, _ = proxy_context(client, superuser_token_headers, monkeypatch)
+    monkeypatch.setattr(settings, "MODEL_CONNECTION_INTERNAL_URL", "http://127.0.0.1:8000")
+    with Session(engine) as session:
+        lease = session.get(ModelConnectionLease, lease_id)
+        assert lease
+        binding, sandbox, maximum = proxy._task_binding(session, lease)
+        assert sandbox == "d" * 64 and maximum == 32768
+        monkeypatch.setenv("MODEL_LEASE_QUALIFICATION", f"{lease_id}:{token}")
+        forwarded, forwarded_token = proxy.transport_binding(binding, "qualification")
+        assert forwarded_token == token
+        assert forwarded.endpoint.startswith(settings.MODEL_CONNECTION_INTERNAL_URL)
+        assert "synthetic-provider-key-not-returned" not in forwarded.endpoint
+        assert forwarded.endpoint != binding.endpoint
+
+    monkeypatch.delenv("MODEL_LEASE_QUALIFICATION")
+    with pytest.raises(service.ModelConnectionError, match="model_connection_proxy_denied"):
+        proxy.transport_binding(binding, "qualification")
+    assert "MODEL_LEASE_QUALIFICATION" not in os.environ
 
 
 def test_admin_state_includes_validation_layers_but_not_secrets(

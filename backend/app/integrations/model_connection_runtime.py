@@ -232,6 +232,7 @@ def start_validation(operation_id: uuid.UUID) -> None:
     try:
         attested = ensure_project(version, create=True)
         env, secrets = runner_environment()
+        env["RUNNER_BUILD_VERSION"] = version.runner_build_version
         secrets.update(private)
         env["MODEL_VALIDATION_OPERATION_ID"] = str(operation_id)
         env["MODEL_VALIDATION_RUN_ID"] = _stable_id(
@@ -338,6 +339,7 @@ def start_business_task(record: Any, family: str) -> AgentComposeRunStart:
         session.expunge(version)
     ensure_project(version, create=False)
     env, secrets = runner_environment()
+    env["RUNNER_BUILD_VERSION"] = version.runner_build_version
     secrets["MODEL_LEASE_" + purpose.upper()] = str(lease_id) + ":" + token
     if family == "investigation":
         env.update(

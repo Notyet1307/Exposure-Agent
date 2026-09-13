@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     MODEL_IDENTITY: str = ""
     MODEL_CONFIG_REVISION: str = "v1"
     RUNNER_BUILD_VERSION: str = "development"
+    MODEL_CONNECTION_RUNNER_BUILD_VERSION: str | None = None
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str

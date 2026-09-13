@@ -6,6 +6,7 @@ services:
       MODEL_CONNECTION_KEY_ID: ${MODEL_CONNECTION_KEY_ID:-v1}
       MODEL_CONNECTION_INTERNAL_URL: http://backend:8000
       DOCKER_IMAGE_RUNNER: ${DOCKER_IMAGE_RUNNER:?Variable not set or empty}
+      MODEL_CONNECTION_RUNNER_BUILD_VERSION: ${MODEL_CONNECTION_RUNNER_BUILD_VERSION:-${RUNNER_BUILD_VERSION}}
     volumes:
       - type: bind
         source: ${MODEL_CONNECTION_KEY_HOST_DIRECTORY:?Set an existing protected directory outside the repository and database backups}

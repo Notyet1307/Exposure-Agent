@@ -311,7 +311,8 @@ def binding_for_version(
     if version.revoked_at is not None or version.discarded_at is not None:
         raise ModelConnectionError("model_connection_revoked")
     if (
-        version.runner_build_version != settings.RUNNER_BUILD_VERSION
+        version.runner_build_version
+        != (settings.MODEL_CONNECTION_RUNNER_BUILD_VERSION or settings.RUNNER_BUILD_VERSION)
         or version.runtime_version != settings.AGENT_COMPOSE_RUNTIME_VERSION
     ):
         raise ModelConnectionError("model_binding_changed")
@@ -454,7 +455,10 @@ def save_connection(
         model_identity=request.model_identity,
         resolved_address="",
         fingerprint="",
-        runner_build_version=settings.RUNNER_BUILD_VERSION,
+        runner_build_version=(
+            settings.MODEL_CONNECTION_RUNNER_BUILD_VERSION
+            or settings.RUNNER_BUILD_VERSION
+        ),
         runtime_version=settings.AGENT_COMPOSE_RUNTIME_VERSION,
         runtime_project_name="exposure-model-" + str(version_id),
         created_by=actor.id,

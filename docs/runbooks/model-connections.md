@@ -9,7 +9,14 @@
 - `MODEL_CONNECTION_KEY_HOST_DIRECTORY`：预先存在的绝对目录，位于 Git、Artifact 和 PostgreSQL/数据库备份目录之外。目录不可被 group/other 写入；建议 0700。
 - `MODEL_CONNECTION_KEY_ID`：默认 `v1`；目录内的 `<key_id>.key` 必须是非符号链接普通文件、0600、恰好 32 个随机字节。不得复用 JWT/登录 Secret、覆盖现存 Key 或在日志中输出内容。
 - 模板仅向 backend 只读挂载 `/run/model-keys`；缺少目录立即失败，不自动创建。Runner 与 agent-compose 不挂载主密钥。保留所有仍被历史 Secret 引用的 Key ID。
-- `DOCKER_IMAGE_RUNNER` 与 `RUNNER_BUILD_VERSION` 必须对应已构建、固定且可用的 Runner；已有版本和任务继续引用其旧镜像，不能删除依赖的镜像或版本项目。
+- `RUNNER_BUILD_VERSION` 保留现有 legacy 连接的 Runner 身份。可选 `MODEL_CONNECTION_RUNNER_BUILD_VERSION` 单独指定新版本连接所用的已构建 Runner；未设置时回退到前者。新版本和实际 Run 环境均固定这个身份，不能重标旧镜像或借用旧资格。
+- `DOCKER_IMAGE_RUNNER` 下的两个标签必须按需保留。若 managed 标签不同，先在已批准的干净源码目录额外构建该镜像，再启用覆盖配置；默认 `governance-runner-image` 仍负责 legacy 标签，不会自动构建另一标签。已有任务依赖的镜像和版本项目不得删除。
+
+```sh
+docker build -f backend/Dockerfile.runner \
+  --build-arg RUNNER_BUILD_VERSION="${MODEL_CONNECTION_RUNNER_BUILD_VERSION:?}" \
+  -t "${DOCKER_IMAGE_RUNNER:?}:${MODEL_CONNECTION_RUNNER_BUILD_VERSION}" .
+```
 
 静态配置检查（不启动服务）：
 
