@@ -470,6 +470,16 @@ async function installMocks(
   })
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url())
+    if (url.pathname === "/api/v1/model-connections/status")
+      return route.fulfill({
+        json: {
+          state: "active",
+          configured: true,
+          ready: true,
+          model_identity: "fixture-current-model",
+          active_version_id: "80000000-0000-4000-8000-000000000002",
+        },
+      })
     if (url.pathname === "/api/v1/users/me") {
       await route.fulfill({
         json: {
@@ -1734,5 +1744,28 @@ test("S1 priority entries preserve historical asset scope and keep full identiti
       .filter(({ url }) => url.pathname.endsWith("/lineage"))
       .every(({ url }) => url.pathname.includes(runId)),
   ).toBe(true)
+  expect(unexpected).toEqual([])
+})
+
+test("asset workflow anchors keep fixed scope and never create tasks", async ({
+  page,
+}) => {
+  const dto = publishedLineage({ resource: resourceId })
+  const { requests, unexpected } = await installMocks(page, [dto])
+  await page.goto(lineagePath(resourceId))
+  const navigation = page.getByRole("navigation", { name: "Asset workflow" })
+  await navigation
+    .getByRole("link", { name: "AI investigation", exact: true })
+    .click()
+  await expect(page.locator("#ai-investigation-title")).toBeFocused()
+  expect(new URL(page.url()).searchParams.get("resource_id")).toBe(resourceId)
+  await navigation
+    .getByRole("link", { name: "Manual record", exact: true })
+    .click()
+  await expect(page.locator("#manual-review-title")).toBeFocused()
+  const report = navigation.getByRole("link", { name: "This Run's report" })
+  expect(await report.getAttribute("href")).toContain(`run=${runId}`)
+  expect(await report.getAttribute("href")).toContain("#analysis-reports-title")
+  expect(requests.filter((request) => request.method !== "GET")).toHaveLength(0)
   expect(unexpected).toEqual([])
 })

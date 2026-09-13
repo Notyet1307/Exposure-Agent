@@ -118,6 +118,17 @@ const findingDetailUrl = new RegExp(
 )
 
 async function installBaseMocks(page: import("@playwright/test").Page) {
+  await page.route("**/api/v1/model-connections/status", (route) =>
+    route.fulfill({
+      json: {
+        state: "active",
+        configured: true,
+        ready: true,
+        model_identity: "fixture-current-model",
+        active_version_id: "80000000-0000-4000-8000-000000000002",
+      },
+    }),
+  )
   await page.addInitScript(() => {
     localStorage.setItem("access_token", "component-token")
   })
@@ -787,6 +798,20 @@ test.describe("Project result views", () => {
       .click()
     await page.getByRole("button", { name: "View details" }).click()
     const panel = page.getByRole("region", { name: "AI investigation" })
+    for (const question of [
+      "Which evidence supports this difference?",
+      "What information is still missing?",
+      "How should I verify this next?",
+    ]) {
+      await panel.getByRole("button", { name: question, exact: true }).click()
+      await expect(
+        panel.getByLabel("Follow-up question", { exact: true }),
+      ).toHaveValue(question)
+      await expect(
+        panel.getByLabel("Follow-up question", { exact: true }),
+      ).toBeFocused()
+      expect(requests).toHaveLength(0)
+    }
     await panel.getByLabel("Follow-up question").fill("Unapproved question")
     await panel.getByRole("button", { name: "Submit follow-up" }).click()
     await expect(panel.getByRole("alert")).toContainText("Request rejected")

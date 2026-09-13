@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs"
 import { expect, type Page, test } from "./fixtures"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
@@ -281,6 +282,17 @@ function reportListResponse() {
 }
 
 async function installBaseMocks(page: Page) {
+  await page.route("**/api/v1/model-connections/status", (route) =>
+    route.fulfill({
+      json: {
+        state: "active",
+        configured: true,
+        ready: true,
+        model_identity: "fixture-current-model",
+        active_version_id: "80000000-0000-4000-8000-000000000002",
+      },
+    }),
+  )
   await page.addInitScript(() => {
     localStorage.setItem("access_token", "component-token")
   })
@@ -1551,6 +1563,8 @@ function analysisVersion(
   return {
     id: analysisIds[index],
     project_id: projectId,
+    connection_version_id:
+      index === 0 ? "a0000000-0000-0000-0000-000000000001" : null,
     run_id: runIds[0],
     status,
     created_at: completedAt,
@@ -1618,6 +1632,30 @@ test.describe("Analysis reports", () => {
         },
       })
     })
+  })
+
+  test("shows a persisted connection version or legacy label", async ({
+    page,
+  }) => {
+    const records = [analysisVersion(0), analysisVersion(1)]
+    await page.route(analysisPath, (route) => {
+      const path = new URL(route.request().url()).pathname
+      return route.fulfill({
+        json: records.find((item) => path.endsWith(`/${item.id}`)) ?? {
+          data: records,
+          count: records.length,
+          can_create: true,
+        },
+      })
+    })
+    await openReport(page)
+    const panel = page.getByRole("region", { name: "AI analysis reports" })
+    await expect(panel.getByLabel("Analysis version")).toContainText(
+      "Connection a0000000",
+    )
+    await expect(panel.getByLabel("Analysis version")).toContainText(
+      "Legacy connection",
+    )
   })
 
   test("keeps an explicitly selected old version and its update notice through unknown and failed generation", async ({
@@ -2119,4 +2157,316 @@ test("rejects analysis material from another deterministic report instead of dis
   await expect(
     panel.getByRole("button", { name: "Generate new analysis draft" }),
   ).toHaveCount(0)
+})
+
+async function installWorkflow(page: Page) {
+  // Deny every unspecified API request; these tests never touch live business APIs.
+  await page.route("**/api/**", (route) =>
+    route.fulfill({
+      status: 404,
+      json: { detail: "Unspecified fixture route" },
+    }),
+  )
+  await installBaseMocks(page)
+  await page.route(governanceReportsPath, (route) => {
+    const index = reportIds.findIndex((id) =>
+      new URL(route.request().url()).pathname.endsWith(`/${id}`),
+    )
+    if (index >= 0) {
+      const detail = JSON.parse(
+        JSON.stringify(v2ReportDetail())
+          .replaceAll(reportIds[0], reportIds[index])
+          .replaceAll(runIds[0], runIds[index]),
+      )
+      return route.fulfill({ json: detail })
+    }
+    return route.fulfill({
+      json: {
+        ...reportListResponse(),
+        data: [0, 1].map((i) => ({
+          ...reportSummary(i),
+          report_contract_version: "deterministic-report-v2",
+        })),
+      },
+    })
+  })
+}
+
+test.describe("Visible AI workflow", () => {
+  test("home links retain Run scope and never generate on open or refresh", async ({
+    page,
+  }) => {
+    await installWorkflow(page)
+    const writes: string[] = []
+    page.on("request", (request) => {
+      if (request.method() === "POST") writes.push(request.url())
+    })
+    await page.goto(`/?project=${projectId}&run=${runIds[0]}&view=overview`)
+    const area = page.getByRole("region", { name: "AI workspace for this Run" })
+    await expect(
+      area.getByText("fixture-current-model", { exact: true }),
+    ).toBeVisible()
+    await page.reload()
+    await area
+      .getByRole("link", { name: "Open this Run's AI interpretation" })
+      .click()
+    await expect(page).toHaveURL(
+      new RegExp(`run=${runIds[0]}.*#analysis-reports-title`),
+    )
+    await expect(page.locator("#analysis-reports-title")).toBeFocused()
+    await expect(
+      page.getByRole("button", { name: "Generate new analysis draft" }),
+    ).toHaveCount(0)
+    expect(writes).toEqual([])
+  })
+
+  test("model failures preserve authoritative totals and historical reading", async ({
+    page,
+  }) => {
+    await installWorkflow(page)
+    await page.route("**/api/v1/model-connections/status", (route) =>
+      route.fulfill({ status: 503, json: { detail: "Unavailable" } }),
+    )
+    await page.goto(`/?project=${projectId}&run=${runIds[0]}&view=overview`)
+    await expect(
+      page.getByText("Status unknown", { exact: true }),
+    ).toBeVisible()
+    const overview = page.getByRole("region", {
+      name: "Published overview",
+      exact: true,
+    })
+    await expect(
+      overview
+        .getByText("Compared resources", { exact: true })
+        .locator("..")
+        .locator("dd"),
+    ).toHaveText("47")
+    await expect(
+      page.getByRole("link", { name: "Open this Run's AI interpretation" }),
+    ).toBeEnabled()
+    await page.route("**/api/v1/model-connections/status", (route) =>
+      route.fulfill({
+        json: {
+          state: "unconfigured",
+          configured: false,
+          ready: false,
+          model_identity: null,
+        },
+      }),
+    )
+    await page.getByRole("button", { name: "Read status again" }).click()
+    await expect(
+      page.getByText("Not configured", { exact: true }),
+    ).toBeVisible()
+    expect(new URL(page.url()).searchParams.get("run")).toBe(runIds[0])
+  })
+
+  test("late report response cannot update another Run or its recovery state", async ({
+    page,
+  }) => {
+    await installWorkflow(page)
+    let release = () => {}
+    let entered = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    await page.route(analysisPath, async (route) => {
+      if (route.request().method() === "POST") {
+        entered()
+        await gate
+        return route.fulfill({ status: 201, json: analysisVersion(0) })
+      }
+      return route.fulfill({ json: { data: [], count: 0, can_create: true } })
+    })
+    await openReport(page)
+    await page
+      .getByRole("button", { name: "Generate new analysis draft" })
+      .click()
+    await started
+    await page
+      .getByRole("combobox", { name: "Published run", exact: true })
+      .selectOption(runIds[1])
+    await expect(page).toHaveURL(new RegExp(`run=${runIds[1]}`))
+    release()
+    await expect(
+      page.getByRole("button", { name: "Generate new analysis draft" }),
+    ).toBeVisible()
+    await expect(
+      page.getByText("Analysis 0: reconcile the recorded source difference.", {
+        exact: true,
+      }),
+    ).toHaveCount(0)
+    const persisted = await page.evaluate(() => ({ ...sessionStorage }))
+    const oldKey = `exposure:analysis-report:30000000-0000-0000-0000-000000000001:${projectId}:${runIds[0]}:idempotency-key`
+    expect(JSON.parse(persisted[oldKey]).reportId).toBeNull()
+    expect(Object.keys(persisted).some((key) => key.includes(runIds[1]))).toBe(
+      false,
+    )
+  })
+
+  test("another actor does not inherit an unresolved report intent", async ({
+    page,
+  }) => {
+    await installWorkflow(page)
+    await page.addInitScript(
+      ({ projectId, runId }) =>
+        sessionStorage.setItem(
+          `exposure:analysis-report:30000000-0000-0000-0000-000000000001:${projectId}:${runId}:idempotency-key`,
+          JSON.stringify({
+            key: "40000000-0000-4000-8000-000000000001",
+            reportId: null,
+          }),
+        ),
+      { projectId, runId: runIds[0] },
+    )
+    await page.route("**/api/v1/users/me", (route) =>
+      route.fulfill({
+        json: {
+          id: "30000000-0000-4000-8000-000000000099",
+          email: "other@example.test",
+          is_active: true,
+          is_superuser: false,
+        },
+      }),
+    )
+    await page.route(analysisPath, (route) =>
+      route.fulfill({ json: { data: [], count: 0, can_create: true } }),
+    )
+    await openReport(page)
+    await expect(
+      page.getByRole("button", { name: "Generate new analysis draft" }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Resume report request" }),
+    ).toHaveCount(0)
+  })
+
+  for (const width of [390, 1366, 1920])
+    test(`AI overview layout at ${width}`, async ({ page }) => {
+      await installWorkflow(page)
+      await page.setViewportSize({ width, height: width === 1920 ? 1080 : 768 })
+      await page.emulateMedia({ reducedMotion: "reduce" })
+      await page.goto(`/?project=${projectId}&run=${runIds[0]}&view=overview`)
+      await expect(
+        page.getByText("fixture-current-model", { exact: true }),
+      ).toBeVisible()
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+      await page.screenshot({
+        path: `/tmp/expux03-home-${width}-en.png`,
+        fullPage: true,
+      })
+      await page.evaluate(() => {
+        localStorage.setItem("exposure:language", "zh-CN")
+        localStorage.setItem("vite-ui-theme", "light")
+      })
+      await page.reload()
+      await expect(
+        page.getByRole("heading", { name: "本轮 AI 工作区" }),
+      ).toBeVisible()
+      await expect(
+        page.getByText("fixture-current-model", { exact: true }),
+      ).toBeVisible()
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+      await page.screenshot({
+        path: `/tmp/expux03-home-${width}-zh.png`,
+        fullPage: true,
+      })
+    })
+})
+
+test("measures five local report-start feedback samples", async ({ page }) => {
+  await installWorkflow(page)
+  let records: ReturnType<typeof analysisVersion>[] = []
+  await page.route(analysisPath, async (route) => {
+    if (route.request().method() === "POST") {
+      await new Promise((resolve) => setTimeout(resolve, 350))
+      records = [analysisVersion(0)]
+      return route.fulfill({ status: 201, json: records[0] })
+    }
+    const path = new URL(route.request().url()).pathname
+    return route.fulfill({
+      json: records.find((record) => path.endsWith(`/${record.id}`)) ?? {
+        data: records,
+        count: records.length,
+        can_create: true,
+      },
+    })
+  })
+  const samples: number[] = []
+  const longTasks: number[] = []
+  for (let i = 0; i < 5; i++) {
+    records = []
+    await openReport(page)
+    await expect(
+      page.getByRole("button", {
+        name: "Generate new analysis draft",
+        exact: true,
+      }),
+    ).toBeEnabled()
+    const result = await page.evaluate(async () => {
+      const tasks: number[] = []
+      const observer = new PerformanceObserver((list) => {
+        for (const item of list.getEntries()) tasks.push(item.duration)
+      })
+      observer.observe({ type: "longtask", buffered: false })
+      const button = [...document.querySelectorAll("button")].find(
+        (b) => b.textContent?.trim() === "Generate new analysis draft",
+      )!
+      await new Promise(requestAnimationFrame)
+      const start = performance.now()
+      button.click()
+      const elapsed = await new Promise<number>((resolve) => {
+        const frame = () => {
+          if (
+            document.body.textContent?.includes("Starting report…") ||
+            performance.now() - start > 1000
+          )
+            resolve(performance.now() - start)
+          else requestAnimationFrame(frame)
+        }
+        requestAnimationFrame(frame)
+      })
+      await new Promise((resolve) => setTimeout(resolve, 450))
+      observer.disconnect()
+      return { elapsed, tasks }
+    })
+    samples.push(result.elapsed)
+    longTasks.push(...result.tasks)
+    await expect(
+      page.getByRole("button", { name: "Edit narrative", exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", {
+        name: "Generate new analysis draft",
+        exact: true,
+      }),
+    ).toBeEnabled()
+  }
+  writeFileSync(
+    `/tmp/expux03-feedback-${process.env.EXPUX03_PERF_PHASE ?? "candidate"}.json`,
+    JSON.stringify(
+      {
+        samples,
+        longTasks,
+        provider: "MOCK_DELAY_350MS",
+        browser: "Chromium",
+        viewport: page.viewportSize(),
+      },
+      null,
+      2,
+    ),
+  )
+  expect(Math.max(...samples)).toBeLessThanOrEqual(100)
+  expect(longTasks.every((duration) => duration <= 200)).toBe(true)
 })

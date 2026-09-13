@@ -130,6 +130,7 @@ class AnalysisReportPublic(AnalysisReportRequest):
     text: AnalysisReportText | None
     material: AnalysisReportMaterial
     materials_changed: bool
+    connection_version_id: uuid.UUID | None
 
 
 class AnalysisReportsPublic(BaseModel):

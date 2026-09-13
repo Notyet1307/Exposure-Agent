@@ -337,11 +337,23 @@ export const AnalysisReportPublicSchema = {
         materials_changed: {
             type: 'boolean',
             title: 'Materials Changed'
+        },
+        connection_version_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Connection Version Id'
         }
     },
     additionalProperties: false,
     type: 'object',
-    required: ['run_id', 'id', 'project_id', 'status', 'created_at', 'completed_at', 'edited_at', 'confirmed_at', 'created_by_id', 'edited_by_id', 'confirmed_by_id', 'revision', 'failure_code', 'original_output', 'text', 'material', 'materials_changed'],
+    required: ['run_id', 'id', 'project_id', 'status', 'created_at', 'completed_at', 'edited_at', 'confirmed_at', 'created_by_id', 'edited_by_id', 'confirmed_by_id', 'revision', 'failure_code', 'original_output', 'text', 'material', 'materials_changed', 'connection_version_id'],
     title: 'AnalysisReportPublic'
 } as const;
 
@@ -3311,6 +3323,18 @@ export const InvestigationPublicSchema = {
             ],
             title: 'Question'
         },
+        connection_version_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Connection Version Id'
+        },
         tool_reads: {
             items: {
                 '$ref': '#/components/schemas/InvestigationToolRead'
@@ -3321,7 +3345,7 @@ export const InvestigationPublicSchema = {
     },
     additionalProperties: false,
     type: 'object',
-    required: ['resource_id', 'run_id', 'id', 'project_id', 'status', 'created_at', 'completed_at', 'failure_code', 'output', 'material', 'parent_investigation_id', 'question', 'tool_reads'],
+    required: ['resource_id', 'run_id', 'id', 'project_id', 'status', 'created_at', 'completed_at', 'failure_code', 'output', 'material', 'parent_investigation_id', 'question', 'connection_version_id', 'tool_reads'],
     title: 'InvestigationPublic'
 } as const;
 
