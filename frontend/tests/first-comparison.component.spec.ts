@@ -1,4 +1,6 @@
+import { writeFileSync } from "node:fs"
 import { expect, type Page, test } from "./fixtures"
+import { feedback, recordFeedback } from "./utils/interaction-feedback"
 
 const actor = "30000000-0000-4000-8000-000000000001"
 const project = {
@@ -481,4 +483,151 @@ test("an inactive-account rejection retains the original creation key", async ({
   await expect(
     page.getByRole("button", { name: "Resume creation" }),
   ).toBeDisabled()
+})
+
+test("delivery measures five zero-project creation feedback samples", async ({
+  page,
+}) => {
+  const state = await base(page, { empty: true })
+  await page.route("**/api/v1/projects/", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback()
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    state.projects = [project]
+    return route.fulfill({ status: 201, json: project })
+  })
+  const samples = []
+  for (let i = 0; i < 5; i++) {
+    state.projects = []
+    await page.goto("/?view=create")
+    await page
+      .getByLabel("Project name", { exact: true })
+      .fill("Delivery check")
+    samples.push(
+      await feedback(
+        page.getByRole("button", { name: "Create and prepare inputs" }),
+      ),
+    )
+    await expect(
+      page.getByRole("heading", { name: "Prepare this comparison" }),
+    ).toBeVisible()
+  }
+  recordFeedback("create", samples)
+})
+
+test("delivery primary action contrast in both themes", async ({ page }) => {
+  await base(page, { empty: true })
+  await page.goto("/?view=create")
+  await page.getByLabel("Project name", { exact: true }).fill("Contrast sample")
+  const ratios = []
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate(
+      (theme) => (document.documentElement.className = theme),
+      theme,
+    )
+    const button = page.getByRole("button", {
+      name: "Create and prepare inputs",
+    })
+    const ratio = await button.evaluate(() => {
+      const canvas = document.createElement("canvas"),
+        ctx = canvas.getContext("2d")!
+      const luminance = (color: string) => {
+        ctx.clearRect(0, 0, 1, 1)
+        ctx.fillStyle = color
+        ctx.fillRect(0, 0, 1, 1)
+        const rgb = [...ctx.getImageData(0, 0, 1, 1).data]
+          .slice(0, 3)
+          .map((c) => {
+            const v = c / 255
+            return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+          })
+        return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
+      }
+      const style = getComputedStyle(document.documentElement)
+      // Measure the shared foreground token, including buttons without local overrides.
+      const foreground = getComputedStyle(
+        document.documentElement,
+      ).getPropertyValue("--primary-foreground")
+      const a = luminance(foreground),
+        b = luminance(style.getPropertyValue("--primary"))
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+    })
+    ratios.push({ theme, ratio })
+  }
+  writeFileSync(
+    `/tmp/expux04-contrast-${process.env.EXPUX04_PHASE ?? "candidate"}.json`,
+    JSON.stringify(ratios),
+  )
+  if (process.env.EXPUX04_PHASE !== "before")
+    expect(ratios.every((x) => x.ratio >= 4.5)).toBe(true)
+})
+
+for (const width of [1366, 1920, 390]) {
+  test(`delivery preparation in both themes at ${width}px`, async ({
+    page,
+  }) => {
+    await base(page)
+    await page.setViewportSize({
+      width,
+      height: width === 390 ? 844 : width === 1366 ? 768 : 1080,
+    })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await page.goto(`/?project=${project.id}&view=inputs`)
+    for (const [language, theme] of [
+      ["en", "dark"],
+      ["zh-CN", "light"],
+    ]) {
+      await page.evaluate(
+        ({ language, theme }) => {
+          localStorage.setItem("exposure:language", language)
+          localStorage.setItem("vite-ui-theme", theme)
+        },
+        { language, theme },
+      )
+      await page.reload()
+      await expect(page.locator("#preparation-title")).toBeVisible()
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+      await page.screenshot({
+        path: `/tmp/expux04-preparation-${width}-${language}.png`,
+        fullPage: true,
+      })
+    }
+  })
+}
+
+test("delivery pending action remains named and stops motion without losing busy state", async ({
+  page,
+}) => {
+  const state = await base(page, { empty: true })
+  let finish!: () => void
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  await page.route("**/api/v1/projects/", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback()
+    await pending
+    state.projects = [project]
+    await route.fulfill({ status: 201, json: project })
+  })
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await page.goto("/?view=create")
+  await page.getByLabel("Project name", { exact: true }).fill("Busy sample")
+  const button = page.getByRole("button", {
+    name: /Create and prepare inputs|Resume creation/,
+  })
+  await button.click()
+  await expect(button).toBeDisabled()
+  await expect(button).toHaveAttribute("aria-busy", "true")
+  expect(
+    await button
+      .locator("svg")
+      .evaluate((el) => getComputedStyle(el).animationName),
+  ).toBe("none")
+  finish()
+  await expect(
+    page.getByRole("heading", { name: "Prepare this comparison" }),
+  ).toBeVisible()
 })

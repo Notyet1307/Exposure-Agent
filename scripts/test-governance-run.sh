@@ -66,15 +66,43 @@ finish() {
   stack_cleanup
   cleanup_artifacts
   stack_cleanup
+  if [[ -n "${EXPUX04_CHAIN_EVIDENCE_DIR:-}" ]]; then
+    mkdir -p "$EXPUX04_CHAIN_EVIDENCE_DIR"
+    for receipt in "$test_root"/workflow-result*.json; do
+      [[ -e "$receipt" ]] || continue
+      install -m 600 "$receipt" "$EXPUX04_CHAIN_EVIDENCE_DIR/$(basename "$receipt")"
+    done
+  fi
   rm -rf "$test_root"
   exit "$exit_code"
 }
 trap finish EXIT
 
 without_model=0
-if [[ "${1:-}" == "--without-model" ]]; then
-  without_model=1
+with_model_connection_workflow=0
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --without-model) without_model=1 ;;
+    --with-model-connection-workflow) with_model_connection_workflow=1 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
   shift
+done
+if ((without_model && with_model_connection_workflow)); then
+  echo "--without-model cannot run the model connection workflow" >&2
+  exit 2
+fi
+if ((with_model_connection_workflow)); then
+  key_dir="$test_root/model-keys"
+  mkdir -m 700 "$key_dir"
+  openssl rand -out "$key_dir/v1.key" 32
+  chmod 600 "$key_dir/v1.key"
+  export MODEL_CONNECTION_KEY_HOST_DIRECTORY="$key_dir"
+  export MODEL_CONNECTION_RUNNER_BUILD_VERSION="$RUNNER_BUILD_VERSION"
+  export MODEL_WORKFLOW_PROVIDER_KEY="$(openssl rand -hex 32)"
+  export MODEL_WORKFLOW_PROVIDER_IDENTITY="fixture-workflow-model"
+  export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}model-workflow"
+  compose_files+=(-f compose.model-connections.yml)
 fi
 test_files=("$@")
 if ((${#test_files[@]} == 0)); then
@@ -82,7 +110,11 @@ if ((${#test_files[@]} == 0)); then
 fi
 stack_cleanup
 docker compose "${compose_files[@]}" build playwright
-docker compose "${compose_files[@]}" up --build -d --wait frontend
+up_targets=(frontend)
+if ((with_model_connection_workflow)); then
+  up_targets+=(model-workflow-provider)
+fi
+docker compose "${compose_files[@]}" up --build -d --wait "${up_targets[@]}"
 ./scripts/test-model-qualification-fixture.sh
 ./scripts/qualify-model.sh
 if ((without_model)); then
@@ -98,6 +130,33 @@ YAML
   docker compose "${compose_files[@]}" up -d --no-deps --force-recreate --wait backend
   docker compose "${compose_files[@]}" exec -T backend python -c \
     'from app.core.config import settings; assert not settings.MODEL_API_KEY.get_secret_value(); assert not settings.MODEL_API_ENDPOINT; print("backend model unconfigured: PASS")'
+fi
+if ((with_model_connection_workflow)); then
+  docker compose "${compose_files[@]}" run --rm --no-deps -T \
+    -v "$PWD/tests/model_connection_backend:/fixture:ro" \
+    -v "$test_root:/evidence:rw" \
+    -e CHAIN_API_URL=http://backend:8000 \
+    -e CHAIN_UI_URL=http://frontend \
+    -e CHAIN_WORKBOOK_PATH=/app/frontend/tests/fixtures/first-comparison.xlsx \
+    -e CHAIN_INPUT_PATH=/evidence/workflow-input.json \
+    -e CHAIN_OUTPUT_PATH=/evidence/workflow-result.json \
+    -e MODEL_WORKFLOW_PROVIDER_KEY \
+    -e MODEL_WORKFLOW_PROVIDER_IDENTITY \
+    --entrypoint python backend /fixture/activate_chain.py
+  docker compose "${compose_files[@]}" run --rm --no-deps -T \
+    -v "$PWD/tests/model_connection_backend:/app/tests/model_connection_backend:ro" \
+    -v "$test_root:/evidence:rw" playwright \
+    node /app/tests/model_connection_backend/workflow-browser.mjs \
+    < "$test_root/workflow-input.json"
+  python3 - "$test_root/workflow-result.json" <<'PY'
+import json
+import sys
+result = json.load(open(sys.argv[1]))
+assert result["status"] == "PASS"
+assert result["project_id"] and result["run_id"] and result["resource_id"]
+assert result["navigation_posts"] == result["shortcut_posts"] == 0
+print("EXP-UX-04 real published Run to AI workflow: PASS")
+PY
 fi
 docker compose "${compose_files[@]}" run --rm --no-deps \
   -e RUN_GOVERNANCE_E2E=1 -e EXPECT_BACKEND_MODEL_UNCONFIGURED="$without_model" playwright \

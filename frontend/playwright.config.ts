@@ -95,7 +95,10 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'bun run dev',
+    // CI verifies the production artifact; dev-only tooling distorts interaction budgets.
+    command: process.env.CI
+      ? 'bun run build && bun run preview --port 5173'
+      : 'bun run dev',
     url: baseURL,
     reuseExistingServer: !process.env.CI,
   },

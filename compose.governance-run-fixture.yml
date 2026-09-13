@@ -49,6 +49,19 @@ services:
       timeout: 2s
       retries: 15
 
+  model-workflow-provider:
+    image: '${DOCKER_IMAGE_RUNNER?Variable not set}:${RUNNER_BUILD_VERSION?Variable not set}'
+    depends_on:
+      governance-runner-image:
+        condition: service_completed_successfully
+    entrypoint: ["/app/.venv/bin/python", "/fixture.py"]
+    environment:
+      PROVIDER_KEY: ${MODEL_WORKFLOW_PROVIDER_KEY:-unused}
+      MODEL_IDENTITY: ${MODEL_WORKFLOW_PROVIDER_IDENTITY:-fixture-workflow-model}
+    volumes:
+      - ./tests/model_connection_backend/provider.py:/fixture.py:ro
+    profiles: ["model-workflow"]
+
   cloudatlas-fixture:
     build:
       context: .
