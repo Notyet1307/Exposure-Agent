@@ -3519,3 +3519,68 @@ class CustomerLedgerEntryVersion(SQLModel, table=True):
     fields: dict[str, Any] = Field(sa_type=JSONB)
     management: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB)
     archived: bool = False
+
+
+class CloudAtlasLedgerRevision(SQLModel, table=True):
+    """Append-only local changes, ordered within one immutable source snapshot."""
+
+    __tablename__: ClassVar[str] = "cloudatlas_ledger_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_snapshot_id", "revision", name="uq_cloud_ledger_revision"
+        ),
+        UniqueConstraint(
+            "project_id",
+            "created_by",
+            "operation_key",
+            name="uq_cloud_ledger_operation",
+        ),
+        ForeignKeyConstraint(
+            ["source_snapshot_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "source_snapshots.id",
+                "source_snapshots.governance_run_id",
+                "source_snapshots.project_id",
+                "source_snapshots.tenant_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["observation_id", "governance_run_id", "project_id", "tenant_id"],
+            [
+                "observations.id",
+                "observations.governance_run_id",
+                "observations.project_id",
+                "observations.tenant_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("revision > 0", name="ck_cloud_ledger_revision"),
+        CheckConstraint(
+            "request_sha256 ~ '^[0-9a-f]{64}$'", name="ck_cloud_ledger_request_hash"
+        ),
+        CheckConstraint(
+            "(kind = 'management' AND observation_id IS NOT NULL AND scope_state IS NULL) OR "
+            "(kind = 'scope' AND observation_id IS NULL AND scope_state IN ('UNKNOWN','SEPARATE','CONFIRMED_LEGACY'))",
+            name="ck_cloud_ledger_kind",
+        ),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID
+    project_id: uuid.UUID = Field(index=True)
+    governance_run_id: uuid.UUID
+    source_snapshot_id: uuid.UUID = Field(index=True)
+    observation_id: uuid.UUID | None = Field(default=None, index=True)
+    revision: int
+    kind: str = Field(max_length=20)
+    tags: list[str] = Field(default_factory=list, sa_type=JSONB)
+    followed: bool = False
+    scope_state: str | None = Field(default=None, max_length=30)
+    created_by: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    operation_key: str = Field(max_length=128)
+    request_sha256: str = Field(max_length=64)
+    reason: str = Field(max_length=1000)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )

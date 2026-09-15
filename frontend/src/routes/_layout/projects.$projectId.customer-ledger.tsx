@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table"
 import useAuth from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
+import { requestDigest } from "@/lib/ledgerIntent"
 
 const FIELDS = [
   ["asset_ip", "Asset IP", "资产 IP"],
@@ -85,26 +86,6 @@ const initialFields = {
   end_port: 443,
   is_web: "否",
   web_url: null,
-}
-async function requestDigest(body: LedgerEdit) {
-  const canonical = (value: unknown): unknown =>
-    Array.isArray(value)
-      ? value.map(canonical)
-      : value && typeof value === "object"
-        ? Object.fromEntries(
-            Object.entries(value)
-              .filter(([, v]) => v !== undefined)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([k, v]) => [k, canonical(v)]),
-          )
-        : value
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(JSON.stringify(canonical(body))),
-  )
-  return [...new Uint8Array(digest)]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("")
 }
 
 function CustomerLedger() {
@@ -892,6 +873,27 @@ function LedgerView({
                 {selected.canonical_ip} · {t("Source record", "原生条目")}{" "}
                 {selected.position}
               </h2>
+              <Button asChild variant="outline">
+                <Link
+                  to="/projects/$projectId/cloudatlas-ledger"
+                  params={{ projectId }}
+                  search={{
+                    cloud_source: undefined,
+                    cloud_snapshot: undefined,
+                    cloud_revision: undefined,
+                    cloud_page: 0,
+                    cloud_ip: undefined,
+                    cloud_asset: undefined,
+                    profile_ip: selected.canonical_ip,
+                    customer_upload: data.upload_id ?? undefined,
+                    customer_revision: data.revision_id ?? undefined,
+                    customer_page: 0,
+                    profile_cloud_page: 0,
+                  }}
+                >
+                  {t("View with CloudAtlas source", "结合云图来源查看画像")}
+                </Link>
+              </Button>
               <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {FIELDS.map(([name, en, zh]) => (
                   <div key={name}>

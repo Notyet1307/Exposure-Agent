@@ -9,8 +9,15 @@ import { useWorkspaceContext } from "@/lib/workspace"
 export default function WorkspaceSelector() {
   const { t, formatDate } = useI18n()
   const navigate = useNavigate()
+  const rootPage = useRouterState({
+    select: (state) => state.location.pathname === "/",
+  })
   const ledgerPage = useRouterState({
-    select: (state) => state.location.pathname.endsWith("/customer-ledger"),
+    select: (state) =>
+      /\/(customer-ledger|cloudatlas-ledger)$/.test(state.location.pathname),
+  })
+  const cloudLedgerPage = useRouterState({
+    select: (state) => state.location.pathname.endsWith("/cloudatlas-ledger"),
   })
   const { search, projectId, runId, project, projects, reports, latest } =
     useWorkspaceContext()
@@ -21,6 +28,7 @@ export default function WorkspaceSelector() {
       : undefined
   useEffect(() => {
     if (
+      rootPage &&
       search.view !== "create" &&
       projectId === undefined &&
       projects.isSuccess &&
@@ -34,6 +42,7 @@ export default function WorkspaceSelector() {
       })
     }
   }, [
+    rootPage,
     navigate,
     projectId,
     projects.data,
@@ -43,7 +52,7 @@ export default function WorkspaceSelector() {
   ])
   useEffect(() => {
     if (
-      !ledgerPage &&
+      rootPage &&
       !["create", "inputs", "runs", "cloudatlas"].includes(search.view ?? "") &&
       projectId !== undefined &&
       runId === undefined &&
@@ -62,7 +71,7 @@ export default function WorkspaceSelector() {
       })
     }
   }, [
-    ledgerPage,
+    rootPage,
     latest.data,
     latest.isSuccess,
     latest.isFetching,
@@ -86,7 +95,25 @@ export default function WorkspaceSelector() {
           value={projectId ?? ""}
           disabled={!projectChoices}
           onChange={(event) => {
-            if (ledgerPage) {
+            if (cloudLedgerPage) {
+              void navigate({
+                to: "/projects/$projectId/cloudatlas-ledger",
+                params: { projectId: event.target.value },
+                search: {
+                  cloud_page: 0,
+                  customer_page: 0,
+                  profile_cloud_page: 0,
+                  cloud_source: undefined,
+                  cloud_snapshot: undefined,
+                  cloud_revision: undefined,
+                  cloud_ip: undefined,
+                  cloud_asset: undefined,
+                  profile_ip: undefined,
+                  customer_upload: undefined,
+                  customer_revision: undefined,
+                },
+              })
+            } else if (ledgerPage) {
               void navigate({
                 to: "/projects/$projectId/customer-ledger",
                 params: { projectId: event.target.value },
