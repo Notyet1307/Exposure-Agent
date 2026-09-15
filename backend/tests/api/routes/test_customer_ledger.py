@@ -18,7 +18,12 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.db import engine
 from app.domain import customer_ledger as ledger
-from app.domain.models import Artifact, CustomerLedgerRevision, CustomerUpload
+from app.domain.models import (
+    Artifact,
+    AuditEvent,
+    CustomerLedgerRevision,
+    CustomerUpload,
+)
 from tests.api.routes.test_customer_uploads import _create_member, _create_project
 from tests.utils.audit import reject_audit_inserts
 
@@ -332,6 +337,7 @@ def test_permissions_recovery_scope_and_archive(
 @pytest.mark.parametrize("failure", ["audit", "commit", "writer"])
 def test_failure_keeps_input_and_cleans_only_new_artifacts(
     client: TestClient,
+    db: Session,
     setup_ledger: LedgerSetup,
     monkeypatch: pytest.MonkeyPatch,
     failure: str,
@@ -343,7 +349,10 @@ def test_failure_keeps_input_and_cleans_only_new_artifacts(
         raise SQLAlchemyError("injected")
 
     if failure == "audit":
-        with Session(engine) as db, reject_audit_inserts(db):
+        # Prior tests may leave a read transaction on the shared fixture.
+        # Reuse it so the fault-injection helper releases that lock before DDL.
+        db.exec(select(AuditEvent.action)).first()
+        with reject_audit_inserts(db):
             result = post(client, setup_ledger, edit(first))
     else:
         with monkeypatch.context() as patch:
