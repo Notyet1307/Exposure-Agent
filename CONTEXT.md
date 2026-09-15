@@ -13,8 +13,20 @@ Project 对一个外部系统 OctoBus Instance 的业务引用，标明其为客
 _Avoid_: Connector、凭据副本、SourceSnapshot、CustomerUpload
 
 **CustomerUpload**:
-客户系统不可达期间用于初期测试的客户侧输入文件版本，只有通过确定性校验后才成立，具有不可变 ID 与内容 Hash、归属于一个 Project，并固定校验时使用的 CustomerUploadProfile 版本；GovernanceRun 明确固定其中一个版本。它是过渡输入，不冒充 SourceInstance，也不改变客户系统最终经 OctoBus 接入的目标。
+客户侧已接受的输入文件版本，具有不可变 ID 与内容 Hash、归属于一个 Project，并固定校验时使用的 CustomerUploadProfile 版本；GovernanceRun 明确固定其中一个版本。原始上传与经严格校验的人工派生输入保留不同来源，不能互相冒充；它不等于客户系统 SourceInstance，也不改变客户系统最终经 OctoBus 接入的目标。
 _Avoid_: 上传尝试、校验失败文件、客户系统、SourceInstance、可变附件路径、最终集成方式
+
+**Customer Ledger Entry（客户台账条目）**:
+某个客户台账版本内可追溯的一条客户资产声明；同一 IP 可以对应不同端口、Web 或责任信息的多条记录，人工更正以条目身份区分。
+_Avoid_: Resource、报告样本、全局 IP、可变行号
+
+**Customer Ledger Revision（客户台账修订）**:
+一次已接受的人工管理版本，保留父版本、条目变化、作者、时间与理由；输入字段变化和仅本地管理字段变化明确区分，原版本不可覆盖。
+_Avoid_: GovernanceRun、人工核查结论、原上传文件覆盖、第四份资产主表
+
+**Derived CustomerUpload（人工派生输入）**:
+由明确客户台账修订物化并重新通过既有校验的 CustomerUpload，保留人工来源和父输入关联；只有新批次明确固定后才成为该批次依据。
+_Avoid_: 客户系统返回、原始上传、自动治理执行、新的 Run 输入种类
 
 **CustomerUploadProfile**:
 归属于一个 Project 的不可变、版本化表格结构契约，定义后续 CustomerUpload 的列名映射、别名、必填或可选，以及缺失时的拒绝或 warning 分类；每个 Project 独立维护版本链，每个 CustomerUpload 固定校验时使用的版本。IP、端口、Web 标识、URL 等值语义及核心字段不可降级约束仍由确定性代码定义。
