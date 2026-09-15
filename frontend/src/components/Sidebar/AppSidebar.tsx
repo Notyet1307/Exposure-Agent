@@ -76,6 +76,13 @@ export function AppSidebar() {
       search: project ? undefined : { view: "inputs" },
       active: pathname.endsWith("/customer-ledger"),
     },
+    {
+      icon: Waypoints,
+      title: t("CloudAtlas ledger", "云图原生资产账"),
+      path: project ? `/projects/${project}/cloudatlas-ledger` : "/",
+      search: project ? undefined : { view: "cloudatlas" },
+      active: pathname.endsWith("/cloudatlas-ledger"),
+    },
     home("inputs", t("Inputs", "输入管理"), Upload),
     home("cloudatlas", t("CloudAtlas", "来源管理"), Waypoints),
     home("runs", t("Runs", "运行管理"), Play),

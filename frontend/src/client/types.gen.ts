@@ -160,6 +160,96 @@ export type CloudAtlasSourceValidationRequest = {
     capset_token: string;
 };
 
+export type CloudIPProfile = {
+    project_id: string;
+    canonical_ip: string;
+    governance_run_id: (string | null);
+    association: string;
+    resource_id?: (string | null);
+    comparison?: (IPSourceComparison | null);
+    netflow_state?: string;
+    customer: LedgerPage;
+    cloud: CloudLedgerPage;
+    risk_state?: "NOT_CONNECTED";
+};
+
+export type CloudLedgerEdit = {
+    snapshot_id: string;
+    expected_revision: number;
+    kind: 'management' | 'scope';
+    observation_id?: (string | null);
+    tags?: Array<(string)>;
+    followed?: boolean;
+    scope_state?: ('UNKNOWN' | 'SEPARATE' | 'CONFIRMED_LEGACY' | null);
+    reason: string;
+};
+
+export type kind = 'management' | 'scope';
+
+export type CloudLedgerEntry = {
+    observation_id: string;
+    source_record_key: string;
+    asset_id: string;
+    raw_ip: string;
+    canonical_ip: string;
+    source_status: string;
+    tags?: Array<(string)>;
+    followed?: boolean;
+    management_revision?: number;
+};
+
+export type CloudLedgerPage = {
+    project_id: string;
+    source_instance_id?: (string | null);
+    snapshot_id?: (string | null);
+    governance_run_id?: (string | null);
+    source_created_at?: (string | null);
+    content_sha256?: (string | null);
+    state: string;
+    latest_attempt_state?: string;
+    latest_attempt_at?: (string | null);
+    latest_attempt_run_id?: (string | null);
+    revision?: number;
+    current_revision?: number;
+    scope_state?: 'UNKNOWN' | 'SEPARATE' | 'CONFIRMED_LEGACY';
+    scope_revision?: number;
+    current_scope_revision?: number;
+    association?: string;
+    count?: (number | null);
+    total_records?: (number | null);
+    unique_ips?: (number | null);
+    status_filter?: "valid";
+    risk_state?: "NOT_CONNECTED";
+    data?: Array<CloudLedgerEntry>;
+    can_manage?: boolean;
+    can_confirm_scope?: boolean;
+};
+
+export type scope_state = 'UNKNOWN' | 'SEPARATE' | 'CONFIRMED_LEGACY';
+
+export type CloudRevisionPublic = {
+    id: string;
+    source_snapshot_id: string;
+    revision: number;
+    kind: string;
+    observation_id: (string | null);
+    tags: Array<(string)>;
+    followed: boolean;
+    scope_state: ('UNKNOWN' | 'SEPARATE' | 'CONFIRMED_LEGACY' | null);
+    reason: string;
+    created_by: string;
+    created_at: string;
+};
+
+export type CloudSnapshotPublic = {
+    id: string;
+    source_instance_id: string;
+    governance_run_id: string;
+    created_at: string;
+    record_count: number;
+    content_sha256: string;
+};
+
 export type ConnectionActionPublic = {
     operation: OperationPublic;
     state: ConnectionStatePublic;
@@ -659,6 +749,20 @@ export type IPObservationPublic = {
     source_snapshot_id: string;
 };
 
+export type IPSourceComparison = {
+    resource_id: string;
+    canonical_ip: string;
+    customer_upload_present: boolean;
+    cloudatlas_present: boolean;
+    netflow_status: 'ACTIVE' | 'UNKNOWN';
+    classification: string;
+    classification_reason: string;
+    netflow_reason: string;
+    content_hash: string;
+};
+
+export type netflow_status = 'ACTIVE' | 'UNKNOWN';
+
 export type IPSourceComparisonPublic = {
     resource_id: string;
     canonical_ip: string;
@@ -670,8 +774,6 @@ export type IPSourceComparisonPublic = {
     netflow_reason: string;
     content_hash: string;
 };
-
-export type netflow_status = 'ACTIVE' | 'UNKNOWN';
 
 export type classification = 'matched' | 'customer_upload_only' | 'cloudatlas_only' | 'neither_source_observed';
 
@@ -762,7 +864,7 @@ export type LineageEdgePublic = {
     to: string;
 };
 
-export type kind = 'SOURCE_SNAPSHOT' | 'SNAPSHOT_PROCESS' | 'ABSENT_SOURCE_PROCESS' | 'PROCESS_COMPARISON' | 'PROCESS_FINDING' | 'PROCESS_REPORT' | 'COMPARISON_REPORT_CONTEXT' | 'FINDING_REPORT_CONTEXT';
+export type kind2 = 'SOURCE_SNAPSHOT' | 'SNAPSHOT_PROCESS' | 'ABSENT_SOURCE_PROCESS' | 'PROCESS_COMPARISON' | 'PROCESS_FINDING' | 'PROCESS_REPORT' | 'COMPARISON_REPORT_CONTEXT' | 'FINDING_REPORT_CONTEXT';
 
 export type LineageEvidenceReferencePublic = {
     id: string;
@@ -1064,7 +1166,7 @@ export type TemporalCell = {
     value: string;
 };
 
-export type kind2 = 'datetime' | 'date' | 'time' | 'timedelta';
+export type kind3 = 'datetime' | 'date' | 'time' | 'timedelta';
 
 export type Token = {
     access_token: string;
@@ -1196,6 +1298,67 @@ export type AuditEventsReadAuditEventsData = {
 };
 
 export type AuditEventsReadAuditEventsResponse = (AuditEventsPublic);
+
+export type CloudatlasLedgerReadCloudatlasLedgerData = {
+    assetId?: (string | null);
+    ip?: (string | null);
+    limit?: number;
+    projectId: string;
+    revision?: (number | null);
+    skip?: number;
+    snapshotId?: (string | null);
+    sourceId?: (string | null);
+};
+
+export type CloudatlasLedgerReadCloudatlasLedgerResponse = (CloudLedgerPage);
+
+export type CloudatlasLedgerReadCloudatlasLedgerSnapshotsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+    sourceId: string;
+};
+
+export type CloudatlasLedgerReadCloudatlasLedgerSnapshotsResponse = (Array<CloudSnapshotPublic>);
+
+export type CloudatlasLedgerReadCloudatlasLedgerRevisionsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+    snapshotId: string;
+};
+
+export type CloudatlasLedgerReadCloudatlasLedgerRevisionsResponse = (Array<CloudRevisionPublic>);
+
+export type CloudatlasLedgerCreateCloudatlasLedgerRevisionData = {
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: CloudLedgerEdit;
+};
+
+export type CloudatlasLedgerCreateCloudatlasLedgerRevisionResponse = (CloudRevisionPublic);
+
+export type CloudatlasLedgerReadCloudatlasLedgerOperationData = {
+    operationKey: string;
+    projectId: string;
+};
+
+export type CloudatlasLedgerReadCloudatlasLedgerOperationResponse = (CloudRevisionPublic);
+
+export type CloudatlasLedgerReadCloudatlasIpProfileData = {
+    cloudSkip?: number;
+    customerOriginal?: boolean;
+    customerRevisionId?: (string | null);
+    customerSkip?: number;
+    ip: string;
+    limit?: number;
+    projectId: string;
+    revision?: (number | null);
+    snapshotId: string;
+    uploadId?: (string | null);
+};
+
+export type CloudatlasLedgerReadCloudatlasIpProfileResponse = (CloudIPProfile);
 
 export type CloudatlasSourceInstancesReadCloudatlasSourcesData = {
     projectId: string;

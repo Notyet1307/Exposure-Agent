@@ -771,6 +771,506 @@ export const CloudAtlasSourcesPublicSchema = {
     title: 'CloudAtlasSourcesPublic'
 } as const;
 
+export const CloudIPProfileSchema = {
+    properties: {
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        governance_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Governance Run Id'
+        },
+        association: {
+            type: 'string',
+            title: 'Association'
+        },
+        resource_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Resource Id'
+        },
+        comparison: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/IPSourceComparison'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        netflow_state: {
+            type: 'string',
+            title: 'Netflow State',
+            default: 'ASSOCIATION_UNAVAILABLE'
+        },
+        customer: {
+            '$ref': '#/components/schemas/LedgerPage'
+        },
+        cloud: {
+            '$ref': '#/components/schemas/CloudLedgerPage'
+        },
+        risk_state: {
+            type: 'string',
+            const: 'NOT_CONNECTED',
+            title: 'Risk State',
+            default: 'NOT_CONNECTED'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'canonical_ip', 'governance_run_id', 'association', 'customer', 'cloud'],
+    title: 'CloudIPProfile'
+} as const;
+
+export const CloudLedgerEditSchema = {
+    properties: {
+        snapshot_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Snapshot Id'
+        },
+        expected_revision: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Expected Revision'
+        },
+        kind: {
+            type: 'string',
+            enum: ['management', 'scope'],
+            title: 'Kind'
+        },
+        observation_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Observation Id'
+        },
+        tags: {
+            items: {
+                type: 'string',
+                maxLength: 64,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 20,
+            title: 'Tags'
+        },
+        followed: {
+            type: 'boolean',
+            title: 'Followed',
+            default: false
+        },
+        scope_state: {
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['UNKNOWN', 'SEPARATE', 'CONFIRMED_LEGACY']
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Scope State'
+        },
+        reason: {
+            type: 'string',
+            maxLength: 1000,
+            minLength: 1,
+            title: 'Reason'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['snapshot_id', 'expected_revision', 'kind', 'reason'],
+    title: 'CloudLedgerEdit'
+} as const;
+
+export const CloudLedgerEntrySchema = {
+    properties: {
+        observation_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Observation Id'
+        },
+        source_record_key: {
+            type: 'string',
+            title: 'Source Record Key'
+        },
+        asset_id: {
+            type: 'string',
+            title: 'Asset Id'
+        },
+        raw_ip: {
+            type: 'string',
+            title: 'Raw Ip'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        source_status: {
+            type: 'string',
+            title: 'Source Status'
+        },
+        tags: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Tags'
+        },
+        followed: {
+            type: 'boolean',
+            title: 'Followed',
+            default: false
+        },
+        management_revision: {
+            type: 'integer',
+            title: 'Management Revision',
+            default: 0
+        }
+    },
+    type: 'object',
+    required: ['observation_id', 'source_record_key', 'asset_id', 'raw_ip', 'canonical_ip', 'source_status'],
+    title: 'CloudLedgerEntry'
+} as const;
+
+export const CloudLedgerPageSchema = {
+    properties: {
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        source_instance_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Instance Id'
+        },
+        snapshot_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Snapshot Id'
+        },
+        governance_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Governance Run Id'
+        },
+        source_created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Created At'
+        },
+        content_sha256: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Content Sha256'
+        },
+        state: {
+            type: 'string',
+            title: 'State'
+        },
+        latest_attempt_state: {
+            type: 'string',
+            title: 'Latest Attempt State',
+            default: 'NOT_READ'
+        },
+        latest_attempt_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Attempt At'
+        },
+        latest_attempt_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Attempt Run Id'
+        },
+        revision: {
+            type: 'integer',
+            title: 'Revision',
+            default: 0
+        },
+        current_revision: {
+            type: 'integer',
+            title: 'Current Revision',
+            default: 0
+        },
+        scope_state: {
+            type: 'string',
+            enum: ['UNKNOWN', 'SEPARATE', 'CONFIRMED_LEGACY'],
+            title: 'Scope State',
+            default: 'UNKNOWN'
+        },
+        scope_revision: {
+            type: 'integer',
+            title: 'Scope Revision',
+            default: 0
+        },
+        current_scope_revision: {
+            type: 'integer',
+            title: 'Current Scope Revision',
+            default: 0
+        },
+        association: {
+            type: 'string',
+            title: 'Association',
+            default: 'UNKNOWN'
+        },
+        count: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Count'
+        },
+        total_records: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Total Records'
+        },
+        unique_ips: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Unique Ips'
+        },
+        status_filter: {
+            type: 'string',
+            const: 'valid',
+            title: 'Status Filter',
+            default: 'valid'
+        },
+        risk_state: {
+            type: 'string',
+            const: 'NOT_CONNECTED',
+            title: 'Risk State',
+            default: 'NOT_CONNECTED'
+        },
+        data: {
+            items: {
+                '$ref': '#/components/schemas/CloudLedgerEntry'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        can_manage: {
+            type: 'boolean',
+            title: 'Can Manage',
+            default: false
+        },
+        can_confirm_scope: {
+            type: 'boolean',
+            title: 'Can Confirm Scope',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'state'],
+    title: 'CloudLedgerPage'
+} as const;
+
+export const CloudRevisionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        source_snapshot_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Snapshot Id'
+        },
+        revision: {
+            type: 'integer',
+            title: 'Revision'
+        },
+        kind: {
+            type: 'string',
+            title: 'Kind'
+        },
+        observation_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Observation Id'
+        },
+        tags: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Tags'
+        },
+        followed: {
+            type: 'boolean',
+            title: 'Followed'
+        },
+        scope_state: {
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['UNKNOWN', 'SEPARATE', 'CONFIRMED_LEGACY']
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Scope State'
+        },
+        reason: {
+            type: 'string',
+            title: 'Reason'
+        },
+        created_by: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Created By'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'source_snapshot_id', 'revision', 'kind', 'observation_id', 'tags', 'followed', 'scope_state', 'reason', 'created_by', 'created_at'],
+    title: 'CloudRevisionPublic'
+} as const;
+
+export const CloudSnapshotPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        source_instance_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Instance Id'
+        },
+        governance_run_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Governance Run Id'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        record_count: {
+            type: 'integer',
+            title: 'Record Count'
+        },
+        content_sha256: {
+            type: 'string',
+            title: 'Content Sha256'
+        }
+    },
+    type: 'object',
+    required: ['id', 'source_instance_id', 'governance_run_id', 'created_at', 'record_count', 'content_sha256'],
+    title: 'CloudSnapshotPublic'
+} as const;
+
 export const ConnectionActionPublicSchema = {
     properties: {
         operation: {
@@ -2938,6 +3438,53 @@ export const IPObservationPublicSchema = {
     type: 'object',
     required: ['id', 'source_type', 'source_record_key', 'raw_ip', 'canonical_ip', 'cloudatlas_asset_id', 'cloudatlas_status', 'source_snapshot_id'],
     title: 'IPObservationPublic'
+} as const;
+
+export const IPSourceComparisonSchema = {
+    properties: {
+        resource_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Resource Id'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        customer_upload_present: {
+            type: 'boolean',
+            title: 'Customer Upload Present'
+        },
+        cloudatlas_present: {
+            type: 'boolean',
+            title: 'Cloudatlas Present'
+        },
+        netflow_status: {
+            type: 'string',
+            enum: ['ACTIVE', 'UNKNOWN'],
+            title: 'Netflow Status'
+        },
+        classification: {
+            type: 'string',
+            title: 'Classification'
+        },
+        classification_reason: {
+            type: 'string',
+            title: 'Classification Reason'
+        },
+        netflow_reason: {
+            type: 'string',
+            title: 'Netflow Reason'
+        },
+        content_hash: {
+            type: 'string',
+            title: 'Content Hash'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['resource_id', 'canonical_ip', 'customer_upload_present', 'cloudatlas_present', 'netflow_status', 'classification', 'classification_reason', 'netflow_reason', 'content_hash'],
+    title: 'IPSourceComparison'
 } as const;
 
 export const IPSourceComparisonPublicSchema = {
