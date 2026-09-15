@@ -453,6 +453,7 @@ def select_current_customer_upload(
 
     previous_upload_id = project.current_customer_upload_id
     project.current_customer_upload_id = upload.id
+    project.current_customer_ledger_revision_id = None
     project.updated_at = get_datetime_utc()
     audit_event = AuditEvent(
         tenant_id=project.tenant_id,
@@ -499,7 +500,12 @@ def accept_customer_upload(
     artifact_root: Path,
     actor_subject: str,
     ip_address: str | None,
+    commit: bool = True,
+    promoted_paths: list[Path] | None = None,
 ) -> tuple[CustomerUpload, bool]:
+    # Ledger saves own the transaction and must recover only their new files.
+    if not commit and promoted_paths is None:
+        raise ValueError("transaction owner must track promoted artifacts")
     temporary_path = streamed_upload.temporary_path
     try:
         try:
@@ -534,6 +540,8 @@ def accept_customer_upload(
         final_path = artifact_root / storage_key
         try:
             os.replace(temporary_path, final_path)
+            if promoted_paths is not None:
+                promoted_paths.append(final_path)
             final_path.chmod(0o440)
         except OSError:
             _remove_files(temporary_path, final_path)
@@ -570,8 +578,9 @@ def accept_customer_upload(
             session.flush()
             session.add(audit_event)
             session.flush()
-            session.expunge(customer_upload)
-            session.commit()
+            if commit:
+                session.expunge(customer_upload)
+                session.commit()
         except IntegrityError:
             session.rollback()
             _remove_files(final_path)

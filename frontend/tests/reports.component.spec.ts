@@ -355,6 +355,10 @@ async function installBaseMocks(page: Page) {
       })
       return
     }
+    if (url.pathname.endsWith("/cloudatlas-source-instances")) {
+      await route.fulfill({ json: { data: [], count: 0 } })
+      return
+    }
     if (url.pathname.endsWith("/netflow-datasets")) {
       await route.fulfill({
         json: {

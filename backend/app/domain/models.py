@@ -104,6 +104,17 @@ class Project(ProjectBase, table=True):
             deferrable=True,
             initially="DEFERRED",
         ),
+        ForeignKeyConstraint(
+            ["current_customer_ledger_revision_id", "id", "tenant_id"],
+            [
+                "customer_ledger_revisions.id",
+                "customer_ledger_revisions.project_id",
+                "customer_ledger_revisions.tenant_id",
+            ],
+            name="fk_projects_current_customer_ledger",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
         UniqueConstraint("id", "tenant_id", name="uq_projects_id_tenant"),
         UniqueConstraint(
             "tenant_id",
@@ -139,6 +150,7 @@ class Project(ProjectBase, table=True):
     )
     current_customer_upload_profile_id: uuid.UUID = Field(index=True)
     current_customer_upload_id: uuid.UUID | None = Field(default=None, index=True)
+    current_customer_ledger_revision_id: uuid.UUID | None = Field(default=None)
     current_netflow_dataset_id: uuid.UUID | None = Field(default=None, index=True)
     latest_completed_run_id: uuid.UUID | None = Field(default=None, index=True)
     creation_actor: str | None = Field(default=None, max_length=255)
@@ -3422,3 +3434,88 @@ class AuditEventPublic(SQLModel):
 class AuditEventsPublic(SQLModel):
     data: list[AuditEventPublic]
     count: int
+
+
+class CustomerLedgerRevision(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "customer_ledger_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "id", "project_id", "tenant_id", name="uq_customer_ledger_revision_scope"
+        ),
+        UniqueConstraint(
+            "project_id",
+            "created_by",
+            "operation_key",
+            name="uq_customer_ledger_operation",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["parent_revision_id", "project_id", "tenant_id"],
+            [
+                "customer_ledger_revisions.id",
+                "customer_ledger_revisions.project_id",
+                "customer_ledger_revisions.tenant_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["base_upload_id", "project_id", "tenant_id"],
+            [
+                "customer_uploads.id",
+                "customer_uploads.project_id",
+                "customer_uploads.tenant_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["upload_id", "project_id", "tenant_id"],
+            [
+                "customer_uploads.id",
+                "customer_uploads.project_id",
+                "customer_uploads.tenant_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "request_sha256 ~ '^[0-9a-f]{64}$'", name="ck_customer_ledger_request_hash"
+        ),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID
+    project_id: uuid.UUID = Field(index=True)
+    parent_revision_id: uuid.UUID | None = None
+    base_upload_id: uuid.UUID
+    upload_id: uuid.UUID
+    created_by: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    operation_key: str = Field(max_length=128)
+    request_sha256: str = Field(max_length=64)
+    reason: str = Field(max_length=1000)
+    sealed: bool = False
+    input_changed: bool
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
+class CustomerLedgerEntryVersion(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "customer_ledger_entry_versions"
+    __table_args__ = (
+        UniqueConstraint("revision_id", "position", name="uq_customer_ledger_position"),
+        CheckConstraint("position > 0", name="ck_customer_ledger_position"),
+    )
+    revision_id: uuid.UUID = Field(
+        foreign_key="customer_ledger_revisions.id",
+        ondelete="RESTRICT",
+        primary_key=True,
+    )
+    entry_id: uuid.UUID = Field(primary_key=True)
+    position: int
+    canonical_ip: str = Field(max_length=45, index=True)
+    fields: dict[str, Any] = Field(sa_type=JSONB)
+    management: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB)
+    archived: bool = False

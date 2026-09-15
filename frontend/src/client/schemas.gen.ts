@@ -3483,6 +3483,297 @@ export const InvestigationsPublicSchema = {
     title: 'InvestigationsPublic'
 } as const;
 
+export const LedgerEditSchema = {
+    properties: {
+        expected_upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Expected Upload Id'
+        },
+        expected_revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Revision Id'
+        },
+        expected_profile_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Expected Profile Id'
+        },
+        operation: {
+            type: 'string',
+            enum: ['add', 'update', 'archive', 'manage'],
+            title: 'Operation'
+        },
+        entry_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Entry Id'
+        },
+        fields: {
+            additionalProperties: {
+                anyOf: [
+                    {
+                        type: 'string',
+                        maxLength: 32767
+                    },
+                    {
+                        type: 'integer'
+                    },
+                    {
+                        type: 'number'
+                    },
+                    {
+                        type: 'boolean'
+                    },
+                    {
+                        '$ref': '#/components/schemas/TemporalCell'
+                    },
+                    {
+                        type: 'null'
+                    }
+                ]
+            },
+            propertyNames: {
+                enum: ['asset_ip', 'start_port', 'end_port', 'is_web', 'web_url', 'service_type', 'asset_owner', 'asset_department', 'port_owner', 'department', 'serial']
+            },
+            type: 'object',
+            title: 'Fields'
+        },
+        management: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/Management'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        reason: {
+            type: 'string',
+            maxLength: 1000,
+            minLength: 1,
+            title: 'Reason'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['expected_upload_id', 'expected_revision_id', 'expected_profile_id', 'operation', 'reason'],
+    title: 'LedgerEdit'
+} as const;
+
+export const LedgerEntrySchema = {
+    properties: {
+        entry_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Entry Id'
+        },
+        position: {
+            type: 'integer',
+            title: 'Position'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        fields: {
+            additionalProperties: {
+                anyOf: [
+                    {
+                        type: 'string',
+                        maxLength: 32767
+                    },
+                    {
+                        type: 'integer'
+                    },
+                    {
+                        type: 'number'
+                    },
+                    {
+                        type: 'boolean'
+                    },
+                    {
+                        '$ref': '#/components/schemas/TemporalCell'
+                    },
+                    {
+                        type: 'null'
+                    }
+                ]
+            },
+            propertyNames: {
+                enum: ['asset_ip', 'start_port', 'end_port', 'is_web', 'web_url', 'service_type', 'asset_owner', 'asset_department', 'port_owner', 'department', 'serial']
+            },
+            type: 'object',
+            title: 'Fields'
+        },
+        management: {
+            '$ref': '#/components/schemas/Management'
+        },
+        archived: {
+            type: 'boolean',
+            title: 'Archived',
+            default: false
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['entry_id', 'position', 'canonical_ip', 'fields'],
+    title: 'LedgerEntry'
+} as const;
+
+export const LedgerPageSchema = {
+    properties: {
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        upload_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Upload Id'
+        },
+        revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Revision Id'
+        },
+        current_upload_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Upload Id'
+        },
+        current_revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Revision Id'
+        },
+        current_profile_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Current Profile Id'
+        },
+        upload_sha256: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Upload Sha256'
+        },
+        filename: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Filename'
+        },
+        source_created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Created At'
+        },
+        revision: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/RevisionPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        data: {
+            items: {
+                '$ref': '#/components/schemas/LedgerEntry'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count',
+            default: 0
+        },
+        total_records: {
+            type: 'integer',
+            title: 'Total Records',
+            default: 0
+        },
+        unique_ips: {
+            type: 'integer',
+            title: 'Unique Ips',
+            default: 0
+        },
+        can_edit: {
+            type: 'boolean',
+            title: 'Can Edit',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'upload_id', 'revision_id', 'current_upload_id', 'current_revision_id', 'current_profile_id'],
+    title: 'LedgerPage'
+} as const;
+
 export const LineageComparisonNodePublicSchema = {
     properties: {
         resource_id: {
@@ -4040,6 +4331,41 @@ export const LineageTotalsPublicSchema = {
     type: 'object',
     required: ['comparison_count', 'finding_event_count'],
     title: 'LineageTotalsPublic'
+} as const;
+
+export const ManagementSchema = {
+    properties: {
+        owner: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Owner',
+            default: ''
+        },
+        department: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Department',
+            default: ''
+        },
+        tags: {
+            items: {
+                type: 'string',
+                maxLength: 64,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 20,
+            title: 'Tags'
+        },
+        followed: {
+            type: 'boolean',
+            title: 'Followed',
+            default: false
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    title: 'Management'
 } as const;
 
 export const ManualReviewCreateSchema = {
@@ -4715,6 +5041,59 @@ export const ProjectsPublicSchema = {
     title: 'ProjectsPublic'
 } as const;
 
+export const RevisionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        parent_revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Parent Revision Id'
+        },
+        base_upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Base Upload Id'
+        },
+        upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Upload Id'
+        },
+        created_by: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Created By'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        reason: {
+            type: 'string',
+            title: 'Reason'
+        },
+        input_changed: {
+            type: 'boolean',
+            title: 'Input Changed'
+        }
+    },
+    type: 'object',
+    required: ['id', 'parent_revision_id', 'base_upload_id', 'upload_id', 'created_by', 'created_at', 'reason', 'input_changed'],
+    title: 'RevisionPublic'
+} as const;
+
 export const RunStepPublicSchema = {
     properties: {
         step_code: {
@@ -4873,6 +5252,25 @@ export const SourceSnapshotPublicSchema = {
     type: 'object',
     required: ['id', 'source_type', 'content_sha256', 'schema_fingerprint', 'method_fingerprint', 'record_count', 'created_at'],
     title: 'SourceSnapshotPublic'
+} as const;
+
+export const TemporalCellSchema = {
+    properties: {
+        kind: {
+            type: 'string',
+            enum: ['datetime', 'date', 'time', 'timedelta'],
+            title: 'Kind'
+        },
+        value: {
+            type: 'string',
+            maxLength: 128,
+            title: 'Value'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['kind', 'value'],
+    title: 'TemporalCell'
 } as const;
 
 export const TokenSchema = {

@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router"
+import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { useEffect } from "react"
 
 import { CreateProjectLink } from "@/components/CreateProject"
@@ -9,6 +9,9 @@ import { useWorkspaceContext } from "@/lib/workspace"
 export default function WorkspaceSelector() {
   const { t, formatDate } = useI18n()
   const navigate = useNavigate()
+  const ledgerPage = useRouterState({
+    select: (state) => state.location.pathname.endsWith("/customer-ledger"),
+  })
   const { search, projectId, runId, project, projects, reports, latest } =
     useWorkspaceContext()
   const projectChoices = projects.isSuccess ? projects.data.data : undefined
@@ -40,6 +43,7 @@ export default function WorkspaceSelector() {
   ])
   useEffect(() => {
     if (
+      !ledgerPage &&
       !["create", "inputs", "runs", "cloudatlas"].includes(search.view ?? "") &&
       projectId !== undefined &&
       runId === undefined &&
@@ -58,6 +62,7 @@ export default function WorkspaceSelector() {
       })
     }
   }, [
+    ledgerPage,
     latest.data,
     latest.isSuccess,
     latest.isFetching,
@@ -81,10 +86,25 @@ export default function WorkspaceSelector() {
           value={projectId ?? ""}
           disabled={!projectChoices}
           onChange={(event) => {
-            void navigate({
-              to: "/",
-              search: { project: event.target.value, view: search.view },
-            })
+            if (ledgerPage) {
+              void navigate({
+                to: "/projects/$projectId/customer-ledger",
+                params: { projectId: event.target.value },
+                search: {
+                  ledger_page: 1,
+                  ledger_archived: false,
+                  ledger_upload: undefined,
+                  ledger_revision: undefined,
+                  ledger_query: undefined,
+                  ledger_ip: undefined,
+                },
+              })
+            } else {
+              void navigate({
+                to: "/",
+                search: { project: event.target.value, view: search.view },
+              })
+            }
           }}
         >
           <option value="" disabled>
@@ -104,43 +124,45 @@ export default function WorkspaceSelector() {
           ))}
         </select>
       </label>
-      <label className="flex min-w-0 items-center gap-2 text-sm">
-        <span>{t("Published run", "已发布运行")}</span>
-        <select
-          className="min-w-0 max-w-72 rounded-md border bg-background p-2"
-          aria-label={t("Published run", "已发布运行")}
-          value={runId ?? ""}
-          disabled={!runChoices?.length}
-          onChange={(event) => {
-            void navigate({
-              to: "/",
-              search: {
-                project: projectId,
-                run: event.target.value,
-                view: search.view,
-              },
-            })
-          }}
-        >
-          <option value="" disabled>
-            {reports.isFetching || latest.isFetching
-              ? t("Loading…", "正在加载…")
-              : t("No compatible published result", "暂无兼容的已发布结果")}
-          </option>
-          {runId !== undefined &&
-            !runChoices?.some((item) => item.governance_run_id === runId) && (
-              <option value={runId}>
-                {t("Run unavailable", "运行不可用")}
-              </option>
-            )}
-          {runChoices?.map((report) => (
-            <option key={report.id} value={report.governance_run_id}>
-              {formatDate(report.run_completed_at)}
+      {!ledgerPage && (
+        <label className="flex min-w-0 items-center gap-2 text-sm">
+          <span>{t("Published run", "已发布运行")}</span>
+          <select
+            className="min-w-0 max-w-72 rounded-md border bg-background p-2"
+            aria-label={t("Published run", "已发布运行")}
+            value={runId ?? ""}
+            disabled={!runChoices?.length}
+            onChange={(event) => {
+              void navigate({
+                to: "/",
+                search: {
+                  project: projectId,
+                  run: event.target.value,
+                  view: search.view,
+                },
+              })
+            }}
+          >
+            <option value="" disabled>
+              {reports.isFetching || latest.isFetching
+                ? t("Loading…", "正在加载…")
+                : t("No compatible published result", "暂无兼容的已发布结果")}
             </option>
-          ))}
-        </select>
-      </label>
-      {runId !== undefined && (
+            {runId !== undefined &&
+              !runChoices?.some((item) => item.governance_run_id === runId) && (
+                <option value={runId}>
+                  {t("Run unavailable", "运行不可用")}
+                </option>
+              )}
+            {runChoices?.map((report) => (
+              <option key={report.id} value={report.governance_run_id}>
+                {formatDate(report.run_completed_at)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {!ledgerPage && runId !== undefined && (
         <details className="min-w-0 max-w-full text-sm">
           <summary className="cursor-pointer">
             {t("Selected run details", "所选批次详情")}

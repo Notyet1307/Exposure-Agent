@@ -3,7 +3,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final
 
@@ -71,6 +71,7 @@ class CustomerUploadWarning:
 class CustomerUploadValidationResult:
     record_count: int
     warnings: tuple[CustomerUploadWarning, ...]
+    bounds: PreflightResult | None = None
 
 
 class CustomerUploadValidationError(Exception):
@@ -124,9 +125,7 @@ def _parse_port(value: object, field: str, row_number: int) -> int:
         port = value
     elif isinstance(value, str) and _DECIMAL_PORT.fullmatch(value.strip()):
         normalized = value.strip().lstrip("0") or "0"
-        if len(normalized) > 5 or (
-            len(normalized) == 5 and normalized > "65535"
-        ):
+        if len(normalized) > 5 or (len(normalized) == 5 and normalized > "65535"):
             raise _reject("invalid_required_value", field=field, row=row_number)
         port = int(normalized)
     else:
@@ -147,9 +146,7 @@ def _validate_required_row(
         _row_value(row, field_indexes["end_port"]), "end_port", row_number
     )
     if start_port != end_port:
-        raise _reject(
-            "invalid_required_value", field="end_port", row=row_number
-        )
+        raise _reject("invalid_required_value", field="end_port", row=row_number)
 
     web_value = _row_value(row, field_indexes["is_web"])
     if not isinstance(web_value, str) or web_value.strip() not in {"是", "否", "无"}:
@@ -157,9 +154,7 @@ def _validate_required_row(
     url_value = _row_value(row, field_indexes["web_url"])
     if web_value.strip() == "是":
         if not isinstance(url_value, str) or not url_value.strip():
-            raise _reject(
-                "invalid_required_value", field="web_url", row=row_number
-            )
+            raise _reject("invalid_required_value", field="web_url", row=row_number)
     elif not _is_empty_url(url_value):
         raise _reject("invalid_required_value", field="web_url", row=row_number)
 
@@ -287,9 +282,7 @@ def validate_customer_upload_workbook(
     result: CustomerUploadValidationResult | None = None
     parser_failed = False
     try:
-        workbook = load_workbook(
-            path, read_only=True, data_only=False, keep_links=True
-        )
+        workbook = load_workbook(path, read_only=True, data_only=False, keep_links=True)
         if len(workbook.worksheets) != 1:
             raise _reject("unsupported_workbook_feature")
         worksheet = workbook.worksheets[0]
@@ -308,4 +301,4 @@ def validate_customer_upload_workbook(
                 parser_failed = True
     if parser_failed or result is None:
         raise _reject("malformed_workbook")
-    return result
+    return replace(result, bounds=preflight_result)

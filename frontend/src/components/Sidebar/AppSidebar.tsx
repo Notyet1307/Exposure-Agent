@@ -1,6 +1,7 @@
 import { useParams, useRouterState } from "@tanstack/react-router"
 import {
   Boxes,
+  FileSpreadsheet,
   FileText,
   GitBranch,
   Home,
@@ -68,6 +69,13 @@ export function AppSidebar() {
     home("reports", t("Reports", "报告"), FileText),
   ]
   const management: Item[] = [
+    {
+      icon: FileSpreadsheet,
+      title: t("Customer ledger", "客户资产台账"),
+      path: project ? `/projects/${project}/customer-ledger` : "/",
+      search: project ? undefined : { view: "inputs" },
+      active: pathname.endsWith("/customer-ledger"),
+    },
     home("inputs", t("Inputs", "输入管理"), Upload),
     home("cloudatlas", t("CloudAtlas", "来源管理"), Waypoints),
     home("runs", t("Runs", "运行管理"), Play),
