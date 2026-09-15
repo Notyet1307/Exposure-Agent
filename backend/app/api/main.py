@@ -5,6 +5,7 @@ from app.api.routes import (
     analysis_reports,
     audit_events,
     cloudatlas_source_instances,
+    customer_ledger,
     governance_reports,
     governance_runs,
     ip_results,
@@ -32,3 +33,5 @@ api_router.include_router(audit_events.router)
 api_router.include_router(ai_investigations.router)
 api_router.include_router(manual_reviews.router)
 api_router.include_router(analysis_reports.router)
+
+api_router.include_router(customer_ledger.router)

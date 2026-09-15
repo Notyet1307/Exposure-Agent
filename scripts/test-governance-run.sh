@@ -115,10 +115,12 @@ if ((with_model_connection_workflow)); then
   up_targets+=(model-workflow-provider)
 fi
 docker compose "${compose_files[@]}" up --build -d --wait "${up_targets[@]}"
-./scripts/test-model-qualification-fixture.sh
-./scripts/qualify-model.sh
+if ((!without_model)); then
+  ./scripts/test-model-qualification-fixture.sh
+  ./scripts/qualify-model.sh
+fi
 if ((without_model)); then
-  # Keep the existing qualification checks, then test this stack's backend without a model.
+  # No model qualification or business model requests in the no-model suite.
   cat > "$test_root/without-model.yml" <<'YAML'
 services:
   backend:

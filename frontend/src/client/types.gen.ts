@@ -687,6 +687,50 @@ export type IPSourceComparisonsPublic = {
     page_size: number;
 };
 
+export type LedgerEdit = {
+    expected_upload_id: string;
+    expected_revision_id: (string | null);
+    expected_profile_id: string;
+    operation: 'add' | 'update' | 'archive' | 'manage';
+    entry_id?: (string | null);
+    fields?: {
+        [key: string]: (string | number | boolean | TemporalCell | null);
+    };
+    management?: (Management | null);
+    reason: string;
+};
+
+export type operation = 'add' | 'update' | 'archive' | 'manage';
+
+export type LedgerEntry = {
+    entry_id: string;
+    position: number;
+    canonical_ip: string;
+    fields: {
+        [key: string]: (string | number | boolean | TemporalCell | null);
+    };
+    management?: Management;
+    archived?: boolean;
+};
+
+export type LedgerPage = {
+    project_id: string;
+    upload_id: (string | null);
+    revision_id: (string | null);
+    current_upload_id: (string | null);
+    current_revision_id: (string | null);
+    current_profile_id: string;
+    upload_sha256?: (string | null);
+    filename?: (string | null);
+    source_created_at?: (string | null);
+    revision?: (RevisionPublic | null);
+    data?: Array<LedgerEntry>;
+    count?: number;
+    total_records?: number;
+    unique_ips?: number;
+    can_edit?: boolean;
+};
+
 export type LineageComparisonNodePublic = {
     resource_id: string;
     canonical_ip: string;
@@ -815,6 +859,13 @@ export type LineageSourceNodePublic = {
 export type LineageTotalsPublic = {
     comparison_count: number;
     finding_event_count: number;
+};
+
+export type Management = {
+    owner?: string;
+    department?: string;
+    tags?: Array<(string)>;
+    followed?: boolean;
 };
 
 export type ManualReviewCreate = {
@@ -965,6 +1016,17 @@ export type ProjectUpdate = {
     name: string;
 };
 
+export type RevisionPublic = {
+    id: string;
+    parent_revision_id: (string | null);
+    base_upload_id: string;
+    upload_id: string;
+    created_by: string;
+    created_at: string;
+    reason: string;
+    input_changed: boolean;
+};
+
 export type RunStepPublic = {
     step_code: string;
     status: string;
@@ -996,6 +1058,13 @@ export type SourceSnapshotPublic = {
     record_count: number;
     created_at: string;
 };
+
+export type TemporalCell = {
+    kind: 'datetime' | 'date' | 'time' | 'timedelta';
+    value: string;
+};
+
+export type kind2 = 'datetime' | 'date' | 'time' | 'timedelta';
 
 export type Token = {
     access_token: string;
@@ -1170,6 +1239,43 @@ export type CloudatlasSourceInstancesDisableCloudatlasSourceData = {
 };
 
 export type CloudatlasSourceInstancesDisableCloudatlasSourceResponse = (CloudAtlasSourcePublic);
+
+export type CustomerLedgerReadCustomerLedgerData = {
+    archived?: boolean;
+    ip?: (string | null);
+    limit?: number;
+    original?: boolean;
+    projectId: string;
+    query?: string;
+    revisionId?: (string | null);
+    skip?: number;
+    uploadId?: (string | null);
+};
+
+export type CustomerLedgerReadCustomerLedgerResponse = (LedgerPage);
+
+export type CustomerLedgerReadCustomerLedgerRevisionsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+};
+
+export type CustomerLedgerReadCustomerLedgerRevisionsResponse = (Array<RevisionPublic>);
+
+export type CustomerLedgerCreateCustomerLedgerRevisionData = {
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: LedgerEdit;
+};
+
+export type CustomerLedgerCreateCustomerLedgerRevisionResponse = (RevisionPublic);
+
+export type CustomerLedgerReadCustomerLedgerOperationData = {
+    operationKey: string;
+    projectId: string;
+};
+
+export type CustomerLedgerReadCustomerLedgerOperationResponse = (RevisionPublic);
 
 export type GovernanceReportsReadGovernanceReportsData = {
     cursor?: (string | null);

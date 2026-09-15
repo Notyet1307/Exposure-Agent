@@ -15,6 +15,7 @@ import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutAiSettingsRouteImport } from './routes/_layout/ai-settings'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutProjectsProjectIdCustomerLedgerRouteImport } from './routes/_layout/projects.$projectId.customer-ledger'
 import { Route as LayoutProjectsProjectIdRunsRunIdLineageRouteImport } from './routes/_layout/projects.$projectId.runs.$runId.lineage'
 import { Route as LayoutProjectsProjectIdRunsRunIdComparisonRouteImport } from './routes/_layout/projects.$projectId.runs.$runId.comparison'
 
@@ -47,6 +48,12 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutProjectsProjectIdCustomerLedgerRoute =
+  LayoutProjectsProjectIdCustomerLedgerRouteImport.update({
+    id: '/projects/$projectId/customer-ledger',
+    path: '/projects/$projectId/customer-ledger',
+    getParentRoute: () => LayoutRoute,
+  } as any)
 const LayoutProjectsProjectIdRunsRunIdLineageRoute =
   LayoutProjectsProjectIdRunsRunIdLineageRouteImport.update({
     id: '/projects/$projectId/runs/$runId/lineage',
@@ -66,6 +73,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof LayoutAdminRoute
   '/ai-settings': typeof LayoutAiSettingsRoute
   '/settings': typeof LayoutSettingsRoute
+  '/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -75,6 +83,7 @@ export interface FileRoutesByTo {
   '/ai-settings': typeof LayoutAiSettingsRoute
   '/settings': typeof LayoutSettingsRoute
   '/': typeof LayoutIndexRoute
+  '/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -86,6 +95,7 @@ export interface FileRoutesById {
   '/_layout/ai-settings': typeof LayoutAiSettingsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/': typeof LayoutIndexRoute
+  '/_layout/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
   '/_layout/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/_layout/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/ai-settings'
     | '/settings'
+    | '/projects/$projectId/customer-ledger'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
   fileRoutesByTo: FileRoutesByTo
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/ai-settings'
     | '/settings'
     | '/'
+    | '/projects/$projectId/customer-ledger'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
   id:
@@ -116,6 +128,7 @@ export interface FileRouteTypes {
     | '/_layout/ai-settings'
     | '/_layout/settings'
     | '/_layout/'
+    | '/_layout/projects/$projectId/customer-ledger'
     | '/_layout/projects/$projectId/runs/$runId/comparison'
     | '/_layout/projects/$projectId/runs/$runId/lineage'
   fileRoutesById: FileRoutesById
@@ -169,6 +182,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/projects/$projectId/customer-ledger': {
+      id: '/_layout/projects/$projectId/customer-ledger'
+      path: '/projects/$projectId/customer-ledger'
+      fullPath: '/projects/$projectId/customer-ledger'
+      preLoaderRoute: typeof LayoutProjectsProjectIdCustomerLedgerRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/projects/$projectId/runs/$runId/lineage': {
       id: '/_layout/projects/$projectId/runs/$runId/lineage'
       path: '/projects/$projectId/runs/$runId/lineage'
@@ -191,6 +211,7 @@ interface LayoutRouteChildren {
   LayoutAiSettingsRoute: typeof LayoutAiSettingsRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
+  LayoutProjectsProjectIdCustomerLedgerRoute: typeof LayoutProjectsProjectIdCustomerLedgerRoute
   LayoutProjectsProjectIdRunsRunIdComparisonRoute: typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   LayoutProjectsProjectIdRunsRunIdLineageRoute: typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -200,6 +221,8 @@ const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAiSettingsRoute: LayoutAiSettingsRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutIndexRoute: LayoutIndexRoute,
+  LayoutProjectsProjectIdCustomerLedgerRoute:
+    LayoutProjectsProjectIdCustomerLedgerRoute,
   LayoutProjectsProjectIdRunsRunIdComparisonRoute:
     LayoutProjectsProjectIdRunsRunIdComparisonRoute,
   LayoutProjectsProjectIdRunsRunIdLineageRoute:
