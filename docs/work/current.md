@@ -1,7 +1,7 @@
 # 当前工作
 
-- 当前任务：[EXP-EVO-01B #240](https://github.com/Notyet1307/Exposure-Agent/issues/240)；状态、授权、依赖和验收只在 Issue 记录。
-- 固定行为：[Release 1 Spec@9f94375](https://github.com/Notyet1307/Exposure-Agent/blob/9f9437583e0fd0acf13033104450fbd82b3a5a7f/docs/specs/asset-governance-release-1.md) 的 EXP-EVO-01B；范围决定见 [ADR-0019](../adr/0019-cloudatlas-native-ledger-and-scoped-profile.md)。
-- 当前衔接：维护者已授权 01B 提交、推送、PR 与合并；发布结果及部署/关闭边界以 #240 为准。
-- 01A 发布收尾仍见 [#238](https://github.com/Notyet1307/Exposure-Agent/issues/238)，不由 01B 推断部署或关闭。
-- 停止线：01C/02/03–05、云图风险/写入/扫描、真实数据发模型、现场部署与既有数据迁移不随本片授权。保留其他 worktree/WIP、模型配置和现场服务。
+- 当前任务：[EXP-EVO-01C #242](https://github.com/Notyet1307/Exposure-Agent/issues/242)；状态、授权、依赖与验收只在 Issue 记录。
+- 固定行为：[Release 1 Spec@d0eb8b9](https://github.com/Notyet1307/Exposure-Agent/blob/d0eb8b99261c5ce807be252e07e55fdef5049aa1/docs/specs/asset-governance-release-1.md#exp-evo-01c-netflow-原生活动账与-ipv6-候选)，配套 [ADR-0020](../adr/0020-netflow-native-endpoints-and-local-candidates.md)。
+- 当前衔接：维护者已授权本片业务 push、PR、必需 CI/Review 与 merge；发布结果以 #242 为准。部署与关闭另按明确授权。
+- 01A/01B 已有交付/部署回执见 [#238](https://github.com/Notyet1307/Exposure-Agent/issues/238) / [#240](https://github.com/Notyet1307/Exposure-Agent/issues/240)，不由 01C 代替关闭授权。
+- 停止线：真实范围启用、云图/模型调用、写入/扫描/纳管、01C 以外实施、现场部署与旧数据回填均不随本片授权；保留其他 worktree/WIP、模型配置和现场服务。

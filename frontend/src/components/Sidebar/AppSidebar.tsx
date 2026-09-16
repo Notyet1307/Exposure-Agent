@@ -83,6 +83,13 @@ export function AppSidebar() {
       search: project ? undefined : { view: "cloudatlas" },
       active: pathname.endsWith("/cloudatlas-ledger"),
     },
+    {
+      icon: Waypoints,
+      title: t("NetFlow activity ledger", "NetFlow 原生活动账"),
+      path: project ? `/projects/${project}/netflow-ledger` : "/",
+      search: project ? undefined : { view: "inputs" },
+      active: pathname.endsWith("/netflow-ledger"),
+    },
     home("inputs", t("Inputs", "输入管理"), Upload),
     home("cloudatlas", t("CloudAtlas", "来源管理"), Waypoints),
     home("runs", t("Runs", "运行管理"), Play),

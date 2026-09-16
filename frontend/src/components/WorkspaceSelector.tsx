@@ -14,7 +14,12 @@ export default function WorkspaceSelector() {
   })
   const ledgerPage = useRouterState({
     select: (state) =>
-      /\/(customer-ledger|cloudatlas-ledger)$/.test(state.location.pathname),
+      /\/(customer-ledger|cloudatlas-ledger|netflow-ledger)$/.test(
+        state.location.pathname,
+      ),
+  })
+  const netflowLedgerPage = useRouterState({
+    select: (state) => state.location.pathname.endsWith("/netflow-ledger"),
   })
   const cloudLedgerPage = useRouterState({
     select: (state) => state.location.pathname.endsWith("/cloudatlas-ledger"),
@@ -95,7 +100,24 @@ export default function WorkspaceSelector() {
           value={projectId ?? ""}
           disabled={!projectChoices}
           onChange={(event) => {
-            if (cloudLedgerPage) {
+            if (netflowLedgerPage) {
+              void navigate({
+                to: "/projects/$projectId/netflow-ledger",
+                params: { projectId: event.target.value },
+                search: {
+                  dataset: undefined,
+                  revision: undefined,
+                  page: 0,
+                  ip: undefined,
+                  candidate: false,
+                  profile_ip: undefined,
+                  customer_upload: undefined,
+                  customer_revision: undefined,
+                  cloud_snapshot: undefined,
+                  cloud_revision: undefined,
+                },
+              })
+            } else if (cloudLedgerPage) {
               void navigate({
                 to: "/projects/$projectId/cloudatlas-ledger",
                 params: { projectId: event.target.value },

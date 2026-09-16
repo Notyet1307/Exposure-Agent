@@ -3584,3 +3584,59 @@ class CloudAtlasLedgerRevision(SQLModel, table=True):
         default_factory=get_datetime_utc,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
+
+
+class NetFlowLedgerRevision(SQLModel, table=True):
+    """Append-only Dataset scope and endpoint handling facts."""
+
+    __tablename__: ClassVar[str] = "netflow_ledger_revisions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "revision", name="uq_netflow_ledger_revision"),
+        UniqueConstraint(
+            "project_id",
+            "created_by",
+            "operation_key",
+            name="uq_netflow_ledger_operation",
+        ),
+        ForeignKeyConstraint(
+            ["dataset_id", "project_id", "tenant_id"],
+            [
+                "netflow_datasets.id",
+                "netflow_datasets.project_id",
+                "netflow_datasets.tenant_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("revision > 0", name="ck_netflow_ledger_revision"),
+        CheckConstraint(
+            "request_sha256 ~ '^[0-9a-f]{64}$'", name="ck_netflow_ledger_request_hash"
+        ),
+        CheckConstraint(
+            "(kind = 'scope' AND canonical_ip IS NULL AND namespace IS NOT NULL AND jsonb_array_length(cidrs) > 0 AND scope_status IN ('CONFIRMED','UNKNOWN','CONFLICT','REVOKED')) OR (kind = 'management' AND canonical_ip IS NOT NULL AND namespace IS NOT NULL AND jsonb_array_length(cidrs) = 0 AND scope_status IS NULL)",
+            name="ck_netflow_ledger_kind",
+        ),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID
+    project_id: uuid.UUID = Field(index=True)
+    dataset_id: uuid.UUID = Field(index=True)
+    revision: int
+    kind: str = Field(max_length=20)
+    namespace: str = Field(max_length=128)
+    canonical_ip: str | None = Field(default=None, max_length=45, index=True)
+    cidrs: list[str] = Field(default_factory=list, sa_type=JSONB)
+    collector: str = Field(default="", max_length=255)
+    location: str = Field(default="", max_length=255)
+    evidence: str = Field(default="", max_length=1000)
+    viewpoint: str | None = Field(default=None, max_length=20)
+    scope_status: str | None = Field(default=None, max_length=20)
+    followed: bool = False
+    excluded: bool = False
+    created_by: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    operation_key: str = Field(max_length=128)
+    request_sha256: str = Field(max_length=64)
+    reason: str = Field(max_length=1000)
+    created_at: datetime = Field(
+        default_factory=get_datetime_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
