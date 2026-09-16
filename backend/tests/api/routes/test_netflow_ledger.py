@@ -462,10 +462,12 @@ def test_zone_and_namespace_run_guard(
         )
 
 
+@pytest.mark.parametrize("separate_build", [False, True])
 def test_scope_drift_between_launch_and_new_run_keeps_old_resume(
     client: TestClient,
     ledger: tuple[str, dict[str, str], dict[str, Any]],
     monkeypatch: pytest.MonkeyPatch,
+    separate_build: bool,
 ) -> None:
     from pydantic import SecretStr
 
@@ -484,6 +486,11 @@ def test_scope_drift_between_launch_and_new_run_keeps_old_resume(
         settings, "CLOUDATLAS_CAPSET_TOKEN", SecretStr("synthetic-local-only")
     )
     monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "test-runner-v1")
+    if separate_build:
+        monkeypatch.setattr(settings, "RUNNER_BUILD_VERSION", "unchanged-model-build")
+        monkeypatch.setattr(
+            settings, "GOVERNANCE_RUNNER_BUILD_VERSION", "test-runner-v1"
+        )
     rf._mock_cloudatlas(monkeypatch)
     monkeypatch.setattr(AgentComposeClient, "get_run", lambda *_args, **_kwargs: None)
     rf._prepare_ready_project(client=client, headers=headers, project=project)
@@ -507,6 +514,9 @@ def test_scope_drift_between_launch_and_new_run_keeps_old_resume(
         trigger_id=str(uuid.uuid4()),
     )
     inputs = RunnerInputs.from_environment(env)
+    assert inputs.runner_build_version == "test-runner-v1"
+    if separate_build:
+        assert settings.RUNNER_BUILD_VERSION == "unchanged-model-build"
     assert (
         write(
             client,

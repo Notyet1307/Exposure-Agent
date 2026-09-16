@@ -338,3 +338,12 @@ After restore, verify:
 - CloudAtlas SourceInstance fingerprints and one authorized read-only validation where required.
 
 Any SourceInstance whose restored material differs from its stored fingerprint remains invalid until corrected and revalidated. Backup and restore are not accepted until all four stores and these checks agree.
+
+## Governance runner build compatibility
+
+`GOVERNANCE_RUNNER_BUILD_VERSION` is optional and defaults to
+`RUNNER_BUILD_VERSION`.  Set it only when the governance Runner needs a newer
+image while the qualified model agents must retain their existing image and
+qualification binding.  The old model image must already exist locally or in
+the configured registry; deployment does not rebuild or replace it.  Existing
+GovernanceRun retry remains pinned and rejects a changed governance build.

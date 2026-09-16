@@ -3,7 +3,7 @@ name: exposure-agent-governance
 agents:
   governance-runner:
     provider: codex
-    image: ${DOCKER_IMAGE_RUNNER}:${RUNNER_BUILD_VERSION}
+    image: ${DOCKER_IMAGE_RUNNER}:${GOVERNANCE_RUNNER_BUILD_VERSION}
     driver:
       docker: {}
     env:
@@ -29,7 +29,7 @@ agents:
       CLOUDATLAS_CAPSET_TOKEN:
         value: ${CLOUDATLAS_CAPSET_TOKEN}
         secret: true
-      RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION}
+      RUNNER_BUILD_VERSION: ${GOVERNANCE_RUNNER_BUILD_VERSION}
     volumes:
       - type: bind
         source: ${ARTIFACT_HOST_PATH}

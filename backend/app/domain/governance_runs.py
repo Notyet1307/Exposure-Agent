@@ -587,7 +587,7 @@ def require_trigger_readiness(
         cloudatlas_method=METHOD,
         package_sha256=PACKAGE_SHA256,
         descriptor_sha256=DESCRIPTOR_SHA256,
-        runner_build_version=settings.RUNNER_BUILD_VERSION,
+        runner_build_version=settings.governance_runner_build_version,
         processing_contract_version=IP_PROCESSING_CONTRACT_VERSION,
         report_contract_version=(
             REPORT_V2_CONTRACT_VERSION
@@ -712,7 +712,7 @@ def _validate_runner_inputs(
         or inputs.cloudatlas_method != METHOD
         or inputs.package_sha256 != PACKAGE_SHA256
         or inputs.descriptor_sha256 != DESCRIPTOR_SHA256
-        or inputs.runner_build_version != settings.RUNNER_BUILD_VERSION
+        or inputs.runner_build_version != settings.governance_runner_build_version
     ):
         _execution_error("runner_cloudatlas_input_changed")
     if inputs.input_contract_version is not None:
@@ -4272,7 +4272,7 @@ def require_retry_readiness(
         or run.cloudatlas_method != METHOD
         or run.package_sha256 != PACKAGE_SHA256
         or run.descriptor_sha256 != DESCRIPTOR_SHA256
-        or run.runner_build_version != settings.RUNNER_BUILD_VERSION
+        or run.runner_build_version != settings.governance_runner_build_version
     ):
         raise GovernanceRunStateError("run_retry_cloudatlas_input_changed")
     if source.validation_error_code is not None:

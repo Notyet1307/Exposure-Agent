@@ -19,12 +19,12 @@ services:
       - POSTGRES_DB=${POSTGRES_DB?Variable not set}
 
   governance-runner-image:
-    image: '${DOCKER_IMAGE_RUNNER?Variable not set}:${RUNNER_BUILD_VERSION?Variable not set}'
+    image: '${DOCKER_IMAGE_RUNNER?Variable not set}:${GOVERNANCE_RUNNER_BUILD_VERSION:-${RUNNER_BUILD_VERSION?Variable not set}}'
     build:
       context: .
       dockerfile: backend/Dockerfile.runner
       args:
-        RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION?Variable not set}
+        RUNNER_BUILD_VERSION: ${GOVERNANCE_RUNNER_BUILD_VERSION:-${RUNNER_BUILD_VERSION?Variable not set}}
     command: ["true"]
 
   agent-compose:
@@ -78,6 +78,7 @@ services:
       ENVIRONMENT: ${ENVIRONMENT?Variable not set}
       PROJECT_NAME: ${PROJECT_NAME?Variable not set}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION?Variable not set}
+      GOVERNANCE_RUNNER_BUILD_VERSION: ${GOVERNANCE_RUNNER_BUILD_VERSION:-${RUNNER_BUILD_VERSION?Variable not set}}
       MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:-http://127.0.0.1:9/v1}
       MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}
       MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST: ${MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST:-false}
@@ -201,6 +202,7 @@ services:
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
       AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}
       RUNNER_BUILD_VERSION: ${RUNNER_BUILD_VERSION:?Variable not set or empty}
+      GOVERNANCE_RUNNER_BUILD_VERSION: ${GOVERNANCE_RUNNER_BUILD_VERSION:-${RUNNER_BUILD_VERSION:?Variable not set or empty}}
       MODEL_API_ENDPOINT: ${MODEL_API_ENDPOINT:-http://127.0.0.1:9/v1}
       MODEL_API_PROTOCOL: ${MODEL_API_PROTOCOL:-chat_completions}
       MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST: ${MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST:-false}
