@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AiInvestigationsCreateAiInvestigationData, AiInvestigationsCreateAiInvestigationResponse, AiInvestigationsReadAiInvestigationsData, AiInvestigationsReadAiInvestigationsResponse, AiInvestigationsCreateAiInvestigationFollowupData, AiInvestigationsCreateAiInvestigationFollowupResponse, AiInvestigationsReadAiInvestigationData, AiInvestigationsReadAiInvestigationResponse, AnalysisReportsCreateAnalysisReportData, AnalysisReportsCreateAnalysisReportResponse, AnalysisReportsReadAnalysisReportsData, AnalysisReportsReadAnalysisReportsResponse, AnalysisReportsReadAnalysisReportData, AnalysisReportsReadAnalysisReportResponse, AnalysisReportsUpdateAnalysisReportData, AnalysisReportsUpdateAnalysisReportResponse, AnalysisReportsConfirmAnalysisReportData, AnalysisReportsConfirmAnalysisReportResponse, AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasLedgerReadCloudatlasLedgerData, CloudatlasLedgerReadCloudatlasLedgerResponse, CloudatlasLedgerReadCloudatlasLedgerSnapshotsData, CloudatlasLedgerReadCloudatlasLedgerSnapshotsResponse, CloudatlasLedgerReadCloudatlasLedgerRevisionsData, CloudatlasLedgerReadCloudatlasLedgerRevisionsResponse, CloudatlasLedgerCreateCloudatlasLedgerRevisionData, CloudatlasLedgerCreateCloudatlasLedgerRevisionResponse, CloudatlasLedgerReadCloudatlasLedgerOperationData, CloudatlasLedgerReadCloudatlasLedgerOperationResponse, CloudatlasLedgerReadCloudatlasIpProfileData, CloudatlasLedgerReadCloudatlasIpProfileResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, CustomerLedgerReadCustomerLedgerData, CustomerLedgerReadCustomerLedgerResponse, CustomerLedgerReadCustomerLedgerRevisionsData, CustomerLedgerReadCustomerLedgerRevisionsResponse, CustomerLedgerCreateCustomerLedgerRevisionData, CustomerLedgerCreateCustomerLedgerRevisionResponse, CustomerLedgerReadCustomerLedgerOperationData, CustomerLedgerReadCustomerLedgerOperationResponse, GovernanceReportsReadGovernanceReportsData, GovernanceReportsReadGovernanceReportsResponse, GovernanceReportsReadGovernanceReportData, GovernanceReportsReadGovernanceReportResponse, GovernanceReportsRequestAiGovernanceDraftData, GovernanceReportsRequestAiGovernanceDraftResponse, GovernanceReportsDownloadGovernanceReportCsvData, GovernanceReportsDownloadGovernanceReportCsvResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, IpResultsReadGovernanceRunSourcesData, IpResultsReadGovernanceRunSourcesResponse, IpResultsReadGovernanceRunIpSourceComparisonsData, IpResultsReadGovernanceRunIpSourceComparisonsResponse, IpResultsReadIpAssetsData, IpResultsReadIpAssetsResponse, IpResultsReadIpAssetData, IpResultsReadIpAssetResponse, IpResultsReadFindingsData, IpResultsReadFindingsResponse, IpResultsReadGovernanceRunLineageData, IpResultsReadGovernanceRunLineageResponse, IpResultsReadFindingData, IpResultsReadFindingResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ManualReviewsCreateManualReviewData, ManualReviewsCreateManualReviewResponse, ManualReviewsReadManualReviewsData, ManualReviewsReadManualReviewsResponse, ModelConnectionsStatusResponse, ModelConnectionsReadConnectionsResponse, ModelConnectionsSaveData, ModelConnectionsSaveResponse, ModelConnectionsAdoptLegacyData, ModelConnectionsAdoptLegacyResponse, ModelConnectionsActionData, ModelConnectionsActionResponse, ModelConnectionsRecoverOperationData, ModelConnectionsRecoverOperationResponse, ModelConnectionsOperationData, ModelConnectionsOperationResponse, ModelQualificationReadModelQualificationStatusResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsReadNetflowDatasetsData, ProjectsReadNetflowDatasetsResponse, ProjectsCreateNetflowDatasetData, ProjectsCreateNetflowDatasetResponse, ProjectsSelectCurrentNetflowDatasetData, ProjectsSelectCurrentNetflowDatasetResponse, ProjectsClearCurrentNetflowDatasetData, ProjectsClearCurrentNetflowDatasetResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsDeleteCustomerUploadData, ProjectsDeleteCustomerUploadResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+import type { AiInvestigationsCreateAiInvestigationData, AiInvestigationsCreateAiInvestigationResponse, AiInvestigationsReadAiInvestigationsData, AiInvestigationsReadAiInvestigationsResponse, AiInvestigationsCreateAiInvestigationFollowupData, AiInvestigationsCreateAiInvestigationFollowupResponse, AiInvestigationsReadAiInvestigationData, AiInvestigationsReadAiInvestigationResponse, AnalysisReportsCreateAnalysisReportData, AnalysisReportsCreateAnalysisReportResponse, AnalysisReportsReadAnalysisReportsData, AnalysisReportsReadAnalysisReportsResponse, AnalysisReportsReadAnalysisReportData, AnalysisReportsReadAnalysisReportResponse, AnalysisReportsUpdateAnalysisReportData, AnalysisReportsUpdateAnalysisReportResponse, AnalysisReportsConfirmAnalysisReportData, AnalysisReportsConfirmAnalysisReportResponse, AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasLedgerReadCloudatlasLedgerData, CloudatlasLedgerReadCloudatlasLedgerResponse, CloudatlasLedgerReadCloudatlasLedgerSnapshotsData, CloudatlasLedgerReadCloudatlasLedgerSnapshotsResponse, CloudatlasLedgerReadCloudatlasLedgerRevisionsData, CloudatlasLedgerReadCloudatlasLedgerRevisionsResponse, CloudatlasLedgerCreateCloudatlasLedgerRevisionData, CloudatlasLedgerCreateCloudatlasLedgerRevisionResponse, CloudatlasLedgerReadCloudatlasLedgerOperationData, CloudatlasLedgerReadCloudatlasLedgerOperationResponse, CloudatlasLedgerReadCloudatlasIpProfileData, CloudatlasLedgerReadCloudatlasIpProfileResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, CustomerLedgerReadCustomerLedgerData, CustomerLedgerReadCustomerLedgerResponse, CustomerLedgerReadCustomerLedgerRevisionsData, CustomerLedgerReadCustomerLedgerRevisionsResponse, CustomerLedgerCreateCustomerLedgerRevisionData, CustomerLedgerCreateCustomerLedgerRevisionResponse, CustomerLedgerReadCustomerLedgerOperationData, CustomerLedgerReadCustomerLedgerOperationResponse, GovernanceReportsReadGovernanceReportsData, GovernanceReportsReadGovernanceReportsResponse, GovernanceReportsReadGovernanceReportData, GovernanceReportsReadGovernanceReportResponse, GovernanceReportsRequestAiGovernanceDraftData, GovernanceReportsRequestAiGovernanceDraftResponse, GovernanceReportsDownloadGovernanceReportCsvData, GovernanceReportsDownloadGovernanceReportCsvResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, IpResultsReadGovernanceRunSourcesData, IpResultsReadGovernanceRunSourcesResponse, IpResultsReadGovernanceRunIpSourceComparisonsData, IpResultsReadGovernanceRunIpSourceComparisonsResponse, IpResultsReadIpAssetsData, IpResultsReadIpAssetsResponse, IpResultsReadIpAssetData, IpResultsReadIpAssetResponse, IpResultsReadFindingsData, IpResultsReadFindingsResponse, IpResultsReadGovernanceRunLineageData, IpResultsReadGovernanceRunLineageResponse, IpResultsReadFindingData, IpResultsReadFindingResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ManualReviewsCreateManualReviewData, ManualReviewsCreateManualReviewResponse, ManualReviewsReadManualReviewsData, ManualReviewsReadManualReviewsResponse, ModelConnectionsStatusResponse, ModelConnectionsReadConnectionsResponse, ModelConnectionsSaveData, ModelConnectionsSaveResponse, ModelConnectionsAdoptLegacyData, ModelConnectionsAdoptLegacyResponse, ModelConnectionsActionData, ModelConnectionsActionResponse, ModelConnectionsRecoverOperationData, ModelConnectionsRecoverOperationResponse, ModelConnectionsOperationData, ModelConnectionsOperationResponse, ModelQualificationReadModelQualificationStatusResponse, NetflowLedgerReadNetflowLedgerData, NetflowLedgerReadNetflowLedgerResponse, NetflowLedgerCreateNetflowLedgerRevisionData, NetflowLedgerCreateNetflowLedgerRevisionResponse, NetflowLedgerReadNetflowLedgerRevisionsData, NetflowLedgerReadNetflowLedgerRevisionsResponse, NetflowLedgerReadNetflowLedgerOperationData, NetflowLedgerReadNetflowLedgerOperationResponse, NetflowLedgerReadNetflowLedgerProfileData, NetflowLedgerReadNetflowLedgerProfileResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsReadNetflowDatasetsData, ProjectsReadNetflowDatasetsResponse, ProjectsCreateNetflowDatasetData, ProjectsCreateNetflowDatasetResponse, ProjectsSelectCurrentNetflowDatasetData, ProjectsSelectCurrentNetflowDatasetResponse, ProjectsClearCurrentNetflowDatasetData, ProjectsClearCurrentNetflowDatasetResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsDeleteCustomerUploadData, ProjectsDeleteCustomerUploadResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
 
 export class AiInvestigationsService {
     /**
@@ -631,7 +631,7 @@ export class CustomerLedgerService {
      * @param data.projectId
      * @param data.skip
      * @param data.limit
-     * @returns RevisionPublic Successful Response
+     * @returns app__domain__customer_ledger__RevisionPublic Successful Response
      * @throws ApiError
      */
     public static readCustomerLedgerRevisions(data: CustomerLedgerReadCustomerLedgerRevisionsData): CancelablePromise<CustomerLedgerReadCustomerLedgerRevisionsResponse> {
@@ -657,7 +657,7 @@ export class CustomerLedgerService {
      * @param data.projectId
      * @param data.idempotencyKey
      * @param data.requestBody
-     * @returns RevisionPublic Successful Response
+     * @returns app__domain__customer_ledger__RevisionPublic Successful Response
      * @throws ApiError
      */
     public static createCustomerLedgerRevision(data: CustomerLedgerCreateCustomerLedgerRevisionData): CancelablePromise<CustomerLedgerCreateCustomerLedgerRevisionResponse> {
@@ -683,7 +683,7 @@ export class CustomerLedgerService {
      * @param data The data for the request.
      * @param data.projectId
      * @param data.operationKey
-     * @returns RevisionPublic Successful Response
+     * @returns app__domain__customer_ledger__RevisionPublic Successful Response
      * @throws ApiError
      */
     public static readCustomerLedgerOperation(data: CustomerLedgerReadCustomerLedgerOperationData): CancelablePromise<CustomerLedgerReadCustomerLedgerOperationResponse> {
@@ -1366,6 +1366,155 @@ export class ModelQualificationService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/model-qualification/status'
+        });
+    }
+}
+
+export class NetflowLedgerService {
+    /**
+     * Read Netflow Ledger
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.revision
+     * @param data.ip
+     * @param data.candidate
+     * @param data.skip
+     * @param data.limit
+     * @returns Page Successful Response
+     * @throws ApiError
+     */
+    public static readNetflowLedger(data: NetflowLedgerReadNetflowLedgerData): CancelablePromise<NetflowLedgerReadNetflowLedgerResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-ledger',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                dataset_id: data.datasetId,
+                revision: data.revision,
+                ip: data.ip,
+                candidate: data.candidate,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Create Netflow Ledger Revision
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns app__domain__netflow_ledger__RevisionPublic Successful Response
+     * @throws ApiError
+     */
+    public static createNetflowLedgerRevision(data: NetflowLedgerCreateNetflowLedgerRevisionData): CancelablePromise<NetflowLedgerCreateNetflowLedgerRevisionResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/netflow-ledger/revisions',
+            path: {
+                project_id: data.projectId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Netflow Ledger Revisions
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.skip
+     * @param data.limit
+     * @returns app__domain__netflow_ledger__RevisionPublic Successful Response
+     * @throws ApiError
+     */
+    public static readNetflowLedgerRevisions(data: NetflowLedgerReadNetflowLedgerRevisionsData): CancelablePromise<NetflowLedgerReadNetflowLedgerRevisionsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-ledger/revisions',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                dataset_id: data.datasetId,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Netflow Ledger Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.operationKey
+     * @returns app__domain__netflow_ledger__RevisionPublic Successful Response
+     * @throws ApiError
+     */
+    public static readNetflowLedgerOperation(data: NetflowLedgerReadNetflowLedgerOperationData): CancelablePromise<NetflowLedgerReadNetflowLedgerOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-ledger/operations/{operation_key}',
+            path: {
+                project_id: data.projectId,
+                operation_key: data.operationKey
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Read Netflow Ledger Profile
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.ip
+     * @param data.revision
+     * @param data.uploadId
+     * @param data.customerRevisionId
+     * @param data.snapshotId
+     * @param data.cloudRevision
+     * @returns Profile Successful Response
+     * @throws ApiError
+     */
+    public static readNetflowLedgerProfile(data: NetflowLedgerReadNetflowLedgerProfileData): CancelablePromise<NetflowLedgerReadNetflowLedgerProfileResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-ledger/profile',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                dataset_id: data.datasetId,
+                ip: data.ip,
+                revision: data.revision,
+                upload_id: data.uploadId,
+                customer_revision_id: data.customerRevisionId,
+                snapshot_id: data.snapshotId,
+                cloud_revision: data.cloudRevision
+            },
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
 }

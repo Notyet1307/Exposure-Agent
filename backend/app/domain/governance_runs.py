@@ -796,6 +796,12 @@ def establish_governance_run(
     project, upload, source = _validate_runner_inputs(
         session=session, inputs=inputs, require_launch_reservation=True
     )
+    from app.domain.netflow_ledger import LedgerError, require_legacy_run_scope
+
+    try:
+        require_legacy_run_scope(session, project, inputs.netflow_dataset_id)
+    except LedgerError:
+        _execution_error("runner_netflow_namespace_not_legacy")
     latest = session.exec(
         select(GovernanceRun)
         .where(GovernanceRun.project_id == project.id)
@@ -4706,6 +4712,12 @@ def reserve_run_launch(
         ):
             return False
         raise GovernanceRunStateError("run_launch_in_progress")
+    from app.domain.netflow_ledger import LedgerError, require_legacy_run_scope
+
+    try:
+        require_legacy_run_scope(session, project, pinned.netflow_dataset_id)
+    except LedgerError as error:
+        raise GovernanceRunStateError(error.code) from None
     project.governance_launch_trigger_id = trigger_id
     project.governance_launch_control_run_id = control_run_id
     project.governance_launch_input_hash = input_hash

@@ -93,6 +93,37 @@ export type AnalysisReportUpdate = {
     text: AnalysisReportText;
 };
 
+export type app__domain__customer_ledger__RevisionPublic = {
+    id: string;
+    parent_revision_id: (string | null);
+    base_upload_id: string;
+    upload_id: string;
+    created_by: string;
+    created_at: string;
+    reason: string;
+    input_changed: boolean;
+};
+
+export type app__domain__netflow_ledger__RevisionPublic = {
+    id: string;
+    dataset_id: string;
+    revision: number;
+    kind: string;
+    namespace: string;
+    canonical_ip: (string | null);
+    cidrs: Array<(string)>;
+    collector: string;
+    location: string;
+    evidence: string;
+    viewpoint: (string | null);
+    scope_status: (string | null);
+    followed: boolean;
+    excluded: boolean;
+    reason: string;
+    created_by: string;
+    created_at: string;
+};
+
 export type AuditEventPublic = {
     id: string;
     tenant_id: string;
@@ -327,6 +358,41 @@ export type CustomerUploadWarningPublic = {
     code: string;
     field: (string | null);
     count: number;
+};
+
+export type Edit = {
+    dataset_id: string;
+    expected_revision: number;
+    kind: 'scope' | 'management';
+    namespace: string;
+    cidrs?: Array<(string)>;
+    canonical_ip?: (string | null);
+    collector?: string;
+    location?: string;
+    evidence?: string;
+    viewpoint?: ('PUBLIC' | 'INTERNAL' | 'UNKNOWN' | null);
+    scope_status?: ('CONFIRMED' | 'UNKNOWN' | 'CONFLICT' | 'REVOKED' | null);
+    followed?: boolean;
+    excluded?: boolean;
+    reason: string;
+};
+
+export type Endpoint = {
+    canonical_ip: string;
+    family: number;
+    candidate_id?: (string | null);
+    namespace?: (string | null);
+    roles: Array<(string)>;
+    flow_count?: number;
+    protocols?: Array<(number)>;
+    first_seen_utc?: (string | null);
+    last_seen_utc?: (string | null);
+    source_record_keys?: Array<(string)>;
+    candidate_state?: string;
+    historical_candidate_state?: string;
+    management_revision?: number;
+    followed?: boolean;
+    excluded?: boolean;
 };
 
 export type EvidenceReferencePublic = {
@@ -825,7 +891,7 @@ export type LedgerPage = {
     upload_sha256?: (string | null);
     filename?: (string | null);
     source_created_at?: (string | null);
-    revision?: (RevisionPublic | null);
+    revision?: (app__domain__customer_ledger__RevisionPublic | null);
     data?: Array<LedgerEntry>;
     count?: number;
     total_records?: number;
@@ -1069,6 +1135,39 @@ export type OperationPublic = {
     completed_at: (string | null);
 };
 
+export type Page = {
+    project_id: string;
+    dataset_id?: (string | null);
+    dataset_sha256?: (string | null);
+    raw_sha256?: (string | null);
+    contract_version?: string;
+    state: string;
+    revision?: number;
+    current_revision?: number;
+    scope?: (app__domain__netflow_ledger__RevisionPublic | null);
+    current_scope?: (app__domain__netflow_ledger__RevisionPublic | null);
+    count?: number;
+    total_endpoints?: number;
+    raw_records?: number;
+    valid_records?: number;
+    isolated_records?: number;
+    data?: Array<Endpoint>;
+    can_manage?: boolean;
+    can_confirm_scope?: boolean;
+};
+
+export type Profile = {
+    canonical_ip: string;
+    netflow: Page;
+    customer?: (LedgerPage | null);
+    cloud?: (CloudLedgerPage | null);
+    association?: string;
+    resource_id?: (string | null);
+    governance_run_id?: (string | null);
+    risk_state?: "NOT_CONNECTED";
+    processing_state?: string;
+};
+
 export type ProjectCreate = {
     name: string;
 };
@@ -1116,17 +1215,6 @@ export type ProjectsPublic = {
 
 export type ProjectUpdate = {
     name: string;
-};
-
-export type RevisionPublic = {
-    id: string;
-    parent_revision_id: (string | null);
-    base_upload_id: string;
-    upload_id: string;
-    created_by: string;
-    created_at: string;
-    reason: string;
-    input_changed: boolean;
 };
 
 export type RunStepPublic = {
@@ -1423,7 +1511,7 @@ export type CustomerLedgerReadCustomerLedgerRevisionsData = {
     skip?: number;
 };
 
-export type CustomerLedgerReadCustomerLedgerRevisionsResponse = (Array<RevisionPublic>);
+export type CustomerLedgerReadCustomerLedgerRevisionsResponse = (Array<app__domain__customer_ledger__RevisionPublic>);
 
 export type CustomerLedgerCreateCustomerLedgerRevisionData = {
     idempotencyKey: string;
@@ -1431,14 +1519,14 @@ export type CustomerLedgerCreateCustomerLedgerRevisionData = {
     requestBody: LedgerEdit;
 };
 
-export type CustomerLedgerCreateCustomerLedgerRevisionResponse = (RevisionPublic);
+export type CustomerLedgerCreateCustomerLedgerRevisionResponse = (app__domain__customer_ledger__RevisionPublic);
 
 export type CustomerLedgerReadCustomerLedgerOperationData = {
     operationKey: string;
     projectId: string;
 };
 
-export type CustomerLedgerReadCustomerLedgerOperationResponse = (RevisionPublic);
+export type CustomerLedgerReadCustomerLedgerOperationResponse = (app__domain__customer_ledger__RevisionPublic);
 
 export type GovernanceReportsReadGovernanceReportsData = {
     cursor?: (string | null);
@@ -1633,6 +1721,55 @@ export type ModelConnectionsOperationData = {
 export type ModelConnectionsOperationResponse = (ConnectionActionPublic);
 
 export type ModelQualificationReadModelQualificationStatusResponse = (ModelQualificationStatus);
+
+export type NetflowLedgerReadNetflowLedgerData = {
+    candidate?: boolean;
+    datasetId?: (string | null);
+    ip?: (string | null);
+    limit?: number;
+    projectId: string;
+    revision?: (number | null);
+    skip?: number;
+};
+
+export type NetflowLedgerReadNetflowLedgerResponse = (Page);
+
+export type NetflowLedgerCreateNetflowLedgerRevisionData = {
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: Edit;
+};
+
+export type NetflowLedgerCreateNetflowLedgerRevisionResponse = (app__domain__netflow_ledger__RevisionPublic);
+
+export type NetflowLedgerReadNetflowLedgerRevisionsData = {
+    datasetId?: (string | null);
+    limit?: number;
+    projectId: string;
+    skip?: number;
+};
+
+export type NetflowLedgerReadNetflowLedgerRevisionsResponse = (Array<app__domain__netflow_ledger__RevisionPublic>);
+
+export type NetflowLedgerReadNetflowLedgerOperationData = {
+    operationKey: string;
+    projectId: string;
+};
+
+export type NetflowLedgerReadNetflowLedgerOperationResponse = (app__domain__netflow_ledger__RevisionPublic);
+
+export type NetflowLedgerReadNetflowLedgerProfileData = {
+    cloudRevision?: (number | null);
+    customerRevisionId?: (string | null);
+    datasetId: string;
+    ip: string;
+    projectId: string;
+    revision?: (number | null);
+    snapshotId?: (string | null);
+    uploadId?: (string | null);
+};
+
+export type NetflowLedgerReadNetflowLedgerProfileResponse = (Profile);
 
 export type ProjectMembershipsReadProjectMembershipsData = {
     limit?: number;

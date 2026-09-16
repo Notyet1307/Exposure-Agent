@@ -15,6 +15,7 @@ import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutAiSettingsRouteImport } from './routes/_layout/ai-settings'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutProjectsProjectIdNetflowLedgerRouteImport } from './routes/_layout/projects.$projectId.netflow-ledger'
 import { Route as LayoutProjectsProjectIdCustomerLedgerRouteImport } from './routes/_layout/projects.$projectId.customer-ledger'
 import { Route as LayoutProjectsProjectIdCloudatlasLedgerRouteImport } from './routes/_layout/projects.$projectId.cloudatlas-ledger'
 import { Route as LayoutProjectsProjectIdRunsRunIdLineageRouteImport } from './routes/_layout/projects.$projectId.runs.$runId.lineage'
@@ -49,6 +50,12 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutProjectsProjectIdNetflowLedgerRoute =
+  LayoutProjectsProjectIdNetflowLedgerRouteImport.update({
+    id: '/projects/$projectId/netflow-ledger',
+    path: '/projects/$projectId/netflow-ledger',
+    getParentRoute: () => LayoutRoute,
+  } as any)
 const LayoutProjectsProjectIdCustomerLedgerRoute =
   LayoutProjectsProjectIdCustomerLedgerRouteImport.update({
     id: '/projects/$projectId/customer-ledger',
@@ -82,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof LayoutSettingsRoute
   '/projects/$projectId/cloudatlas-ledger': typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   '/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
+  '/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -93,6 +101,7 @@ export interface FileRoutesByTo {
   '/': typeof LayoutIndexRoute
   '/projects/$projectId/cloudatlas-ledger': typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   '/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
+  '/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -106,6 +115,7 @@ export interface FileRoutesById {
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/projects/$projectId/cloudatlas-ledger': typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   '/_layout/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
+  '/_layout/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
   '/_layout/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/_layout/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/projects/$projectId/cloudatlas-ledger'
     | '/projects/$projectId/customer-ledger'
+    | '/projects/$projectId/netflow-ledger'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
   fileRoutesByTo: FileRoutesByTo
@@ -130,6 +141,7 @@ export interface FileRouteTypes {
     | '/'
     | '/projects/$projectId/cloudatlas-ledger'
     | '/projects/$projectId/customer-ledger'
+    | '/projects/$projectId/netflow-ledger'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
   id:
@@ -142,6 +154,7 @@ export interface FileRouteTypes {
     | '/_layout/'
     | '/_layout/projects/$projectId/cloudatlas-ledger'
     | '/_layout/projects/$projectId/customer-ledger'
+    | '/_layout/projects/$projectId/netflow-ledger'
     | '/_layout/projects/$projectId/runs/$runId/comparison'
     | '/_layout/projects/$projectId/runs/$runId/lineage'
   fileRoutesById: FileRoutesById
@@ -195,6 +208,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/projects/$projectId/netflow-ledger': {
+      id: '/_layout/projects/$projectId/netflow-ledger'
+      path: '/projects/$projectId/netflow-ledger'
+      fullPath: '/projects/$projectId/netflow-ledger'
+      preLoaderRoute: typeof LayoutProjectsProjectIdNetflowLedgerRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/projects/$projectId/customer-ledger': {
       id: '/_layout/projects/$projectId/customer-ledger'
       path: '/projects/$projectId/customer-ledger'
@@ -233,6 +253,7 @@ interface LayoutRouteChildren {
   LayoutIndexRoute: typeof LayoutIndexRoute
   LayoutProjectsProjectIdCloudatlasLedgerRoute: typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   LayoutProjectsProjectIdCustomerLedgerRoute: typeof LayoutProjectsProjectIdCustomerLedgerRoute
+  LayoutProjectsProjectIdNetflowLedgerRoute: typeof LayoutProjectsProjectIdNetflowLedgerRoute
   LayoutProjectsProjectIdRunsRunIdComparisonRoute: typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   LayoutProjectsProjectIdRunsRunIdLineageRoute: typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -246,6 +267,8 @@ const LayoutRouteChildren: LayoutRouteChildren = {
     LayoutProjectsProjectIdCloudatlasLedgerRoute,
   LayoutProjectsProjectIdCustomerLedgerRoute:
     LayoutProjectsProjectIdCustomerLedgerRoute,
+  LayoutProjectsProjectIdNetflowLedgerRoute:
+    LayoutProjectsProjectIdNetflowLedgerRoute,
   LayoutProjectsProjectIdRunsRunIdComparisonRoute:
     LayoutProjectsProjectIdRunsRunIdComparisonRoute,
   LayoutProjectsProjectIdRunsRunIdLineageRoute:

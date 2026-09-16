@@ -1654,6 +1654,225 @@ export const CustomerUploadsPublicSchema = {
     title: 'CustomerUploadsPublic'
 } as const;
 
+export const EditSchema = {
+    properties: {
+        dataset_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Dataset Id'
+        },
+        expected_revision: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Expected Revision'
+        },
+        kind: {
+            type: 'string',
+            enum: ['scope', 'management'],
+            title: 'Kind'
+        },
+        namespace: {
+            type: 'string',
+            title: 'Namespace'
+        },
+        cidrs: {
+            items: {
+                type: 'string',
+                maxLength: 50
+            },
+            type: 'array',
+            maxItems: 64,
+            title: 'Cidrs'
+        },
+        canonical_ip: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 45
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Canonical Ip'
+        },
+        collector: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Collector',
+            default: ''
+        },
+        location: {
+            type: 'string',
+            maxLength: 255,
+            title: 'Location',
+            default: ''
+        },
+        evidence: {
+            type: 'string',
+            maxLength: 1000,
+            title: 'Evidence',
+            default: ''
+        },
+        viewpoint: {
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['PUBLIC', 'INTERNAL', 'UNKNOWN']
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Viewpoint'
+        },
+        scope_status: {
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['CONFIRMED', 'UNKNOWN', 'CONFLICT', 'REVOKED']
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Scope Status'
+        },
+        followed: {
+            type: 'boolean',
+            title: 'Followed',
+            default: false
+        },
+        excluded: {
+            type: 'boolean',
+            title: 'Excluded',
+            default: false
+        },
+        reason: {
+            type: 'string',
+            maxLength: 1000,
+            minLength: 1,
+            title: 'Reason'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['dataset_id', 'expected_revision', 'kind', 'namespace', 'reason'],
+    title: 'Edit'
+} as const;
+
+export const EndpointSchema = {
+    properties: {
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        family: {
+            type: 'integer',
+            title: 'Family'
+        },
+        candidate_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Candidate Id'
+        },
+        namespace: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Namespace'
+        },
+        roles: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Roles'
+        },
+        flow_count: {
+            type: 'integer',
+            title: 'Flow Count',
+            default: 0
+        },
+        protocols: {
+            items: {
+                type: 'integer'
+            },
+            type: 'array',
+            title: 'Protocols'
+        },
+        first_seen_utc: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'First Seen Utc'
+        },
+        last_seen_utc: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Last Seen Utc'
+        },
+        source_record_keys: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Source Record Keys'
+        },
+        candidate_state: {
+            type: 'string',
+            title: 'Candidate State',
+            default: 'PENDING_SCOPE'
+        },
+        historical_candidate_state: {
+            type: 'string',
+            title: 'Historical Candidate State',
+            default: 'PENDING_SCOPE'
+        },
+        management_revision: {
+            type: 'integer',
+            title: 'Management Revision',
+            default: 0
+        },
+        followed: {
+            type: 'boolean',
+            title: 'Followed',
+            default: false
+        },
+        excluded: {
+            type: 'boolean',
+            title: 'Excluded',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['canonical_ip', 'family', 'roles'],
+    title: 'Endpoint'
+} as const;
+
 export const EvidenceReferencePublicSchema = {
     properties: {
         id: {
@@ -4281,7 +4500,7 @@ export const LedgerPageSchema = {
         revision: {
             anyOf: [
                 {
-                    '$ref': '#/components/schemas/RevisionPublic'
+                    '$ref': '#/components/schemas/app__domain__customer_ledger__RevisionPublic'
                 },
                 {
                     type: 'null'
@@ -5371,6 +5590,209 @@ export const OperationPublicSchema = {
     title: 'OperationPublic'
 } as const;
 
+export const PageSchema = {
+    properties: {
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        dataset_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Dataset Id'
+        },
+        dataset_sha256: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Dataset Sha256'
+        },
+        raw_sha256: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Raw Sha256'
+        },
+        contract_version: {
+            type: 'string',
+            title: 'Contract Version',
+            default: 'netflow-native-endpoints-v1'
+        },
+        state: {
+            type: 'string',
+            title: 'State'
+        },
+        revision: {
+            type: 'integer',
+            title: 'Revision',
+            default: 0
+        },
+        current_revision: {
+            type: 'integer',
+            title: 'Current Revision',
+            default: 0
+        },
+        scope: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/app__domain__netflow_ledger__RevisionPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        current_scope: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/app__domain__netflow_ledger__RevisionPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        count: {
+            type: 'integer',
+            title: 'Count',
+            default: 0
+        },
+        total_endpoints: {
+            type: 'integer',
+            title: 'Total Endpoints',
+            default: 0
+        },
+        raw_records: {
+            type: 'integer',
+            title: 'Raw Records',
+            default: 0
+        },
+        valid_records: {
+            type: 'integer',
+            title: 'Valid Records',
+            default: 0
+        },
+        isolated_records: {
+            type: 'integer',
+            title: 'Isolated Records',
+            default: 0
+        },
+        data: {
+            items: {
+                '$ref': '#/components/schemas/Endpoint'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        can_manage: {
+            type: 'boolean',
+            title: 'Can Manage',
+            default: false
+        },
+        can_confirm_scope: {
+            type: 'boolean',
+            title: 'Can Confirm Scope',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'state'],
+    title: 'Page'
+} as const;
+
+export const ProfileSchema = {
+    properties: {
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        netflow: {
+            '$ref': '#/components/schemas/Page'
+        },
+        customer: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/LedgerPage'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        cloud: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/CloudLedgerPage'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        association: {
+            type: 'string',
+            title: 'Association',
+            default: 'UNKNOWN'
+        },
+        resource_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Resource Id'
+        },
+        governance_run_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Governance Run Id'
+        },
+        risk_state: {
+            type: 'string',
+            const: 'NOT_CONNECTED',
+            title: 'Risk State',
+            default: 'NOT_CONNECTED'
+        },
+        processing_state: {
+            type: 'string',
+            title: 'Processing State',
+            default: 'NO_RESOURCE_HISTORY'
+        }
+    },
+    type: 'object',
+    required: ['canonical_ip', 'netflow'],
+    title: 'Profile'
+} as const;
+
 export const ProjectCreateSchema = {
     properties: {
         name: {
@@ -5586,59 +6008,6 @@ export const ProjectsPublicSchema = {
     type: 'object',
     required: ['data', 'count'],
     title: 'ProjectsPublic'
-} as const;
-
-export const RevisionPublicSchema = {
-    properties: {
-        id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Id'
-        },
-        parent_revision_id: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'uuid'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Parent Revision Id'
-        },
-        base_upload_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Base Upload Id'
-        },
-        upload_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Upload Id'
-        },
-        created_by: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Created By'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        reason: {
-            type: 'string',
-            title: 'Reason'
-        },
-        input_changed: {
-            type: 'boolean',
-            title: 'Input Changed'
-        }
-    },
-    type: 'object',
-    required: ['id', 'parent_revision_id', 'base_upload_id', 'upload_id', 'created_by', 'created_at', 'reason', 'input_changed'],
-    title: 'RevisionPublic'
 } as const;
 
 export const RunStepPublicSchema = {
@@ -6086,4 +6455,161 @@ export const ValidationErrorSchema = {
     type: 'object',
     required: ['loc', 'msg', 'type'],
     title: 'ValidationError'
+} as const;
+
+export const app__domain__customer_ledger__RevisionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        parent_revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Parent Revision Id'
+        },
+        base_upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Base Upload Id'
+        },
+        upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Upload Id'
+        },
+        created_by: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Created By'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        reason: {
+            type: 'string',
+            title: 'Reason'
+        },
+        input_changed: {
+            type: 'boolean',
+            title: 'Input Changed'
+        }
+    },
+    type: 'object',
+    required: ['id', 'parent_revision_id', 'base_upload_id', 'upload_id', 'created_by', 'created_at', 'reason', 'input_changed'],
+    title: 'RevisionPublic'
+} as const;
+
+export const app__domain__netflow_ledger__RevisionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        dataset_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Dataset Id'
+        },
+        revision: {
+            type: 'integer',
+            title: 'Revision'
+        },
+        kind: {
+            type: 'string',
+            title: 'Kind'
+        },
+        namespace: {
+            type: 'string',
+            title: 'Namespace'
+        },
+        canonical_ip: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Canonical Ip'
+        },
+        cidrs: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Cidrs'
+        },
+        collector: {
+            type: 'string',
+            title: 'Collector'
+        },
+        location: {
+            type: 'string',
+            title: 'Location'
+        },
+        evidence: {
+            type: 'string',
+            title: 'Evidence'
+        },
+        viewpoint: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Viewpoint'
+        },
+        scope_status: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Scope Status'
+        },
+        followed: {
+            type: 'boolean',
+            title: 'Followed'
+        },
+        excluded: {
+            type: 'boolean',
+            title: 'Excluded'
+        },
+        reason: {
+            type: 'string',
+            title: 'Reason'
+        },
+        created_by: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Created By'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'dataset_id', 'revision', 'kind', 'namespace', 'canonical_ip', 'cidrs', 'collector', 'location', 'evidence', 'viewpoint', 'scope_status', 'followed', 'excluded', 'reason', 'created_by', 'created_at'],
+    title: 'RevisionPublic'
 } as const;

@@ -39,6 +39,7 @@ from app.integrations.agent_compose import (
 router = APIRouter(prefix="/projects", tags=["governance-runs"])
 
 _ERROR_MESSAGES = {
+    "run_netflow_namespace_not_legacy": "This Dataset network scope cannot be used in a new legacy single-space Run.",
     "run_inputs_changed": "Inputs changed after confirmation. Review and confirm them again.",
     "run_confirmation_conflict": "This request is already bound to different confirmed inputs.",
     "run_idempotency_key_required": "Provide a stable Idempotency-Key.",

@@ -7,7 +7,7 @@ import {
   type LedgerEdit,
   type LedgerEntry,
   ProjectsService,
-  type RevisionPublic,
+  type app__domain__customer_ledger__RevisionPublic as RevisionPublic,
 } from "@/client"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
