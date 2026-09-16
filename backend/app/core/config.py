@@ -99,7 +99,13 @@ class Settings(BaseSettings):
     MODEL_IDENTITY: str = ""
     MODEL_CONFIG_REVISION: str = "v1"
     RUNNER_BUILD_VERSION: str = "development"
+    GOVERNANCE_RUNNER_BUILD_VERSION: str | None = None
     MODEL_CONNECTION_RUNNER_BUILD_VERSION: str | None = None
+
+    @property
+    def governance_runner_build_version(self) -> str:
+        return self.GOVERNANCE_RUNNER_BUILD_VERSION or self.RUNNER_BUILD_VERSION
+
     POSTGRES_SERVER: str
     POSTGRES_PORT: int = 5432
     POSTGRES_USER: str
