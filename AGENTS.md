@@ -6,7 +6,7 @@
 
 1. 本文件；
 2. 当前工作、候选、下一步或停止：`docs/work/current.md`；
-3. 行为、验收标准或批准范围：`docs/specs/asset-governance-release-1.md`；
+3. 行为、验收标准或批准范围：读取 `current.md` 所指当前 Issue 固定的 Spec 路径与 commit；产品收敛规格落点为 `docs/specs/exposure-focus-release-1.md`，旧 Run/报告及兼容行为按 `docs/specs/asset-governance-release-1.md` 的对应固定合同读取；
 4. 任务状态、依赖或授权：当前 GitHub Issue（须引用 Spec 路径与 commit）；
 5. 与任务相邻的代码和测试；
 6. 仅与任务相关的已接受 ADR；
