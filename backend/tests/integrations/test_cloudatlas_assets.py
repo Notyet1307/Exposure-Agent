@@ -87,6 +87,8 @@ def test_normalized_identity_and_field_contract_preserves_absence() -> None:
         "tags": [{"pk": "9007199254740995", "name": "tag"}],
         "subnet": None,
         "sources": [],
+        "created_at": "2026-01-02 03:04:05",
+        "updated_at": "2026-01-02T03:04:05+08:00",
         "unapproved": {"sensitive": "drop"},
     }
     result = normalize_items([row], "ip")[0]
@@ -103,6 +105,8 @@ def test_normalized_identity_and_field_contract_preserves_absence() -> None:
         normalize_items([{**row, "provider": None}], "ip")
     with pytest.raises(CloudAtlasBoundaryError):
         normalize_items([{**row, "sources": [{"factor": ["not-a-string"]}]}], "ip")
+    with pytest.raises(CloudAtlasBoundaryError):
+        normalize_items([{**row, "created_at": 1700000000}], "ip")
 
 
 def test_credentials_are_metadata_only_and_reject_wrong_space_and_token(
