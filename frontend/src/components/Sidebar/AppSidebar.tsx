@@ -53,6 +53,13 @@ export function AppSidebar() {
     home("overview", t("Overview", "概览"), Home),
     {
       icon: Boxes,
+      title: t("External assets", "外部资产"),
+      path: project ? `/projects/${project}/external-assets` : "/",
+      search: project ? undefined : { view: "overview" },
+      active: pathname.endsWith("/external-assets"),
+    },
+    {
+      icon: Boxes,
       title: t("Assets & differences", "资产与差异"),
       path:
         project && run ? `/projects/${project}/runs/${run}/comparison` : "/",

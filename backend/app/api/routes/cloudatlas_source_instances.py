@@ -44,6 +44,7 @@ def _source_or_404(
         select(SourceInstance).where(
             SourceInstance.id == source_id,
             SourceInstance.project_id == project_id,
+            SourceInstance.capability_profile == "legacy-ip-v1",
         )
     ).one_or_none()
     if source is None:
@@ -89,12 +90,14 @@ def read_cloudatlas_sources(
     sources = session.exec(
         select(SourceInstance)
         .where(SourceInstance.project_id == project.id)
+        .where(SourceInstance.capability_profile == "legacy-ip-v1")
         .order_by(col(SourceInstance.created_at).desc(), col(SourceInstance.id).desc())
     ).all()
     count = session.exec(
         select(func.count())
         .select_from(SourceInstance)
         .where(SourceInstance.project_id == project.id)
+        .where(SourceInstance.capability_profile == "legacy-ip-v1")
     ).one()
     return CloudAtlasSourcesPublic(
         data=[

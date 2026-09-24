@@ -41,6 +41,11 @@ Replace every placeholder before deployment. Required installation-specific valu
   non-secret `MODEL_CONFIG_REVISION`, and optional
   `MODEL_QUALIFICATION_TIMEOUT_SECONDS`.
 
+Independent `assets-v1` CloudAtlas connections additionally require their own
+`CLOUDATLAS_ASSETS_CAPSET_TOKEN`. It is not a fallback for, or replacement of,
+the legacy `CLOUDATLAS_CAPSET_TOKEN`; leaving it unset fails new-profile
+validation/execution closed without changing the legacy package contract.
+
 Generate independent random secrets, for example:
 
 ```bash
@@ -339,11 +344,60 @@ After restore, verify:
 
 Any SourceInstance whose restored material differs from its stored fingerprint remains invalid until corrected and revalidated. Backup and restore are not accepted until all four stores and these checks agree.
 
+## Independent CloudAtlas assets
+
+The `cloudatlas-assets` package and dedicated `cloudatlas-sync` agent serve
+`assets-v1` connections; `cloudatlas-read` remains the separate legacy IP path.
+Use the exact Package/Descriptor pins in `octobus/cloudatlas-assets.hashes.json`,
+a dedicated Capset selecting only its two methods, a fixed Instance and decimal
+string space ID, and the separate runtime token above. Configure an HTTPS
+upstream with a valid hostname/certificate chain; private CAs must be installed
+through the deployment's approved trust mechanism, never TLS verification
+bypass. See [package operations](octobus/README.md).
+
+Creating, validating metadata, enabling synchronization, and starting a manual
+read are separate operations on the project's **External assets** page.
+Validation does not read source records. Each synchronization requires explicit
+page-size, total-page, total-record, per-response-byte and elapsed-time budgets,
+plus an absolute retention deadline. Its actor/project/source request key
+survives browser reload; recover that same intent rather than create another
+task after a lost response. Execution uses the existing agent-compose runtime
+but no model credentials. Unknown execution is reconciled explicitly against
+the original Run/Session, never replaced by a new Session.
+Before each source call, remaining record allowance must cover a full configured
+page, even if the next page might be shorter. Choose a smaller page size for
+tighter budgets. Any execution exception stops subsequent domain reads; no
+failed or unaccounted page permits additional source calls.
+
+Historical lists, fixed versions, details and same-IP associations are local
+PostgreSQL reads and remain usable during an external-system outage. Disabling
+synchronization does not revoke historical data access. Explicit data-access
+revocation and retention expiry deny reading immediately, including old deep
+links; an expired latest pointer does not silently select an older version.
+Archived projects remain read-only.
+
+The page exposes authorized cleanup for active projects. For expired records
+after archival or access revocation, an installation operator with trusted
+backend/container and database access uses the maintenance command instead:
+
+```bash
+docker compose exec backend python -m app.cloudatlas_sync_runner \
+  --purge-expired --source-id SOURCE_INSTANCE_UUID
+```
+
+This command accepts only the independent profile, deletes only its expired
+read-model records, preserves task/version tombstones, and appends system audit.
+It does not bypass the public API's project permissions or delete legacy Runs,
+SourceSnapshots, reports or Artifacts. Schedule or invoke it under the
+customer-approved retention procedure; there is no automatic cleanup scheduler.
+Synthetic fixture evidence does not authorize real CloudAtlas reads or replace
+the separately approved real-environment acceptance.
+
 ## Governance runner build compatibility
 
 `GOVERNANCE_RUNNER_BUILD_VERSION` is optional and defaults to
-`RUNNER_BUILD_VERSION`.  Set it only when the governance Runner needs a newer
-image while the qualified model agents must retain their existing image and
+`RUNNER_BUILD_VERSION`. Set it only when the governance and independent
+CloudAtlas synchronization runners need a newer image while qualified model agents retain their existing image and
 qualification binding.  The old model image must already exist locally or in
 the configured registry; deployment does not rebuild or replace it.  Existing
 GovernanceRun retry remains pinned and rejects a changed governance build.

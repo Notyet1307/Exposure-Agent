@@ -24,6 +24,9 @@ export default function WorkspaceSelector() {
   const cloudLedgerPage = useRouterState({
     select: (state) => state.location.pathname.endsWith("/cloudatlas-ledger"),
   })
+  const externalAssetsPage = useRouterState({
+    select: (state) => state.location.pathname.endsWith("/external-assets"),
+  })
   const { search, projectId, runId, project, projects, reports, latest } =
     useWorkspaceContext()
   const projectChoices = projects.isSuccess ? projects.data.data : undefined
@@ -100,7 +103,25 @@ export default function WorkspaceSelector() {
           value={projectId ?? ""}
           disabled={!projectChoices}
           onChange={(event) => {
-            if (netflowLedgerPage) {
+            if (externalAssetsPage) {
+              void navigate({
+                to: "/projects/$projectId/external-assets",
+                params: { projectId: event.target.value },
+                search: {
+                  external_domain: "ip",
+                  external_source: undefined,
+                  external_version: undefined,
+                  external_record: undefined,
+                  external_record_version: undefined,
+                  external_port_version: undefined,
+                  external_ip: undefined,
+                  external_status: undefined,
+                  external_task: undefined,
+                  external_page: 0,
+                  external_match_page: 0,
+                },
+              })
+            } else if (netflowLedgerPage) {
               void navigate({
                 to: "/projects/$projectId/netflow-ledger",
                 params: { projectId: event.target.value },
@@ -173,7 +194,7 @@ export default function WorkspaceSelector() {
           ))}
         </select>
       </label>
-      {!ledgerPage && (
+      {!ledgerPage && !externalAssetsPage && (
         <label className="flex min-w-0 items-center gap-2 text-sm">
           <span>{t("Published run", "已发布运行")}</span>
           <select
@@ -211,7 +232,7 @@ export default function WorkspaceSelector() {
           </select>
         </label>
       )}
-      {!ledgerPage && runId !== undefined && (
+      {!ledgerPage && !externalAssetsPage && runId !== undefined && (
         <details className="min-w-0 max-w-full text-sm">
           <summary className="cursor-pointer">
             {t("Selected run details", "所选批次详情")}

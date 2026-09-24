@@ -406,6 +406,134 @@ export type ExpectedGeneration = {
     expected_generation: number;
 };
 
+export type ExternalDomainPublic = {
+    domain: 'ip' | 'port';
+    status: 'PENDING' | 'RUNNING' | 'PUBLISHED' | 'FAILED' | 'UNKNOWN';
+    version_id: (string | null);
+    record_count: number;
+    error_code: (string | null);
+};
+
+export type domain = 'ip' | 'port';
+
+export type status2 = 'PENDING' | 'RUNNING' | 'PUBLISHED' | 'FAILED' | 'UNKNOWN';
+
+export type ExternalPurgePublic = {
+    deleted_records: number;
+};
+
+export type ExternalRecordDetailPublic = {
+    record: ExternalRecordPublic;
+    version: ExternalVersionPublic;
+    matched_ports: Array<ExternalRecordPublic>;
+    matched_port_count: number;
+    port_version: (ExternalVersionPublic | null);
+};
+
+export type ExternalRecordPublic = {
+    id: string;
+    version_id: string;
+    source_id: string;
+    ip: string;
+    canonical_ip: string;
+    fields: {
+        [key: string]: unknown;
+    };
+};
+
+export type ExternalRecordsPublic = {
+    data: Array<ExternalRecordPublic>;
+    count: number;
+    version: (ExternalVersionPublic | null);
+    state: 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
+};
+
+export type state2 = 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
+
+export type ExternalSourceCreate = {
+    instance_id: string;
+    capset_id: string;
+    space_id: string;
+};
+
+export type ExternalSourcePublic = {
+    id: string;
+    instance_id: string;
+    capset_id: string;
+    space_id: string;
+    enabled: boolean;
+    data_access_enabled: boolean;
+    validation_status: string;
+    validated_fingerprint: (string | null);
+    created_at: string;
+    updated_at: string;
+};
+
+export type ExternalSourcesPublic = {
+    data: Array<ExternalSourcePublic>;
+    count: number;
+    can_manage: boolean;
+};
+
+export type ExternalSourceUpdate = {
+    enabled?: (boolean | null);
+    data_access_enabled?: (boolean | null);
+};
+
+export type ExternalSyncCreate = {
+    page_size: number;
+    max_pages: number;
+    max_records: number;
+    max_response_bytes: number;
+    timeout_seconds: number;
+    retain_until: string;
+};
+
+export type ExternalSyncPublic = {
+    id: string;
+    source_id: string;
+    status: 'PENDING' | 'RUNNING' | 'UNKNOWN' | 'SUCCEEDED' | 'PARTIAL_FAILED' | 'FAILED';
+    created_at: string;
+    started_at: (string | null);
+    completed_at: (string | null);
+    retain_until: string;
+    error_code: (string | null);
+    agent_run_id: (string | null);
+    session_id: (string | null);
+    domains: Array<ExternalDomainPublic>;
+};
+
+export type status3 = 'PENDING' | 'RUNNING' | 'UNKNOWN' | 'SUCCEEDED' | 'PARTIAL_FAILED' | 'FAILED';
+
+export type ExternalSyncsPublic = {
+    data: Array<ExternalSyncPublic>;
+    count: number;
+};
+
+export type ExternalVersionPublic = {
+    id: string;
+    source_id: string;
+    domain: 'ip' | 'port';
+    space_id: string;
+    status: 'PUBLISHED' | 'EXPIRED';
+    record_count: number;
+    filter: {
+        [key: string]: (string);
+    };
+    sort: string;
+    fingerprint: string;
+    fetched_at: string;
+    published_at: string;
+    retain_until: string;
+};
+
+export type status4 = 'PUBLISHED' | 'EXPIRED';
+
+export type ExternalVersionsPublic = {
+    data: Array<ExternalVersionPublic>;
+    count: number;
+};
+
 export type FindingDetailPublic = {
     id: string;
     resource_id: string;
@@ -440,7 +568,7 @@ export type FindingNetFlowContextPublic = {
     activity: (FindingNetFlowActivityPublic | null);
 };
 
-export type status2 = 'NOT_APPLICABLE' | 'INPUT_UNMODELED' | 'INPUT_ABSENT' | 'ACTIVITY_UNMODELED' | 'NO_POSITIVE_ACTIVITY' | 'POSITIVE_ACTIVITY';
+export type status5 = 'NOT_APPLICABLE' | 'INPUT_UNMODELED' | 'INPUT_ABSENT' | 'ACTIVITY_UNMODELED' | 'NO_POSITIVE_ACTIVITY' | 'POSITIVE_ACTIVITY';
 
 export type FindingOccurrencePublic = {
     id: string;
@@ -589,7 +717,7 @@ export type report_contract_version = 'deterministic-report-v1' | 'deterministic
 
 export type view = 'OVERVIEW' | 'RESOURCE';
 
-export type status3 = 'COMPLETE' | 'EMPTY' | 'PARTIAL';
+export type status6 = 'COMPLETE' | 'EMPTY' | 'PARTIAL';
 
 export type GovernanceRunPublic = {
     id: string;
@@ -636,7 +764,7 @@ export type GovernanceRunSourcePublic = {
 
 export type source_type = 'CUSTOMER_UPLOAD' | 'CLOUDATLAS' | 'NETFLOW';
 
-export type state2 = 'ABSENT' | 'PRESENT';
+export type state3 = 'ABSENT' | 'PRESENT';
 
 export type GovernanceRunSourcesPublic = {
     project_id: string;
@@ -726,7 +854,7 @@ export type InvestigationPublic = {
     tool_reads: Array<InvestigationToolRead>;
 };
 
-export type status4 = 'GENERATING' | 'COMPLETED' | 'FAILED';
+export type status7 = 'GENERATING' | 'COMPLETED' | 'FAILED';
 
 export type InvestigationRequest = {
     resource_id: string;
@@ -760,7 +888,7 @@ export type InvestigationToolRead = {
 
 export type tool_name = 'read_asset_facts' | 'read_asset_history' | 'read_cloudatlas_asset';
 
-export type status5 = 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+export type status8 = 'RUNNING' | 'SUCCEEDED' | 'FAILED';
 
 export type IPAssetDetailPublic = {
     id: string;
@@ -1063,7 +1191,7 @@ export type ManualReviewPublic = {
     verifications: Array<ManualReviewVerification>;
 };
 
-export type status6 = 'PENDING' | 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE';
+export type status9 = 'PENDING' | 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE';
 
 export type ManualReviewsPublic = {
     data: Array<ManualReviewPublic>;
@@ -1080,7 +1208,7 @@ export type ManualReviewVerification = {
     reason: string;
 };
 
-export type status7 = 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE' | 'NO_NEW_CONCLUSION';
+export type status10 = 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE' | 'NO_NEW_CONCLUSION';
 
 export type Message = {
     message: string;
@@ -1527,6 +1655,110 @@ export type CustomerLedgerReadCustomerLedgerOperationData = {
 };
 
 export type CustomerLedgerReadCustomerLedgerOperationResponse = (app__domain__customer_ledger__RevisionPublic);
+
+export type ExternalAssetsReadExternalSourcesData = {
+    projectId: string;
+};
+
+export type ExternalAssetsReadExternalSourcesResponse = (ExternalSourcesPublic);
+
+export type ExternalAssetsCreateExternalSourceData = {
+    projectId: string;
+    requestBody: ExternalSourceCreate;
+};
+
+export type ExternalAssetsCreateExternalSourceResponse = (ExternalSourcePublic);
+
+export type ExternalAssetsValidateExternalSourceData = {
+    projectId: string;
+    sourceId: string;
+};
+
+export type ExternalAssetsValidateExternalSourceResponse = (ExternalSourcePublic);
+
+export type ExternalAssetsUpdateExternalSourceData = {
+    projectId: string;
+    requestBody: ExternalSourceUpdate;
+    sourceId: string;
+};
+
+export type ExternalAssetsUpdateExternalSourceResponse = (ExternalSourcePublic);
+
+export type ExternalAssetsCreateExternalSyncData = {
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: ExternalSyncCreate;
+    sourceId: string;
+};
+
+export type ExternalAssetsCreateExternalSyncResponse = (ExternalSyncPublic);
+
+export type ExternalAssetsReadExternalSyncsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+    sourceId: string;
+};
+
+export type ExternalAssetsReadExternalSyncsResponse = (ExternalSyncsPublic);
+
+export type ExternalAssetsReadExternalSyncData = {
+    projectId: string;
+    sourceId: string;
+    syncId: string;
+};
+
+export type ExternalAssetsReadExternalSyncResponse = (ExternalSyncPublic);
+
+export type ExternalAssetsReconcileExternalSyncData = {
+    projectId: string;
+    sourceId: string;
+    syncId: string;
+};
+
+export type ExternalAssetsReconcileExternalSyncResponse = (ExternalSyncPublic);
+
+export type ExternalAssetsReadExternalVersionsData = {
+    domain: 'ip' | 'port';
+    limit?: number;
+    projectId: string;
+    skip?: number;
+    sourceId: string;
+};
+
+export type ExternalAssetsReadExternalVersionsResponse = (ExternalVersionsPublic);
+
+export type ExternalAssetsReadExternalRecordsData = {
+    domain: 'ip' | 'port';
+    ip?: (string | null);
+    limit?: number;
+    projectId: string;
+    skip?: number;
+    sourceId: string;
+    status?: (string | null);
+    versionId?: (string | null);
+};
+
+export type ExternalAssetsReadExternalRecordsResponse = (ExternalRecordsPublic);
+
+export type ExternalAssetsReadExternalRecordData = {
+    limit?: number;
+    portVersionId?: (string | null);
+    projectId: string;
+    recordId: string;
+    skip?: number;
+    sourceId: string;
+    versionId: string;
+};
+
+export type ExternalAssetsReadExternalRecordResponse = (ExternalRecordDetailPublic);
+
+export type ExternalAssetsPurgeExternalExpiredData = {
+    projectId: string;
+    sourceId: string;
+};
+
+export type ExternalAssetsPurgeExternalExpiredResponse = (ExternalPurgePublic);
 
 export type GovernanceReportsReadGovernanceReportsData = {
     cursor?: (string | null);

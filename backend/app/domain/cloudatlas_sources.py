@@ -94,7 +94,9 @@ def _required_list(payload: dict[str, Any], name: str) -> list[dict[str, Any]]:
 
 
 def _require_sha256(value: str) -> str:
-    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+    if len(value) != 64 or any(
+        character not in "0123456789abcdef" for character in value
+    ):
         _boundary_error("cloudatlas_response_contract_failed")
     return value
 
@@ -115,6 +117,13 @@ class CloudAtlasFingerprint:
 
 
 class OctobusCloudAtlasClient:
+    SERVICE_ID = SERVICE_ID
+    PACKAGE_SHA256 = PACKAGE_SHA256
+    DESCRIPTOR_SHA256 = DESCRIPTOR_SHA256
+    METHODS: tuple[str, ...] = (METHOD,)
+    FINGERPRINT_SCHEMA = FINGERPRINT_SCHEMA
+    CAPABILITY_PROFILE = "legacy-ip-v1"
+
     def __init__(self) -> None:
         self.base_url = settings.OCTOBUS_URL.rstrip("/")
 
@@ -169,16 +178,14 @@ class OctobusCloudAtlasClient:
         return cast(dict[str, Any], payload)
 
     def _request_material(self, path: str) -> dict[str, Any]:
-        return self._request_json(
-            "GET", path, missing_is_material_change=True
-        )
+        return self._request_json("GET", path, missing_is_material_change=True)
 
     def current_fingerprint(self, source: SourceInstance) -> CloudAtlasFingerprint:
+        if source.capability_profile != self.CAPABILITY_PROFILE:
+            _material_error("cloudatlas_response_contract_failed")
         admin = "/admin/v1"
-        service = self._request_material(f"{admin}/services/{SERVICE_ID}")
-        instance = self._request_material(
-            f"{admin}/instances/{source.instance_id}"
-        )
+        service = self._request_material(f"{admin}/services/{self.SERVICE_ID}")
+        instance = self._request_material(f"{admin}/instances/{source.instance_id}")
         capset = self._request_material(f"{admin}/capsets/{source.capset_id}")
         instances_payload = self._request_material(
             f"{admin}/capsets/{source.capset_id}/instances"
@@ -191,24 +198,22 @@ class OctobusCloudAtlasClient:
         )
 
         service_id = _required_string(service, "ID")
-        package_sha256 = _require_sha256(
-            _required_string(service, "PackageSHA256")
-        )
+        package_sha256 = _require_sha256(_required_string(service, "PackageSHA256"))
         package_version = service.get("PackageVersion")
         descriptor_sha256 = _require_sha256(
             _required_string(service, "DescriptorSHA256")
         )
         if (
-            service_id != SERVICE_ID
-            or package_sha256 != PACKAGE_SHA256
-            or descriptor_sha256 != DESCRIPTOR_SHA256
+            service_id != self.SERVICE_ID
+            or package_sha256 != self.PACKAGE_SHA256
+            or descriptor_sha256 != self.DESCRIPTOR_SHA256
             or not isinstance(package_version, str)
         ):
             _material_error("cloudatlas_response_contract_failed")
 
         instance_id = _required_string(instance, "ID")
         instance_service_id = _required_string(instance, "ServiceID")
-        if instance_id != source.instance_id or instance_service_id != SERVICE_ID:
+        if instance_id != source.instance_id or instance_service_id != self.SERVICE_ID:
             _material_error("cloudatlas_response_contract_failed")
 
         capset_id = _required_string(capset, "ID")
@@ -226,7 +231,7 @@ class OctobusCloudAtlasClient:
             for item in _required_list(instances_payload, "instances")
         ]
         expected_binding = {
-            "service_id": SERVICE_ID,
+            "service_id": self.SERVICE_ID,
             "instance_id": source.instance_id,
             "enabled": True,
             "include_all_methods": False,
@@ -240,17 +245,18 @@ class OctobusCloudAtlasClient:
             method_bindings.append(
                 {"name": method_name, "enabled": _required_bool(item, "Enabled")}
             )
-        expected_method = {"name": METHOD, "enabled": True}
-        if method_bindings != [expected_method]:
+        method_bindings.sort(key=lambda binding: str(binding["name"]))
+        expected_methods = [
+            {"name": name, "enabled": True} for name in sorted(self.METHODS)
+        ]
+        if method_bindings != expected_methods:
             _material_error("cloudatlas_authorization_failed")
 
         token_bindings: list[dict[str, str]] = sorted(
             [
                 {
                     "id": _required_string(item, "ID"),
-                    "token_hash": _require_sha256(
-                        _required_string(item, "TokenHash")
-                    ),
+                    "token_hash": _require_sha256(_required_string(item, "TokenHash")),
                 }
                 for item in _required_list(tokens_payload, "tokens")
             ],
@@ -260,7 +266,7 @@ class OctobusCloudAtlasClient:
             _material_error("cloudatlas_authorization_failed")
 
         material = {
-            "schema": FINGERPRINT_SCHEMA,
+            "schema": self.FINGERPRINT_SCHEMA,
             "service": {
                 "id": service_id,
                 "package_sha256": package_sha256,
@@ -284,8 +290,11 @@ class OctobusCloudAtlasClient:
                 "instances": instance_bindings,
                 "methods": method_bindings,
             },
-            "selected_method": METHOD,
         }
+        if len(self.METHODS) == 1:
+            material["selected_method"] = self.METHODS[0]
+        else:
+            material["selected_methods"] = sorted(self.METHODS)
         return CloudAtlasFingerprint(_canonical_fingerprint(material))
 
     def list_ip_assets_page(
@@ -296,6 +305,8 @@ class OctobusCloudAtlasClient:
         page: int,
         size: int,
     ) -> dict[str, Any]:
+        if source.capability_profile != "legacy-ip-v1":
+            _material_error("cloudatlas_response_contract_failed")
         attempts_remaining = _LIST_PAGE_ATTEMPTS
         while True:
             try:

@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 
 ARG TARGETARCH
 ARG OCTOBUS_VERSION=0.1.0
@@ -26,5 +26,6 @@ RUN apt-get update \
          "/tmp/chaitin-cli_${CHAITIN_CLI_VERSION}_linux_${TARGETARCH}"
 
 COPY octobus/cloudatlas-read /opt/exposure-agent/service-packages/cloudatlas-read
+COPY octobus/cloudatlas-assets /opt/exposure-agent/service-packages/cloudatlas-assets
 
 ENTRYPOINT ["octobus"]

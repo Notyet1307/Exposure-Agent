@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
+from app.domain import external_asset_models as external_asset_models
 
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -568,6 +569,11 @@ class SourceInstance(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint("source_type = 'cloudatlas'", name="ck_source_instances_type"),
         CheckConstraint(
+            "capability_profile IN ('legacy-ip-v1', 'assets-v1') AND "
+            "(capability_profile != 'assets-v1' OR space_id IS NOT NULL)",
+            name="ck_source_instances_profile",
+        ),
+        CheckConstraint(
             "validated_fingerprint IS NULL OR validated_fingerprint ~ '^[0-9a-f]{64}$'",
             name="ck_source_instances_fingerprint_format",
         ),
@@ -598,6 +604,10 @@ class SourceInstance(SQLModel, table=True):
         foreign_key="projects.id", ondelete="RESTRICT", index=True
     )
     source_type: str = Field(default=CLOUDATLAS_SOURCE_TYPE, max_length=30)
+    capability_profile: str = Field(default="legacy-ip-v1", max_length=30)
+    space_id: str | None = Field(default=None, max_length=255)
+    data_access_enabled: bool = Field(default=True)
+    assets_token_sha256: str | None = Field(default=None, max_length=64)
     instance_id: str = Field(max_length=255)
     capset_id: str = Field(max_length=255)
     enabled: bool = Field(default=False)
