@@ -239,6 +239,7 @@ def snapshots(
             SourceInstance.id == source_id,
             SourceInstance.project_id == project.id,
             SourceInstance.tenant_id == project.tenant_id,
+            SourceInstance.capability_profile == "legacy-ip-v1",
         )
     ).one_or_none()
     if source is None:
@@ -280,6 +281,7 @@ def read_page(
     source_query = select(SourceInstance).where(
         SourceInstance.project_id == project.id,
         SourceInstance.tenant_id == project.tenant_id,
+        SourceInstance.capability_profile == "legacy-ip-v1",
     )
     source = session.exec(
         source_query.where(SourceInstance.id == source_id)

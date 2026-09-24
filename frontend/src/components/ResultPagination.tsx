@@ -22,7 +22,7 @@ export function ResultPagination({
 
   return (
     <nav
-      className="flex items-center justify-end gap-3"
+      className="flex flex-wrap items-center justify-end gap-3"
       aria-label={t(`${label} pagination`, `${localizedLabel}分页`)}
     >
       <Button

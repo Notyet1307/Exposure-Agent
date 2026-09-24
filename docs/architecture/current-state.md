@@ -10,7 +10,7 @@
 - `backend`：FastAPI API、确定性治理逻辑和 Artifact 访问；
 - `db`：PostgreSQL 权威业务事实库；
 - `octobus`：CloudAtlas 外部能力边界；
-- `agent-compose`：Governance Runner 的调度、隔离和 Session 生命周期；
+- `agent-compose`：Governance Runner、独立 CloudAtlas 同步及既有 AI Session 的调度、隔离和生命周期，不是业务事实库；
 - `prestart`、`octobus-package-init`、`agent-compose-project-init`：一次性初始化；
 - `governance-runner-image`：供 agent-compose 启动临时 Runner 的构建目标。
 
@@ -26,7 +26,10 @@
 - `NetFlowDataset` 接受与管理：Operator 可在 Project 内列表、上传、选择或清除当前 Dataset，Viewer 只读；新 GovernanceRun 在 Trigger reservation 中用 `governance-run-input-v1` 固定可选 Dataset ID、raw/content Hash、Dataset 合同版本和报告合同，并将它们纳入输入 Hash。选择规则是 explicit absent 固定 `deterministic-report-v1`、present 固定 `deterministic-report-v2`；Runner 建立前的选择漂移 fail-closed，已建立 Run 的固定输入不可变，Retry 复用原 pin（包括历史 present/v1），Rerun 读取当前选择。present 在复核 raw Artifact 字节、Hash 与固定合同后产生唯一不可变 `NETFLOW` SourceSnapshot，保存 Dataset、raw Artifact、schema、raw record count 与可证时间极值；零条 raw record 仍产生 `record_count = 0` Snapshot。输入漂移或合同失效进入 `FAILED_DATA` 且不发布部分事实；explicit absent 不创建 NetFlow RunStep、Snapshot、比较事实或比较 Evidence。
 - NetFlow 正向 IP 活动以 `netflow-ip-activity-v1` 按 Run / 已有受管 Resource 唯一聚合，在原子 Publish 中有界批写到 PostgreSQL；只关联同 Project 的既有 Resource（包括本 Run 双来源 RESOLVE 结果），不由 Peer 创建 Resource。`flow_count` 统计涉及该 IP 的有效源记录（保留重复；双端受管各计一次，自环计一次），并固定排序的 Peer / protocol、独立时间极值和内容 Hash；这些样本不表示会话数、完整覆盖或零活动。来源端口仍保留在不可变 Artifact，不推断服务端口或方向，不改变 Finding 生命周期。present/v2 用这些活动生成三来源比较；零 raw record 或零正向活动仍可完整发布，并以 `UNKNOWN` / `no_positive_activity_evidence` 表达限制。发布失败回滚活动、比较和报告事实，Retry 使用同 Run 身份重算。
 - CloudAtlas SourceInstance 的配置、只读验证、指纹固定、启用和停用；
-- 正式 `cloudatlas-read` OctoBus Package，仅允许 `cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets`；
+- 旧 `legacy-ip-v1` 配置继续使用正式 `cloudatlas-read` OctoBus Package，仅允许 `cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets`，原包指纹、字段投影及 IP 过滤不变；
+- 独立 `assets-v1` 配置使用另一个固定指纹的 `cloudatlas-assets` Package，仅开放 IP、端口服务两个只读方法，并固定 Instance、Capset、十进制字符串 space 和当前 token 绑定。配置验证仅查元数据；显式启用与人工同步分开，同 Project / source_type 的启用唯一性约束不变。同步不需要 CustomerUpload、NetFlow、GovernanceRun 或 Resource，专用 `cloudatlas-sync` worker 不接收模型凭据；
+- 每次人工同步固定 actor / Project / source / Idempotency-Key、分页与累计预算及保留期限，PostgreSQL 保存任务、两域 staging、完整版本和各自 latest 指针。IP 使用 `status=valid`，端口不额外加状态过滤，两域均 `sort=-id`；完整成功域独立原子发布，失败域保留此前完整版本，不合并不同源 ID 的同 IP 对象。GET 只查本地库，不触发外部读取、任务执行或恢复；未知执行只允许显式复核原 Run / Session，不另建替代 Session；
+- Web `/projects/{project_id}/external-assets` 提供来源配置、预算确认、任务恢复、分页筛选、固定版本详情及显式选择端口版本的同 IP 查询关联。ID 无损保存，缺失、null、空字符串与空数组分别展示，原始来源时间不推断时区或时间含义。关联保留两边版本、指纹与时间，不伪造稳定外键；风险明确“暂未接入 / 后置”，不生成风险计数。合同见 EXP-FOCUS-01B、[ADR-0021](../adr/0021-independent-cloudatlas-local-read-model.md)，验证入口为 `backend/tests/api/routes/test_external_assets.py`、`backend/tests/integrations/test_cloudatlas_assets.py`、`frontend/tests/external-assets.component.spec.ts` 和 `tests/cloudatlas_fixture/verify_assets_contract.mjs`；
 - GovernanceRun 的 Trigger、Retry、Rerun、RunStep、SourceSnapshot 与 Publish；
 - agent-compose Session 创建、终态查询、同 Session 恢复和未知状态 fail-closed；
 - 客户内部 OpenAI-compatible 模型经 Pi 使用固定非客户 fixture 执行部署资格检查，PostgreSQL 仅保存脱敏门禁指标和当前配置绑定；
@@ -54,6 +57,7 @@
 - NetFlow 上传只接受严格 `UTF-8-SIG` 或 `GB18030`，拒绝批级结构错误；未知额外列仅汇总 warning，行级无效值被确定性隔离或置空，拒绝与处理失败不建立 Dataset、Artifact 或 accepted AuditEvent；
 - CloudAtlas Package、Descriptor、Instance、Capset、方法或 token material 漂移时验证失败。
 - agent-compose Session 只有权威查询确认终态后才允许恢复；未知、不可达或未识别状态保持 fail-closed。
+- 独立同步在每页和发布前重验当前权限、source 状态、固定材料与原执行身份；任一执行异常停止后续域，剩余记录额度不足完整配置页时在调用前停止。同步停用不等于撤销历史数据权限；Viewer 与归档 Project 只读，显式数据访问撤销或到期拒绝固定版本及详情读取，过期 latest 不回退旧版。可信维护命令可在归档或撤权后删除新读模型的到期记录并追加审计，保留版本/任务墓碑，不清理旧 Run、Artifact 或报告；运行入口见 [deployment.md](../../deployment.md)。
 - 模型资格只允许 Pi 经无重定向本地代理连接解析到私网地址的部署注入端点，禁用模型工具和自动 retry；Secret、完整 Prompt、模型原始输出和 Provider 原始事件不进入 PostgreSQL 或 agent-compose Run 输出；端点、模型、非 Secret 配置、Runner build、资格契约或 agent-compose runtime 指纹漂移立即失效。
 - 本地测试可依 [ADR-0014](../adr/0014-allow-local-baizhi-synthetic-qualification.md) 显式启用精确百智云 HTTPS 地址的固定合成资格检查；默认关闭，DNS 地址必须全部为公网且连接固定地址。该例外不进入产品草稿的模型绑定校验，不允许客户数据外发。
 - 单资产核查按 [ADR-0015](../adr/0015-allow-bounded-synthetic-ai-business-tasks.md) 使用独立、默认关闭的合成业务开关与部署材料白名单；普通上传不会因项目获准而自动出域。发送前及每次工具读取复核项目权限、固定范围、当前模型资格与材料 Hash；每份历史材料分别授权，实时合成结果额外固定来源指纹和规范化内容 Hash，查询时间单独保留。Runner 核对镜像 build，模型子进程仅持有回环代理能力，不持有模型、数据库、CloudAtlas 或应用凭据。每轮总时长、全部工具次数、累计材料（含前序问答）和输出字节受固定预算限制。AI 分析报告使用独立的默认关闭开关和精确材料白名单，在每次模型请求前重新复核授权与当前资格；真实客户数据外发不在许可范围内。配置与验收步骤见 [deployment.md](../../deployment.md)。

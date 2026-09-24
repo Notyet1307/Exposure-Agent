@@ -7,6 +7,7 @@ from app.api.routes import (
     cloudatlas_ledger,
     cloudatlas_source_instances,
     customer_ledger,
+    external_assets,
     governance_reports,
     governance_runs,
     ip_results,
@@ -25,6 +26,7 @@ api_router.include_router(login.router)
 api_router.include_router(users.router)
 api_router.include_router(projects.router)
 api_router.include_router(cloudatlas_source_instances.router)
+api_router.include_router(external_assets.router)
 api_router.include_router(governance_reports.router)
 api_router.include_router(governance_runs.router)
 api_router.include_router(ip_results.router)

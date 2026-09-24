@@ -205,6 +205,11 @@ class AgentComposeClient:
             agent_name="ai-analysis-report", client_request_id=client_request_id
         )
 
+    def expected_cloudatlas_sync_run_id(self, client_request_id: str) -> str:
+        return self._expected_run_id(
+            agent_name="cloudatlas-sync", client_request_id=client_request_id
+        )
+
     def get_run(self, run_id: str) -> AgentComposeRunStart | None:
         body = self._request(
             _GET_RUN_PATH,
@@ -355,6 +360,21 @@ class AgentComposeClient:
                 ),
             },
             command="/app/.venv/bin/python -m app.ai_analysis_report_runner",
+        )
+
+    def start_cloudatlas_sync(
+        self, *, client_request_id: str, sync_id: str
+    ) -> AgentComposeRunStart:
+        return self._start_run(
+            agent_name="cloudatlas-sync",
+            client_request_id=client_request_id,
+            environment={
+                "EXTERNAL_SYNC_ID": sync_id,
+                "EXTERNAL_SYNC_RUN_ID": self.expected_cloudatlas_sync_run_id(
+                    client_request_id
+                ),
+            },
+            command="/app/.venv/bin/python -m app.cloudatlas_sync_runner",
         )
 
     def _start_run(

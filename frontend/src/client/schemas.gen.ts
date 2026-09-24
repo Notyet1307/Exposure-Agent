@@ -1914,6 +1914,551 @@ export const ExpectedGenerationSchema = {
     title: 'ExpectedGeneration'
 } as const;
 
+export const ExternalDomainPublicSchema = {
+    properties: {
+        domain: {
+            type: 'string',
+            enum: ['ip', 'port'],
+            title: 'Domain'
+        },
+        status: {
+            type: 'string',
+            enum: ['PENDING', 'RUNNING', 'PUBLISHED', 'FAILED', 'UNKNOWN'],
+            title: 'Status'
+        },
+        version_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Version Id'
+        },
+        record_count: {
+            type: 'integer',
+            title: 'Record Count'
+        },
+        error_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Code'
+        }
+    },
+    type: 'object',
+    required: ['domain', 'status', 'version_id', 'record_count', 'error_code'],
+    title: 'ExternalDomainPublic'
+} as const;
+
+export const ExternalPurgePublicSchema = {
+    properties: {
+        deleted_records: {
+            type: 'integer',
+            title: 'Deleted Records'
+        }
+    },
+    type: 'object',
+    required: ['deleted_records'],
+    title: 'ExternalPurgePublic'
+} as const;
+
+export const ExternalRecordDetailPublicSchema = {
+    properties: {
+        record: {
+            '$ref': '#/components/schemas/ExternalRecordPublic'
+        },
+        version: {
+            '$ref': '#/components/schemas/ExternalVersionPublic'
+        },
+        matched_ports: {
+            items: {
+                '$ref': '#/components/schemas/ExternalRecordPublic'
+            },
+            type: 'array',
+            title: 'Matched Ports'
+        },
+        matched_port_count: {
+            type: 'integer',
+            title: 'Matched Port Count'
+        },
+        port_version: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ExternalVersionPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    required: ['record', 'version', 'matched_ports', 'matched_port_count', 'port_version'],
+    title: 'ExternalRecordDetailPublic'
+} as const;
+
+export const ExternalRecordPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        version_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Version Id'
+        },
+        source_id: {
+            type: 'string',
+            title: 'Source Id'
+        },
+        ip: {
+            type: 'string',
+            title: 'Ip'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        fields: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Fields'
+        }
+    },
+    type: 'object',
+    required: ['id', 'version_id', 'source_id', 'ip', 'canonical_ip', 'fields'],
+    title: 'ExternalRecordPublic'
+} as const;
+
+export const ExternalRecordsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/ExternalRecordPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        version: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ExternalVersionPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        state: {
+            type: 'string',
+            enum: ['PUBLISHED', 'NOT_SYNCED', 'EXPIRED'],
+            title: 'State'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'version', 'state'],
+    title: 'ExternalRecordsPublic'
+} as const;
+
+export const ExternalSourceCreateSchema = {
+    properties: {
+        instance_id: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Instance Id'
+        },
+        capset_id: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            title: 'Capset Id'
+        },
+        space_id: {
+            type: 'string',
+            maxLength: 255,
+            minLength: 1,
+            pattern: '^(0|[1-9][0-9]*)$',
+            title: 'Space Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['instance_id', 'capset_id', 'space_id'],
+    title: 'ExternalSourceCreate'
+} as const;
+
+export const ExternalSourcePublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        instance_id: {
+            type: 'string',
+            title: 'Instance Id'
+        },
+        capset_id: {
+            type: 'string',
+            title: 'Capset Id'
+        },
+        space_id: {
+            type: 'string',
+            title: 'Space Id'
+        },
+        enabled: {
+            type: 'boolean',
+            title: 'Enabled'
+        },
+        data_access_enabled: {
+            type: 'boolean',
+            title: 'Data Access Enabled'
+        },
+        validation_status: {
+            type: 'string',
+            title: 'Validation Status'
+        },
+        validated_fingerprint: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Validated Fingerprint'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        updated_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Updated At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'instance_id', 'capset_id', 'space_id', 'enabled', 'data_access_enabled', 'validation_status', 'validated_fingerprint', 'created_at', 'updated_at'],
+    title: 'ExternalSourcePublic'
+} as const;
+
+export const ExternalSourceUpdateSchema = {
+    properties: {
+        enabled: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Enabled'
+        },
+        data_access_enabled: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Data Access Enabled'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    title: 'ExternalSourceUpdate'
+} as const;
+
+export const ExternalSourcesPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/ExternalSourcePublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        can_manage: {
+            type: 'boolean',
+            title: 'Can Manage'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'can_manage'],
+    title: 'ExternalSourcesPublic'
+} as const;
+
+export const ExternalSyncCreateSchema = {
+    properties: {
+        page_size: {
+            type: 'integer',
+            maximum: 200,
+            minimum: 1,
+            title: 'Page Size'
+        },
+        max_pages: {
+            type: 'integer',
+            maximum: 10000,
+            minimum: 1,
+            title: 'Max Pages'
+        },
+        max_records: {
+            type: 'integer',
+            maximum: 1000000,
+            minimum: 1,
+            title: 'Max Records'
+        },
+        max_response_bytes: {
+            type: 'integer',
+            maximum: 16777216,
+            minimum: 1,
+            title: 'Max Response Bytes'
+        },
+        timeout_seconds: {
+            type: 'integer',
+            maximum: 300,
+            minimum: 1,
+            title: 'Timeout Seconds'
+        },
+        retain_until: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Retain Until'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['page_size', 'max_pages', 'max_records', 'max_response_bytes', 'timeout_seconds', 'retain_until'],
+    title: 'ExternalSyncCreate'
+} as const;
+
+export const ExternalSyncPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        source_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['PENDING', 'RUNNING', 'UNKNOWN', 'SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'],
+            title: 'Status'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        started_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Started At'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        },
+        retain_until: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Retain Until'
+        },
+        error_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Code'
+        },
+        agent_run_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Agent Run Id'
+        },
+        session_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Session Id'
+        },
+        domains: {
+            items: {
+                '$ref': '#/components/schemas/ExternalDomainPublic'
+            },
+            type: 'array',
+            title: 'Domains'
+        }
+    },
+    type: 'object',
+    required: ['id', 'source_id', 'status', 'created_at', 'started_at', 'completed_at', 'retain_until', 'error_code', 'agent_run_id', 'session_id', 'domains'],
+    title: 'ExternalSyncPublic'
+} as const;
+
+export const ExternalSyncsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/ExternalSyncPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'ExternalSyncsPublic'
+} as const;
+
+export const ExternalVersionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        source_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Id'
+        },
+        domain: {
+            type: 'string',
+            enum: ['ip', 'port'],
+            title: 'Domain'
+        },
+        space_id: {
+            type: 'string',
+            title: 'Space Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['PUBLISHED', 'EXPIRED'],
+            title: 'Status'
+        },
+        record_count: {
+            type: 'integer',
+            title: 'Record Count'
+        },
+        filter: {
+            additionalProperties: {
+                type: 'string'
+            },
+            type: 'object',
+            title: 'Filter'
+        },
+        sort: {
+            type: 'string',
+            title: 'Sort'
+        },
+        fingerprint: {
+            type: 'string',
+            title: 'Fingerprint'
+        },
+        fetched_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Fetched At'
+        },
+        published_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Published At'
+        },
+        retain_until: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Retain Until'
+        }
+    },
+    type: 'object',
+    required: ['id', 'source_id', 'domain', 'space_id', 'status', 'record_count', 'filter', 'sort', 'fingerprint', 'fetched_at', 'published_at', 'retain_until'],
+    title: 'ExternalVersionPublic'
+} as const;
+
+export const ExternalVersionsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/ExternalVersionPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'ExternalVersionsPublic'
+} as const;
+
 export const FindingDetailPublicSchema = {
     properties: {
         id: {

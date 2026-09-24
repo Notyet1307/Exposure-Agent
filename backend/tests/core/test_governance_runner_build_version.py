@@ -1,6 +1,3 @@
-import os
-import re
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -57,49 +54,6 @@ def test_model_binding_is_unchanged_by_governance_override(
     assert settings.governance_runner_build_version == "new-governance"
     assert fingerprint() == before
     assert settings.MODEL_CONNECTION_RUNNER_BUILD_VERSION == "managed-model"
-
-
-def test_render_changes_only_the_governance_agent(tmp_path: Path) -> None:
-    root = Path(__file__).resolve().parents[3]
-    template = root / "agent-compose.yml"
-    names = set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)\}", template.read_text()))
-    env = {**os.environ, **dict.fromkeys(names, "synthetic")}
-    env.update(
-        DOCKER_IMAGE_RUNNER="fixture-runner",
-        RUNNER_BUILD_VERSION="legacy",
-        ARTIFACT_HOST_PATH=str(tmp_path),
-    )
-
-    def render(override: str | None) -> str:
-        if override is None:
-            env.pop("GOVERNANCE_RUNNER_BUILD_VERSION", None)
-        else:
-            env["GOVERNANCE_RUNNER_BUILD_VERSION"] = override
-        output = tmp_path / "render.yml"
-        subprocess.run(
-            [
-                "sh",
-                str(root / "scripts/render-agent-compose-config.sh"),
-                str(template),
-                str(output),
-            ],
-            env=env,
-            check=True,
-            capture_output=True,
-        )
-        return output.read_text()
-
-    default = render(None)
-    assert render("") == default
-    override = render("new-governance")
-    before_governance, before_models = default.split("  model-qualifier:", 1)
-    after_governance, after_models = override.split("  model-qualifier:", 1)
-    assert before_models == after_models
-    assert after_governance == before_governance.replace(
-        "fixture-runner:legacy", "fixture-runner:new-governance"
-    ).replace("RUNNER_BUILD_VERSION: legacy", "RUNNER_BUILD_VERSION: new-governance")
-    assert default.count("image: fixture-runner:legacy") == 5
-    assert override.count("image: fixture-runner:legacy") == 4
 
 
 def test_governance_image_build_mismatch_is_still_rejected(

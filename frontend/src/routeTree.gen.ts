@@ -16,6 +16,7 @@ import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutAiSettingsRouteImport } from './routes/_layout/ai-settings'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
 import { Route as LayoutProjectsProjectIdNetflowLedgerRouteImport } from './routes/_layout/projects.$projectId.netflow-ledger'
+import { Route as LayoutProjectsProjectIdExternalAssetsRouteImport } from './routes/_layout/projects.$projectId.external-assets'
 import { Route as LayoutProjectsProjectIdCustomerLedgerRouteImport } from './routes/_layout/projects.$projectId.customer-ledger'
 import { Route as LayoutProjectsProjectIdCloudatlasLedgerRouteImport } from './routes/_layout/projects.$projectId.cloudatlas-ledger'
 import { Route as LayoutProjectsProjectIdRunsRunIdLineageRouteImport } from './routes/_layout/projects.$projectId.runs.$runId.lineage'
@@ -56,6 +57,12 @@ const LayoutProjectsProjectIdNetflowLedgerRoute =
     path: '/projects/$projectId/netflow-ledger',
     getParentRoute: () => LayoutRoute,
   } as any)
+const LayoutProjectsProjectIdExternalAssetsRoute =
+  LayoutProjectsProjectIdExternalAssetsRouteImport.update({
+    id: '/projects/$projectId/external-assets',
+    path: '/projects/$projectId/external-assets',
+    getParentRoute: () => LayoutRoute,
+  } as any)
 const LayoutProjectsProjectIdCustomerLedgerRoute =
   LayoutProjectsProjectIdCustomerLedgerRouteImport.update({
     id: '/projects/$projectId/customer-ledger',
@@ -89,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof LayoutSettingsRoute
   '/projects/$projectId/cloudatlas-ledger': typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   '/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
+  '/projects/$projectId/external-assets': typeof LayoutProjectsProjectIdExternalAssetsRoute
   '/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
@@ -101,6 +109,7 @@ export interface FileRoutesByTo {
   '/': typeof LayoutIndexRoute
   '/projects/$projectId/cloudatlas-ledger': typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   '/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
+  '/projects/$projectId/external-assets': typeof LayoutProjectsProjectIdExternalAssetsRoute
   '/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
@@ -115,6 +124,7 @@ export interface FileRoutesById {
   '/_layout/': typeof LayoutIndexRoute
   '/_layout/projects/$projectId/cloudatlas-ledger': typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   '/_layout/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
+  '/_layout/projects/$projectId/external-assets': typeof LayoutProjectsProjectIdExternalAssetsRoute
   '/_layout/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
   '/_layout/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/_layout/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
@@ -129,6 +139,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/projects/$projectId/cloudatlas-ledger'
     | '/projects/$projectId/customer-ledger'
+    | '/projects/$projectId/external-assets'
     | '/projects/$projectId/netflow-ledger'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
@@ -141,6 +152,7 @@ export interface FileRouteTypes {
     | '/'
     | '/projects/$projectId/cloudatlas-ledger'
     | '/projects/$projectId/customer-ledger'
+    | '/projects/$projectId/external-assets'
     | '/projects/$projectId/netflow-ledger'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
@@ -154,6 +166,7 @@ export interface FileRouteTypes {
     | '/_layout/'
     | '/_layout/projects/$projectId/cloudatlas-ledger'
     | '/_layout/projects/$projectId/customer-ledger'
+    | '/_layout/projects/$projectId/external-assets'
     | '/_layout/projects/$projectId/netflow-ledger'
     | '/_layout/projects/$projectId/runs/$runId/comparison'
     | '/_layout/projects/$projectId/runs/$runId/lineage'
@@ -215,6 +228,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutProjectsProjectIdNetflowLedgerRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/projects/$projectId/external-assets': {
+      id: '/_layout/projects/$projectId/external-assets'
+      path: '/projects/$projectId/external-assets'
+      fullPath: '/projects/$projectId/external-assets'
+      preLoaderRoute: typeof LayoutProjectsProjectIdExternalAssetsRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/projects/$projectId/customer-ledger': {
       id: '/_layout/projects/$projectId/customer-ledger'
       path: '/projects/$projectId/customer-ledger'
@@ -253,6 +273,7 @@ interface LayoutRouteChildren {
   LayoutIndexRoute: typeof LayoutIndexRoute
   LayoutProjectsProjectIdCloudatlasLedgerRoute: typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   LayoutProjectsProjectIdCustomerLedgerRoute: typeof LayoutProjectsProjectIdCustomerLedgerRoute
+  LayoutProjectsProjectIdExternalAssetsRoute: typeof LayoutProjectsProjectIdExternalAssetsRoute
   LayoutProjectsProjectIdNetflowLedgerRoute: typeof LayoutProjectsProjectIdNetflowLedgerRoute
   LayoutProjectsProjectIdRunsRunIdComparisonRoute: typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   LayoutProjectsProjectIdRunsRunIdLineageRoute: typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
@@ -267,6 +288,8 @@ const LayoutRouteChildren: LayoutRouteChildren = {
     LayoutProjectsProjectIdCloudatlasLedgerRoute,
   LayoutProjectsProjectIdCustomerLedgerRoute:
     LayoutProjectsProjectIdCustomerLedgerRoute,
+  LayoutProjectsProjectIdExternalAssetsRoute:
+    LayoutProjectsProjectIdExternalAssetsRoute,
   LayoutProjectsProjectIdNetflowLedgerRoute:
     LayoutProjectsProjectIdNetflowLedgerRoute,
   LayoutProjectsProjectIdRunsRunIdComparisonRoute:

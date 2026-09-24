@@ -229,6 +229,7 @@ def _cloudatlas_scope(record: AiInvestigation) -> tuple[SourceInstance, str, str
             or source.project_id != record.project_id
             or source.tenant_id != record.tenant_id
             or source.source_type != "cloudatlas"
+            or source.capability_profile != "legacy-ip-v1"
             or not source.enabled
             or source.validated_at is None
             or source.validation_error_code is not None

@@ -542,6 +542,7 @@ def require_trigger_readiness(
         select(SourceInstance).where(
             SourceInstance.project_id == project.id,
             SourceInstance.tenant_id == project.tenant_id,
+            SourceInstance.capability_profile == "legacy-ip-v1",
             SourceInstance.enabled,
         )
     ).one_or_none()
@@ -701,6 +702,7 @@ def _validate_runner_inputs(
             SourceInstance.id == inputs.source_instance_id,
             SourceInstance.project_id == project.id,
             SourceInstance.tenant_id == project.tenant_id,
+            SourceInstance.capability_profile == "legacy-ip-v1",
         )
     ).one_or_none()
     if (
@@ -1394,6 +1396,7 @@ def _pull_cloudatlas_snapshot(
                 SourceInstance.id == run.source_instance_id,
                 SourceInstance.project_id == run.project_id,
                 SourceInstance.tenant_id == run.tenant_id,
+                SourceInstance.capability_profile == "legacy-ip-v1",
             )
         ).one()
         before = OctobusCloudAtlasClient().current_fingerprint(source)
@@ -4262,6 +4265,7 @@ def require_retry_readiness(
             SourceInstance.id == run.source_instance_id,
             SourceInstance.project_id == run.project_id,
             SourceInstance.tenant_id == run.tenant_id,
+            SourceInstance.capability_profile == "legacy-ip-v1",
         )
     ).one_or_none()
     if (
