@@ -6,7 +6,7 @@
 | 当前任务状态与授权 | 引用该 Spec 的 GitHub Issue；一页导航 `work/current.md` |
 | 既有已实现产品范围 | `product/current-scope.md`；新方向及未实现目标按当前固定Spec区分 |
 | 产品收敛接管与阶段定义 | [EXP-FOCUS-00 接管回执](work/exp-focus-00-takeover-20260923.md)、[00—05阶段路线](plans/exposure-focus-20260923.md)；回执为历史核对，路线不承载任务状态 |
-| 云图完整阅读合同与替代边界 | [字段覆盖矩阵](plans/exposure-focus-cloudatlas-coverage-20260923.md)、[ADR-0021](adr/0021-independent-cloudatlas-local-read-model.md)；未知项不是已验证能力 |
+| 云图完整阅读合同与替代边界 | [字段覆盖矩阵](plans/exposure-focus-cloudatlas-coverage-20260923.md)、[ADR-0021](adr/0021-independent-cloudatlas-local-read-model.md)、[ADR-0022 有界批次可读](adr/0022-bounded-external-asset-publication.md)；非全量批次不冒充完整同步，未知项不是已验证能力 |
 | 其他既有交接 | `handoff-receipt.md`；不覆盖当前 Issue 的授权 |
 | 当前实现行为 | 代码、测试、迁移和 Compose |
 | 稳定架构约束 | `docs/adr/` 中已接受 ADR 与 `architecture/constraints.md` |
