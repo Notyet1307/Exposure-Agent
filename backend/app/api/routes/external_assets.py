@@ -281,18 +281,28 @@ def read_external_versions(
     query = select(m.ExternalAssetVersion).where(
         m.ExternalAssetVersion.source_id == source.id,
         m.ExternalAssetVersion.domain == domain,
+        m.ExternalAssetVersion.space_id == source.space_id,
         m.ExternalAssetVersion.status == "PUBLISHED",
     )
     count = session.exec(select(func.count()).select_from(query.subquery())).one()
-    rows = session.exec(
-        query.order_by(
-            col(m.ExternalAssetVersion.published_at).desc(), col(m.ExternalAssetVersion.id)
-        )
-        .offset(skip)
-        .limit(limit)
-    ).all()
+    query = query.order_by(
+        col(m.ExternalAssetVersion.published_at).desc(), col(m.ExternalAssetVersion.id)
+    )
+    rows = session.exec(query.offset(skip).limit(limit)).all()
+    latest_complete = session.exec(
+        query.where(
+            col(m.ExternalAssetVersion.complete).is_(True),
+            m.ExternalAssetVersion.retain_until > get_datetime_utc(),
+        ).limit(1)
+    ).first()
     return m.ExternalVersionsPublic(
-        data=[service.version_public(row) for row in rows], count=count
+        data=[service.version_public(row) for row in rows],
+        count=count,
+        latest_complete_version=(
+            service.version_public(latest_complete)
+            if latest_complete is not None
+            else None
+        ),
     )
 
 

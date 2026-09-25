@@ -30,6 +30,10 @@ async function serve(page: Page) {
     space_id: "7",
     status: "PUBLISHED",
     record_count: 1,
+    complete: true,
+    expected_total: 1,
+    pages_read: 1,
+    stop_reason: "source_complete",
     filter: { status: "valid" },
     sort: "-id",
     fingerprint: "a".repeat(64),
@@ -131,6 +135,9 @@ async function serve(page: Page) {
               status: "PUBLISHED",
               version_id: ipVersion,
               record_count: 1,
+              complete: true,
+              expected_total: 1,
+              pages_read: 1,
               error_code: null,
             },
             {
@@ -138,6 +145,9 @@ async function serve(page: Page) {
               status: "PUBLISHED",
               version_id: portVersion,
               record_count: 0,
+              complete: true,
+              expected_total: 0,
+              pages_read: 1,
               error_code: null,
             },
           ],
@@ -154,29 +164,27 @@ async function serve(page: Page) {
       })
     if (url.pathname.endsWith(`/syncs/${taskId}`))
       return route.fulfill({ json: [...state.tasks.values()][0] })
-    if (url.pathname.endsWith("/versions"))
+    if (url.pathname.endsWith("/versions")) {
+      const selectedVersion =
+        url.searchParams.get("domain") === "port"
+          ? {
+              ...version,
+              id: portVersion,
+              domain: "port",
+              filter: {},
+              record_count: 0,
+              expected_total: 0,
+            }
+          : { ...version, status: state.expired ? "EXPIRED" : "PUBLISHED" }
       return route.fulfill({
         json: {
-          data:
-            url.searchParams.get("domain") === "port"
-              ? [
-                  {
-                    ...version,
-                    id: portVersion,
-                    domain: "port",
-                    filter: {},
-                    record_count: 0,
-                  },
-                ]
-              : [
-                  {
-                    ...version,
-                    status: state.expired ? "EXPIRED" : "PUBLISHED",
-                  },
-                ],
+          data: [selectedVersion],
           count: 1,
+          latest_complete_version:
+            selectedVersion.status === "PUBLISHED" ? selectedVersion : null,
         },
       })
+    }
     if (url.pathname.endsWith(`/records/${recordId}`))
       return route.fulfill({
         json: {
@@ -191,6 +199,7 @@ async function serve(page: Page) {
                 domain: "port",
                 filter: {},
                 record_count: 0,
+                expected_total: 0,
               }
             : null,
         },

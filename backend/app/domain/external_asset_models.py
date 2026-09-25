@@ -21,7 +21,13 @@ from app.core.time import get_datetime_utc
 
 Domain = Literal["ip", "port"]
 SyncStatus = Literal[
-    "PENDING", "RUNNING", "UNKNOWN", "SUCCEEDED", "PARTIAL_FAILED", "FAILED"
+    "PENDING",
+    "RUNNING",
+    "UNKNOWN",
+    "SUCCEEDED",
+    "PARTIAL_SUCCEEDED",
+    "PARTIAL_FAILED",
+    "FAILED",
 ]
 DomainStatus = Literal["PENDING", "RUNNING", "PUBLISHED", "FAILED", "UNKNOWN"]
 _TIME: Any = DateTime(timezone=True)
@@ -44,7 +50,7 @@ class ExternalSync(SQLModel, table=True):
         ),
         UniqueConstraint("id", "source_id", name="uq_external_sync_source"),
         CheckConstraint(
-            "status IN ('PENDING','RUNNING','UNKNOWN','SUCCEEDED','PARTIAL_FAILED','FAILED')",
+            "status IN ('PENDING','RUNNING','UNKNOWN','SUCCEEDED','PARTIAL_SUCCEEDED','PARTIAL_FAILED','FAILED')",
             name="ck_external_sync_status",
         ),
         Index(
@@ -103,6 +109,8 @@ class ExternalAssetVersion(SQLModel, table=True):
     record_count: int = 0
     expected_total: int | None = None
     complete: bool = False
+    pages_read: int | None = None
+    stop_reason: str | None = Field(default=None, max_length=32)
     filter: dict[str, str] = Field(sa_type=JSONB)
     sort: str = Field(default="-id", max_length=10)
     fingerprint: str = Field(max_length=64)
@@ -201,6 +209,9 @@ class ExternalDomainPublic(SQLModel):
     status: DomainStatus
     version_id: uuid.UUID | None
     record_count: int
+    complete: bool | None
+    expected_total: int | None
+    pages_read: int | None
     error_code: str | None
 
 
@@ -230,6 +241,10 @@ class ExternalVersionPublic(SQLModel):
     space_id: str
     status: Literal["PUBLISHED", "EXPIRED"]
     record_count: int
+    complete: bool
+    expected_total: int | None
+    pages_read: int | None
+    stop_reason: Literal["source_complete", "batch_limit"] | None
     filter: dict[str, str]
     sort: str
     fingerprint: str
@@ -241,6 +256,7 @@ class ExternalVersionPublic(SQLModel):
 class ExternalVersionsPublic(SQLModel):
     data: list[ExternalVersionPublic]
     count: int
+    latest_complete_version: ExternalVersionPublic | None = None
 
 
 class ExternalRecordPublic(SQLModel):

@@ -1942,6 +1942,39 @@ export const ExternalDomainPublicSchema = {
             type: 'integer',
             title: 'Record Count'
         },
+        complete: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Complete'
+        },
+        expected_total: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Total'
+        },
+        pages_read: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Pages Read'
+        },
         error_code: {
             anyOf: [
                 {
@@ -1955,7 +1988,7 @@ export const ExternalDomainPublicSchema = {
         }
     },
     type: 'object',
-    required: ['domain', 'status', 'version_id', 'record_count', 'error_code'],
+    required: ['domain', 'status', 'version_id', 'record_count', 'complete', 'expected_total', 'pages_read', 'error_code'],
     title: 'ExternalDomainPublic'
 } as const;
 
@@ -2272,7 +2305,7 @@ export const ExternalSyncPublicSchema = {
         },
         status: {
             type: 'string',
-            enum: ['PENDING', 'RUNNING', 'UNKNOWN', 'SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'],
+            enum: ['PENDING', 'RUNNING', 'UNKNOWN', 'SUCCEEDED', 'PARTIAL_SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'],
             title: 'Status'
         },
         created_at: {
@@ -2404,6 +2437,44 @@ export const ExternalVersionPublicSchema = {
             type: 'integer',
             title: 'Record Count'
         },
+        complete: {
+            type: 'boolean',
+            title: 'Complete'
+        },
+        expected_total: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Total'
+        },
+        pages_read: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Pages Read'
+        },
+        stop_reason: {
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['source_complete', 'batch_limit']
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Stop Reason'
+        },
         filter: {
             additionalProperties: {
                 type: 'string'
@@ -2436,7 +2507,7 @@ export const ExternalVersionPublicSchema = {
         }
     },
     type: 'object',
-    required: ['id', 'source_id', 'domain', 'space_id', 'status', 'record_count', 'filter', 'sort', 'fingerprint', 'fetched_at', 'published_at', 'retain_until'],
+    required: ['id', 'source_id', 'domain', 'space_id', 'status', 'record_count', 'complete', 'expected_total', 'pages_read', 'stop_reason', 'filter', 'sort', 'fingerprint', 'fetched_at', 'published_at', 'retain_until'],
     title: 'ExternalVersionPublic'
 } as const;
 
@@ -2452,6 +2523,16 @@ export const ExternalVersionsPublicSchema = {
         count: {
             type: 'integer',
             title: 'Count'
+        },
+        latest_complete_version: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ExternalVersionPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         }
     },
     type: 'object',

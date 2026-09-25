@@ -256,12 +256,17 @@ def test_interruption_marks_only_matching_unfinished_work_unknown_without_leakin
     ).all()
     unrelated_before = unrelated.model_dump()
     unrelated_versions_before = [version.model_dump() for version in unrelated_versions]
-    versions[0].status = settled_domain
+    versions[0].status = "RUNNING" if settled_domain == "PUBLISHED" else settled_domain
     versions[0].error_code = "existing-error" if settled_domain == "FAILED" else None
     if settled_domain == "PUBLISHED":
         versions[0].complete = True
         versions[0].expected_total = 0
         versions[0].fetched_at = get_datetime_utc()
+        versions[0].pages_read = 1
+        versions[0].stop_reason = "source_complete"
+        worker.session.add(versions[0])
+        worker.session.commit()
+        versions[0].status = "PUBLISHED"
         versions[0].published_at = get_datetime_utc()
     worker.session.add(versions[0])
     worker.session.commit()
