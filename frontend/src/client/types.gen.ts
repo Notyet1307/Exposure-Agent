@@ -407,7 +407,7 @@ export type ExpectedGeneration = {
 };
 
 export type ExternalDomainPublic = {
-    domain: 'ip' | 'port';
+    domain: 'ip' | 'port' | 'root_domain';
     status: 'PENDING' | 'RUNNING' | 'PUBLISHED' | 'FAILED' | 'UNKNOWN';
     version_id: (string | null);
     record_count: number;
@@ -417,7 +417,7 @@ export type ExternalDomainPublic = {
     error_code: (string | null);
 };
 
-export type domain = 'ip' | 'port';
+export type domain = 'ip' | 'port' | 'root_domain';
 
 export type status2 = 'PENDING' | 'RUNNING' | 'PUBLISHED' | 'FAILED' | 'UNKNOWN';
 
@@ -437,8 +437,8 @@ export type ExternalRecordPublic = {
     id: string;
     version_id: string;
     source_id: string;
-    ip: string;
-    canonical_ip: string;
+    ip: (string | null);
+    canonical_ip: (string | null);
     fields: {
         [key: string]: unknown;
     };
@@ -454,16 +454,20 @@ export type ExternalRecordsPublic = {
 export type state2 = 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
 
 export type ExternalSourceCreate = {
+    capability_profile?: 'assets-v1' | 'root-domains-v1';
     instance_id: string;
     capset_id: string;
     space_id: string;
 };
+
+export type capability_profile = 'assets-v1' | 'root-domains-v1';
 
 export type ExternalSourcePublic = {
     id: string;
     instance_id: string;
     capset_id: string;
     space_id: string;
+    capability_profile: 'assets-v1' | 'root-domains-v1';
     enabled: boolean;
     data_access_enabled: boolean;
     validation_status: string;
@@ -516,7 +520,7 @@ export type ExternalSyncsPublic = {
 export type ExternalVersionPublic = {
     id: string;
     source_id: string;
-    domain: 'ip' | 'port';
+    domain: 'ip' | 'port' | 'root_domain';
     space_id: string;
     status: 'PUBLISHED' | 'EXPIRED';
     record_count: number;
@@ -1727,7 +1731,7 @@ export type ExternalAssetsReconcileExternalSyncData = {
 export type ExternalAssetsReconcileExternalSyncResponse = (ExternalSyncPublic);
 
 export type ExternalAssetsReadExternalVersionsData = {
-    domain: 'ip' | 'port';
+    domain: 'ip' | 'port' | 'root_domain';
     limit?: number;
     projectId: string;
     skip?: number;
@@ -1737,10 +1741,11 @@ export type ExternalAssetsReadExternalVersionsData = {
 export type ExternalAssetsReadExternalVersionsResponse = (ExternalVersionsPublic);
 
 export type ExternalAssetsReadExternalRecordsData = {
-    domain: 'ip' | 'port';
+    domain: 'ip' | 'port' | 'root_domain';
     ip?: (string | null);
     limit?: number;
     projectId: string;
+    rootDomain?: (string | null);
     skip?: number;
     sourceId: string;
     status?: (string | null);

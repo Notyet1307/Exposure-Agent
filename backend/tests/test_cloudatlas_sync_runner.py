@@ -34,6 +34,7 @@ from app.integrations.agent_compose import (
     AgentComposeSessionObservation,
 )
 from app.integrations.cloudatlas_assets import OctobusCloudAtlasAssetsClient
+from app.integrations.cloudatlas_root_domains import OctobusCloudAtlasRootDomainsClient
 from app.models import User
 
 
@@ -48,6 +49,9 @@ def worker(
     monkeypatch.setattr(sys, "argv", ["cloudatlas-sync"])
     token = "synthetic-worker-secret"
     monkeypatch.setattr(settings, "CLOUDATLAS_ASSETS_CAPSET_TOKEN", SecretStr(token))
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN", SecretStr(token)
+    )
 
     def no_transport(*_args: Any, **_kwargs: Any) -> Any:
         pytest.fail("Unexpected external transport in dedicated worker test")
@@ -86,7 +90,9 @@ def worker(
             transaction.rollback()
 
 
-def _reserve(worker: SimpleNamespace) -> tuple[ExternalSync, SourceInstance]:
+def _reserve(
+    worker: SimpleNamespace, *, root: bool = False
+) -> tuple[ExternalSync, SourceInstance]:
     session = worker.session
     project = create_project(
         session=session,
@@ -98,7 +104,8 @@ def _reserve(worker: SimpleNamespace) -> tuple[ExternalSync, SourceInstance]:
         project_id=project.id,
         instance_id="synthetic-assets",
         capset_id="synthetic-capset",
-        capability_profile="assets-v1",
+        capability_profile="root-domains-v1" if root else "assets-v1",
+        source_type="cloudatlas_root_domains" if root else "cloudatlas",
         space_id="7",
         enabled=True,
         validated_fingerprint="a" * 64,
@@ -173,10 +180,11 @@ def test_worker_rejects_untrusted_deployment_before_mutating_reservation(
     )
 
 
+@pytest.mark.parametrize("root", [False, True])
 def test_worker_entrypoint_publishes_real_versions_and_does_not_replay_source_calls(
-    worker: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+    worker: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, root: bool
 ) -> None:
-    sync, source = _reserve(worker)
+    sync, source = _reserve(worker, root=root)
     _identity(monkeypatch, sync)
     session_id = sync.session_id
     assert session_id is not None
@@ -204,17 +212,46 @@ def test_worker_entrypoint_publishes_real_versions_and_does_not_replay_source_ca
     def page(_self: Any, _source: SourceInstance, **options: Any) -> dict[str, Any]:
         calls.append(options["domain"])
         row: dict[str, Any] = {"id": "9007199254740993", "ip": "2001:0db8::1"}
-        row.update({"status": "valid"} if options["domain"] == "ip" else {"port": 443})
+        if root:
+            row = {
+                "id": "9007199254740993",
+                "root_domain": "example.test",
+                "status": "valid",
+                "icp_date": None,
+                "icp_num": None,
+                "icp_official_name": None,
+                "whois_registrant": None,
+                "whois_email": None,
+                "whois_expiration_time": None,
+                "valid_subdomain": 0,
+                "sources": [],
+                "created_at": "",
+                "updated_at": "",
+                "lastseen_at": "",
+            }
+        else:
+            row.update(
+                {"status": "valid"} if options["domain"] == "ip" else {"port": 443}
+            )
         return {"page": 1, "size": 1, "total": 1, "space_id": "7", "items": [row]}
 
     monkeypatch.setattr(OctobusCloudAtlasAssetsClient, "list_page", page)
+    if root:
+        monkeypatch.setattr(settings, "CLOUDATLAS_ASSETS_CAPSET_TOKEN", SecretStr(""))
+        monkeypatch.setattr(OctobusCloudAtlasRootDomainsClient, "list_page", page)
     assert runner.main() == 0
     worker.session.refresh(sync)
-    assert (sync.status, sync.pages_read, sync.records_read) == ("SUCCEEDED", 2, 2)
+    assert (sync.status, sync.pages_read, sync.records_read) == (
+        "SUCCEEDED",
+        1 if root else 2,
+        1 if root else 2,
+    )
     versions = worker.session.exec(
         select(ExternalAssetVersion).where(ExternalAssetVersion.sync_id == sync.id)
     ).all()
-    assert {version.domain for version in versions} == {"ip", "port"}
+    assert {version.domain for version in versions} == (
+        {"root_domain"} if root else {"ip", "port"}
+    )
     for version in versions:
         assert (version.status, version.complete, version.record_count) == (
             "PUBLISHED",
@@ -230,11 +267,11 @@ def test_worker_entrypoint_publishes_real_versions_and_does_not_replay_source_ca
         ).one()
         assert (record.source_id, record.canonical_ip) == (
             "9007199254740993",
-            "2001:db8::1",
+            None if root else "2001:db8::1",
         )
     worker.session.commit()
     assert runner.main() == 0
-    assert calls == ["ip", "port"]
+    assert calls == (["root_domain"] if root else ["ip", "port"])
 
 
 @pytest.mark.parametrize("settled_domain", ["PUBLISHED", "FAILED"])

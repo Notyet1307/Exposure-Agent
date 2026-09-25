@@ -27,5 +27,6 @@ RUN apt-get update \
 
 COPY octobus/cloudatlas-read /opt/exposure-agent/service-packages/cloudatlas-read
 COPY octobus/cloudatlas-assets /opt/exposure-agent/service-packages/cloudatlas-assets
+COPY octobus/cloudatlas-root-domains /opt/exposure-agent/service-packages/cloudatlas-root-domains
 
 ENTRYPOINT ["octobus"]

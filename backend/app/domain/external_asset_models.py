@@ -19,7 +19,7 @@ from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
 
-Domain = Literal["ip", "port"]
+Domain = Literal["ip", "port", "root_domain"]
 SyncStatus = Literal[
     "PENDING",
     "RUNNING",
@@ -92,7 +92,9 @@ class ExternalAssetVersion(SQLModel, table=True):
         ),
         UniqueConstraint("sync_id", "domain", name="uq_external_version_domain"),
         UniqueConstraint("id", "source_id", "domain", name="uq_external_version_scope"),
-        CheckConstraint("domain IN ('ip','port')", name="ck_external_version_domain"),
+        CheckConstraint(
+            "domain IN ('ip','port','root_domain')", name="ck_external_version_domain"
+        ),
         CheckConstraint(
             "status IN ('PENDING','RUNNING','PUBLISHED','FAILED','UNKNOWN')",
             name="ck_external_version_status",
@@ -101,7 +103,7 @@ class ExternalAssetVersion(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     sync_id: uuid.UUID
     source_id: uuid.UUID = Field(index=True)
-    domain: str = Field(max_length=10)
+    domain: str = Field(max_length=20)
     space_id: str = Field(max_length=255)
     instance_id: str = Field(max_length=255)
     capset_id: str = Field(max_length=255)
@@ -130,8 +132,8 @@ class ExternalAssetRecord(SQLModel, table=True):
         foreign_key="external_asset_versions.id", ondelete="RESTRICT", index=True
     )
     source_id: str = Field(max_length=100)
-    ip: str = Field(max_length=45)
-    canonical_ip: str = Field(max_length=45, index=True)
+    ip: str | None = Field(default=None, max_length=45)
+    canonical_ip: str | None = Field(default=None, max_length=45, index=True)
     fields: dict[str, Any] = Field(sa_type=JSONB)
 
 
@@ -149,12 +151,13 @@ class ExternalAssetHead(SQLModel, table=True):
         ),
     )
     source_id: uuid.UUID = Field(primary_key=True)
-    domain: str = Field(primary_key=True, max_length=10)
+    domain: str = Field(primary_key=True, max_length=20)
     version_id: uuid.UUID
 
 
 class ExternalSourceCreate(SQLModel):
     model_config = SQLModel.model_config | {"extra": "forbid"}
+    capability_profile: Literal["assets-v1", "root-domains-v1"] = "assets-v1"
     instance_id: str = Field(min_length=1, max_length=255)
     capset_id: str = Field(min_length=1, max_length=255)
     space_id: Annotated[
@@ -180,6 +183,7 @@ class ExternalSourcePublic(SQLModel):
     instance_id: str
     capset_id: str
     space_id: str
+    capability_profile: Literal["assets-v1", "root-domains-v1"]
     enabled: bool
     data_access_enabled: bool
     validation_status: str
@@ -263,8 +267,8 @@ class ExternalRecordPublic(SQLModel):
     id: uuid.UUID
     version_id: uuid.UUID
     source_id: str
-    ip: str
-    canonical_ip: str
+    ip: str | None
+    canonical_ip: str | None
     fields: dict[str, Any]
 
 

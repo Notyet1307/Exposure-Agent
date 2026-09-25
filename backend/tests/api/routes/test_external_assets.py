@@ -14,6 +14,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from pytest import MonkeyPatch
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, col, delete, select
 
 from app.core.config import settings
@@ -34,6 +36,7 @@ from app.integrations.agent_compose import (
     AgentComposeSessionObservation,
 )
 from app.integrations.cloudatlas_assets import OctobusCloudAtlasAssetsClient
+from app.integrations.cloudatlas_root_domains import OctobusCloudAtlasRootDomainsClient
 from app.models import User
 
 
@@ -1117,3 +1120,486 @@ def test_odd_capacity_alternates_until_each_domain_reaches_its_own_boundary(
     assert listing(assets)["count"] == 2
     assert listing(assets, "port")["version"]["complete"] is False
     assert listing(assets, "port")["count"] == 1
+
+
+def root_row(identity: int, name: str = "Example.test") -> dict[str, Any]:
+    return {
+        "id": str(identity),
+        "root_domain": name,
+        "status": "valid",
+        "icp_date": None,
+        "icp_num": "",
+        "icp_official_name": None,
+        "whois_registrant": "",
+        "whois_email": None,
+        "whois_expiration_time": None,
+        "valid_subdomain": 7,
+        "sources": [
+            {"source": "synthetic", "reason": "<script>x</script>", "factor": ""}
+        ],
+        "created_at": "",
+        "updated_at": "2026-09-25 12:00:00",
+        "lastseen_at": "",
+    }
+
+
+@pytest.fixture
+def roots(assets: SimpleNamespace, monkeypatch: MonkeyPatch) -> SimpleNamespace:
+    assets.assets_path = assets.path
+    assets.assets_source_id = assets.source_id
+    assets.now = get_datetime_utc()
+    monkeypatch.setattr(service, "get_datetime_utc", lambda: assets.now)
+    monkeypatch.setattr(
+        "app.api.routes.external_assets.get_datetime_utc", lambda: assets.now
+    )
+    assets.body["retain_until"] = (assets.now + timedelta(hours=1)).isoformat()
+    monkeypatch.setattr(
+        settings,
+        "CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN",
+        SecretStr("synthetic-root-token"),
+    )
+
+    def credentials(
+        _self: Any, _source: SourceInstance, *, capset_token: str
+    ) -> CloudAtlasFingerprint:
+        assert capset_token == "synthetic-root-token"
+        return CloudAtlasFingerprint("c" * 64)
+
+    monkeypatch.setattr(
+        OctobusCloudAtlasRootDomainsClient, "validate_credentials", credentials
+    )
+    monkeypatch.setattr(
+        OctobusCloudAtlasRootDomainsClient,
+        "list_page",
+        OctobusCloudAtlasAssetsClient.list_page,
+    )
+    response = assets.client.post(
+        assets.base + "/sources",
+        headers=assets.headers,
+        json={
+            "instance_id": "synthetic-roots",
+            "capset_id": "synthetic-root-capset",
+            "space_id": "7",
+            "capability_profile": "root-domains-v1",
+        },
+    )
+    assert response.status_code == 201, response.text
+    assets.source_id = response.json()["id"]
+    assets.path = assets.base + "/sources/" + assets.source_id
+    assert (
+        assets.client.post(assets.path + "/validate", headers=assets.headers).json()[
+            "validation_status"
+        ]
+        == "validated"
+    )
+    assert (
+        assets.client.patch(
+            assets.path, headers=assets.headers, json={"enabled": True}
+        ).status_code
+        == 200
+    )
+    assets.pages["root_domain"] = [[root_row(9007199254740993)], [root_row(2)]]
+    return assets
+
+
+def test_root_single_domain_batch_and_literal_local_search(
+    roots: SimpleNamespace, monkeypatch: MonkeyPatch
+) -> None:
+    roots.pages["root_domain"] = [
+        [
+            root_row(9007199254740993 + n, "A%_\\B.test" if n < 2 else "other.test")
+            for n in range(20)
+        ],
+        [root_row(30)],
+    ]
+    insufficient = roots.client.post(
+        roots.path + "/syncs",
+        headers=roots.headers | {"Idempotency-Key": "root-insufficient"},
+        json=roots.body | {"page_size": 20, "max_pages": 1, "max_records": 19},
+    )
+    assert insufficient.status_code == 422 and roots.starts == 0
+    sync = submit(roots, "root-batch", page_size=20, max_pages=1, max_records=20)
+    assert (
+        submit(roots, "root-batch", page_size=20, max_pages=1, max_records=20)["id"]
+        == sync["id"]
+    )
+    task = execute(roots, sync)
+    assert task["status"] == "PARTIAL_SUCCEEDED"
+    assert [d["domain"] for d in task["domains"]] == ["root_domain"]
+    assert roots.calls == [("root_domain", 1)] and roots.starts == 1
+    batch = listing(roots, "root_domain")
+    assert (
+        batch["count"],
+        batch["version"]["expected_total"],
+        batch["version"]["complete"],
+    ) == (20, 21, False)
+    assert (batch["version"]["pages_read"], batch["version"]["stop_reason"]) == (
+        1,
+        "batch_limit",
+    )
+    for method in ("validate_credentials", "list_page"):
+        monkeypatch.setattr(
+            OctobusCloudAtlasRootDomainsClient,
+            method,
+            lambda *a, **k: pytest.fail("local read reached source"),
+        )
+    found = listing(roots, "root_domain", root_domain="a%_\\b", limit=1)
+    assert found["count"] == 2 and len(found["data"]) == 1
+    row = found["data"][0]
+    assert row["source_id"] == "9007199254740993"
+    assert row["ip"] is None and row["canonical_ip"] is None
+    assert row["fields"] == root_row(9007199254740993, "A%_\\B.test")
+    second = listing(roots, "root_domain", root_domain="a%_\\b", skip=1)["data"][0]
+    assert second["source_id"] == "9007199254740994"
+    assert listing(roots, "root_domain", root_domain="%missing")["count"] == 0
+    url = roots.path + f"/versions/{batch['version']['id']}/records/{row['id']}"
+    detail = roots.client.get(url, headers=roots.headers).json()
+    assert detail["record"] == row and detail["matched_ports"] == []
+    assert detail["port_version"] is None
+    assert (
+        roots.client.get(
+            url,
+            headers=roots.headers,
+            params={"port_version_id": batch["version"]["id"]},
+        ).status_code
+        == 422
+    )
+
+
+def test_root_source_coexistence_scope_permissions_and_token_isolation(
+    roots: SimpleNamespace,
+    monkeypatch: MonkeyPatch,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    sources = roots.client.get(roots.base + "/sources", headers=roots.headers).json()[
+        "data"
+    ]
+    assert {s["capability_profile"] for s in sources if s["enabled"]} == {
+        "assets-v1",
+        "root-domains-v1",
+    }
+    monkeypatch.setattr(settings, "CLOUDATLAS_ASSETS_CAPSET_TOKEN", SecretStr(""))
+    assert execute(roots, submit(roots))["status"] == "SUCCEEDED"
+    batch = listing(roots, "root_domain")
+    row = batch["data"][0]
+    suffix = f"/versions/{batch['version']['id']}/records/{row['id']}"
+    assert (
+        roots.client.get(roots.assets_path + suffix, headers=roots.headers).status_code
+        == 404
+    )
+    other = roots.client.post(
+        roots.base + "/sources",
+        headers=roots.headers,
+        json={
+            "instance_id": "other-roots",
+            "capset_id": "other-root-capset",
+            "space_id": "8",
+            "capability_profile": "root-domains-v1",
+        },
+    )
+    assert other.status_code == 201
+    other_path = roots.base + "/sources/" + other.json()["id"]
+    assert (
+        roots.client.get(other_path + suffix, headers=roots.headers).status_code == 404
+    )
+    assert (
+        roots.client.get(
+            other_path + "/records",
+            headers=roots.headers,
+            params={"domain": "root_domain", "version_id": batch["version"]["id"]},
+        ).status_code
+        == 404
+    )
+    for path, domain in ((roots.path, "ip"), (roots.assets_path, "root_domain")):
+        for endpoint in ("/versions", "/records"):
+            assert (
+                roots.client.get(
+                    path + endpoint, headers=roots.headers, params={"domain": domain}
+                ).status_code
+                == 422
+            )
+    assert (
+        roots.client.get(
+            roots.path + "/records",
+            headers=roots.headers,
+            params={"domain": "root_domain", "ip": "192.0.2.1"},
+        ).status_code
+        == 422
+    )
+    add_member(roots, "viewer")
+    assert (
+        roots.client.get(
+            roots.path + suffix, headers=normal_user_token_headers
+        ).status_code
+        == 200
+    )
+    calls = len(roots.calls)
+    assert (
+        roots.client.post(
+            roots.path + "/syncs",
+            headers=normal_user_token_headers | {"Idempotency-Key": "viewer-root"},
+            json=roots.body,
+        ).status_code
+        == 404
+    )
+    assert len(roots.calls) == calls and roots.starts == 1
+    monkeypatch.setattr(settings, "CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN", SecretStr(""))
+    denied = roots.client.post(
+        roots.path + "/syncs",
+        headers=roots.headers | {"Idempotency-Key": "missing-root-token"},
+        json=roots.body,
+    )
+    assert denied.status_code == 409 and roots.starts == 1
+    assert (
+        roots.client.patch(
+            roots.path, headers=roots.headers, json={"enabled": False}
+        ).status_code
+        == 200
+    )
+    assert (
+        roots.client.get(roots.path + suffix, headers=roots.headers).status_code == 200
+    )
+    assert (
+        roots.client.patch(
+            roots.path, headers=roots.headers, json={"data_access_enabled": False}
+        ).status_code
+        == 200
+    )
+    assert (
+        roots.client.get(roots.path + suffix, headers=roots.headers).status_code == 403
+    )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["required", "nested", "type", "duplicate", "total", "disconnect", "fingerprint"],
+)
+def test_root_unsealed_failure_keeps_prior_versions(
+    roots: SimpleNamespace, monkeypatch: MonkeyPatch, fault: str
+) -> None:
+    assert execute(roots, submit(roots))["status"] == "SUCCEEDED"
+    complete = listing(roots, "root_domain")["version"]["id"]
+    roots.now += timedelta(seconds=1)
+    assert execute(roots, submit(roots, max_pages=1))["status"] == "PARTIAL_SUCCEEDED"
+    partial = listing(roots, "root_domain")["version"]["id"]
+    roots.calls.clear()
+
+    def fail(_domain: str, number: int) -> dict[str, Any] | None:
+        if number != 2:
+            return None
+        row = root_row(2)
+        if fault == "required":
+            del row["icp_date"]
+        elif fault == "nested":
+            del row["sources"][0]["factor"]
+        elif fault == "type":
+            row["valid_subdomain"] = True
+        elif fault == "duplicate":
+            row["id"] = "9007199254740993"
+        elif fault == "disconnect":
+            raise CloudAtlasBoundaryError("cloudatlas_connectivity_failed")
+        elif fault == "fingerprint":
+            monkeypatch.setattr(
+                OctobusCloudAtlasRootDomainsClient,
+                "validate_credentials",
+                lambda *a, **k: CloudAtlasFingerprint("d" * 64),
+            )
+        return {
+            "page": 2,
+            "size": 1,
+            "total": 3 if fault == "total" else 2,
+            "space_id": "7",
+            "items": [row],
+        }
+
+    roots.failure = fail
+    sync = submit(roots)
+    result = execute(roots, sync)
+    assert result["status"] == ("UNKNOWN" if fault == "disconnect" else "FAILED")
+    assert roots.calls == [("root_domain", 1), ("root_domain", 2)]
+    roots.observation = AgentComposeSessionObservation.TERMINAL
+    reconciled = roots.client.post(
+        roots.path + "/syncs/" + sync["id"] + "/reconcile", headers=roots.headers
+    )
+    assert reconciled.json()["status"] == "FAILED"
+    assert listing(roots, "root_domain")["version"]["id"] == partial
+    history = roots.client.get(
+        roots.path + "/versions",
+        headers=roots.headers,
+        params={"domain": "root_domain"},
+    ).json()
+    assert (
+        history["count"] == 2 and history["latest_complete_version"]["id"] == complete
+    )
+    assert roots.starts == 3 and len(roots.calls) == 2
+
+
+def test_root_sealed_unknown_only_recovers_original_terminal_session(
+    roots: SimpleNamespace, monkeypatch: MonkeyPatch
+) -> None:
+    publish = service.publish
+
+    def interrupt(*_args: Any, **_kwargs: Any) -> None:
+        raise service.SyncError("external_session_unknown", unknown=True)
+
+    monkeypatch.setattr(service, "publish", interrupt)
+    sync = submit(roots, "sealed-root", max_pages=1)
+    assert execute(roots, sync)["status"] == "UNKNOWN"
+    assert listing(roots, "root_domain")["state"] == "NOT_SYNCED"
+    assert submit(roots, "sealed-root", max_pages=1)["id"] == sync["id"]
+    assert (
+        roots.client.post(
+            roots.path + "/syncs",
+            headers=roots.headers | {"Idempotency-Key": "replacement"},
+            json=roots.body,
+        ).status_code
+        == 409
+    )
+    monkeypatch.setattr(service, "publish", publish)
+    path = roots.path + "/syncs/" + sync["id"] + "/reconcile"
+    assert roots.client.post(path, headers=roots.headers).json()["status"] == "UNKNOWN"
+    roots.observation = AgentComposeSessionObservation.TERMINAL
+    original = roots.runs[sync["agent_run_id"]]
+    roots.runs[sync["agent_run_id"]] = replace(original, session_id="wrong")
+    assert roots.client.post(path, headers=roots.headers).json()["status"] == "UNKNOWN"
+    roots.runs[sync["agent_run_id"]] = original
+    assert (
+        roots.client.post(path, headers=roots.headers).json()["status"]
+        == "PARTIAL_SUCCEEDED"
+    )
+    assert listing(roots, "root_domain")["count"] == 1
+    assert roots.calls == [("root_domain", 1)] and roots.starts == 1
+
+
+def test_root_complete_empty_and_expired_history_are_distinct(
+    roots: SimpleNamespace,
+) -> None:
+    roots.pages["root_domain"] = [[]]
+    assert listing(roots, "root_domain")["state"] == "NOT_SYNCED"
+    assert execute(roots, submit(roots, max_pages=1))["status"] == "SUCCEEDED"
+    empty = listing(roots, "root_domain")
+    assert empty["state"] == "PUBLISHED" and empty["count"] == 0
+    assert empty["version"]["complete"] is True
+    roots.now += timedelta(seconds=1)
+    roots.pages["root_domain"] = [[root_row(1)], [root_row(2)]]
+    assert execute(roots, submit(roots, max_pages=1))["status"] == "PARTIAL_SUCCEEDED"
+    batch = listing(roots, "root_domain")
+    roots.now += timedelta(hours=2)
+    expired = listing(roots, "root_domain")
+    assert expired["state"] == "EXPIRED" and expired["data"] == []
+    assert expired["version"]["id"] == batch["version"]["id"]
+    detail = (
+        roots.path
+        + f"/versions/{batch['version']['id']}/records/{batch['data'][0]['id']}"
+    )
+    assert roots.client.get(detail, headers=roots.headers).status_code == 410
+    history = roots.client.get(
+        roots.path + "/versions",
+        headers=roots.headers,
+        params={"domain": "root_domain"},
+    ).json()
+    assert history["latest_complete_version"] is None
+
+
+def test_root_database_guards_reject_contract_changes_and_untrusted_seals(
+    roots: SimpleNamespace,
+) -> None:
+    sync = submit(roots, max_pages=1)
+    version = roots.db.exec(
+        select(ExternalAssetVersion).where(
+            ExternalAssetVersion.sync_id == uuid.UUID(sync["id"])
+        )
+    ).one()
+    parameters = {
+        "version": version.id,
+        "source": uuid.UUID(roots.source_id),
+        "sync": uuid.UUID(sync["id"]),
+    }
+    statements = [
+        "UPDATE source_instances SET source_type='cloudatlas' WHERE id=:source",
+        "UPDATE source_instances SET source_type='cloudatlas', capability_profile='assets-v1' WHERE id=:source",
+        "UPDATE external_syncs SET request=request - 'publication_mode' WHERE id=:sync",
+        "UPDATE external_asset_versions SET domain='ip' WHERE id=:version",
+        "UPDATE external_asset_versions SET status='PUBLISHED', complete=true, expected_total=0, pages_read=1, stop_reason='source_complete', fetched_at=now(), published_at=now() WHERE id=:version",
+    ]
+    for statement in statements:
+        with pytest.raises(SQLAlchemyError), roots.db.begin_nested():
+            roots.db.execute(text(statement), parameters)
+    roots.db.execute(
+        text("UPDATE external_asset_versions SET status='RUNNING' WHERE id=:version"),
+        parameters,
+    )
+    for fields, ip in (
+        (root_row(1), "192.0.2.1"),
+        ({"id": "1", "root_domain": "missing.test"}, None),
+    ):
+        with pytest.raises(SQLAlchemyError), roots.db.begin_nested():
+            roots.db.add(
+                ExternalAssetRecord(
+                    version_id=version.id, source_id="1", ip=ip, fields=fields
+                )
+            )
+            roots.db.flush()
+    roots.db.rollback()
+    assert execute(roots, sync)["status"] == "PARTIAL_SUCCEEDED"
+    batch = listing(roots, "root_domain")
+    parameters["record"] = uuid.UUID(batch["data"][0]["id"])
+    for statement in (
+        "UPDATE external_asset_records SET fields='{}'::jsonb WHERE id=:record",
+        "DELETE FROM external_asset_records WHERE id=:record",
+        "UPDATE external_asset_versions SET complete=true WHERE id=:version",
+    ):
+        with pytest.raises(SQLAlchemyError), roots.db.begin_nested():
+            roots.db.execute(text(statement), parameters)
+
+
+def test_root_database_rejects_expired_seal_and_legacy_null_addresses(
+    roots: SimpleNamespace,
+) -> None:
+    roots.path = roots.assets_path
+    assets_sync = submit(roots)
+    asset_version = roots.db.exec(
+        select(ExternalAssetVersion).where(
+            ExternalAssetVersion.sync_id == uuid.UUID(assets_sync["id"]),
+            ExternalAssetVersion.domain == "ip",
+        )
+    ).one()
+    asset_version.status = "RUNNING"
+    roots.db.add(asset_version)
+    roots.db.flush()
+    with pytest.raises(SQLAlchemyError), roots.db.begin_nested():
+        roots.db.add(
+            ExternalAssetRecord(version_id=asset_version.id, source_id="1", fields={})
+        )
+        roots.db.flush()
+    roots.db.rollback()
+    roots.path = roots.base + "/sources/" + roots.source_id
+    roots.now -= timedelta(days=2)
+    sync = submit(roots, retain_until=(roots.now + timedelta(hours=1)).isoformat())
+    version = roots.db.exec(
+        select(ExternalAssetVersion).where(
+            ExternalAssetVersion.sync_id == uuid.UUID(sync["id"])
+        )
+    ).one()
+    version.status = "RUNNING"
+    version.complete = True
+    version.expected_total = 0
+    version.pages_read = 1
+    version.stop_reason = "source_complete"
+    version.fetched_at = roots.now
+    roots.db.add(version)
+    roots.db.flush()
+    with pytest.raises(SQLAlchemyError), roots.db.begin_nested():
+        roots.db.add(
+            ExternalAssetRecord(
+                version_id=version.id, source_id="1", fields=root_row(1)
+            )
+        )
+        roots.db.flush()
+    with pytest.raises(SQLAlchemyError), roots.db.begin_nested():
+        roots.db.execute(
+            text(
+                "UPDATE external_asset_versions SET status='PUBLISHED', published_at=now() WHERE id=:id"
+            ),
+            {"id": version.id},
+        )

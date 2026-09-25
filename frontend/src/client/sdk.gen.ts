@@ -935,6 +935,7 @@ export class ExternalAssetsService {
      * @param data.domain
      * @param data.versionId
      * @param data.ip
+     * @param data.rootDomain
      * @param data.status
      * @param data.skip
      * @param data.limit
@@ -953,6 +954,7 @@ export class ExternalAssetsService {
                 domain: data.domain,
                 version_id: data.versionId,
                 ip: data.ip,
+                root_domain: data.rootDomain,
                 status: data.status,
                 skip: data.skip,
                 limit: data.limit

@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     OCTOBUS_TIMEOUT_SECONDS: float = 65.0
     CLOUDATLAS_CAPSET_TOKEN: SecretStr = SecretStr("")
     CLOUDATLAS_ASSETS_CAPSET_TOKEN: SecretStr = SecretStr("")
+    CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN: SecretStr = SecretStr("")
     AGENT_COMPOSE_URL: str = "http://agent-compose:7410"
     AGENT_COMPOSE_AUTH_TOKEN: SecretStr = SecretStr("")
     AGENT_COMPOSE_PROJECT_NAME: str = "exposure-agent-governance"

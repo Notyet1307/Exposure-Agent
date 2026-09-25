@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package cloudatlas.rootdomains.v1;
+
+service CloudAtlasRootDomainsService {
+  rpc ListRootDomains(ListRootDomainsRequest) returns (ListRootDomainsResponse);
+}
+
+message ListRootDomainsRequest {
+  int32 page = 1;
+  int32 size = 2;
+  int32 max_response_bytes = 3;
+  int32 timeout_seconds = 4;
+}
+
+message ListRootDomainsResponse {
+  int32 page = 1;
+  int32 size = 2;
+  int32 total = 3;
+  string space_id = 4;
+  string items_json = 5;
+}
