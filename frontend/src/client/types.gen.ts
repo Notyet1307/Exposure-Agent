@@ -411,6 +411,9 @@ export type ExternalDomainPublic = {
     status: 'PENDING' | 'RUNNING' | 'PUBLISHED' | 'FAILED' | 'UNKNOWN';
     version_id: (string | null);
     record_count: number;
+    complete: (boolean | null);
+    expected_total: (number | null);
+    pages_read: (number | null);
     error_code: (string | null);
 };
 
@@ -492,7 +495,7 @@ export type ExternalSyncCreate = {
 export type ExternalSyncPublic = {
     id: string;
     source_id: string;
-    status: 'PENDING' | 'RUNNING' | 'UNKNOWN' | 'SUCCEEDED' | 'PARTIAL_FAILED' | 'FAILED';
+    status: 'PENDING' | 'RUNNING' | 'UNKNOWN' | 'SUCCEEDED' | 'PARTIAL_SUCCEEDED' | 'PARTIAL_FAILED' | 'FAILED';
     created_at: string;
     started_at: (string | null);
     completed_at: (string | null);
@@ -503,7 +506,7 @@ export type ExternalSyncPublic = {
     domains: Array<ExternalDomainPublic>;
 };
 
-export type status3 = 'PENDING' | 'RUNNING' | 'UNKNOWN' | 'SUCCEEDED' | 'PARTIAL_FAILED' | 'FAILED';
+export type status3 = 'PENDING' | 'RUNNING' | 'UNKNOWN' | 'SUCCEEDED' | 'PARTIAL_SUCCEEDED' | 'PARTIAL_FAILED' | 'FAILED';
 
 export type ExternalSyncsPublic = {
     data: Array<ExternalSyncPublic>;
@@ -517,6 +520,10 @@ export type ExternalVersionPublic = {
     space_id: string;
     status: 'PUBLISHED' | 'EXPIRED';
     record_count: number;
+    complete: boolean;
+    expected_total: (number | null);
+    pages_read: (number | null);
+    stop_reason: ('source_complete' | 'batch_limit' | null);
     filter: {
         [key: string]: (string);
     };
@@ -532,6 +539,7 @@ export type status4 = 'PUBLISHED' | 'EXPIRED';
 export type ExternalVersionsPublic = {
     data: Array<ExternalVersionPublic>;
     count: number;
+    latest_complete_version?: (ExternalVersionPublic | null);
 };
 
 export type FindingDetailPublic = {

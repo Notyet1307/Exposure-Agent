@@ -8,6 +8,7 @@ import json
 import math
 import re
 import uuid
+from collections import deque
 from datetime import timedelta
 from typing import Any, NoReturn, cast
 
@@ -179,6 +180,13 @@ def sync_public(session: Session, sync: ExternalSync) -> ExternalSyncPublic:
                 record_count=version.record_count
                 if version.status == "PUBLISHED"
                 else 0,
+                complete=version.complete if version.status == "PUBLISHED" else None,
+                expected_total=version.expected_total
+                if version.status == "PUBLISHED"
+                else None,
+                pages_read=version.pages_read
+                if version.status == "PUBLISHED"
+                else None,
                 error_code=version.error_code,
             )
             for version in versions
@@ -191,6 +199,8 @@ def version_public(version: ExternalAssetVersion) -> ExternalVersionPublic:
     values["status"] = (
         "EXPIRED" if version.retain_until <= get_datetime_utc() else "PUBLISHED"
     )
+    if version.complete and version.stop_reason is None:
+        values["stop_reason"] = "source_complete"
     return ExternalVersionPublic.model_validate(values)
 
 
@@ -330,6 +340,8 @@ def reserve_sync(
         if existing.request_sha256 != digest:
             deny("external_idempotency_conflict")
         return existing, False
+    if request.max_pages < 2 or request.max_records < 2 * request.page_size:
+        deny("external_two_domain_budget_required", 422)
     if request.retain_until <= get_datetime_utc():
         deny("external_retention_expired", 422)
     pending = session.exec(
@@ -352,7 +364,7 @@ def reserve_sync(
         actor_id=actor.id,
         idempotency_key=key,
         request_sha256=digest,
-        request=payload,
+        request=payload | {"publication_mode": "bounded-v1"},
         fingerprint=fingerprint,
         token_sha256=token_hash,
         agent_run_id=client.expected_cloudatlas_sync_run_id(str(sync_id)),
@@ -373,6 +385,7 @@ def reserve_sync(
                 filter={"status": "valid"} if domain == "ip" else {},
                 fingerprint=fingerprint,
                 retain_until=request.retain_until,
+                pages_read=0,
             )
         )
     audit(session, source, actor.id, "external_sync.reserved", sync.id)
@@ -465,6 +478,23 @@ def execution_source(
     return source
 
 
+def _page_limits(sync: ExternalSync) -> dict[str, int] | None:
+    mode = sync.request.get("publication_mode")
+    if mode is None:
+        return (
+            None  # Existing reservations retain their full-only publication contract.
+        )
+    if mode != "bounded-v1":
+        raise SyncError("external_publication_mode_invalid")
+    capacity = min(
+        sync.request["max_pages"],
+        sync.request["max_records"] // sync.request["page_size"],
+    )
+    if capacity < 2:
+        raise SyncError("external_two_domain_budget_required")
+    return {"ip": (capacity + 1) // 2, "port": capacity // 2}
+
+
 def finish_task(session: Session, sync: ExternalSync) -> None:
     versions = session.exec(
         select(ExternalAssetVersion).where(ExternalAssetVersion.sync_id == sync.id)
@@ -473,13 +503,15 @@ def finish_task(session: Session, sync: ExternalSync) -> None:
     if states & {"PENDING", "RUNNING", "UNKNOWN"}:
         sync.status = "UNKNOWN" if "UNKNOWN" in states else "RUNNING"
     else:
-        sync.status = (
-            "SUCCEEDED"
-            if states == {"PUBLISHED"}
-            else "PARTIAL_FAILED"
-            if "PUBLISHED" in states
-            else "FAILED"
-        )
+        if states == {"PUBLISHED"}:
+            sync.status = (
+                "SUCCEEDED"
+                if all(v.complete for v in versions)
+                else "PARTIAL_SUCCEEDED"
+            )
+            sync.error_code = None
+        else:
+            sync.status = "PARTIAL_FAILED" if "PUBLISHED" in states else "FAILED"
         sync.completed_at = get_datetime_utc()
     session.add(sync)
 
@@ -497,10 +529,25 @@ def publish(
         .select_from(ExternalAssetRecord)
         .where(ExternalAssetRecord.version_id == version.id)
     ).one()
-    if (
-        not version.complete
-        or version.expected_total != count
-        or version.record_count != count
+    if version.expected_total is None or version.record_count != count:
+        raise SyncError("external_incomplete_stage")
+    limits = _page_limits(sync)
+    if limits is not None and (
+        version.pages_read is None
+        or not 1 <= version.pages_read <= limits[version.domain]
+        or count > version.pages_read * sync.request["page_size"]
+    ):
+        raise SyncError("external_incomplete_stage")
+    if version.complete:
+        if version.expected_total != count or (
+            limits is not None and version.stop_reason != "source_complete"
+        ):
+            raise SyncError("external_incomplete_stage")
+    elif (
+        limits is None
+        or version.stop_reason != "batch_limit"
+        or version.pages_read != limits[version.domain]
+        or not 0 < count < version.expected_total
     ):
         raise SyncError("external_incomplete_stage")
     version.status, version.published_at, version.error_code = (
@@ -523,7 +570,13 @@ def publish(
         sync.actor_id,
         "external_domain.published",
         version.id,
-        {"domain": version.domain, "record_count": count},
+        {
+            "domain": version.domain,
+            "record_count": count,
+            "complete": version.complete,
+            "expected_total": version.expected_total,
+            "pages_read": version.pages_read,
+        },
     )
     session.flush()
 
@@ -600,16 +653,19 @@ def execute_sync(
     sync.started_at, sync.status, sync.error_code = get_datetime_utc(), "RUNNING", None
     session.add(sync)
     session.commit()
-    version_ids = list(
+    pending = deque(
         session.exec(
             select(ExternalAssetVersion.id)
             .where(ExternalAssetVersion.sync_id == sync.id)
             .order_by(ExternalAssetVersion.domain)
         ).all()
     )
+    seen_by_version: dict[uuid.UUID, set[str]] = {key: set() for key in pending}
+    limits = _page_limits(sync)
     deadline = sync.started_at + timedelta(seconds=sync.request["timeout_seconds"])
     halted: SyncError | None = None
-    for version_id in version_ids:
+    while pending:
+        version_id = pending.popleft()
         try:
             session.expire_all()
             sync = session.get(ExternalSync, sync_id)
@@ -618,87 +674,85 @@ def execute_sync(
             if halted is not None:
                 raise halted
             source = execution_source(session, sync)
-            version.status = "RUNNING"
-            version.fetched_at = get_datetime_utc()
+            if version.fetched_at is None:
+                version.status = "RUNNING"
+                version.fetched_at = get_datetime_utc()
+                session.add(version)
+            remaining_seconds = (deadline - get_datetime_utc()).total_seconds()
+            if remaining_seconds <= 0:
+                raise SyncError("external_timeout", unknown=True)
+            if sync.pages_read >= sync.request["max_pages"]:
+                raise SyncError("external_page_budget")
+            if (
+                sync.records_read + sync.request["page_size"]
+                > sync.request["max_records"]
+            ):
+                raise SyncError("external_record_budget")
+            number = (version.pages_read or 0) + 1
+            sync.pages_read += 1
+            session.add(sync)
+            session.commit()  # Count attempted calls durably; never retry them.
+            page = OctobusCloudAtlasAssetsClient().list_page(
+                source,
+                capset_token=settings.CLOUDATLAS_ASSETS_CAPSET_TOKEN.get_secret_value(),
+                domain=version.domain,
+                page=number,
+                size=sync.request["page_size"],
+                max_response_bytes=sync.request["max_response_bytes"],
+                timeout_seconds=max(1, min(300, math.ceil(remaining_seconds))),
+            )
+            session.expire_all()
+            sync = session.get(ExternalSync, sync_id)
+            version = session.get(ExternalAssetVersion, version_id)
+            assert sync is not None and version is not None
+            execution_source(session, sync)
+            if get_datetime_utc() >= deadline:
+                raise SyncError("external_timeout", unknown=True)
+            if page.get("space_id") != source.space_id:
+                raise SyncError("external_space_mismatch")
+            seen = seen_by_version[version_id]
+            total, rows = validate_page(
+                page,
+                number=number,
+                size=sync.request["page_size"],
+                total=version.expected_total,
+                seen=seen,
+                remaining=sync.request["max_records"] - sync.records_read,
+            )
+            if limits is None and (
+                total
+                > sync.request["max_records"] - sync.records_read + version.record_count
+            ):
+                raise SyncError("external_record_budget")
+            for upstream_id, ip, canonical, fields in rows:
+                session.add(
+                    ExternalAssetRecord(
+                        version_id=version.id,
+                        source_id=upstream_id,
+                        ip=ip,
+                        canonical_ip=canonical,
+                        fields=fields,
+                    )
+                )
+            sync.records_read += len(rows)
+            version.record_count += len(rows)
+            version.expected_total = total
+            version.pages_read = number
+            version.complete = len(seen) == total
+            if version.complete:
+                version.stop_reason = "source_complete"
+            elif limits is not None and number == limits[version.domain]:
+                version.stop_reason = "batch_limit"
+            session.add(sync)
             session.add(version)
             session.commit()
-            seen: set[str] = set()
-            total: int | None = None
-            number = 1
-            while True:
-                session.expire_all()
-                sync = session.get(ExternalSync, sync_id)
-                version = session.get(ExternalAssetVersion, version_id)
-                assert sync is not None and version is not None
-                source = execution_source(session, sync)
-                remaining_seconds = (deadline - get_datetime_utc()).total_seconds()
-                if remaining_seconds <= 0:
-                    raise SyncError("external_timeout", unknown=True)
-                if sync.pages_read >= sync.request["max_pages"]:
-                    raise SyncError("external_page_budget")
-                if (
-                    sync.records_read + sync.request["page_size"]
-                    > sync.request["max_records"]
-                ):
-                    raise SyncError("external_record_budget")
-                sync.pages_read += 1
-                session.add(sync)
-                session.commit()  # Count attempted calls durably; never retry them.
-                page = OctobusCloudAtlasAssetsClient().list_page(
-                    source,
-                    capset_token=settings.CLOUDATLAS_ASSETS_CAPSET_TOKEN.get_secret_value(),
-                    domain=version.domain,
-                    page=number,
-                    size=sync.request["page_size"],
-                    max_response_bytes=sync.request["max_response_bytes"],
-                    timeout_seconds=max(1, min(300, math.ceil(remaining_seconds))),
-                )
-                session.expire_all()
-                sync = session.get(ExternalSync, sync_id)
-                version = session.get(ExternalAssetVersion, version_id)
-                assert sync is not None and version is not None
-                execution_source(session, sync)
-                if get_datetime_utc() >= deadline:
-                    raise SyncError("external_timeout", unknown=True)
-                if page.get("space_id") != source.space_id:
-                    raise SyncError("external_space_mismatch")
-                total, rows = validate_page(
-                    page,
-                    number=number,
-                    size=sync.request["page_size"],
-                    total=total,
-                    seen=seen,
-                    remaining=sync.request["max_records"] - sync.records_read,
-                )
-                if (
-                    total
-                    > sync.request["max_records"]
-                    - sync.records_read
-                    + version.record_count
-                ):
-                    raise SyncError("external_record_budget")
-                for upstream_id, ip, canonical, fields in rows:
-                    session.add(
-                        ExternalAssetRecord(
-                            version_id=version.id,
-                            source_id=upstream_id,
-                            ip=ip,
-                            canonical_ip=canonical,
-                            fields=fields,
-                        )
-                    )
-                sync.records_read += len(rows)
-                version.record_count += len(rows)
-                version.expected_total = total
-                version.complete = len(seen) == total
-                session.add(sync)
-                session.add(version)
+            if version.stop_reason is not None:
+                publish(session, sync, version)
                 session.commit()
-                if version.complete:
-                    publish(session, sync, version)
-                    session.commit()
-                    break
-                number += 1
+            elif limits is None:
+                pending.appendleft(version_id)
+            else:
+                pending.append(version_id)
         except (SyncError, CloudAtlasBoundaryError) as error:
             session.rollback()
             sync = session.get(ExternalSync, sync_id)
@@ -750,7 +804,7 @@ def reconcile(session: Session, sync: ExternalSync) -> ExternalSync:
         if version.status == "PUBLISHED" or version.status == "FAILED":
             continue
         try:
-            if not version.complete:
+            if not version.complete and version.stop_reason != "batch_limit":
                 raise SyncError("external_execution_interrupted")
             publish(session, sync, version, terminal=True)
         except SyncError as error:

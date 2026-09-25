@@ -84,9 +84,10 @@ function Status({ value }: { value: string }) {
     RUNNING: t("Running", "执行中"),
     UNKNOWN: t("Unknown — reconciliation required", "未知 — 需显式核对"),
     SUCCEEDED: t("Succeeded", "已成功"),
+    PARTIAL_SUCCEEDED: t("Batch completed — not full", "批次完成 — 非全量"),
     PARTIAL_FAILED: t("Partially failed", "部分失败"),
     FAILED: t("Failed", "失败"),
-    PUBLISHED: t("Published complete version", "已发布完整版本"),
+    PUBLISHED: t("Published version", "已发布版本"),
     EXPIRED: t("Expired — data unavailable", "已到期 — 数据不可读"),
   }
   return (
@@ -251,7 +252,16 @@ function VersionInfo({ version }: { version: ExternalVersionPublic }) {
         <Status value={version.status} />
         <span>
           {version.domain === "ip" ? "IP" : t("Port services", "端口服务")} ·{" "}
-          {version.record_count} {t("records", "条记录")}
+          {version.complete
+            ? t("Full requested range", "请求范围完整")
+            : t("Partial batch", "部分批次")}
+          {" · "}
+          {version.record_count} /{" "}
+          {version.expected_total ?? t("unknown", "未知")}{" "}
+          {t(
+            "local records / source-reported total",
+            "本地条数 / 来源声明总量",
+          )}
         </span>
       </div>
       <dl className="grid min-w-0 gap-2 sm:grid-cols-2">
@@ -278,6 +288,33 @@ function VersionInfo({ version }: { version: ExternalVersionPublic }) {
         <div>
           <dt>{t("Retention deadline", "保留截止时间")}</dt>
           <dd>{formatDate(version.retain_until)}</dd>
+        </div>
+        <div>
+          <dt>{t("Fetched page range", "已抓取页范围")}</dt>
+          <dd>
+            {version.pages_read === null
+              ? t(
+                  "Not recorded for this historical version",
+                  "此历史版本未记录",
+                )
+              : `1–${version.pages_read}`}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("Publication boundary", "发布边界")}</dt>
+          <dd>
+            {version.stop_reason === "batch_limit"
+              ? t(
+                  "Normal per-domain batch quota reached",
+                  "正常达到该域批次配额",
+                )
+              : version.stop_reason === "source_complete"
+                ? t(
+                    "Source-reported requested range complete",
+                    "来源声明的请求范围完整",
+                  )
+                : t("Not recorded", "未记录")}
+          </dd>
         </div>
         <div>
           <dt>{t("Request range / sort", "请求范围 / 排序")}</dt>
@@ -1029,7 +1066,21 @@ function SourceAssets({
             <Status value={domain.status} />
             {domain.status === "PUBLISHED" && (
               <span>
-                {domain.record_count} {t("records", "条记录")}
+                {domain.complete
+                  ? t("Full requested range", "请求范围完整")
+                  : t("Partial batch", "部分批次")}
+                {" · "}
+                {domain.record_count} /{" "}
+                {domain.expected_total ?? t("unknown", "未知")}{" "}
+                {t(
+                  "local records / source-reported total",
+                  "本地条数 / 来源声明总量",
+                )}
+                {" · "}
+                {t("Pages", "页范围")}:{" "}
+                {domain.pages_read === null
+                  ? t("not recorded", "未记录")
+                  : `1–${domain.pages_read}`}
               </span>
             )}
             {domain.error_code && <span>{domain.error_code}</span>}
@@ -1330,8 +1381,8 @@ function SourceAssets({
             </h2>
             <p className="text-sm text-muted-foreground">
               {t(
-                "Explicit authorization required: two domains, IP status=valid; ports use source-default filtering; sort=-id. One execution at a time, no automatic source retries. Budgets and retention apply to this new read only, never legacy Runs or artifacts. Remaining record allowance must cover a full configured page; reduce page size for tighter budgets.",
-                "需显式授权：两个域，IP 过滤 status=valid；端口采用来源默认过滤；排序 -id。并发 1，不自动重试来源调用。预算与保留仅适用于本次新增读取，不影响旧 Run 或产物。剩余记录额度须覆盖完整配置页；预算较紧时请减小分页大小。",
+                "Explicit authorization required: IP status=valid; ports use source-default filtering; sort=-id. Both domains start at page 1, alternate serially, and reserve at least one page each. Capacity = min(maximum pages, floor(maximum records / page size)); IP gets the rounded-up half and ports the rounded-down half, with no borrowing. Normal quota completion publishes a clearly partial batch. Any anomaly stops further source calls; no automatic retries or cross-batch merging. Retention applies only to this new read.",
+                "需显式授权：IP 过滤 status=valid；端口采用来源默认过滤；排序 -id。两域均从第 1 页串行轮转，各预留至少一页。容量 = min(最大页数, floor(最大记录数 / 每页条数))；IP 取上半数、端口取下半数，余量不借用。正常达到配额可发布明确标识的部分批次。异常立即停止后续来源调用，不自动重试、不跨批次合并；保留截止仅适用于本次新增读取。",
               )}
             </p>
             {!canManage && (
@@ -1449,6 +1500,19 @@ function SourceAssets({
                       t(
                         "Enter every positive integer budget and a retention deadline.",
                         "请填写全部正整数预算与保留截止时间。",
+                      ),
+                    )
+                    return
+                  }
+                  if (
+                    parsed.data.body.max_pages < 2 ||
+                    parsed.data.body.max_records <
+                      2 * parsed.data.body.page_size
+                  ) {
+                    setNotice(
+                      t(
+                        "Reserve at least two pages and twice the page size in records, one page per domain.",
+                        "最大页数至少为 2，最大记录数至少为每页条数的两倍，为每个域预留一页。",
                       ),
                     )
                     return
@@ -1588,8 +1652,8 @@ function SourceAssets({
             </div>
             <p className="text-sm text-muted-foreground">
               {t(
-                "Status reads never execute or reconcile tasks. Partial failure publishes only complete successful domains; previous complete versions remain until their retention deadline.",
-                "状态读取不会执行或核对任务。部分失败仅发布完整成功域；旧完整版本保留至其截止时间。",
+                "Status reads never execute or reconcile tasks. Full completion, normal bounded completion, partial failure, and unknown execution are distinct. Published partial batches never become complete versions; older complete versions remain explicitly selectable until expiry.",
+                "状态读取不会执行或核对任务。全量成功、正常批次完成、部分失败和未知执行分别显示。部分批次不会成为完整版本；旧完整版本在到期前仍可显式选择。",
               )}
             </p>
             {search.external_task && (
@@ -1690,8 +1754,8 @@ function SourceAssets({
             </div>
             <p className="text-sm text-muted-foreground">
               {t(
-                "A complete version covers only its fixed requested range, not all upstream states or a guaranteed snapshot. Source IDs identify records within a version, not stable cross-version entities.",
-                "完整版本仅覆盖固定请求范围，不代表上游全部状态或一致性快照。源 ID 仅标识版本内记录，不是跨版本稳定实体。",
+                "Partial batches contain only their fetched pages; local count is not source total. A complete version covers only its fixed requested range, not all upstream states or a guaranteed snapshot. Source IDs identify records within a version, not stable cross-version entities.",
+                "部分批次仅包含已抓取页面，本地条数不是来源总量。完整版本也仅覆盖固定请求范围，不代表上游全部状态或一致性快照。源 ID 仅标识版本内记录，不是跨版本稳定实体。",
               )}
             </p>
             <form
@@ -1754,8 +1818,8 @@ function SourceAssets({
                       `固定版本：${search.external_version}`,
                     )
                   : t(
-                      "Latest complete domain pointer (no fallback after expiry)",
-                      "最新完整域指针（到期不回退）",
+                      "Latest readable batch pointer (no fallback after expiry)",
+                      "最新可读批次指针（到期不回退）",
                     )}
               </span>
               <Button
@@ -1770,6 +1834,27 @@ function SourceAssets({
                 }}
               >
                 {t("Read latest local version", "读取最新本地版本")}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={
+                  !versions.isSuccess ||
+                  !versions.data.latest_complete_version ||
+                  Date.parse(
+                    versions.data.latest_complete_version.retain_until,
+                  ) <= Date.now()
+                }
+                onClick={() => {
+                  const complete = versions.data?.latest_complete_version
+                  if (!complete) return
+                  setExpired(false)
+                  void move({ external_version: complete.id, external_page: 0 })
+                }}
+              >
+                {t(
+                  "Read latest usable complete version",
+                  "读取最近可用完整版本",
+                )}
               </Button>
             </div>
             {expired && (
@@ -1796,8 +1881,8 @@ function SourceAssets({
             {recordData?.state === "NOT_SYNCED" && (
               <p role="status">
                 {t(
-                  "Not synchronized: no complete version has been published for this domain. Check task failures above; this is not a successful empty result.",
-                  "未同步：此域尚未发布完整版本。请检查上方失败任务；这不是成功的空结果。",
+                  "Not synchronized: no readable version has been published for this domain. Check task failures above; this is not a successful empty result.",
+                  "未同步：此域尚未发布可读版本。请检查上方失败任务；这不是成功的空结果。",
                 )}
               </p>
             )}
@@ -2013,7 +2098,10 @@ function SourceAssets({
                               }
                             >
                               {version.id} · {formatDate(version.published_at)}{" "}
-                              · {version.status}
+                              · {version.status} ·{" "}
+                              {version.complete
+                                ? t("Full requested range", "请求范围完整")
+                                : t("Partial batch", "部分批次")}
                             </option>
                           ))}
                       </select>

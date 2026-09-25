@@ -1,6 +1,7 @@
 """Synthetic-only regression checks at the local HTTP/worker publication boundary."""
 
 import hashlib
+import json
 import sys
 import uuid
 from collections.abc import Generator
@@ -45,6 +46,10 @@ def assets(
 ) -> Generator[SimpleNamespace]:
     now = get_datetime_utc() - timedelta(days=2)
     monkeypatch.setattr(service, "get_datetime_utc", lambda: now)
+    monkeypatch.setattr(
+        "app.api.routes.external_assets.get_datetime_utc",
+        lambda: now,
+    )
     token = "synthetic-assets-token"
     monkeypatch.setattr(settings, "CLOUDATLAS_ASSETS_CAPSET_TOKEN", SecretStr(token))
     monkeypatch.setattr(
@@ -274,7 +279,7 @@ def test_immutable_domain_versions_identity_and_local_matching(
 
 @pytest.mark.parametrize(
     "fault",
-    ["late_page", "duplicate", "total_changed", "early_empty", "budget", "fingerprint"],
+    ["late_page", "duplicate", "total_changed", "early_empty", "fingerprint"],
 )
 def test_failed_domain_never_overwrites_last_complete_version(
     assets: SimpleNamespace, monkeypatch: MonkeyPatch, fault: str
@@ -306,10 +311,7 @@ def test_failed_domain_never_overwrites_last_complete_version(
         return None
 
     assets.failure = failure
-    result = execute(
-        assets,
-        submit(assets, max_pages=3 if fault == "budget" else assets.body["max_pages"]),
-    )
+    result = execute(assets, submit(assets))
     assert result["status"] == "PARTIAL_FAILED"
     assert listing(assets, "port")["version"]["id"] == previous
     assert result["domains"][0]["status"] == "PUBLISHED"
@@ -486,8 +488,13 @@ def test_viewer_revocation_and_cross_project_fixed_links(
     )
 
 
-def test_terminal_same_session_recovers_complete_stage_without_source_retry(
-    assets: SimpleNamespace, monkeypatch: MonkeyPatch
+@pytest.mark.parametrize("pages, count, complete", [(20, 2, True), (2, 1, False)])
+def test_terminal_same_session_recovers_sealed_stage_without_source_retry(
+    assets: SimpleNamespace,
+    monkeypatch: MonkeyPatch,
+    pages: int,
+    count: int,
+    complete: bool,
 ) -> None:
     publish = service.publish
 
@@ -495,7 +502,7 @@ def test_terminal_same_session_recovers_complete_stage_without_source_retry(
         raise service.SyncError("external_session_unknown", unknown=True)
 
     monkeypatch.setattr(service, "publish", interrupt)
-    sync = submit(assets)
+    sync = submit(assets, max_pages=pages)
     assert execute(assets, sync)["status"] == "UNKNOWN"
     assert listing(assets)["state"] == "NOT_SYNCED"
     calls = list(assets.calls)
@@ -505,7 +512,8 @@ def test_terminal_same_session_recovers_complete_stage_without_source_retry(
         assets.path + "/syncs/" + sync["id"] + "/reconcile", headers=assets.headers
     )
     assert response.json()["status"] == "PARTIAL_FAILED"
-    assert listing(assets)["count"] == 2
+    assert listing(assets)["count"] == count
+    assert listing(assets)["version"]["complete"] is complete
     assert listing(assets, "port")["state"] == "NOT_SYNCED"
     assert assets.starts == 1 and assets.calls == calls
 
@@ -580,25 +588,24 @@ def test_source_failure_stops_the_other_domain(
     assert assets.calls == [("ip", 1)]
 
 
-def test_record_budget_prevents_an_unaffordable_next_domain_page(
-    assets: SimpleNamespace,
+@pytest.mark.parametrize(
+    "budget", [{"max_pages": 1}, {"page_size": 2, "max_records": 3}]
+)
+def test_budget_must_reserve_a_page_for_each_domain_before_launch(
+    assets: SimpleNamespace, budget: dict[str, int]
 ) -> None:
-    assets.pages["ip"] = [[record for page in assets.pages["ip"] for record in page]]
-    assets.pages["port"] = [
-        assets.pages["port"][0] + assets.pages["port"][1],
-        assets.pages["port"][2],
-    ]
-    assert (
-        execute(assets, submit(assets, page_size=2, max_records=6))["status"]
-        == "SUCCEEDED"
+    response = assets.client.post(
+        assets.path + "/syncs",
+        headers=assets.headers | {"Idempotency-Key": str(uuid.uuid4())},
+        json=assets.body | budget,
     )
-    previous_port = listing(assets, "port")["version"]["id"]
-    assets.calls.clear()
-    result = execute(assets, submit(assets, page_size=2, max_records=3))
-    assert result["status"] == "PARTIAL_FAILED"
-    assert assets.calls == [("ip", 1)]
-    assert result["domains"][1]["error_code"] == "external_record_budget"
-    assert listing(assets, "port")["version"]["id"] == previous_port
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "external_two_domain_budget_required"
+    assert assets.starts == 0 and assets.calls == []
+    assert (
+        assets.client.get(assets.path + "/syncs", headers=assets.headers).json()["data"]
+        == []
+    )
 
 
 @pytest.mark.parametrize(
@@ -654,11 +661,11 @@ def test_inflight_authority_change_cannot_publish_or_restart(
     assert result["status"] == "FAILED"
     assert {domain["error_code"] for domain in result["domains"]} == {error}
     assert all(domain["version_id"] is None for domain in result["domains"])
-    assert assets.calls == [("ip", 1), ("ip", 2)]
+    assert assets.calls == [("ip", 1), ("port", 1), ("ip", 2)]
     for domain in ("ip", "port"):
         assert listing(assets, domain) == previous[domain]
     assert execute(assets, sync) == result
-    assert assets.calls == [("ip", 1), ("ip", 2)] and assets.starts == 2
+    assert assets.calls == [("ip", 1), ("port", 1), ("ip", 2)] and assets.starts == 2
 
 
 def test_ambiguous_start_reservation_replays_and_reconciles_without_relaunch(
@@ -963,3 +970,150 @@ def test_local_history_filters_and_fixed_details_remain_source_scoped(
     assert expired_port.status_code == 410
     assert expired_port.json()["detail"]["code"] == "external_version_expired"
     assert assets.calls == calls and assets.starts == starts
+
+
+def test_partial_batches_are_readable_without_replacing_complete_history(
+    assets: SimpleNamespace, monkeypatch: MonkeyPatch
+) -> None:
+    assert execute(assets, submit(assets))["status"] == "SUCCEEDED"
+    complete = {domain: listing(assets, domain) for domain in ("ip", "port")}
+    monkeypatch.setattr(
+        service, "get_datetime_utc", lambda: assets.now + timedelta(seconds=1)
+    )
+    assets.calls.clear()
+    task = execute(
+        assets,
+        submit(
+            assets,
+            max_pages=2,
+            retain_until=(assets.now + timedelta(seconds=10)).isoformat(),
+        ),
+    )
+    assert task["status"] == "PARTIAL_SUCCEEDED"
+    assert assets.calls == [("ip", 1), ("port", 1)]
+    partial = {domain: listing(assets, domain) for domain in ("ip", "port")}
+    for domain, total in (("ip", 2), ("port", 3)):
+        version = partial[domain]["version"]
+        assert partial[domain]["count"] == 1
+        assert version["complete"] is False and version["expected_total"] == total
+        assert version["pages_read"] == 1 and version["stop_reason"] == "batch_limit"
+        history = assets.client.get(
+            assets.path + "/versions",
+            headers=assets.headers,
+            params={"domain": domain, "limit": 1},
+        ).json()
+        assert history["data"][0]["id"] == version["id"]
+        assert (
+            history["latest_complete_version"]["id"]
+            == complete[domain]["version"]["id"]
+        )
+    ip = partial["ip"]
+    detail_url = (
+        assets.path + f"/versions/{ip['version']['id']}/records/{ip['data'][0]['id']}"
+    )
+    detail = assets.client.get(
+        detail_url,
+        headers=assets.headers,
+        params={"port_version_id": partial["port"]["version"]["id"]},
+    ).json()
+    assert detail["matched_port_count"] == 1
+    assert detail["port_version"]["complete"] is False
+    monkeypatch.setattr(
+        service, "get_datetime_utc", lambda: assets.now + timedelta(seconds=11)
+    )
+    for domain in ("ip", "port"):
+        expired = listing(assets, domain)
+        assert expired["state"] == "EXPIRED" and expired["data"] == []
+        assert expired["version"]["id"] == partial[domain]["version"]["id"]
+        assert (
+            listing(assets, domain, version_id=complete[domain]["version"]["id"])[
+                "data"
+            ]
+            == complete[domain]["data"]
+        )
+    assert assets.client.get(detail_url, headers=assets.headers).status_code == 410
+    assert assets.calls == [("ip", 1), ("port", 1)]
+
+
+def test_empty_ip_does_not_stop_ports_or_lend_them_unused_quota(
+    assets: SimpleNamespace,
+) -> None:
+    assets.pages["ip"] = [[]]
+    result = execute(assets, submit(assets, max_records=5))
+    assert result["status"] == "PARTIAL_SUCCEEDED"
+    assert assets.calls == [("ip", 1), ("port", 1), ("port", 2)]
+    assert listing(assets)["version"]["complete"] is True
+    assert listing(assets)["count"] == 0
+    assert listing(assets, "port")["version"]["complete"] is False
+    assert listing(assets, "port")["count"] == 2
+
+
+def test_published_partial_domain_survives_sibling_source_failure(
+    assets: SimpleNamespace,
+) -> None:
+    def fail_port(domain: str, _number: int) -> None:
+        if domain == "port":
+            raise CloudAtlasBoundaryError("cloudatlas_upstream_failed")
+
+    assets.failure = fail_port
+    result = execute(assets, submit(assets, max_pages=2))
+    assert result["status"] == "PARTIAL_FAILED"
+    assert listing(assets)["count"] == 1
+    assert listing(assets)["version"]["complete"] is False
+    assert listing(assets, "port")["state"] == "NOT_SYNCED"
+    assert assets.calls == [("ip", 1), ("port", 1)]
+
+
+def test_terminal_reconcile_never_publishes_unsealed_partial_staging(
+    assets: SimpleNamespace,
+) -> None:
+    def disconnect_port(domain: str, _number: int) -> None:
+        if domain == "port":
+            raise CloudAtlasBoundaryError("cloudatlas_connectivity_failed")
+
+    assets.failure = disconnect_port
+    sync = submit(assets)
+    assert execute(assets, sync)["status"] == "UNKNOWN"
+    assets.observation = AgentComposeSessionObservation.TERMINAL
+    result = assets.client.post(
+        assets.path + "/syncs/" + sync["id"] + "/reconcile",
+        headers=assets.headers,
+    )
+    assert result.json()["status"] == "FAILED"
+    assert listing(assets)["state"] == "NOT_SYNCED"
+    assert listing(assets, "port")["state"] == "NOT_SYNCED"
+    assert assets.calls == [("ip", 1), ("port", 1)]
+
+
+def test_legacy_reservation_replays_original_budget_and_remains_full_only(
+    assets: SimpleNamespace,
+) -> None:
+    sync = submit(assets, "historical-intent")
+    stored = assets.db.get(ExternalSync, uuid.UUID(sync["id"]))
+    assert stored is not None
+    payload = {k: v for k, v in stored.request.items() if k != "publication_mode"}
+    payload["max_pages"] = 1
+    stored.request = payload
+    stored.request_sha256 = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    assets.db.add(stored)
+    assets.db.commit()
+    assert submit(assets, "historical-intent", max_pages=1)["id"] == sync["id"]
+    assert execute(assets, sync)["status"] == "FAILED"
+    assert listing(assets)["state"] == "NOT_SYNCED"
+    assert assets.calls == [("ip", 1)] and assets.starts == 1
+    assert submit(assets, "historical-intent", max_pages=1)["id"] == sync["id"]
+    assert assets.starts == 1
+
+
+def test_odd_capacity_alternates_until_each_domain_reaches_its_own_boundary(
+    assets: SimpleNamespace,
+) -> None:
+    result = execute(assets, submit(assets, max_records=3))
+    assert result["status"] == "PARTIAL_SUCCEEDED"
+    assert assets.calls == [("ip", 1), ("port", 1), ("ip", 2)]
+    assert listing(assets)["version"]["complete"] is True
+    assert listing(assets)["count"] == 2
+    assert listing(assets, "port")["version"]["complete"] is False
+    assert listing(assets, "port")["count"] == 1
