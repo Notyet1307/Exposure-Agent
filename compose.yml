@@ -75,6 +75,7 @@ services:
       ARTIFACT_HOST_PATH: ${ARTIFACT_HOST_PATH:?Variable not set or empty}
       CLOUDATLAS_CAPSET_TOKEN: ${CLOUDATLAS_CAPSET_TOKEN:?Variable not set or empty}
       CLOUDATLAS_ASSETS_CAPSET_TOKEN: ${CLOUDATLAS_ASSETS_CAPSET_TOKEN-}
+      CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN: ${CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN-}
       DOCKER_IMAGE_RUNNER: ${DOCKER_IMAGE_RUNNER?Variable not set}
       ENVIRONMENT: ${ENVIRONMENT?Variable not set}
       PROJECT_NAME: ${PROJECT_NAME?Variable not set}
@@ -146,8 +147,10 @@ services:
       - >-
         octobus --addr octobus:9000 service import cloudatlas-read
         /opt/exposure-agent/service-packages/cloudatlas-read &&
-        exec octobus --addr octobus:9000 service import cloudatlas-assets
-        /opt/exposure-agent/service-packages/cloudatlas-assets
+        octobus --addr octobus:9000 service import cloudatlas-assets
+        /opt/exposure-agent/service-packages/cloudatlas-assets &&
+        exec octobus --addr octobus:9000 service import cloudatlas-root-domains
+        /opt/exposure-agent/service-packages/cloudatlas-root-domains
 
   prestart:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
@@ -198,6 +201,7 @@ services:
       OCTOBUS_URL: ${OCTOBUS_URL:-http://octobus:9000}
       CLOUDATLAS_CAPSET_TOKEN: ${CLOUDATLAS_CAPSET_TOKEN:?Variable not set or empty}
       CLOUDATLAS_ASSETS_CAPSET_TOKEN: ${CLOUDATLAS_ASSETS_CAPSET_TOKEN-}
+      CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN: ${CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN-}
       AGENT_COMPOSE_URL: http://agent-compose:7410
       AGENT_COMPOSE_AUTH_TOKEN: ${AGENT_COMPOSE_AUTH_TOKEN:?Variable not set or empty}
       AGENT_COMPOSE_RUNTIME_VERSION: ${AGENT_COMPOSE_RUNTIME_VERSION:?Variable not set or empty}

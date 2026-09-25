@@ -2,7 +2,7 @@ import copy
 import hashlib
 import json
 import uuid
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -27,17 +27,19 @@ def _source() -> SourceInstance:
     )
 
 
-def _metadata(source: SourceInstance) -> dict[str, dict[str, Any]]:
+def _metadata(
+    source: SourceInstance, *, capability: ModuleType = contract
+) -> dict[str, dict[str, Any]]:
     return {
-        f"/admin/v1/services/{contract.SERVICE_ID}": {
-            "ID": contract.SERVICE_ID,
-            "PackageSHA256": contract.PACKAGE_SHA256,
-            "DescriptorSHA256": contract.DESCRIPTOR_SHA256,
+        f"/admin/v1/services/{capability.SERVICE_ID}": {
+            "ID": capability.SERVICE_ID,
+            "PackageSHA256": capability.PACKAGE_SHA256,
+            "DescriptorSHA256": capability.DESCRIPTOR_SHA256,
             "PackageVersion": "",
         },
         f"/admin/v1/instances/{source.instance_id}": {
             "ID": source.instance_id,
-            "ServiceID": contract.SERVICE_ID,
+            "ServiceID": capability.SERVICE_ID,
             "Enabled": True,
             "HasSecret": True,
             "ConfigJSON": {
@@ -54,7 +56,7 @@ def _metadata(source: SourceInstance) -> dict[str, dict[str, Any]]:
         f"/admin/v1/capsets/{source.capset_id}/instances": {
             "instances": [
                 {
-                    "ServiceID": contract.SERVICE_ID,
+                    "ServiceID": capability.SERVICE_ID,
                     "InstanceID": source.instance_id,
                     "Enabled": True,
                     "IncludeAllMethods": False,
@@ -64,7 +66,7 @@ def _metadata(source: SourceInstance) -> dict[str, dict[str, Any]]:
         f"/admin/v1/capsets/{source.capset_id}/methods": {
             "methods": [
                 {"MethodFullName": method, "Enabled": True}
-                for method in contract.METHODS.values()
+                for method in capability.METHODS.values()
             ]
         },
         f"/admin/v1/capsets/{source.capset_id}/tokens": {

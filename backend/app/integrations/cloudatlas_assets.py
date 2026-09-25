@@ -63,6 +63,22 @@ _FIELDS = {
         "banner": "nullable_string",
         "categories": ["string"],
     },
+    "root_domain": {
+        "id": "identity",
+        "root_domain": "string",
+        "status": "string",
+        "icp_date": "nullable_string",
+        "icp_num": "nullable_string",
+        "icp_official_name": "nullable_string",
+        "whois_registrant": "nullable_string",
+        "whois_email": "nullable_string",
+        "whois_expiration_time": "nullable_string",
+        "valid_subdomain": "integer",
+        "sources": [{"source": "string", "reason": "string", "factor": "string"}],
+        "created_at": "string",
+        "updated_at": "string",
+        "lastseen_at": "string",
+    },
 }
 
 
@@ -70,7 +86,7 @@ def _fail() -> NoReturn:
     raise CloudAtlasBoundaryError("cloudatlas_response_contract_failed")
 
 
-def _project(value: Any, schema: Any) -> Any:
+def _project(value: Any, schema: Any, *, required: bool = False) -> Any:
     if schema == "identity":
         if not isinstance(value, str) or not _ID.fullmatch(value):
             _fail()
@@ -88,11 +104,13 @@ def _project(value: Any, schema: Any) -> Any:
     if isinstance(schema, list):
         if not isinstance(value, list):
             _fail()
-        return [_project(item, schema[0]) for item in value]
+        return [_project(item, schema[0], required=required) for item in value]
     if not isinstance(value, dict):
         _fail()
+    if required and not schema.keys() <= value.keys():
+        _fail()
     return {
-        key: _project(value[key], field_type)
+        key: _project(value[key], field_type, required=required)
         for key, field_type in schema.items()
         if key in value
     }
@@ -105,16 +123,28 @@ def normalize_items(items: Any, domain: str) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in items:
-        if not isinstance(item, dict) or "id" not in item or "ip" not in item:
+        identity_field = "root_domain" if domain == "root_domain" else "ip"
+        if not isinstance(item, dict) or "id" not in item or identity_field not in item:
             _fail()
-        row = _project(item, _FIELDS[domain])
+        row = _project(item, _FIELDS[domain], required=domain == "root_domain")
+        if row["id"] in seen:
+            _fail()
+        seen.add(row["id"])
+        if domain == "root_domain":
+            if (
+                len(row["id"]) > 100
+                or not row["root_domain"].strip()
+                or not row["status"].strip()
+            ):
+                _fail()
+            result.append(row)
+            continue
         try:
             ipaddress.ip_address(row["ip"])
         except ValueError:
             _fail()
-        if "%" in row["ip"] or row["id"] in seen:
+        if "%" in row["ip"]:
             _fail()
-        seen.add(row["id"])
         if domain == "ip" and row.get("status") != "valid":
             _fail()
         if domain == "port" and ("port" not in row or not 0 <= row["port"] <= 65535):
@@ -134,11 +164,13 @@ class OctobusCloudAtlasAssetsClient(OctobusCloudAtlasClient):
     METHODS = tuple(contract.METHODS.values())
     FINGERPRINT_SCHEMA = contract.FINGERPRINT_SCHEMA
     CAPABILITY_PROFILE = contract.CAPABILITY_PROFILE
+    SOURCE_TYPE = "cloudatlas"
+    DOMAIN_METHODS = contract.METHODS
 
     def current_fingerprint(self, source: SourceInstance) -> CloudAtlasFingerprint:
         if (
             source.capability_profile != self.CAPABILITY_PROFILE
-            or source.source_type != "cloudatlas"
+            or source.source_type != self.SOURCE_TYPE
             or not isinstance(source.space_id, str)
             or not _SPACE.fullmatch(source.space_id)
         ):
@@ -215,7 +247,7 @@ class OctobusCloudAtlasAssetsClient(OctobusCloudAtlasClient):
         timeout_seconds: int,
     ) -> dict[str, Any]:
         if (
-            domain not in contract.METHODS
+            domain not in self.DOMAIN_METHODS
             or type(page) is not int
             or not 1 <= page <= 2147483647
             or type(size) is not int
@@ -232,7 +264,7 @@ class OctobusCloudAtlasAssetsClient(OctobusCloudAtlasClient):
         # Deliberately does not call the legacy client's retrying IP-only method.
         payload = self._request_json(
             "POST",
-            f"/capsets/{source.capset_id}/connect/{source.instance_id}/{contract.METHODS[domain]}",
+            f"/capsets/{source.capset_id}/connect/{source.instance_id}/{self.DOMAIN_METHODS[domain]}",
             token=capset_token,
             body={
                 "page": page,

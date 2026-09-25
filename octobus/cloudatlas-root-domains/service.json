@@ -1,0 +1,19 @@
+{
+  "schema": "chaitin.octobus.service.v1",
+  "name": "cloudatlas-root-domains",
+  "displayName": "Cloud Atlas Root Domains",
+  "description": "Bounded read-only root domains.",
+  "runtime": {
+    "mode": "on-demand"
+  },
+  "proto": {
+    "roots": [
+      "proto"
+    ],
+    "files": [
+      "proto/cloudatlas_root_domains.proto"
+    ]
+  },
+  "configSchema": "config.schema.json",
+  "secretSchema": "secret.schema.json"
+}

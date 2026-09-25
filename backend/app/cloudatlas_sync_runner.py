@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.config import settings
 from app.core.db import engine
@@ -28,7 +28,9 @@ def main() -> int:
                     select(SourceInstance)
                     .where(
                         SourceInstance.id == source_id,
-                        SourceInstance.capability_profile == "assets-v1",
+                        col(SourceInstance.capability_profile).in_(
+                            ("assets-v1", "root-domains-v1")
+                        ),
                     )
                     .with_for_update()
                 ).one_or_none()

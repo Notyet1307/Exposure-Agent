@@ -1918,7 +1918,7 @@ export const ExternalDomainPublicSchema = {
     properties: {
         domain: {
             type: 'string',
-            enum: ['ip', 'port'],
+            enum: ['ip', 'port', 'root_domain'],
             title: 'Domain'
         },
         status: {
@@ -2056,11 +2056,25 @@ export const ExternalRecordPublicSchema = {
             title: 'Source Id'
         },
         ip: {
-            type: 'string',
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Ip'
         },
         canonical_ip: {
-            type: 'string',
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Canonical Ip'
         },
         fields: {
@@ -2110,6 +2124,12 @@ export const ExternalRecordsPublicSchema = {
 
 export const ExternalSourceCreateSchema = {
     properties: {
+        capability_profile: {
+            type: 'string',
+            enum: ['assets-v1', 'root-domains-v1'],
+            title: 'Capability Profile',
+            default: 'assets-v1'
+        },
         instance_id: {
             type: 'string',
             maxLength: 255,
@@ -2155,6 +2175,11 @@ export const ExternalSourcePublicSchema = {
             type: 'string',
             title: 'Space Id'
         },
+        capability_profile: {
+            type: 'string',
+            enum: ['assets-v1', 'root-domains-v1'],
+            title: 'Capability Profile'
+        },
         enabled: {
             type: 'boolean',
             title: 'Enabled'
@@ -2190,7 +2215,7 @@ export const ExternalSourcePublicSchema = {
         }
     },
     type: 'object',
-    required: ['id', 'instance_id', 'capset_id', 'space_id', 'enabled', 'data_access_enabled', 'validation_status', 'validated_fingerprint', 'created_at', 'updated_at'],
+    required: ['id', 'instance_id', 'capset_id', 'space_id', 'capability_profile', 'enabled', 'data_access_enabled', 'validation_status', 'validated_fingerprint', 'created_at', 'updated_at'],
     title: 'ExternalSourcePublic'
 } as const;
 
@@ -2421,7 +2446,7 @@ export const ExternalVersionPublicSchema = {
         },
         domain: {
             type: 'string',
-            enum: ['ip', 'port'],
+            enum: ['ip', 'port', 'root_domain'],
             title: 'Domain'
         },
         space_id: {

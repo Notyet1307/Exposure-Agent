@@ -1,0 +1,9 @@
+{
+  "service_id": "cloudatlas-root-domains",
+  "capability_profile": "root-domains-v1",
+  "package_sha256": "e8625d07a030b2e304ad8916602c57c1405c7c53351a75934fbfd836a66793dd",
+  "descriptor_sha256": "cb731612f31fd45f98f3b321745cd266a2dd07f7e2fa74eeb8a47c4592e0c02b",
+  "selected_methods": [
+    "cloudatlas.rootdomains.v1.CloudAtlasRootDomainsService/ListRootDomains"
+  ]
+}

@@ -42,7 +42,11 @@ from app.integrations.agent_compose import (
     AgentComposeClient,
     AgentComposeSessionObservation,
 )
-from app.integrations.cloudatlas_assets import OctobusCloudAtlasAssetsClient
+from app.integrations.cloudatlas_assets import (
+    OctobusCloudAtlasAssetsClient,
+    normalize_items,
+)
+from app.integrations.cloudatlas_root_domains import OctobusCloudAtlasRootDomainsClient
 from app.models import User
 
 UNFINISHED = ("PENDING", "RUNNING", "UNKNOWN")
@@ -71,7 +75,7 @@ def source_for(
         SourceInstance.id == source_id,
         SourceInstance.project_id == project.id,
         SourceInstance.tenant_id == project.tenant_id,
-        SourceInstance.capability_profile == "assets-v1",
+        col(SourceInstance.capability_profile).in_(("assets-v1", "root-domains-v1")),
     )
     if lock:
         query = query.with_for_update()
@@ -134,16 +138,39 @@ def source_public(source: SourceInstance) -> ExternalSourcePublic:
     )
 
 
+def source_domains(source: SourceInstance) -> tuple[Domain, ...]:
+    return (
+        ("root_domain",)
+        if source.capability_profile == "root-domains-v1"
+        else ("ip", "port")
+    )
+
+
+def require_domain(source: SourceInstance, domain: str) -> None:
+    if domain not in source_domains(source):
+        deny("external_domain_source_mismatch", 422)
+
+
+def source_client(
+    source: SourceInstance,
+) -> tuple[OctobusCloudAtlasAssetsClient, str]:
+    if source.capability_profile == "root-domains-v1":
+        return (
+            OctobusCloudAtlasRootDomainsClient(),
+            settings.CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN.get_secret_value(),
+        )
+    return (
+        OctobusCloudAtlasAssetsClient(),
+        settings.CLOUDATLAS_ASSETS_CAPSET_TOKEN.get_secret_value(),
+    )
+
+
 def credentials(source: SourceInstance) -> tuple[str, str]:
-    token = settings.CLOUDATLAS_ASSETS_CAPSET_TOKEN.get_secret_value()
+    client, token = source_client(source)
     if not token:
         raise SyncError("external_credential_missing")
     try:
-        fingerprint = (
-            OctobusCloudAtlasAssetsClient()
-            .validate_credentials(source, capset_token=token)
-            .value
-        )
+        fingerprint = client.validate_credentials(source, capset_token=token).value
     except CloudAtlasBoundaryError as error:
         raise SyncError(
             error.code, unknown=error.code == "cloudatlas_connectivity_failed"
@@ -207,9 +234,10 @@ def version_public(version: ExternalAssetVersion) -> ExternalVersionPublic:
 def selected_version(
     session: Session,
     source: SourceInstance,
-    domain: Domain,
+    domain: str,
     version_id: uuid.UUID | None,
 ) -> ExternalAssetVersion | None:
+    require_domain(source, domain)
     if version_id is None:
         head = session.get(ExternalAssetHead, (source.id, domain))
         if head is None:
@@ -237,7 +265,12 @@ def records(
     status: str | None,
     skip: int,
     limit: int,
+    root_domain: str | None = None,
 ) -> ExternalRecordsPublic:
+    if (domain == "root_domain" and ip is not None) or (
+        domain != "root_domain" and root_domain is not None
+    ):
+        deny("external_domain_filter_invalid", 422)
     version = selected_version(session, source, domain, version_id)
     if version is None:
         return ExternalRecordsPublic(data=[], count=0, version=None, state="NOT_SYNCED")
@@ -253,11 +286,22 @@ def records(
         except ValueError:
             deny("external_ip_filter_invalid", 422)
         query = query.where(ExternalAssetRecord.canonical_ip == canonical_ip)
+    if root_domain is not None:
+        query = query.where(
+            ExternalAssetRecord.fields["root_domain"].astext.icontains(
+                root_domain, autoescape=True
+            )
+        )
     if status is not None:
         query = query.where(ExternalAssetRecord.fields["status"].astext == status)
     count = session.exec(select(func.count()).select_from(query.subquery())).one()
     rows = session.exec(
-        query.order_by(ExternalAssetRecord.canonical_ip, ExternalAssetRecord.source_id)
+        query.order_by(
+            ExternalAssetRecord.fields["root_domain"].astext
+            if domain == "root_domain"
+            else ExternalAssetRecord.canonical_ip,
+            ExternalAssetRecord.source_id,
+        )
         .offset(skip)
         .limit(limit)
     ).all()
@@ -279,12 +323,10 @@ def detail(
     limit: int,
 ) -> ExternalRecordDetailPublic:
     version = session.get(ExternalAssetVersion, version_id)
-    if version is None or version.domain not in ("ip", "port"):
+    if version is None or version.domain not in source_domains(source):
         deny("external_version_not_found", 404)
     assert version is not None
-    version = selected_version(
-        session, source, cast(Domain, version.domain), version_id
-    )
+    version = selected_version(session, source, version.domain, version_id)
     assert version is not None
     if version.retain_until <= get_datetime_utc():
         deny("external_version_expired", 410)
@@ -292,6 +334,8 @@ def detail(
     if row is None or row.version_id != version.id:
         deny("external_record_not_found", 404)
     assert row is not None
+    if version.domain != "ip" and port_version_id is not None:
+        deny("external_domain_match_invalid", 422)
     matched = ExternalRecordsPublic(data=[], count=0, version=None, state="NOT_SYNCED")
     if version.domain == "ip":
         matched = records(
@@ -340,8 +384,17 @@ def reserve_sync(
         if existing.request_sha256 != digest:
             deny("external_idempotency_conflict")
         return existing, False
-    if request.max_pages < 2 or request.max_records < 2 * request.page_size:
-        deny("external_two_domain_budget_required", 422)
+    domains = source_domains(source)
+    if (
+        request.max_pages < len(domains)
+        or request.max_records < len(domains) * request.page_size
+    ):
+        deny(
+            "external_single_domain_budget_required"
+            if len(domains) == 1
+            else "external_two_domain_budget_required",
+            422,
+        )
     if request.retain_until <= get_datetime_utc():
         deny("external_retention_expired", 422)
     pending = session.exec(
@@ -364,7 +417,12 @@ def reserve_sync(
         actor_id=actor.id,
         idempotency_key=key,
         request_sha256=digest,
-        request=payload | {"publication_mode": "bounded-v1"},
+        request=payload
+        | {
+            "publication_mode": (
+                "root-domain-bounded-v1" if len(domains) == 1 else "bounded-v1"
+            )
+        },
         fingerprint=fingerprint,
         token_sha256=token_hash,
         agent_run_id=client.expected_cloudatlas_sync_run_id(str(sync_id)),
@@ -373,7 +431,7 @@ def reserve_sync(
     )
     session.add(sync)
     session.flush()
-    for domain in ("ip", "port"):
+    for domain in domains:
         session.add(
             ExternalAssetVersion(
                 sync_id=sync.id,
@@ -382,7 +440,7 @@ def reserve_sync(
                 space_id=source.space_id,
                 instance_id=source.instance_id,
                 capset_id=source.capset_id,
-                filter={"status": "valid"} if domain == "ip" else {},
+                filter={"status": "valid"} if domain != "port" else {},
                 fingerprint=fingerprint,
                 retain_until=request.retain_until,
                 pages_read=0,
@@ -471,6 +529,9 @@ def execution_source(
         raise SyncError("external_permission_revoked") from None
     if sync.retain_until <= get_datetime_utc():
         raise SyncError("external_retention_expired")
+    root_mode = sync.request.get("publication_mode") == "root-domain-bounded-v1"
+    if root_mode != (source.capability_profile == "root-domains-v1"):
+        raise SyncError("external_publication_mode_invalid")
     fingerprint, token_hash = ready(source)
     if fingerprint != sync.fingerprint or token_hash != sync.token_sha256:
         raise SyncError("external_material_changed")
@@ -484,12 +545,16 @@ def _page_limits(sync: ExternalSync) -> dict[str, int] | None:
         return (
             None  # Existing reservations retain their full-only publication contract.
         )
-    if mode != "bounded-v1":
+    if mode not in ("bounded-v1", "root-domain-bounded-v1"):
         raise SyncError("external_publication_mode_invalid")
     capacity = min(
         sync.request["max_pages"],
         sync.request["max_records"] // sync.request["page_size"],
     )
+    if mode == "root-domain-bounded-v1":
+        if capacity < 1:
+            raise SyncError("external_single_domain_budget_required")
+        return {"root_domain": capacity}
     if capacity < 2:
         raise SyncError("external_two_domain_budget_required")
     return {"ip": (capacity + 1) // 2, "port": capacity // 2}
@@ -524,6 +589,12 @@ def publish(
     terminal: bool = False,
 ) -> None:
     source = execution_source(session, sync, terminal=terminal)
+    if (
+        version.source_id != source.id
+        or version.sync_id != sync.id
+        or version.domain not in source_domains(source)
+    ):
+        raise SyncError("external_version_scope_invalid")
     count = session.exec(
         select(func.count())
         .select_from(ExternalAssetRecord)
@@ -589,7 +660,8 @@ def validate_page(
     total: int | None,
     seen: set[str],
     remaining: int,
-) -> tuple[int, list[tuple[str, str, str, dict[str, Any]]]]:
+    domain: Domain,
+) -> tuple[int, list[tuple[str, str | None, str | None, dict[str, Any]]]]:
     if (
         any(type(page.get(name)) is not int for name in ("page", "size", "total"))
         or page["page"] != number
@@ -610,7 +682,9 @@ def validate_page(
         raise SyncError("external_page_invalid")
     if not items and len(seen) < total:
         raise SyncError("external_early_empty_page")
-    rows = []
+    if domain == "root_domain":
+        items = normalize_items(items, domain)
+    rows: list[tuple[str, str | None, str | None, dict[str, Any]]] = []
     for item in items:
         if not isinstance(item, dict):
             raise SyncError("external_record_invalid")
@@ -619,16 +693,18 @@ def validate_page(
             not isinstance(source_id, str)
             or len(source_id) > 100
             or not re.fullmatch(r"-?(?:0|[1-9][0-9]*)", source_id)
-            or not isinstance(ip, str)
-            or "%" in ip
         ):
             raise SyncError("external_record_invalid")
         if source_id in seen:
             raise SyncError("external_duplicate_id")
-        try:
-            canonical = str(ipaddress.ip_address(ip))
-        except ValueError:
-            raise SyncError("external_record_invalid") from None
+        canonical = None
+        if domain != "root_domain":
+            if not isinstance(ip, str) or "%" in ip:
+                raise SyncError("external_record_invalid")
+            try:
+                canonical = str(ipaddress.ip_address(ip))
+            except ValueError:
+                raise SyncError("external_record_invalid") from None
         seen.add(source_id)
         rows.append((source_id, ip, canonical, item))
     return total, rows
@@ -692,9 +768,10 @@ def execute_sync(
             sync.pages_read += 1
             session.add(sync)
             session.commit()  # Count attempted calls durably; never retry them.
-            page = OctobusCloudAtlasAssetsClient().list_page(
+            client, token = source_client(source)
+            page = client.list_page(
                 source,
-                capset_token=settings.CLOUDATLAS_ASSETS_CAPSET_TOKEN.get_secret_value(),
+                capset_token=token,
                 domain=version.domain,
                 page=number,
                 size=sync.request["page_size"],
@@ -713,6 +790,7 @@ def execute_sync(
             seen = seen_by_version[version_id]
             total, rows = validate_page(
                 page,
+                domain=cast(Domain, version.domain),
                 number=number,
                 size=sync.request["page_size"],
                 total=version.expected_total,
@@ -818,7 +896,7 @@ def reconcile(session: Session, sync: ExternalSync) -> ExternalSync:
 
 
 def purge_expired(session: Session, source: SourceInstance, actor: User | None) -> int:
-    if source.capability_profile != "assets-v1":
+    if source.capability_profile not in ("assets-v1", "root-domains-v1"):
         deny("external_source_not_found", 404)
     expired = select(ExternalAssetVersion.id).where(
         ExternalAssetVersion.source_id == source.id,
