@@ -12,6 +12,14 @@ _Avoid_: 租户、工作区、单次对账、Run 分组
 Project 对一个外部系统 OctoBus Instance 的业务引用，标明其为客户系统来源或暴露面来源，并记录启用状态及当前连接配置是否通过读取验证；凭据仍由 OctoBus 管理。同一 Project 每类外部来源最多启用一个 SourceInstance，可以保留已停用的历史引用；验证在绑定或连接配置变化后失效，配置不变时不按时间自动过期。初期测试只有云图 SourceInstance；客户系统可达后最终也通过 SourceInstance 接入。
 _Avoid_: Connector、凭据副本、SourceSnapshot、CustomerUpload
 
+**External Asset Batch（外部资产采集批次）**:
+同一授权来源空间内，一个数据域在明确读取范围和预算下正常结束采集的不可变版本。批次可以尚未覆盖来源报告的全部记录，但必须明确其范围，不能把失败暂存或不同批次拼接成完整结果。
+_Avoid_: SourceSnapshot、全量快照、增量游标、跨批次稳定资产、任意暂存预览
+
+**Complete External Asset Version（完整外部资产版本）**:
+在一个数据域的固定来源、过滤和读取范围内，全部分页通过校验且累计记录数与一致来源总数相符的采集版本。它只表示该次请求范围完整，不承诺来源全状态覆盖或跨域原子快照。
+_Avoid_: 最新可读批次、全空间永恒事实、上游删除证明
+
 **CustomerUpload**:
 客户侧已接受的输入文件版本，具有不可变 ID 与内容 Hash、归属于一个 Project，并固定校验时使用的 CustomerUploadProfile 版本；GovernanceRun 明确固定其中一个版本。原始上传与经严格校验的人工派生输入保留不同来源，不能互相冒充；它不等于客户系统 SourceInstance，也不改变客户系统最终经 OctoBus 接入的目标。
 _Avoid_: 上传尝试、校验失败文件、客户系统、SourceInstance、可变附件路径、最终集成方式
