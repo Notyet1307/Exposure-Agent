@@ -46,6 +46,24 @@
 
 其他类别不从矩阵删除：主域名/DNS/子域名见A04，证书A08，网站/路径/爬虫A09，指纹A07，种子A04/A05/A10；其字段已定位为E10静态声明，当前空间相应实读及详情差额仍未验证。它们进入01C覆盖，不把首片两类对象冒称全部资产。
 
+## 主域名字段落点（2026-09-25）
+
+维护者已批准配套[01C-ROOT Spec](../specs/exposure-focus-release-1.md#exp-focus-01c-root主域名资产本地阅读)及本字段合同；它们由实施Issue固定准确commit，仅细化E10既有公开材料，不是新的真实证据。精确出处：[固定OpenAPI](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/spec/openapi.yaml)的`paths./v1/asset/root-domain.get`。该操作声明status必填（valid/await/ignored/negative）、默认sort=-id及空间/页码/大小参数；本片固定valid、-id，不开放其他来源过滤。公开schema未声明此资产的独立详情GET。
+
+| 精确响应路径 | E10声明类型与必填性 | 本片约定本地消费/展示（非已实现） |
+|---|---|---|
+| `data.current/size/total/items` | 必填integer/integer/integer/array | 页码/大小/非负total校验；源total与已保存条数分开 |
+| `data.items[].id/root_domain/status` | 必填integer/string/string，响应status未声明enum | ID无损保存、域版本内身份；域名和状态保留原值，列表/详情可见，不按IP状态枚举硬转 |
+| `data.items[].icp_date/icp_num/icp_official_name` | 三个字段均必填，均为nullable string | 备案时间/号/主体；null与空串区分，不证明客户归属 |
+| `data.items[].whois_registrant/whois_email/whois_expiration_time` | 三个字段均必填，均为nullable string | 注册主体/邮箱/有效期，详情纯文本；真实邮箱不出受控本地边界，不自动发信 |
+| `data.items[].valid_subdomain` | 必填integer | 明确“来源报告有效子域名数”，不当本地子域名列表计数，不补造明细 |
+| `data.items[].sources[]` | sources必填array；每项object的source/reason/factor均为必填string | 全部来源项结构化呈现；空array与缺失分开，字段不是外键/下载授权，不自动打开链接 |
+| `data.items[].created_at/updated_at/lastseen_at` | 三个字段均必填string，未承诺时区 | 保存源string；源创建/更新/最后发现与本地抓取/发布分别展示，不补时区 |
+
+以上14个记录字段均在E10 required中；仅六个备案/WHOIS字段声明nullable。缺字段与null不互相补齐：本片合同按必填性拒绝缺失记录，不以空值填充凑成功；其他未知字段只记字段差额。此操作未声明IP/端口的bu、tags，不迁入那些字段或伪造空数组。
+
+A04/A05/A10/A12—A15对应的主域名现场内容、长期身份、分页变化和详情差额仍**待核实**；公开示例不是当前空间样本，不改变已有32项结果。DNS、子域名、其他资产和非空风险/依据继续留在01C后续范围，非本切片验收。
+
 ## 资产覆盖
 
 | ID / 约定信息 | 实际来源及精确字段路径（未知明确写出） | 稳定键/可得性与结果 | 当前本地保存 → 候选保存/页面 | 验收方式 / 缺口 |
