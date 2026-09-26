@@ -2221,11 +2221,16 @@ function SourceAssets({
                   external_port_version: undefined,
                   external_match_page: 0,
                 })
-                heading.current?.focus()
               }
             }}
           >
-            <DialogContent className="max-h-[90vh] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-5xl">
+            <DialogContent
+              className="max-h-[90vh] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-5xl"
+              onCloseAutoFocus={(event) => {
+                event.preventDefault()
+                heading.current?.focus()
+              }}
+            >
               <DialogHeader>
                 <DialogTitle>
                   {t("Fixed-version record details", "固定版本记录详情")}
