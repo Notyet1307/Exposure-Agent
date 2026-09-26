@@ -422,6 +422,9 @@ test("root details isolate stale IP matching and retain source text and literal 
     ),
   ).toBe(false)
   await page.keyboard.press("Escape")
+  await expect(
+    page.getByRole("heading", { name: "Local asset records", exact: true }),
+  ).toBeFocused()
   await expect(page.getByLabel("Asset domain", { exact: true })).toHaveValue(
     "root_domain",
   )
