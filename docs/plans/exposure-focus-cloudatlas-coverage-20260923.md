@@ -64,6 +64,27 @@
 
 A04/A05/A10/A12—A15对应的主域名现场内容、长期身份、分页变化和详情差额仍**待核实**；公开示例不是当前空间样本，不改变已有32项结果。DNS、子域名、其他资产和非空风险/依据继续留在01C后续范围，非本切片验收。
 
+## DNS记录字段落点（2026-09-26）
+
+本段与[01C-DNS Spec](../specs/exposure-focus-release-1.md#exp-focus-01c-dnsdns记录本地阅读)及ADR窄扩展于2026-09-26获批，尚未实现或实读；仅授权规格发布、固定版本建单及入口切换。精确出处仍是E10 [固定OpenAPI](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/spec/openapi.yaml)的`paths./v1/asset/dns.get`，公开操作名为“子域名列表(列表模式)”；不要与独立`/v1/asset/subdomain`情报列表混同。
+
+请求中space为必填integer、flat为必填string；本片显式固定十进制空间、`flat="1"`、`status=valid`、`sort=-id`、page和size，不开放聚合或其他过滤。query status的valid/invalid/ignored与query rdtype的A/NS/MX/AAAA/SOA/TXT只是查询枚举；响应对应字段只声明string，不能借查询枚举裁掉响应值。page/size示例为0不构成从0起页的保证；本片消费者合同从1起，实际不符须停并记录差额。
+
+| 精确响应路径 | E10声明类型与必填性 | 批准的本地消费/展示（非已实现） |
+|---|---|---|
+| `code/message/data` | 必填integer/string/object | 成功包裹校验，错误脱敏；不持久化整个HTTP包裹 |
+| `data.current/size/total/items` | 必填integer/integer/integer/array | 页码/大小/非负total校验；源total与已保存条数、本地匹配数分开 |
+| `data.items[].id` | 必填integer | 十进制字符串无损传输/保存，域版本内身份；不推导长期稳定或跨资产身份 |
+| `data.items[].domain/subdomain` | 两个字段均必填string | 分别是源声明主域名/子域名文本；subdomain作列表名称及唯一名称搜索字段，domain在详情保留；不拼接、解析或绑定本地主域名 |
+| `data.items[].rdtype/record/status` | 三个字段均必填string，响应无enum | 列表/详情保留解析类型、解析值、状态原文；解析值即使形似IP/URL/邮箱也只是文本，不建立外键或触发外部动作 |
+| `data.items[].bu` | 必填string | 源声明分组，空串保留；不套用IP/端口bu对象，不推断客户归属；实见object须记录差额并先修订合同 |
+| `data.items[].tags[]` | tags必填array；每项object的pk/name必填integer/string | 标签ID无损字符串化，名称原文、顺序与空数组保留；不合并、推断关联或补造缺字段 |
+| `data.items[].created_at/updated_at/lastseen_at` | 三个字段均必填string，未声明时区 | 保留源时间原文与空串，另列本地抓取/发布/保留截止；不补时区或作为可靠增量水位 |
+
+共11个记录字段全部required，均未声明nullable；tags项的pk/name也未声明nullable。缺失/null/类型错误拒绝整个未封存版本，合法空字符串和空数组保留，未知属性只记录脱敏字段差额、不整包保存。DNS操作未声明root-domain的WHOIS/备案/sources，不迁入或补造这些字段；所有DNS文本只在受控本地可见，公开材料仅保留字段/类型/聚合证据。
+
+本次仅完成公开schema结构化核对，不执行DNS接口，也不把#257主域名实读迁作DNS证据。A04/A05/A10/A12—A15的DNS现场字段、身份/分页长期语义与权限差额仍待核实；原32项结果和风险/附件缺口不升级。
+
 ## 资产覆盖
 
 | ID / 约定信息 | 实际来源及精确字段路径（未知明确写出） | 稳定键/可得性与结果 | 当前本地保存 → 候选保存/页面 | 验收方式 / 缺口 |
