@@ -66,11 +66,11 @@ A04/A05/A10/A12—A15对应的主域名现场内容、长期身份、分页变�
 
 ## DNS记录字段落点（2026-09-26）
 
-本段与[01C-DNS候选Spec](../specs/exposure-focus-release-1.md#exp-focus-01c-dnsdns记录本地阅读)及ADR候选窄扩展一并待批准，尚未实现或实读。精确出处仍是E10 [固定OpenAPI](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/spec/openapi.yaml)的`paths./v1/asset/dns.get`，公开操作名为“子域名列表(列表模式)”；不要与独立`/v1/asset/subdomain`情报列表混同。
+本段与[01C-DNS Spec](../specs/exposure-focus-release-1.md#exp-focus-01c-dnsdns记录本地阅读)及ADR窄扩展于2026-09-26获批，尚未实现或实读；仅授权规格发布、固定版本建单及入口切换。精确出处仍是E10 [固定OpenAPI](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/spec/openapi.yaml)的`paths./v1/asset/dns.get`，公开操作名为“子域名列表(列表模式)”；不要与独立`/v1/asset/subdomain`情报列表混同。
 
 请求中space为必填integer、flat为必填string；本片显式固定十进制空间、`flat="1"`、`status=valid`、`sort=-id`、page和size，不开放聚合或其他过滤。query status的valid/invalid/ignored与query rdtype的A/NS/MX/AAAA/SOA/TXT只是查询枚举；响应对应字段只声明string，不能借查询枚举裁掉响应值。page/size示例为0不构成从0起页的保证；本片消费者合同从1起，实际不符须停并记录差额。
 
-| 精确响应路径 | E10声明类型与必填性 | 候选本地消费/展示（非已实现） |
+| 精确响应路径 | E10声明类型与必填性 | 批准的本地消费/展示（非已实现） |
 |---|---|---|
 | `code/message/data` | 必填integer/string/object | 成功包裹校验，错误脱敏；不持久化整个HTTP包裹 |
 | `data.current/size/total/items` | 必填integer/integer/integer/array | 页码/大小/非负total校验；源total与已保存条数、本地匹配数分开 |
