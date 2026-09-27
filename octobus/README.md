@@ -13,13 +13,18 @@ replace the legacy package, descriptor, fields or IP filter.
 `cloudatlas.rootdomains.v1.CloudAtlasRootDomainsService/ListRootDomains`.
 It does not change either existing package or their accepted hashes.
 
+`cloudatlas-dns/` is the independent `dns-v1` package. Its
+`cloudatlas-dns.hashes.json` pins only
+`cloudatlas.dns.v1.CloudAtlasDNSService/ListDNSRecords`; the three older
+packages, methods and accepted hashes remain unchanged.
+
 Run the deterministic public-Connect acceptance stack with:
 
 ```bash
 ./scripts/test-cloudatlas-fixture.sh
 ```
 
-The delivered OctoBus image pins its Node base image, `@chaitin-ai/octobus@0.1.0` and the architecture-specific release archive SHA-256 for the real `chaitin-cli@v2606.0.4`. All three packages are baked into that image, and the production Compose stack imports them idempotently before starting the backend, so a source checkout mount or separate package-provisioning step is not required.
+The delivered OctoBus image pins its Node base image, `@chaitin-ai/octobus@0.1.0` and the architecture-specific release archive SHA-256 for the real `chaitin-cli@v2606.0.4`. All four packages are baked into that image, and the production Compose stack imports them idempotently before starting the backend, so a source checkout mount or separate package-provisioning step is not required.
 
 The fixture stack uses that same image, imports the product package, binds one fixture Instance to a Capset with `include_all_methods=false`, selects only `cloudatlas.read.v1.CloudAtlasReadService/ListIPAssets`, and exercises the exact Service Package → real CLI → fixture upstream read-only GET chain. It uses test-only tokens and does not contact a real CloudAtlas; the authorized real-environment read-only [canary](../docs/runbooks/cloudatlas-canary.md) remains a deployment gate.
 
@@ -92,3 +97,39 @@ node --test tests/cloudatlas_fixture/verify_root_domains_contract.mjs
 Verify new hashes through the pinned image as above. Synthetic checks do not
 authorize real-source calls: root-domain acceptance requires a new explicit
 scope, budget, private-retention deadline and cleanup authorization.
+
+## Independent DNS package
+
+Use a separate `cloudatlas-dns` Instance/Capset with `include_all_methods=false`
+and only `ListDNSRecords`. Configure the same HTTPS `/openapi/` origin and
+decimal-string space, with the upstream TOKEN held only in an OctoBus Secret.
+Set `CLOUDATLAS_DNS_CAPSET_TOKEN` in backend and `cloudatlas-sync`; an empty
+value denies new DNS calls and never falls back to another profile's token.
+Select `dns-v1` on the external-assets page, validate metadata, then explicitly
+enable synchronization. Existing token permissions are not DNS authorization.
+
+Only `GET /openapi/v1/asset/dns` is issued, with fixed `flat=1`, `status=valid`
+and `sort=-id`. All 11 approved fields are required and non-null; empty strings
+and tag arrays remain valid. Source IDs and tag IDs stay decimal strings.
+`bu` is text, and returned `rdtype`/`status` are source strings, not query enums.
+Record values remain text: no DNS resolution, URL visits, IP parsing or links
+to assets. The TLS, byte-limit, deadline and no-retry protections above apply.
+
+A sync creates only a `dns` version. Its page quota is
+`min(max_pages, floor(max_records / page_size))`; `20/1/20` is a valid one-page
+budget. Normal quota completion publishes a sealed partial version, not a
+complete result. Local search is a case-insensitive literal substring of
+`subdomain` only. Lists, pagination, fixed-version details and history use
+PostgreSQL without source calls. Expiry denies access immediately; cleanup
+remains source-scoped. Migration downgrade refuses while any DNS source,
+task, version or head exists.
+
+```bash
+node --test tests/cloudatlas_fixture/verify_dns_contract.mjs
+```
+
+Verify the new package hashes through the pinned image's official import.
+These synthetic checks do not satisfy ACDNS-6: real DNS reads require fresh,
+explicit method/scope/budget and absolute retention/cleanup authorization in
+[#262](https://github.com/Notyet1307/Exposure-Agent/issues/262). Do not reuse
+legacy, IP/port or root-domain acceptance credentials or permissions.

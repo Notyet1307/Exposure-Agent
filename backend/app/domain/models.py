@@ -568,12 +568,13 @@ class SourceInstance(SQLModel, table=True):
     __tablename__: ClassVar[str] = "source_instances"
     __table_args__ = (
         CheckConstraint(
-            "source_type IN ('cloudatlas', 'cloudatlas_root_domains')",
+            "source_type IN ('cloudatlas', 'cloudatlas_root_domains', 'cloudatlas_dns')",
             name="ck_source_instances_type",
         ),
         CheckConstraint(
             "((source_type = 'cloudatlas' AND capability_profile IN ('legacy-ip-v1', 'assets-v1')) OR "
-            "(source_type = 'cloudatlas_root_domains' AND capability_profile = 'root-domains-v1')) AND "
+            "(source_type = 'cloudatlas_root_domains' AND capability_profile = 'root-domains-v1') OR "
+            "(source_type = 'cloudatlas_dns' AND capability_profile = 'dns-v1')) AND "
             "(capability_profile = 'legacy-ip-v1' OR space_id IS NOT NULL)",
             name="ck_source_instances_profile",
         ),

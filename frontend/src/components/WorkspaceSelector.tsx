@@ -116,6 +116,7 @@ export default function WorkspaceSelector() {
                   external_port_version: undefined,
                   external_ip: undefined,
                   external_root_domain: undefined,
+                  external_subdomain: undefined,
                   external_status: undefined,
                   external_task: undefined,
                   external_page: 0,

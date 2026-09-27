@@ -19,7 +19,7 @@ from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
 
-Domain = Literal["ip", "port", "root_domain"]
+Domain = Literal["ip", "port", "root_domain", "dns"]
 SyncStatus = Literal[
     "PENDING",
     "RUNNING",
@@ -93,7 +93,8 @@ class ExternalAssetVersion(SQLModel, table=True):
         UniqueConstraint("sync_id", "domain", name="uq_external_version_domain"),
         UniqueConstraint("id", "source_id", "domain", name="uq_external_version_scope"),
         CheckConstraint(
-            "domain IN ('ip','port','root_domain')", name="ck_external_version_domain"
+            "domain IN ('ip','port','root_domain','dns')",
+            name="ck_external_version_domain",
         ),
         CheckConstraint(
             "status IN ('PENDING','RUNNING','PUBLISHED','FAILED','UNKNOWN')",
@@ -157,7 +158,7 @@ class ExternalAssetHead(SQLModel, table=True):
 
 class ExternalSourceCreate(SQLModel):
     model_config = SQLModel.model_config | {"extra": "forbid"}
-    capability_profile: Literal["assets-v1", "root-domains-v1"] = "assets-v1"
+    capability_profile: Literal["assets-v1", "root-domains-v1", "dns-v1"] = "assets-v1"
     instance_id: str = Field(min_length=1, max_length=255)
     capset_id: str = Field(min_length=1, max_length=255)
     space_id: Annotated[
@@ -183,7 +184,7 @@ class ExternalSourcePublic(SQLModel):
     instance_id: str
     capset_id: str
     space_id: str
-    capability_profile: Literal["assets-v1", "root-domains-v1"]
+    capability_profile: Literal["assets-v1", "root-domains-v1", "dns-v1"]
     enabled: bool
     data_access_enabled: bool
     validation_status: str

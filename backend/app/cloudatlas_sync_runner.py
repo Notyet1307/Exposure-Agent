@@ -29,7 +29,7 @@ def main() -> int:
                     .where(
                         SourceInstance.id == source_id,
                         col(SourceInstance.capability_profile).in_(
-                            ("assets-v1", "root-domains-v1")
+                            ("assets-v1", "root-domains-v1", "dns-v1")
                         ),
                     )
                     .with_for_update()

@@ -36,8 +36,10 @@ from app.integrations.agent_compose import (
     AgentComposeSessionObservation,
 )
 from app.integrations.cloudatlas_assets import OctobusCloudAtlasAssetsClient
+from app.integrations.cloudatlas_dns import OctobusCloudAtlasDNSClient
 from app.integrations.cloudatlas_root_domains import OctobusCloudAtlasRootDomainsClient
 from app.models import User
+from tests.integrations.test_cloudatlas_dns import dns_row
 
 
 @pytest.fixture
@@ -1603,3 +1605,451 @@ def test_root_database_rejects_expired_seal_and_legacy_null_addresses(
             ),
             {"id": version.id},
         )
+
+
+@pytest.fixture
+def dns_assets(roots: SimpleNamespace, monkeypatch: MonkeyPatch) -> SimpleNamespace:
+    roots.root_path = roots.path
+    monkeypatch.setattr(
+        settings, "CLOUDATLAS_DNS_CAPSET_TOKEN", SecretStr("synthetic-dns-token")
+    )
+
+    def credentials(
+        _self: Any, _source: SourceInstance, *, capset_token: str
+    ) -> CloudAtlasFingerprint:
+        assert capset_token == "synthetic-dns-token"
+        return CloudAtlasFingerprint("e" * 64)
+
+    monkeypatch.setattr(OctobusCloudAtlasDNSClient, "validate_credentials", credentials)
+    response = roots.client.post(
+        roots.base + "/sources",
+        headers=roots.headers,
+        json={
+            "instance_id": "synthetic-dns",
+            "capset_id": "dns-only",
+            "space_id": "7",
+            "capability_profile": "dns-v1",
+        },
+    )
+    assert response.status_code == 201, response.text
+    roots.source_id = response.json()["id"]
+    roots.path = roots.base + "/sources/" + roots.source_id
+    assert (
+        roots.client.post(roots.path + "/validate", headers=roots.headers).json()[
+            "validation_status"
+        ]
+        == "validated"
+    )
+    assert (
+        roots.client.patch(
+            roots.path, headers=roots.headers, json={"enabled": True}
+        ).status_code
+        == 200
+    )
+    roots.pages["dns"] = [[dns_row()], [dns_row(2)]]
+    return roots
+
+
+def test_dns_single_domain_literal_search_identity_and_offline_detail(
+    dns_assets: SimpleNamespace,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    state = dns_assets
+    state.pages["dns"] = [
+        [
+            dns_row(9007199254740993 + n, "A%_\\B.test" if n < 2 else "other.test")
+            for n in range(20)
+        ],
+        [dns_row(30)],
+    ]
+    sync = submit(state, "dns-batch", page_size=20, max_pages=1, max_records=20)
+    assert (
+        submit(state, "dns-batch", page_size=20, max_pages=1, max_records=20)["id"]
+        == sync["id"]
+    )
+    reserved = state.db.get(ExternalSync, uuid.UUID(sync["id"]))
+    assert reserved is not None and reserved.request["flat"] == "1"
+    result = execute(state, sync)
+    assert result["status"] == "PARTIAL_SUCCEEDED"
+    assert [d["domain"] for d in result["domains"]] == ["dns"]
+    assert state.calls == [("dns", 1)] and state.starts == 1
+    batch = listing(state, "dns")
+    assert (
+        batch["count"],
+        batch["version"]["expected_total"],
+        batch["version"]["complete"],
+    ) == (20, 21, False)
+    assert batch["version"]["filter"] == {"flat": "1", "status": "valid"}
+    for method in ("validate_credentials", "list_page"):
+        monkeypatch.setattr(
+            OctobusCloudAtlasDNSClient,
+            method,
+            lambda *a, **k: pytest.fail("local DNS read reached source"),
+        )
+    found = listing(state, "dns", subdomain="a%_\\b", limit=1)
+    row = found["data"][0]
+    assert found["count"] == 2 and row["fields"] == dns_row(
+        9007199254740993, "A%_\\B.test"
+    )
+    assert row["ip"] is None and row["canonical_ip"] is None
+    assert (
+        listing(state, "dns", subdomain="a%_\\b", skip=1)["data"][0]["source_id"]
+        == "9007199254740994"
+    )
+    assert listing(state, "dns", subdomain="2001:db8")["count"] == 0
+    detail = state.client.get(
+        state.path + f"/versions/{batch['version']['id']}/records/{row['id']}",
+        headers=state.headers,
+    ).json()
+    assert (
+        detail["record"] == row
+        and detail["matched_ports"] == []
+        and detail["port_version"] is None
+    )
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "bu",
+        "missing",
+        "tags",
+        "duplicate",
+        "total",
+        "early-empty",
+        "page",
+        "overflow",
+        "disconnect",
+        "fingerprint",
+    ],
+)
+def test_dns_unsealed_failure_preserves_complete_and_partial_history(
+    dns_assets: SimpleNamespace,
+    monkeypatch: MonkeyPatch,
+    fault: str,
+) -> None:
+    state = dns_assets
+    assert execute(state, submit(state))["status"] == "SUCCEEDED"
+    complete = listing(state, "dns")["version"]["id"]
+    state.now += timedelta(seconds=1)
+    assert execute(state, submit(state, max_pages=1))["status"] == "PARTIAL_SUCCEEDED"
+    partial = listing(state, "dns")["version"]["id"]
+    state.calls.clear()
+
+    def failure(_domain: str, number: int) -> dict[str, Any] | None:
+        if number != 2:
+            return None
+        row = dns_row(2)
+        if fault == "bu":
+            row["bu"] = {"id": "1", "name": ""}
+        elif fault == "missing":
+            del row["record"]
+        elif fault == "tags":
+            row["tags"] = [{"pk": "1"}]
+        elif fault == "duplicate":
+            row["id"] = "9007199254740993"
+        elif fault == "disconnect":
+            raise CloudAtlasBoundaryError("cloudatlas_connectivity_failed")
+        elif fault == "fingerprint":
+            monkeypatch.setattr(
+                OctobusCloudAtlasDNSClient,
+                "validate_credentials",
+                lambda *a, **k: CloudAtlasFingerprint("f" * 64),
+            )
+        return {
+            "page": 3 if fault == "page" else 2,
+            "size": 1,
+            "total": 3 if fault == "total" else 2,
+            "space_id": "7",
+            "items": []
+            if fault == "early-empty"
+            else [row, dns_row(3)]
+            if fault == "overflow"
+            else [row],
+        }
+
+    state.failure = failure
+    sync = submit(state)
+    assert execute(state, sync)["status"] == (
+        "UNKNOWN" if fault == "disconnect" else "FAILED"
+    )
+    state.observation = AgentComposeSessionObservation.TERMINAL
+    assert (
+        state.client.post(
+            state.path + "/syncs/" + sync["id"] + "/reconcile", headers=state.headers
+        ).json()["status"]
+        == "FAILED"
+    )
+    history = state.client.get(
+        state.path + "/versions", headers=state.headers, params={"domain": "dns"}
+    ).json()
+    assert (
+        history["count"] == 2 and history["latest_complete_version"]["id"] == complete
+    )
+    assert listing(state, "dns")["version"]["id"] == partial
+    assert state.calls == [("dns", 1), ("dns", 2)] and state.starts == 3
+
+
+def test_dns_original_session_only_recovers_trusted_seal(
+    dns_assets: SimpleNamespace, monkeypatch: MonkeyPatch
+) -> None:
+    state = dns_assets
+    publish = service.publish
+
+    def interrupt(*_a: Any, **_k: Any) -> None:
+        raise service.SyncError("external_session_unknown", unknown=True)
+
+    monkeypatch.setattr(service, "publish", interrupt)
+    sync = submit(state, "dns-sealed", max_pages=1)
+    assert execute(state, sync)["status"] == "UNKNOWN"
+    assert listing(state, "dns")["state"] == "NOT_SYNCED"
+    assert submit(state, "dns-sealed", max_pages=1)["id"] == sync["id"]
+    assert (
+        state.client.post(
+            state.path + "/syncs",
+            headers=state.headers | {"Idempotency-Key": "replacement"},
+            json=state.body,
+        ).status_code
+        == 409
+    )
+    monkeypatch.setattr(service, "publish", publish)
+    path = state.path + "/syncs/" + sync["id"] + "/reconcile"
+    assert state.client.post(path, headers=state.headers).json()["status"] == "UNKNOWN"
+    state.observation = AgentComposeSessionObservation.TERMINAL
+    original = state.runs[sync["agent_run_id"]]
+    state.runs[sync["agent_run_id"]] = replace(original, session_id="wrong")
+    assert state.client.post(path, headers=state.headers).json()["status"] == "UNKNOWN"
+    state.runs[sync["agent_run_id"]] = original
+    assert (
+        state.client.post(path, headers=state.headers).json()["status"]
+        == "PARTIAL_SUCCEEDED"
+    )
+    assert (
+        listing(state, "dns")["count"] == 1
+        and state.calls == [("dns", 1)]
+        and state.starts == 1
+    )
+
+
+def test_dns_scope_roles_archival_and_separate_token(
+    dns_assets: SimpleNamespace,
+    monkeypatch: MonkeyPatch,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    state = dns_assets
+    profiles = state.client.get(state.base + "/sources", headers=state.headers).json()[
+        "data"
+    ]
+    assert {s["capability_profile"] for s in profiles if s["enabled"]} == {
+        "assets-v1",
+        "root-domains-v1",
+        "dns-v1",
+    }
+    monkeypatch.setattr(settings, "CLOUDATLAS_ASSETS_CAPSET_TOKEN", SecretStr(""))
+    monkeypatch.setattr(settings, "CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN", SecretStr(""))
+    assert execute(state, submit(state))["status"] == "SUCCEEDED"
+    batch = listing(state, "dns")
+    suffix = f"/versions/{batch['version']['id']}/records/{batch['data'][0]['id']}"
+    for other_path in (state.assets_path, state.root_path):
+        assert (
+            state.client.get(other_path + suffix, headers=state.headers).status_code
+            == 404
+        )
+        assert (
+            state.client.get(
+                other_path + "/records", headers=state.headers, params={"domain": "dns"}
+            ).status_code
+            == 422
+        )
+    for params in (
+        {"domain": "ip"},
+        {"domain": "root_domain"},
+        {"domain": "dns", "ip": "192.0.2.1"},
+        {"domain": "dns", "root_domain": "test"},
+    ):
+        assert (
+            state.client.get(
+                state.path + "/records", headers=state.headers, params=params
+            ).status_code
+            == 422
+        )
+    assert (
+        state.client.get(
+            state.path + suffix,
+            headers=state.headers,
+            params={"port_version_id": batch["version"]["id"]},
+        ).status_code
+        == 422
+    )
+    member = add_member(state, "viewer")
+    assert (
+        state.client.get(
+            state.path + suffix, headers=normal_user_token_headers
+        ).status_code
+        == 200
+    )
+    assert (
+        state.client.post(
+            state.path + "/syncs",
+            headers=normal_user_token_headers | {"Idempotency-Key": "viewer-dns"},
+            json=state.body,
+        ).status_code
+        == 404
+    )
+    state.db.delete(member)
+    state.db.commit()
+    assert (
+        state.client.get(
+            state.path + suffix, headers=normal_user_token_headers
+        ).status_code
+        == 404
+    )
+    monkeypatch.setattr(settings, "CLOUDATLAS_DNS_CAPSET_TOKEN", SecretStr(""))
+    assert (
+        state.client.post(
+            state.path + "/syncs",
+            headers=state.headers | {"Idempotency-Key": "zero-token"},
+            json=state.body,
+        ).status_code
+        == 409
+    )
+    assert (
+        state.client.patch(
+            state.path, headers=state.headers, json={"enabled": False}
+        ).status_code
+        == 200
+    )
+    assert (
+        state.client.get(state.path + suffix, headers=state.headers).status_code == 200
+    )
+    project = state.db.get(Project, uuid.UUID(state.project_id))
+    assert project is not None
+    project.archived_at = get_datetime_utc()
+    state.db.add(project)
+    state.db.commit()
+    assert (
+        state.client.get(state.path + suffix, headers=state.headers).status_code == 200
+    )
+    assert (
+        state.client.post(
+            state.path + "/syncs",
+            headers=state.headers | {"Idempotency-Key": "archived-dns"},
+            json=state.body,
+        ).status_code
+        == 409
+    )
+    source = state.db.get(SourceInstance, uuid.UUID(state.source_id))
+    assert source is not None
+    source.data_access_enabled = False
+    state.db.add(source)
+    state.db.commit()
+    assert (
+        state.client.get(state.path + suffix, headers=state.headers).status_code == 403
+    )
+    assert state.starts == 1 and state.calls == [("dns", 1), ("dns", 2)]
+
+
+def test_dns_empty_expiry_and_source_scoped_cleanup(
+    dns_assets: SimpleNamespace,
+) -> None:
+    state = dns_assets
+    dns_path = state.path
+    state.path = state.root_path
+    assert execute(state, submit(state))["status"] == "SUCCEEDED"
+    root_version = uuid.UUID(listing(state, "root_domain")["version"]["id"])
+    state.path = dns_path
+    state.pages["dns"] = [[]]
+    assert listing(state, "dns")["state"] == "NOT_SYNCED"
+    assert execute(state, submit(state, max_pages=1))["status"] == "SUCCEEDED"
+    empty = listing(state, "dns")
+    assert (
+        empty["state"] == "PUBLISHED"
+        and empty["count"] == 0
+        and empty["version"]["complete"]
+    )
+    state.pages["dns"] = [[dns_row()]]
+    assert (
+        execute(
+            state,
+            submit(
+                state,
+                max_pages=1,
+                retain_until=(get_datetime_utc() + timedelta(seconds=2)).isoformat(),
+            ),
+        )["status"]
+        == "SUCCEEDED"
+    )
+    batch = listing(state, "dns")
+    state.db.execute(text("SELECT pg_sleep(2)"))
+    state.db.commit()
+    state.now += timedelta(hours=2)
+    assert listing(state, "dns")["state"] == "EXPIRED"
+    suffix = f"/versions/{batch['version']['id']}/records/{batch['data'][0]['id']}"
+    assert (
+        state.client.get(state.path + suffix, headers=state.headers).status_code == 410
+    )
+    assert state.client.post(
+        state.path + "/purge-expired", headers=state.headers
+    ).json() == {"deleted_records": 1}
+    assert (
+        state.db.exec(
+            select(ExternalAssetRecord).where(
+                ExternalAssetRecord.version_id == uuid.UUID(batch["version"]["id"])
+            )
+        ).all()
+        == []
+    )
+    assert (
+        len(
+            state.db.exec(
+                select(ExternalAssetRecord).where(
+                    ExternalAssetRecord.version_id == root_version
+                )
+            ).all()
+        )
+        == 2
+    )
+
+
+def test_dns_database_guards_freeze_flat_scope_and_refuse_false_seals(
+    dns_assets: SimpleNamespace,
+) -> None:
+    state = dns_assets
+    sync = submit(state, max_pages=1)
+    version = state.db.exec(
+        select(ExternalAssetVersion).where(
+            ExternalAssetVersion.sync_id == uuid.UUID(sync["id"])
+        )
+    ).one()
+    params = {
+        "source": uuid.UUID(state.source_id),
+        "sync": uuid.UUID(sync["id"]),
+        "version": version.id,
+    }
+    for statement in (
+        "UPDATE source_instances SET source_type='cloudatlas', capability_profile='assets-v1' WHERE id=:source",
+        "UPDATE external_syncs SET request=jsonb_set(request, '{flat}', '\"0\"') WHERE id=:sync",
+        'UPDATE external_asset_versions SET filter=\'{"status":"valid"}\'::jsonb WHERE id=:version',
+        "UPDATE external_asset_versions SET domain='root_domain' WHERE id=:version",
+        "UPDATE external_asset_versions SET status='PUBLISHED', complete=true, expected_total=0, pages_read=1, stop_reason='source_complete', fetched_at=now(), published_at=now() WHERE id=:version",
+    ):
+        with pytest.raises(SQLAlchemyError), state.db.begin_nested():
+            state.db.execute(text(statement), params)
+    state.db.execute(
+        text("UPDATE external_asset_versions SET status='RUNNING' WHERE id=:version"),
+        params,
+    )
+    for fields, ip in (
+        (dns_row(1), "2001:db8::1"),
+        ({**dns_row(1), "bu": {}}, None),
+        ({**dns_row(1), "tags": [{"pk": "1"}]}, None),
+    ):
+        with pytest.raises(SQLAlchemyError), state.db.begin_nested():
+            state.db.add(
+                ExternalAssetRecord(
+                    version_id=version.id, source_id="1", ip=ip, fields=fields
+                )
+            )
+            state.db.flush()
+    state.db.rollback()
+    assert execute(state, sync)["status"] == "PARTIAL_SUCCEEDED"
