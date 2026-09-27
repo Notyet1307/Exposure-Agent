@@ -1918,7 +1918,7 @@ export const ExternalDomainPublicSchema = {
     properties: {
         domain: {
             type: 'string',
-            enum: ['ip', 'port', 'root_domain'],
+            enum: ['ip', 'port', 'root_domain', 'dns'],
             title: 'Domain'
         },
         status: {
@@ -2126,7 +2126,7 @@ export const ExternalSourceCreateSchema = {
     properties: {
         capability_profile: {
             type: 'string',
-            enum: ['assets-v1', 'root-domains-v1'],
+            enum: ['assets-v1', 'root-domains-v1', 'dns-v1'],
             title: 'Capability Profile',
             default: 'assets-v1'
         },
@@ -2177,7 +2177,7 @@ export const ExternalSourcePublicSchema = {
         },
         capability_profile: {
             type: 'string',
-            enum: ['assets-v1', 'root-domains-v1'],
+            enum: ['assets-v1', 'root-domains-v1', 'dns-v1'],
             title: 'Capability Profile'
         },
         enabled: {
@@ -2446,7 +2446,7 @@ export const ExternalVersionPublicSchema = {
         },
         domain: {
             type: 'string',
-            enum: ['ip', 'port', 'root_domain'],
+            enum: ['ip', 'port', 'root_domain', 'dns'],
             title: 'Domain'
         },
         space_id: {

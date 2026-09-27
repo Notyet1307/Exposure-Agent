@@ -1,0 +1,19 @@
+{
+  "schema": "chaitin.octobus.service.v1",
+  "name": "cloudatlas-dns",
+  "displayName": "Cloud Atlas DNS Records",
+  "description": "Bounded read-only flat DNS records.",
+  "runtime": {
+    "mode": "on-demand"
+  },
+  "proto": {
+    "roots": [
+      "proto"
+    ],
+    "files": [
+      "proto/cloudatlas_dns.proto"
+    ]
+  },
+  "configSchema": "config.schema.json",
+  "secretSchema": "secret.schema.json"
+}

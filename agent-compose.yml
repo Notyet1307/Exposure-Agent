@@ -65,6 +65,9 @@ agents:
       CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN:
         value: "${CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN}"
         secret: true
+      CLOUDATLAS_DNS_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_DNS_CAPSET_TOKEN}"
+        secret: true
       AGENT_COMPOSE_URL: http://agent-compose:7410
       AGENT_COMPOSE_AUTH_TOKEN:
         value: ${AGENT_COMPOSE_AUTH_TOKEN}

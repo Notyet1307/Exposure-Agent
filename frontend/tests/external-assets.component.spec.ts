@@ -12,7 +12,13 @@ const retention = "2099-01-01T00:00:00Z"
 
 // Synthetic HTTP responses exercise the real generated service and real route.
 // This is not an OctoBus or CloudAtlas integration test.
-async function serve(page: Page, rootDomains = false) {
+async function serve(
+  page: Page,
+  profile: "assets-v1" | "root-domains-v1" | "dns-v1" = "assets-v1",
+) {
+  const rootDomains = profile === "root-domains-v1"
+  const dnsRecords = profile === "dns-v1"
+  const singleDomain = rootDomains || dnsRecords
   const state = {
     denied: false,
     expired: false,
@@ -26,15 +32,15 @@ async function serve(page: Page, rootDomains = false) {
   const version = {
     id: ipVersion,
     source_id: source,
-    domain: rootDomains ? "root_domain" : "ip",
+    domain: dnsRecords ? "dns" : rootDomains ? "root_domain" : "ip",
     space_id: "7",
     status: "PUBLISHED",
     record_count: 1,
-    complete: !rootDomains,
-    expected_total: rootDomains ? 200 : 1,
+    complete: !singleDomain,
+    expected_total: singleDomain ? 200 : 1,
     pages_read: 1,
-    stop_reason: rootDomains ? "batch_limit" : "source_complete",
-    filter: { status: "valid" },
+    stop_reason: singleDomain ? "batch_limit" : "source_complete",
+    filter: dnsRecords ? { flat: "1", status: "valid" } : { status: "valid" },
     sort: "-id",
     fingerprint: "a".repeat(64),
     fetched_at: stamp,
@@ -45,49 +51,65 @@ async function serve(page: Page, rootDomains = false) {
     id: recordId,
     version_id: ipVersion,
     source_id: "9007199254740993",
-    ip: rootDomains ? null : "2001:db8::7",
-    canonical_ip: rootDomains ? null : "2001:db8::7",
-    fields: rootDomains
+    ip: singleDomain ? null : "2001:db8::7",
+    canonical_ip: singleDomain ? null : "2001:db8::7",
+    fields: dnsRecords
       ? {
           id: "9007199254740993",
-          root_domain: "Example.test",
-          status: "valid",
-          icp_date: null,
-          icp_num: "",
-          icp_official_name: "<img src=x onerror=alert(1)>",
-          whois_registrant: null,
-          whois_email: "synthetic@example.test",
-          whois_expiration_time: null,
-          valid_subdomain: 57,
-          sources: [
-            {
-              source: "synthetic",
-              reason: "<script>bad()</script>",
-              factor: "https://example.test/never-fetch",
-            },
+          domain: "Example.test",
+          subdomain: "A%_\\B.Example.test",
+          rdtype: "CNAME",
+          record: `<script>text-only</script> https://example.test/never-fetch ${"x".repeat(512)}`,
+          status: "source-declared",
+          bu: "",
+          tags: [
+            { pk: "9007199254740993123456789", name: "Synthetic DNS tag" },
           ],
-          created_at: "2026-09-01 10:00:00",
-          updated_at: "2026-09-01 12:34:56",
-          lastseen_at: "2026-09-01 12:00:00",
+          created_at: "",
+          updated_at: "2026-09-27 01:02:03",
+          lastseen_at: "",
         }
-      : {
-          id: "9007199254740993",
-          ip: "2001:db8::7",
-          status: "valid",
-          bu: { id: "9007199254740995", name: "Synthetic private group" },
-          tags: [],
-          provider: null,
-          subnet: "",
-          updated_at: "2026-09-01 12:34:56",
-          sources: [
-            {
-              source: "synthetic",
-              reason: "<img src=x onerror=alert(1)>",
-              factor: 1,
-              lastseen_at: "2026-09-01 12:34:56",
-            },
-          ],
-        },
+      : rootDomains
+        ? {
+            id: "9007199254740993",
+            root_domain: "Example.test",
+            status: "valid",
+            icp_date: null,
+            icp_num: "",
+            icp_official_name: "<img src=x onerror=alert(1)>",
+            whois_registrant: null,
+            whois_email: "synthetic@example.test",
+            whois_expiration_time: null,
+            valid_subdomain: 57,
+            sources: [
+              {
+                source: "synthetic",
+                reason: "<script>bad()</script>",
+                factor: "https://example.test/never-fetch",
+              },
+            ],
+            created_at: "2026-09-01 10:00:00",
+            updated_at: "2026-09-01 12:34:56",
+            lastseen_at: "2026-09-01 12:00:00",
+          }
+        : {
+            id: "9007199254740993",
+            ip: "2001:db8::7",
+            status: "valid",
+            bu: { id: "9007199254740995", name: "Synthetic private group" },
+            tags: [],
+            provider: null,
+            subnet: "",
+            updated_at: "2026-09-01 12:34:56",
+            sources: [
+              {
+                source: "synthetic",
+                reason: "<img src=x onerror=alert(1)>",
+                factor: 1,
+                lastseen_at: "2026-09-01 12:34:56",
+              },
+            ],
+          },
   }
   await page.addInitScript(() =>
     localStorage.setItem("access_token", "synthetic-component-token"),
@@ -114,7 +136,7 @@ async function serve(page: Page, rootDomains = false) {
               instance_id: "synthetic-assets",
               capset_id: "synthetic-capset",
               space_id: "7",
-              capability_profile: rootDomains ? "root-domains-v1" : "assets-v1",
+              capability_profile: profile,
               enabled: state.enabled,
               data_access_enabled: true,
               validation_status: "validated",
@@ -145,7 +167,7 @@ async function serve(page: Page, rootDomains = false) {
         state.tasks.set(key, {
           id: taskId,
           source_id: source,
-          status: rootDomains ? "PARTIAL_SUCCEEDED" : "SUCCEEDED",
+          status: singleDomain ? "PARTIAL_SUCCEEDED" : "SUCCEEDED",
           created_at: stamp,
           started_at: stamp,
           completed_at: stamp,
@@ -155,16 +177,16 @@ async function serve(page: Page, rootDomains = false) {
           session_id: "synthetic-session",
           domains: [
             {
-              domain: rootDomains ? "root_domain" : "ip",
+              domain: dnsRecords ? "dns" : rootDomains ? "root_domain" : "ip",
               status: "PUBLISHED",
               version_id: ipVersion,
               record_count: 1,
-              complete: !rootDomains,
-              expected_total: rootDomains ? 200 : 1,
+              complete: !singleDomain,
+              expected_total: singleDomain ? 200 : 1,
               pages_read: 1,
               error_code: null,
             },
-            ...(rootDomains
+            ...(singleDomain
               ? []
               : [
                   {
@@ -237,12 +259,16 @@ async function serve(page: Page, rootDomains = false) {
     if (url.pathname.endsWith("/records")) {
       const matches =
         !state.expired &&
-        (!rootDomains ||
-          row.fields.root_domain
-            ?.toLowerCase()
-            .includes(
-              (url.searchParams.get("root_domain") ?? "").toLowerCase(),
-            ))
+        (dnsRecords
+          ? row.fields.subdomain
+              ?.toLowerCase()
+              .includes((url.searchParams.get("subdomain") ?? "").toLowerCase())
+          : !rootDomains ||
+            row.fields.root_domain
+              ?.toLowerCase()
+              .includes(
+                (url.searchParams.get("root_domain") ?? "").toLowerCase(),
+              ))
       return route.fulfill({
         json: {
           data: matches ? [row] : [],
@@ -385,7 +411,7 @@ test("expired pointer never falls back to cached data and cleanup remains usable
 test("root details isolate stale IP matching and retain source text and literal local search", async ({
   page,
 }) => {
-  await serve(page, true)
+  await serve(page, "root-domains-v1")
   const requests: URL[] = []
   page.on("request", (request) => {
     if (request.url().includes("/external-assets/"))
@@ -462,4 +488,70 @@ test("root details isolate stale IP matching and retain source text and literal 
   await expect(
     page.getByText("Batch completed — not full", { exact: true }).first(),
   ).toBeVisible()
+})
+
+test("DNS flat records keep literal search, escaped detail, keyboard focus and revoked cache isolated", async ({
+  page,
+}) => {
+  const state = await serve(page, "dns-v1")
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(
+    `${routePath}&external_domain=dns&external_ip=192.0.2.1&external_root_domain=stale&external_port_version=${portVersion}&external_match_page=2`,
+  )
+  await expect(page.getByLabel("Asset domain", { exact: true })).toHaveValue(
+    "dns",
+  )
+  await expect(
+    page.getByRole("columnheader", { name: "Record type", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("columnheader", { name: "Business group", exact: true }),
+  ).toHaveCount(0)
+  await page.getByLabel("Subdomain contains (local text)").fill("a%_\\b")
+  await page
+    .getByRole("button", { name: "Filter local records", exact: true })
+    .click()
+  const open = page.getByRole("link", { name: /Details for A%_/ })
+  await open.focus()
+  await page.keyboard.press("Enter")
+  const dialog = page.getByRole("dialog")
+  await expect(
+    dialog.getByText("9007199254740993123456789", { exact: true }),
+  ).toBeVisible()
+  await expect(dialog.getByText("CNAME", { exact: true })).toBeVisible()
+  await expect(
+    dialog.getByText("<script>text-only</script>", { exact: false }),
+  ).toBeVisible()
+  await expect(dialog.getByText("Canonical IP", { exact: false })).toHaveCount(
+    0,
+  )
+  await expect(dialog.getByLabel("Explicit port version")).toHaveCount(0)
+  await expect(
+    dialog.locator("img, script, a[href^='https:'], a[href^='mailto:']"),
+  ).toHaveCount(0)
+  await page.keyboard.press("Escape")
+  await expect(
+    page.getByRole("heading", { name: "Local asset records", exact: true }),
+  ).toBeFocused()
+  await page.getByLabel("Subdomain contains (local text)").fill("never-fetch")
+  await page
+    .getByRole("button", { name: "Filter local records", exact: true })
+    .click()
+  await expect(
+    page.getByText("No records match these local filters or page.", {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Clear filters", exact: true }).click()
+  await expect(
+    page.getByRole("cell", { name: "A%_\\B.Example.test", exact: true }),
+  ).toBeVisible()
+  state.denied = true
+  await page
+    .getByRole("button", { name: "Read latest local version", exact: true })
+    .click()
+  await expect(page.getByRole("alert")).toBeVisible()
+  await expect(
+    page.getByRole("cell", { name: "A%_\\B.Example.test", exact: true }),
+  ).toHaveCount(0)
 })

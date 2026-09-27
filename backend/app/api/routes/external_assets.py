@@ -60,7 +60,7 @@ def read_external_sources(
         .where(
             SourceInstance.project_id == project.id,
             col(SourceInstance.capability_profile).in_(
-                ("assets-v1", "root-domains-v1")
+                ("assets-v1", "root-domains-v1", "dns-v1")
             ),
         )
         .order_by(col(SourceInstance.created_at).desc(), col(SourceInstance.id))
@@ -84,11 +84,11 @@ def create_external_source(
     source = SourceInstance(
         project_id=project.id,
         tenant_id=project.tenant_id,
-        source_type=(
-            "cloudatlas_root_domains"
-            if request.capability_profile == "root-domains-v1"
-            else "cloudatlas"
-        ),
+        source_type={
+            "assets-v1": "cloudatlas",
+            "root-domains-v1": "cloudatlas_root_domains",
+            "dns-v1": "cloudatlas_dns",
+        }[request.capability_profile],
         **request.model_dump(),
     )
     session.add(source)
@@ -324,6 +324,7 @@ def read_external_records(
     version_id: uuid.UUID | None = None,
     ip: Annotated[str | None, Query(max_length=45)] = None,
     root_domain: Annotated[str | None, Query(max_length=1024)] = None,
+    subdomain: Annotated[str | None, Query(max_length=1024)] = None,
     status: Annotated[str | None, Query(max_length=100)] = None,
     skip: Skip = 0,
     limit: Limit = 25,
@@ -337,6 +338,7 @@ def read_external_records(
         version_id=version_id,
         ip=ip,
         root_domain=root_domain,
+        subdomain=subdomain,
         status=status,
         skip=skip,
         limit=limit,

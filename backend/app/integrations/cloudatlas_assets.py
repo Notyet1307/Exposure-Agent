@@ -79,6 +79,19 @@ _FIELDS = {
         "updated_at": "string",
         "lastseen_at": "string",
     },
+    "dns": {
+        "id": "identity",
+        "domain": "string",
+        "subdomain": "string",
+        "rdtype": "string",
+        "record": "string",
+        "status": "string",
+        "bu": "string",
+        "tags": [{"pk": "identity", "name": "string"}],
+        "created_at": "string",
+        "updated_at": "string",
+        "lastseen_at": "string",
+    },
 }
 
 
@@ -122,11 +135,17 @@ def normalize_items(items: Any, domain: str) -> list[dict[str, Any]]:
         _fail()
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
+    identity_field = (
+        "subdomain"
+        if domain == "dns"
+        else "root_domain"
+        if domain == "root_domain"
+        else "ip"
+    )
     for item in items:
-        identity_field = "root_domain" if domain == "root_domain" else "ip"
         if not isinstance(item, dict) or "id" not in item or identity_field not in item:
             _fail()
-        row = _project(item, _FIELDS[domain], required=domain == "root_domain")
+        row = _project(item, _FIELDS[domain], required=domain in ("root_domain", "dns"))
         if row["id"] in seen:
             _fail()
         seen.add(row["id"])
@@ -136,6 +155,11 @@ def normalize_items(items: Any, domain: str) -> list[dict[str, Any]]:
                 or not row["root_domain"].strip()
                 or not row["status"].strip()
             ):
+                _fail()
+            result.append(row)
+            continue
+        if domain == "dns":
+            if len(row["id"]) > 100 or any(len(tag["pk"]) > 100 for tag in row["tags"]):
                 _fail()
             result.append(row)
             continue
