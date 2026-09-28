@@ -1,7 +1,8 @@
 # 当前工作
 
-- 当前任务：[EXP-FOCUS-01C-DNS #262](https://github.com/Notyet1307/Exposure-Agent/issues/262)，DNS记录的有界同步与本地阅读；状态、依赖、授权及验收仅在Issue维护。
-- 固定规格：[Exposure聚焦Spec@8eb2518](https://github.com/Notyet1307/Exposure-Agent/blob/8eb2518cdf055dd1060068f8a1f80729b2b72822/docs/specs/exposure-focus-release-1.md)，配套[ADR-0022 DNS单域扩展](https://github.com/Notyet1307/Exposure-Agent/blob/8eb2518cdf055dd1060068f8a1f80729b2b72822/docs/adr/0022-bounded-external-asset-publication.md)及[同版本字段矩阵](https://github.com/Notyet1307/Exposure-Agent/blob/8eb2518cdf055dd1060068f8a1f80729b2b72822/docs/plans/exposure-focus-cloudatlas-coverage-20260923.md)；适用ACDNS-1—6，ADR-0016/0021继续约束。仅DNS bu对象规则替代原e489adf合同，旧任务/版本保持原义。
-- 范围：独立DNS能力合同，显式flat=1/valid/-id、单域可信封存批次及正式页面本地列表/源子域名搜索/11字段详情。DNS bu对象差额已固定为id/name必填；脱敏诊断不替代产品非空实读、详情与到期验收，不把合成检查或旧主域名结果冒称DNS实读。
-- 历史：#257主域名、#255/IP与端口有界批次、#250原交付与#253此前验收保留各自固定Spec含义；#247及旧Run/报告不升级、不重开、不重开发。
-- 停止线：具体授权以#262为准；本地实施不隐含授权业务代码远端生命周期、部署或真实读取。真实读取/持久化须在#262固定精确方法、范围、预算及绝对保留/清理，不继承#253/#255/#257许可、空间、绑定或Token。不自动加入flat=0、DNS解析、跨资产关系、子域名情报、风险/附件、周期同步、跨批次合并、AI或扫描/写回。
+- 当前任务：[EXP-FOCUS-01C-ENTRY #267](https://github.com/Notyet1307/Exposure-Agent/issues/267)，统一“云图原生资产账”入口，承接已交付IP、端口服务、主域名、DNS本地阅读及旧Run历史；状态、依赖、授权和验收仅在Issue维护。
+- 固定规格：[Exposure聚焦Spec@59c3c86](https://github.com/Notyet1307/Exposure-Agent/blob/59c3c86b6ac4afeaea2b9ccf5f6847317f3bed56/docs/specs/exposure-focus-release-1.md#exp-focus-01c-entry统一云图原生资产账入口)，适用E1—E7、ACENTRY-1—8；配套[ADR-0021统一入口窄扩展](https://github.com/Notyet1307/Exposure-Agent/blob/59c3c86b6ac4afeaea2b9ccf5f6847317f3bed56/docs/adr/0021-independent-cloudatlas-local-read-model.md#已接受的窄扩展统一云图阅读入口)固定同一commit，[规格PR #266](https://github.com/Notyet1307/Exposure-Agent/pull/266)为发布入口。
+- 继承合同：四域字段、同步、权限、版本和保留继续按[Spec/ADR-0022及矩阵@8eb2518](https://github.com/Notyet1307/Exposure-Agent/tree/8eb2518cdf055dd1060068f8a1f80729b2b72822/docs)解释；旧云图快照/画像按#240固定的[旧Spec@9f94375](https://github.com/Notyet1307/Exposure-Agent/blob/9f9437583e0fd0acf13033104450fbd82b3a5a7f/docs/specs/asset-governance-release-1.md)及ADR-0019保持原义。
+- 范围：规范cloudatlas-ledger默认新四域，asset_view区分已同步资产与历史Run快照，external-assets固定深链兼容；复用现有读取和来源配置，不改两套后端API、数据库、同步、权限或保留。接管事实见[历史回执](../plans/exp-focus-01c-entry-candidate-20260928.md)，实施提示见[分步prompt B](../plans/exp-focus-01c-entry-issue-candidate.md#批准后prompt-b实施唯一entry任务到本地验收停止)；提示文本不自动授权。
+- 历史：[DNS #262](https://github.com/Notyet1307/Exposure-Agent/issues/262)的人工反馈与关闭决定继续留原Issue；切换current不代表它已关闭或全部完成，不扩大其旧范围。#250/#255/#257/#253/#247及旧Run/快照/报告/引用保留各自固定合同，不因OPEN重复实现。
+- 停止线：本次仅批准文档发布、固定版本建单和入口指针切换；业务实施及其远端生命周期、部署、真实云图/模型读取与关闭均须独立明确授权。无新真实样本不阻止另获许可后的隔离合成实现；不继承任何旧Token/预算/窗口，不延长或恢复到期数据，不扩风险/附件、其他域、周期同步、跨批次合并、NetFlow、Laya、cumora或扫描/纳管/写回，不自动进入02—05。
