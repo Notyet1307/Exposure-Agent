@@ -52,11 +52,14 @@ export function AppSidebar() {
   const reading: Item[] = [
     home("overview", t("Overview", "概览"), Home),
     {
-      icon: Boxes,
-      title: t("External assets", "外部资产"),
-      path: project ? `/projects/${project}/external-assets` : "/",
-      search: project ? undefined : { view: "overview" },
-      active: pathname.endsWith("/external-assets"),
+      icon: Waypoints,
+      title: t("CloudAtlas ledger", "云图原生资产账"),
+      path: project ? `/projects/${project}/cloudatlas-ledger` : "/",
+      search: project ? undefined : { view: "cloudatlas-ledger" },
+      active:
+        pathname.endsWith("/cloudatlas-ledger") ||
+        pathname.endsWith("/external-assets") ||
+        (pathname === "/" && search.view === "cloudatlas-ledger"),
     },
     {
       icon: Boxes,
@@ -82,13 +85,6 @@ export function AppSidebar() {
       path: project ? `/projects/${project}/customer-ledger` : "/",
       search: project ? undefined : { view: "inputs" },
       active: pathname.endsWith("/customer-ledger"),
-    },
-    {
-      icon: Waypoints,
-      title: t("CloudAtlas ledger", "云图原生资产账"),
-      path: project ? `/projects/${project}/cloudatlas-ledger` : "/",
-      search: project ? undefined : { view: "cloudatlas" },
-      active: pathname.endsWith("/cloudatlas-ledger"),
     },
     {
       icon: Waypoints,

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router"
 import { AlertCircle, Archive, Upload } from "lucide-react"
 import { type FormEvent, useEffect, useRef, useState } from "react"
 
@@ -601,6 +601,28 @@ function Dashboard() {
           {t("Please try again later.", "请稍后重试。")}
         </AlertDescription>
       </Alert>
+    )
+  if (view === "cloudatlas-ledger")
+    return project ? (
+      <Navigate
+        to="/projects/$projectId/cloudatlas-ledger"
+        params={{ projectId: project.id }}
+        search={{ asset_view: "synced" }}
+        replace
+      />
+    ) : (
+      <section className="space-y-3">
+        <h1 className="text-2xl font-bold">
+          {t("CloudAtlas ledger", "云图原生资产账")}
+        </h1>
+        <p role="status">
+          {t(
+            "Select an accessible project above to read synced assets. No Run or customer input is required.",
+            "请使用上方项目选择器选择可访问项目，阅读已同步资产；无需 Run 或客户输入。",
+          )}
+        </p>
+        {!projects.data.data.length && <CreateProjectLink />}
+      </section>
     )
   if (!projects.data.data.length)
     return (

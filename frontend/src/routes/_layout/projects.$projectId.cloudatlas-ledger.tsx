@@ -9,6 +9,8 @@ import {
   type CloudLedgerEntry,
   type CloudRevisionPublic,
 } from "@/client"
+import AssetViews from "@/components/AssetViews"
+import ExternalAssets from "@/components/ExternalAssets"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Button } from "@/components/ui/button"
@@ -23,35 +25,49 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import useAuth from "@/hooks/useAuth"
+import { historicalAssetSearch, validateAssetSearch } from "@/lib/assetSearch"
 import { useI18n } from "@/lib/i18n"
 import { requestDigest } from "@/lib/ledgerIntent"
 
-const text = (v: unknown) => (typeof v === "string" ? v : undefined)
-const number = (v: unknown) =>
-  v !== undefined &&
-  v !== "" &&
-  Number.isSafeInteger(Number(v)) &&
-  Number(v) >= 0
-    ? Number(v)
-    : undefined
 export const Route = createFileRoute(
   "/_layout/projects/$projectId/cloudatlas-ledger",
 )({
-  component: CloudLedger,
-  validateSearch: (s: Record<string, unknown>) => ({
-    cloud_source: text(s.cloud_source),
-    cloud_snapshot: text(s.cloud_snapshot),
-    cloud_revision: number(s.cloud_revision),
-    cloud_page: number(s.cloud_page) ?? 0,
-    cloud_ip: text(s.cloud_ip),
-    cloud_asset: text(s.cloud_asset),
-    profile_ip: text(s.profile_ip),
-    customer_upload: text(s.customer_upload),
-    customer_revision: text(s.customer_revision),
-    customer_page: number(s.customer_page) ?? 0,
-    profile_cloud_page: number(s.profile_cloud_page) ?? 0,
-  }),
+  component: AssetLedgerEntry,
+  validateSearch: validateAssetSearch,
 })
+
+function AssetLedgerEntry() {
+  const { projectId } = Route.useParams()
+  const search = Route.useSearch()
+  const { user } = useAuth()
+  const actor = user?.id
+  const cache = useQueryClient()
+  useEffect(
+    () => () => {
+      if (!actor) return
+      const filters = {
+        predicate: (query: { queryKey: readonly unknown[] }) =>
+          query.queryKey[1] === actor &&
+          query.queryKey[2] === projectId &&
+          /^(external-|cloud-ledger)/.test(String(query.queryKey[0])),
+      }
+      void cache.cancelQueries(filters)
+      cache.removeQueries(filters)
+    },
+    [cache, actor, projectId],
+  )
+  return (
+    <div className="min-w-0 space-y-6">
+      <AssetViews projectId={projectId} search={search} />
+      {!search.asset_error &&
+        (search.asset_view === "history" ? (
+          <CloudLedger />
+        ) : (
+          <ExternalAssets />
+        ))}
+    </div>
+  )
+}
 type Pending = {
   key: string
   digest: string
@@ -64,13 +80,6 @@ const SIZE = 25
 function CloudLedger() {
   const { projectId } = Route.useParams()
   const { user } = useAuth()
-  const { t } = useI18n()
-  useEffect(() => {
-    document.title = t(
-      "CloudAtlas ledger - Exposure",
-      "云图原生资产账 - Exposure",
-    )
-  }, [t])
   return user ? (
     <Ledger
       key={`${user.id}:${projectId}`}
@@ -81,7 +90,7 @@ function CloudLedger() {
 }
 function Ledger({ actor, projectId }: { actor: string; projectId: string }) {
   const { t, formatDate } = useI18n()
-  const search = Route.useSearch()
+  const search = Route.useSearch({ select: historicalAssetSearch })
   const navigate = Route.useNavigate()
   const cache = useQueryClient()
   const scope = `${search.cloud_source}/${search.cloud_snapshot}/${search.cloud_revision}`
@@ -472,17 +481,17 @@ function Ledger({ actor, projectId }: { actor: string; projectId: string }) {
   return (
     <div className="min-w-0 space-y-6">
       <header className="space-y-3">
-        <h1
+        <h2
           ref={heading}
           tabIndex={-1}
           className="text-2xl font-bold tracking-tight"
         >
-          {t("CloudAtlas native ledger", "云图原生资产账")}
-        </h1>
+          {t("Historical Run snapshots", "历史 Run 快照")}
+        </h2>
         <p className="max-w-3xl text-sm text-muted-foreground">
           {t(
-            "Read complete published source records. Tags and attention are local; source status is unchanged.",
-            "阅读完整已发布来源记录。标签与关注只保存在本地，不改变云图原值。",
+            "Historical Run records from complete published snapshots. Tags and attention are local; source status is unchanged.",
+            "历史 Run 的完整已发布快照记录。标签与关注只保存在本地，不改变云图原值。",
           )}
         </p>
         <p className="text-sm text-muted-foreground">
