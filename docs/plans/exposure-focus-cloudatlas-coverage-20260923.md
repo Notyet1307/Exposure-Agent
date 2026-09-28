@@ -18,8 +18,9 @@
 | E10 | chaitin-cli `v2606.0.4`→commit `857ae38973b9c7886fc088a4065e3694202b7982` 的[内置OpenAPI](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/spec/openapi.yaml)、[命令生成器](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/parser.go)、[客户端](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/client.go) | 与当前Dockerfile固定CLI发布版一致；全文解析172路径/191操作/72 GET，公开声明超出旧IP方法；`data`由CLI解包。只证明公开静态合同，未运行CLI或v1.2现场API。GET全集也不是授权白名单；schema、版本身份和安全边界见回执 |
 | E11 | 维护者在本会话确认产品**v1.2**、OctoBus＋开源CLI路径，并提供暴露面/风险/种子数据三张截图 | 产品版本已知；仅转述栏目，不复制客户标识、原图或真实行。UI存在不等于API返回齐全；空风险表不能证明无风险/无权限，也不能代替详情/依据样例 |
 | E12 | 2026-09-24维护者明确授权的临时OctoBus＋固定CLI＋受限HTTPS转发器实读；来源代号LIVE-A，完整方法/预算/指纹与清理记录见回执 | 7次GET均HTTP/业务200；IP valid、端口各两页共10条；漏洞列表0条；一条端口IP过滤取得一个IP对象；IP首页面重读字节一致。IP `bu`实为object，与E10 string声明冲突；时间无显式时区。仅有界样本，不证明完整同步、长期稳定键或非空风险/依据。临时包不是当前产品包，未落业务库 |
+| E13 | #262于2026-09-27另获许可的两次DNS脱敏诊断：[20条顶层类型](https://github.com/Notyet1307/Exposure-Agent/issues/262#issuecomment-5852239889)、[1条bu子结构](https://github.com/Notyet1307/Exposure-Agent/issues/262#issuecomment-5853167217) | 首次20/20条bu为object；第二次独立1次GET/1条确认bu.id/name存在且为integer/string，其他bu键计数0。仅输出类型/计数，未保存真实值或发布数据；原生产string校验拒绝。不能证明全空间必填/可空、完整同步或正式产品验收，也不将其他域样本当DNS证据 |
 
-资料检索范围：原仓库、历史聚合回执、固定CLI发布版完整schema及生成/传输代码，以及E12的单空间三GET有界样本。目标产品v1.2已确认；已有非空IP/端口样本，剩余缺口是公开声明差异、非空风险/依据、详情/关系及长期同步/安全语义。不再索取已有授权或整份公开接口资料；凭据和原始响应不入仓库。
+资料检索范围：原仓库、历史聚合回执、固定CLI发布版完整schema及生成/传输代码、E12的单空间三GET有界样本，以及E13独立获准的DNS类型诊断。目标产品v1.2已确认；已有非空IP/端口样本和DNS类型差额，剩余缺口是公开声明差异、非空风险/依据、详情/关系及长期同步/安全语义。不再索取已有公开资料；新来源读取仍须另获精确许可，凭据和原始响应不入仓库。
 
 ## 读表规则
 
@@ -66,24 +67,24 @@ A04/A05/A10/A12—A15对应的主域名现场内容、长期身份、分页变�
 
 ## DNS记录字段落点（2026-09-26）
 
-本段与[01C-DNS Spec](../specs/exposure-focus-release-1.md#exp-focus-01c-dnsdns记录本地阅读)及ADR窄扩展于2026-09-26获批，尚未实现或实读；仅授权规格发布、固定版本建单及入口切换。精确出处仍是E10 [固定OpenAPI](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/spec/openapi.yaml)的`paths./v1/asset/dns.get`，公开操作名为“子域名列表(列表模式)”；不要与独立`/v1/asset/subdomain`情报列表混同。
+本段与[01C-DNS Spec](../specs/exposure-focus-release-1.md#exp-focus-01c-dnsdns记录本地阅读)及ADR窄扩展的2026-09-26版本由#262固定`e489adfa7f68ebc830e8c82a085138a9e23fe735`。**2026-09-28维护者[批准bu对象修订及修复发布](https://github.com/Notyet1307/Exposure-Agent/issues/262#issuecomment-5861534044)，按新发布commit固定后替代对应string规则；旧历史不改义，产品复读仍须另获精确许可。**E10 [固定OpenAPI](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/spec/openapi.yaml)的`paths./v1/asset/dns.get`仍是其他字段静态出处；bu对象差额另据E13独立DNS诊断。公开操作名为“子域名列表(列表模式)”，不要与独立`/v1/asset/subdomain`情报列表混同。
 
 请求中space为必填integer、flat为必填string；本片显式固定十进制空间、`flat="1"`、`status=valid`、`sort=-id`、page和size，不开放聚合或其他过滤。query status的valid/invalid/ignored与query rdtype的A/NS/MX/AAAA/SOA/TXT只是查询枚举；响应对应字段只声明string，不能借查询枚举裁掉响应值。page/size示例为0不构成从0起页的保证；本片消费者合同从1起，实际不符须停并记录差额。
 
-| 精确响应路径 | E10声明类型与必填性 | 批准的本地消费/展示（非已实现） |
+| 精确响应路径 | 公开声明与独立诊断证据 | 批准的本地消费/展示合同 |
 |---|---|---|
 | `code/message/data` | 必填integer/string/object | 成功包裹校验，错误脱敏；不持久化整个HTTP包裹 |
 | `data.current/size/total/items` | 必填integer/integer/integer/array | 页码/大小/非负total校验；源total与已保存条数、本地匹配数分开 |
 | `data.items[].id` | 必填integer | 十进制字符串无损传输/保存，域版本内身份；不推导长期稳定或跨资产身份 |
 | `data.items[].domain/subdomain` | 两个字段均必填string | 分别是源声明主域名/子域名文本；subdomain作列表名称及唯一名称搜索字段，domain在详情保留；不拼接、解析或绑定本地主域名 |
 | `data.items[].rdtype/record/status` | 三个字段均必填string，响应无enum | 列表/详情保留解析类型、解析值、状态原文；解析值即使形似IP/URL/邮箱也只是文本，不建立外键或触发外部动作 |
-| `data.items[].bu` | 必填string | 源声明分组，空串保留；不套用IP/端口bu对象，不推断客户归属；实见object须记录差额并先修订合同 |
+| `data.items[].bu.id/name` | E10将bu声明为必填string；E13首次20条bu均object，第二次独立1条的id/name为integer/string；不证明全空间必填/可空 | 采用必填非null对象，id/name均必填非null；源id integer无损十进制字符串化，name原文纯文本且允许空串。拒绝空对象、string/array/null、缺子字段或子字段坏类型；不猜联合类型、补默认值、提取name丢弃id或推断客户归属 |
 | `data.items[].tags[]` | tags必填array；每项object的pk/name必填integer/string | 标签ID无损字符串化，名称原文、顺序与空数组保留；不合并、推断关联或补造缺字段 |
 | `data.items[].created_at/updated_at/lastseen_at` | 三个字段均必填string，未声明时区 | 保留源时间原文与空串，另列本地抓取/发布/保留截止；不补时区或作为可靠增量水位 |
 
-共11个记录字段全部required，均未声明nullable；tags项的pk/name也未声明nullable。缺失/null/类型错误拒绝整个未封存版本，合法空字符串和空数组保留，未知属性只记录脱敏字段差额、不整包保存。DNS操作未声明root-domain的WHOIS/备案/sources，不迁入或补造这些字段；所有DNS文本只在受控本地可见，公开材料仅保留字段/类型/聚合证据。
+共11个顶层记录字段全部required；E10未声明nullable。标签项pk/name仍按E10必填非null。修订后的bu对象及id/name必填非null是维护者批准的消费者规则，不宣称供应商已保证所有记录如此。缺失/null/类型错误拒绝整个未封存版本，合法空字符串和空标签数组保留；顶层及嵌套未知属性只记录脱敏计数，不输出未知字段名/真实值、不整包保存。DNS操作未声明root-domain的WHOIS/备案/sources，不迁入或补造这些字段；所有DNS真实文本只在授权本地可见，公开材料仅保留字段/类型/聚合证据。
 
-本次仅完成公开schema结构化核对，不执行DNS接口，也不把#257主域名实读迁作DNS证据。A04/A05/A10/A12—A15的DNS现场字段、身份/分页长期语义与权限差额仍待核实；原32项结果和风险/附件缺口不升级。
+E13补齐了本次有界DNS样本的bu类型差额，但诊断未发布产品DNS版本；诊断不替代ACDNS-6的非空本地详情和到期拒读/清理验收。实现须以新固定合同为准，产品实读仍须另获许可；旧失败墓碑及历史版本保留原固定合同，不追溯改义。A04/A05/A10/A12—A15的长期身份/分页与权限语义仍待核实；原32项结果和风险/附件缺口不升级。
 
 ## 资产覆盖
 
