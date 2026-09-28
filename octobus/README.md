@@ -72,8 +72,8 @@ Use the same HTTPS `/openapi/` origin and decimal-string `spaceId` configuration
 shape, with the upstream TOKEN stored only as an OctoBus Secret. Set the distinct
 `CLOUDATLAS_ROOT_DOMAINS_CAPSET_TOKEN` in backend and `cloudatlas-sync` environments.
 An empty value denies new root syncs; it is never replaced by an IP/port token.
-On the external-assets page, select `root-domains-v1`, validate metadata, and
-explicitly enable the source before starting an authorized bounded sync.
+In CloudAtlas ledger's Synced assets view, select `root-domains-v1`, validate
+metadata, and explicitly enable the source before an authorized bounded sync.
 
 This package issues only `GET /openapi/v1/asset/root-domain`, with fixed
 `status=valid` and `sort=-id`, and the same TLS, deadline, streaming-size and
@@ -105,8 +105,9 @@ and only `ListDNSRecords`. Configure the same HTTPS `/openapi/` origin and
 decimal-string space, with the upstream TOKEN held only in an OctoBus Secret.
 Set `CLOUDATLAS_DNS_CAPSET_TOKEN` in backend and `cloudatlas-sync`; an empty
 value denies new DNS calls and never falls back to another profile's token.
-Select `dns-v1` on the external-assets page, validate metadata, then explicitly
-enable synchronization. Existing token permissions are not DNS authorization.
+Select `dns-v1` in CloudAtlas ledger's Synced assets view, validate metadata,
+then explicitly enable synchronization. Existing token permissions are not DNS
+authorization.
 
 Only `GET /openapi/v1/asset/dns` is issued, with fixed `flat=1`, `status=valid`
 and `sort=-id`. All 11 approved fields are required and non-null; empty strings

@@ -878,6 +878,7 @@ function LedgerView({
                   to="/projects/$projectId/cloudatlas-ledger"
                   params={{ projectId }}
                   search={{
+                    asset_view: "history",
                     cloud_source: undefined,
                     cloud_snapshot: undefined,
                     cloud_revision: undefined,

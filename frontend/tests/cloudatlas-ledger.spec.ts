@@ -104,9 +104,9 @@ test("native CloudAtlas ledger preserves source history, recovers an unknown sav
   await page
     .getByRole("link", { name: "CloudAtlas ledger", exact: true })
     .click()
-  await expect(
-    page.getByRole("heading", { name: "CloudAtlas native ledger" }),
-  ).toBeVisible()
+  await page
+    .getByRole("link", { name: "Historical Run snapshots", exact: true })
+    .click()
   await expect(page).toHaveURL(/cloud_snapshot=/)
   const first = await (
     await request.get(`${root}/cloudatlas-ledger`, { headers })
@@ -240,9 +240,6 @@ test("native CloudAtlas ledger preserves source history, recovers an unknown sav
     page.getByRole("heading", { name: "Asset review", exact: true }),
   ).toBeVisible()
   await page.goBack()
-  await expect(
-    page.getByRole("heading", { name: "CloudAtlas native ledger" }),
-  ).toBeVisible()
   expect(readSidePosts).toBe(0)
   await page.getByTestId("theme-button").click()
   await page.getByTestId("light-mode").click()
@@ -264,9 +261,6 @@ test("native CloudAtlas ledger preserves source history, recovers an unknown sav
         .poll(() => region.evaluate((el) => el.scrollLeft))
         .toBeGreaterThan(0)
     }
-    await expect(
-      page.getByRole("heading", { name: "CloudAtlas native ledger" }),
-    ).toBeVisible()
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,

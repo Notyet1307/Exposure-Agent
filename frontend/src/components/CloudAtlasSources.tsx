@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 
 import {
@@ -316,13 +317,23 @@ export default function CloudAtlasSources({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("CloudAtlas source", "CloudAtlas 来源")}</CardTitle>
+        <CardTitle>{t("Historical Run source", "历史 Run 来源")}</CardTitle>
         <CardDescription>
           {t(
-            "Read-only OctoBus Instance and Capset binding. Credentials remain in OctoBus.",
-            "只读 OctoBus 实例与 Capset 绑定。凭据保留在 OctoBus 中。",
+            "Legacy IP snapshot binding (legacy-ip-v1) for historical Runs only. Credentials remain in OctoBus; this form does not configure independently synced assets.",
+            "仅用于历史 Run 的旧 IP 快照绑定（legacy-ip-v1）。凭据保留在 OctoBus；此表单不配置独立同步资产。",
           )}
         </CardDescription>
+        <Button asChild variant="outline">
+          <Link
+            to="/projects/$projectId/cloudatlas-ledger"
+            params={{ projectId }}
+            search={{ asset_view: "synced" }}
+            hash="sources-heading"
+          >
+            {t("Configure synced asset sources", "配置已同步资产来源")}
+          </Link>
+        </Button>
       </CardHeader>
       <CardContent className="space-y-5">
         <SourceRows

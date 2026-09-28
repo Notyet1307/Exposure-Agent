@@ -6,7 +6,7 @@ const ipVersion = "22222222-2222-4222-8222-222222222222"
 const portVersion = "33333333-3333-4333-8333-333333333333"
 const recordId = "44444444-4444-4444-8444-444444444444"
 const taskId = "55555555-5555-4555-8555-555555555555"
-const routePath = `/projects/${project}/external-assets?external_source=${source}`
+const routePath = `/projects/${project}/cloudatlas-ledger?asset_view=synced&external_source=${source}`
 const stamp = "2026-09-01T00:00:00Z"
 const retention = "2099-01-01T00:00:00Z"
 
@@ -565,4 +565,106 @@ test("DNS flat records keep literal search, escaped detail, keyboard focus and r
   await expect(
     page.getByRole("cell", { name: "A%_\\B.Example.test", exact: true }),
   ).toHaveCount(0)
+})
+
+test("ambiguous asset links fail closed before either reader mounts", async ({
+  page,
+}) => {
+  await serve(page)
+  const reads: string[] = []
+  page.on("request", (request) => {
+    if (
+      /\/api\/v1\/projects\/[^/]+\/(external-assets|cloudatlas-ledger|cloudatlas-source-instances)(\/|$)/.test(
+        new URL(request.url()).pathname,
+      )
+    )
+      reads.push(request.url())
+  })
+  for (const path of ["cloudatlas-ledger", "external-assets"]) {
+    for (const query of [
+      `external_source=${source}&cloud_page=0`,
+      `asset_view=history&external_version=${ipVersion}`,
+      "asset_view=synced&cloud_revision=0",
+      "asset_view=invalid",
+    ]) {
+      await page.goto(`/projects/${project}/${path}?${query}`)
+      await expect(page.getByRole("alert")).toBeVisible()
+      expect(reads).toEqual([])
+      await expect(page.getByRole("dialog")).toHaveCount(0)
+    }
+  }
+  await page.getByRole("link", { name: "Synced assets", exact: true }).click()
+  await expect(
+    page.getByText("Synthetic private group", { exact: true }),
+  ).toBeVisible()
+})
+
+test("a late source creation cannot replace the new project's context", async ({
+  page,
+}) => {
+  await serve(page)
+  const nextProject = "00000000-0000-4000-8000-000000000002"
+  const createdSource = "11111111-1111-4111-8111-111111111112"
+  const submitted = Promise.withResolvers<void>()
+  const released = Promise.withResolvers<void>()
+  await page.route(
+    (url) => url.pathname === "/api/v1/projects/",
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [
+            { id: project, name: "Original project", archived_at: null },
+            { id: nextProject, name: "New project", archived_at: null },
+          ],
+          count: 2,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${nextProject}/external-assets/sources`,
+    (route) =>
+      route.fulfill({ json: { data: [], count: 0, can_manage: true } }),
+  )
+  await page.route(
+    `**/api/v1/projects/${project}/external-assets/sources`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback()
+      submitted.resolve()
+      await released.promise
+      await route.fulfill({
+        json: { id: createdSource, capability_profile: "assets-v1" },
+      })
+    },
+  )
+  await page.goto(routePath)
+  await page.getByText("Set up a new source", { exact: true }).click()
+  await page
+    .getByLabel("Instance ID", { exact: true })
+    .fill("synthetic-new-source")
+  await page.getByLabel("Capset ID", { exact: true }).fill("synthetic-unused")
+  await page
+    .getByLabel("Space ID (decimal string, e.g. 7)", { exact: true })
+    .fill("7")
+  await page
+    .getByRole("button", { name: "Create disabled source", exact: true })
+    .click()
+  await submitted.promise
+  await page
+    .getByRole("combobox", { name: "Project", exact: true })
+    .selectOption(nextProject)
+  await expect(
+    page.getByText("No synced-asset source configured.", { exact: false }),
+  ).toBeVisible()
+  const response = page.waitForResponse(
+    (r) =>
+      r.request().method() === "POST" &&
+      r.url().endsWith("/external-assets/sources"),
+  )
+  released.resolve()
+  await (await response).finished()
+  expect(new URL(page.url()).pathname).toBe(
+    `/projects/${nextProject}/cloudatlas-ledger`,
+  )
+  expect(new URL(page.url()).searchParams.has("external_source")).toBe(false)
+  await expect(page.getByRole("alert")).toHaveCount(0)
 })

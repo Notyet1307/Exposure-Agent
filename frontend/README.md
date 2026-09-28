@@ -35,6 +35,15 @@ The URL preserves project/run scope, matrix classification and NetFlow filters, 
 
 Overview reads `ip_source_comparison_summary` from the selected canonical report-v2; totals are independent of the matrix's 25-row pages. Report-v1 has no three-source summary and displays N/A rather than zero. The full matrix can trace resources beyond the bounded lineage overview. Snapshot metadata, identifiers and technical explanations are expandable; integrity failures, UNKNOWN/absence semantics and truncation limits remain visible.
 
+## CloudAtlas asset entry
+
+The single **CloudAtlas ledger / 云图原生资产账** navigation item opens `/projects/{projectId}/cloudatlas-ledger`. Its default **Synced assets** view reads independent IP, port-service, root-domain and DNS versions; no CustomerUpload, NetFlow, Run or Resource is required. Without a project, the entry asks for an accessible project using the existing selector. Source options name their supported domains; source setup and explicit synchronization remain on this page.
+
+`asset_view=history` opens **Historical Run snapshots**, retaining the original snapshot, revision, profile and management APIs. Old explicit `cloud_*`/profile/customer query links select history before defaults are applied. New `external_*` links select synced assets. Mixed families or an invalid `asset_view` display a context error without mounting either reader; switching views explicitly starts a fresh query.
+
+`/projects/{projectId}/external-assets` is a replace-only compatibility redirect, preserving supported fixed query identities and fragments. New internal links use the canonical route. Project/account changes discard the previous page's cached data and editors; saved synchronization intent stays actor/project/source scoped and is never replayed by navigation. The old root **CloudAtlas** source-management form remains `legacy-ip-v1` configuration for historical Runs and links to the independent source setup.
+
+
 ## Generated client
 
 When the FastAPI contract changes, run from the repository root:

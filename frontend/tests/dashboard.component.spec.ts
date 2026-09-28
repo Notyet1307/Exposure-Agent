@@ -1043,7 +1043,6 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   await page.goto("/?view=inputs")
   await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
 
-  await expect(page.getByText("CloudAtlas source")).toBeVisible()
   const tokenInput = page.getByLabel("Capset token")
   await expect(tokenInput).toHaveAttribute("type", "password")
   await tokenInput.fill("transient-test-token")

@@ -1,4 +1,4 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router"
+import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
 import { useEffect } from "react"
 
 import { CreateProjectLink } from "@/components/CreateProject"
@@ -29,6 +29,11 @@ export default function WorkspaceSelector() {
   })
   const { search, projectId, runId, project, projects, reports, latest } =
     useWorkspaceContext()
+  const assetView = useSearch({ strict: false }).asset_view
+  const cloudAssetPage =
+    cloudLedgerPage ||
+    externalAssetsPage ||
+    (rootPage && search.view === "cloudatlas-ledger")
   const projectChoices = projects.isSuccess ? projects.data.data : undefined
   const runChoices =
     projectChoices && project && reports.isSuccess
@@ -37,7 +42,7 @@ export default function WorkspaceSelector() {
   useEffect(() => {
     if (
       rootPage &&
-      search.view !== "create" &&
+      !["create", "cloudatlas-ledger"].includes(search.view ?? "") &&
       projectId === undefined &&
       projects.isSuccess &&
       !projects.isFetching &&
@@ -61,7 +66,9 @@ export default function WorkspaceSelector() {
   useEffect(() => {
     if (
       rootPage &&
-      !["create", "inputs", "runs", "cloudatlas"].includes(search.view ?? "") &&
+      !["create", "inputs", "runs", "cloudatlas", "cloudatlas-ledger"].includes(
+        search.view ?? "",
+      ) &&
       projectId !== undefined &&
       runId === undefined &&
       projects.isSuccess &&
@@ -103,24 +110,12 @@ export default function WorkspaceSelector() {
           value={projectId ?? ""}
           disabled={!projectChoices}
           onChange={(event) => {
-            if (externalAssetsPage) {
+            if (cloudAssetPage) {
               void navigate({
-                to: "/projects/$projectId/external-assets",
+                to: "/projects/$projectId/cloudatlas-ledger",
                 params: { projectId: event.target.value },
                 search: {
-                  external_domain: "ip",
-                  external_source: undefined,
-                  external_version: undefined,
-                  external_record: undefined,
-                  external_record_version: undefined,
-                  external_port_version: undefined,
-                  external_ip: undefined,
-                  external_root_domain: undefined,
-                  external_subdomain: undefined,
-                  external_status: undefined,
-                  external_task: undefined,
-                  external_page: 0,
-                  external_match_page: 0,
+                  asset_view: assetView === "history" ? "history" : "synced",
                 },
               })
             } else if (netflowLedgerPage) {
@@ -138,24 +133,6 @@ export default function WorkspaceSelector() {
                   customer_revision: undefined,
                   cloud_snapshot: undefined,
                   cloud_revision: undefined,
-                },
-              })
-            } else if (cloudLedgerPage) {
-              void navigate({
-                to: "/projects/$projectId/cloudatlas-ledger",
-                params: { projectId: event.target.value },
-                search: {
-                  cloud_page: 0,
-                  customer_page: 0,
-                  profile_cloud_page: 0,
-                  cloud_source: undefined,
-                  cloud_snapshot: undefined,
-                  cloud_revision: undefined,
-                  cloud_ip: undefined,
-                  cloud_asset: undefined,
-                  profile_ip: undefined,
-                  customer_upload: undefined,
-                  customer_revision: undefined,
                 },
               })
             } else if (ledgerPage) {
@@ -196,7 +173,7 @@ export default function WorkspaceSelector() {
           ))}
         </select>
       </label>
-      {!ledgerPage && !externalAssetsPage && (
+      {!ledgerPage && !cloudAssetPage && (
         <label className="flex min-w-0 items-center gap-2 text-sm">
           <span>{t("Published run", "已发布运行")}</span>
           <select
@@ -234,7 +211,7 @@ export default function WorkspaceSelector() {
           </select>
         </label>
       )}
-      {!ledgerPage && !externalAssetsPage && runId !== undefined && (
+      {!ledgerPage && !cloudAssetPage && runId !== undefined && (
         <details className="min-w-0 max-w-full text-sm">
           <summary className="cursor-pointer">
             {t("Selected run details", "所选批次详情")}

@@ -14,6 +14,7 @@ const views = [
   "reports",
   "inputs",
   "cloudatlas",
+  "cloudatlas-ledger",
   "runs",
   "assets",
   "findings",
