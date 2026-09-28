@@ -110,8 +110,11 @@ enable synchronization. Existing token permissions are not DNS authorization.
 
 Only `GET /openapi/v1/asset/dns` is issued, with fixed `flat=1`, `status=valid`
 and `sort=-id`. All 11 approved fields are required and non-null; empty strings
-and tag arrays remain valid. Source IDs and tag IDs stay decimal strings.
-`bu` is text, and returned `rdtype`/`status` are source strings, not query enums.
+and tag arrays remain valid. Source, business-group and tag IDs stay lossless
+decimal strings. `bu` is a required object with required, non-null `id` and
+`name`; `name` may be empty. String/array/null groups, missing children and
+wrong child types reject the entire unsealed version, with no default or union
+fallback. Returned `rdtype`/`status` are source strings, not query enums.
 Record values remain text: no DNS resolution, URL visits, IP parsing or links
 to assets. The TLS, byte-limit, deadline and no-retry protections above apply.
 
@@ -123,6 +126,11 @@ complete result. Local search is a case-insensitive literal substring of
 PostgreSQL without source calls. Expiry denies access immediately; cleanup
 remains source-scoped. Migration downgrade refuses while any DNS source,
 task, version or head exists.
+The `ce56f7081923` forward migration changes only new DNS field validation;
+it does not rewrite historical records or failed versions. Its downgrade
+refuses while DNS object records remain. Re-import the DNS package and
+revalidate its pinned metadata after upgrade; do not auto-enable or retry
+previously failed sources. The older three package hashes remain unchanged.
 
 ```bash
 node --test tests/cloudatlas_fixture/verify_dns_contract.mjs

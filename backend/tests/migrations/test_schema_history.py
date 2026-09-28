@@ -1973,3 +1973,41 @@ def test_netflow_migration_does_not_backfill_existing_run_or_snapshots(
             "SELECT current_netflow_dataset_id FROM projects WHERE id = %s",
             (ids["project_id"],),
         ).fetchone() == (None,)
+
+
+def test_dns_bu_guard_upgrade_and_empty_database_downgrade(
+    template_baseline_database: str,
+) -> None:
+    from tests.integrations.test_cloudatlas_dns import dns_row
+
+    database = template_baseline_database
+    row = dns_row()
+    statement = "SELECT valid_external_dns_fields(%s::jsonb, %s)"
+
+    def accepts(fields: dict[str, Any]) -> bool:
+        with connect(database) as connection:
+            result = connection.execute(
+                statement, (json.dumps(fields), fields["id"])
+            ).fetchone()
+            assert result is not None
+            return bool(result[0])
+
+    legacy = {**row, "bu": ""}
+    run_migration(database, "bd45e6f70812")
+    assert accepts(legacy) and not accepts(row)
+    run_migration(database, "ce56f7081923")
+    assert accepts(row) and not accepts(legacy)
+    assert not accepts({**row, "bu": {"id": row["bu"]["id"]}})
+    environment = os.environ.copy()
+    environment["POSTGRES_DB"] = database
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "bd45e6f70812"],
+        cwd=BACKEND_DIR,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert accepts(legacy) and not accepts(row)
+    run_migration(database, "ce56f7081923")
+    assert accepts(row) and not accepts(legacy)

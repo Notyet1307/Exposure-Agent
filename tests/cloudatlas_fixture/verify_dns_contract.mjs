@@ -11,7 +11,8 @@ import { listPage, normalizePage } from "../../octobus/cloudatlas-dns/bin/source
 // Synthetic only; neither public fixture data nor calls authorize a real source read.
 const row = () => ({
   id: "9007199254740993123456789", domain: "Example.invalid", subdomain: "A%_\\B.Example.invalid",
-  rdtype: "CNAME", record: "2001:db8::1 <script>text</script>", status: "source-declared", bu: "",
+  rdtype: "CNAME", record: "2001:db8::1 <script>text</script>", status: "source-declared",
+  bu: { id: "9007199254740993123456792", name: "" },
   tags: [{ pk: "9007199254740993123456790", name: "" }],
   created_at: "", updated_at: "2026-09-27 01:02:03", lastseen_at: "",
 });
@@ -21,7 +22,7 @@ const envelope = (items = [row()], patch = {}) => JSON.stringify({ code: 200, me
 const normalize = (text) => normalizePage(text, "dns", 1, 2, "7");
 const contractFailure = { message: "cloudatlas_response_contract_failed" };
 
-test("all eleven DNS fields and tag identities are required, never nullable or coerced", () => {
+test("all eleven DNS fields and group/tag identities are required, never nullable or coerced", () => {
   const original = row();
   assert.deepEqual(JSON.parse(normalize(envelope()).itemsJson), [original]);
   for (const field of Object.keys(original)) {
@@ -29,21 +30,28 @@ test("all eleven DNS fields and tag identities are required, never nullable or c
     assert.throws(() => normalize(envelope([missing])), contractFailure);
     assert.throws(() => normalize(envelope([{ ...original, [field]: null }])), contractFailure);
   }
-  const empty = Object.fromEntries(Object.keys(original).map(key => [key, key === "id" ? original.id : key === "tags" ? [] : ""]));
+  const empty = Object.fromEntries(Object.keys(original).map(key => [key, key === "id" || key === "bu" ? original[key] : key === "tags" ? [] : ""]));
   assert.deepEqual(JSON.parse(normalize(envelope([empty])).itemsJson), [empty]);
-  for (const patch of [{ bu: {} }, { tags: [{ pk: "1" }] }, { tags: [{ pk: "1", name: null }] }, { id: "9".repeat(101) }])
+  for (const patch of [
+    { bu: "" }, { bu: [] }, { bu: {} }, { bu: { id: "1" } }, { bu: { name: "" } },
+    { bu: { id: null, name: "" } }, { bu: { id: "1", name: null } },
+    { bu: { id: "1", name: 7 } }, { bu: { id: "9".repeat(101), name: "" } },
+    { tags: [{ pk: "1" }] }, { tags: [{ pk: "1", name: null }] }, { id: "9".repeat(101) },
+  ])
     assert.throws(() => normalize(envelope([{ ...original, ...patch }])), contractFailure);
-  for (const id of ['"123"', "1.0", "1e3", "true", "null"])
-    assert.throws(() => normalize(envelope().replace('"id":9007199254740993123456789', '"id":' + id)), contractFailure);
+  for (const fieldId of [original.id, original.bu.id]) {
+    for (const id of ['"123"', "1.0", "1e3", "true", "null"])
+      assert.throws(() => normalize(envelope().replace('"id":' + fieldId, '"id":' + id)), contractFailure);
+  }
 });
 
 test("same-name records survive while unknown fields are omitted without disclosure", (t) => {
   const warnings = []; t.mock.method(console, "error", text => warnings.push(JSON.parse(text)));
   const original = row();
-  const extra = { ...original, secret: "private-value", tags: [{ ...original.tags[0], hidden: "private-value" }] };
+  const extra = { ...original, secret: "private-value", bu: { ...original.bu, hidden: "private-value" }, tags: [{ ...original.tags[0], hidden: "private-value" }] };
   const other = { ...original, id: "9007199254740993123456791", tags: [] };
   assert.deepEqual(JSON.parse(normalize(envelope([extra, other])).itemsJson), [original, other]);
-  assert.deepEqual(warnings, [{ code: "cloudatlas_field_delta", domain: "dns", omitted_field_count: 2 }]);
+  assert.deepEqual(warnings, [{ code: "cloudatlas_field_delta", domain: "dns", omitted_field_count: 3 }]);
   assert.throws(() => normalize(envelope([original, original])), contractFailure);
   assert.deepEqual(JSON.parse(normalize(envelope([])).itemsJson), []);
   for (const patch of [{ current: 2 }, { size: 3 }, { total: -1 }, { total: 0 }, { total: true }])
