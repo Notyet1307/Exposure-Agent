@@ -3,12 +3,12 @@ import { checkServerIdentity } from "node:tls";
 
 const integerLexeme = /^-?(?:0|[1-9][0-9]*)$/;
 const string = "string";
-// E10: chaitin-cli@857ae38973b9c7886fc088a4065e3694202b7982 OpenAPI.
+// E10 declared fields, with the independently approved E13 DNS bu object contract.
 // Independent source bytes keep the existing packages and their hashes immutable.
 const fields = {
   dns: {
     id: "identity", domain: string, subdomain: string, rdtype: string,
-    record: string, status: string, bu: string,
+    record: string, status: string, bu: { id: "identity", name: string },
     tags: [{ pk: "identity", name: string }],
     created_at: string, updated_at: string, lastseen_at: string,
   },

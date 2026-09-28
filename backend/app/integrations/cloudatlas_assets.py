@@ -29,7 +29,7 @@ _COMMON: dict[str, Any] = {
     "updated_at": "string",
     "lastseen_at": "string",
 }
-# E10 declared types, with the E12 object-shaped IP bu override.
+# E10 declared types, with independently approved E12 IP and E13 DNS bu objects.
 _FIELDS = {
     "ip": {
         **_COMMON,
@@ -86,7 +86,7 @@ _FIELDS = {
         "rdtype": "string",
         "record": "string",
         "status": "string",
-        "bu": "string",
+        "bu": {"id": "identity", "name": "string"},
         "tags": [{"pk": "identity", "name": "string"}],
         "created_at": "string",
         "updated_at": "string",
@@ -159,7 +159,11 @@ def normalize_items(items: Any, domain: str) -> list[dict[str, Any]]:
             result.append(row)
             continue
         if domain == "dns":
-            if len(row["id"]) > 100 or any(len(tag["pk"]) > 100 for tag in row["tags"]):
+            if (
+                len(row["id"]) > 100
+                or len(row["bu"]["id"]) > 100
+                or any(len(tag["pk"]) > 100 for tag in row["tags"])
+            ):
                 _fail()
             result.append(row)
             continue

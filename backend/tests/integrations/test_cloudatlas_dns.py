@@ -22,7 +22,7 @@ def dns_row(
         "rdtype": "CNAME",
         "record": "2001:db8::1 <script>text-only</script>",
         "status": "source-declared",
-        "bu": "",
+        "bu": {"id": "9007199254740993123456792", "name": ""},
         "tags": [{"pk": "9007199254740993123456789", "name": ""}],
         "created_at": "",
         "updated_at": "2026-09-27 01:02:03",
@@ -37,6 +37,7 @@ def test_dns_required_fields_preserve_empty_values_large_ids_and_non_query_types
     extra = copy.deepcopy(row)
     extra["unapproved"] = "not persisted"
     extra["tags"][0]["unapproved"] = "not persisted"
+    extra["bu"]["unapproved"] = "not persisted"
     assert normalize_items([extra, dns_row(9007199254740994)], "dns") == [
         row,
         dns_row(9007199254740994),
@@ -48,13 +49,23 @@ def test_dns_required_fields_preserve_empty_values_large_ids_and_non_query_types
             )
         with pytest.raises(CloudAtlasBoundaryError):
             normalize_items([{**row, key: None}], "dns")
-    empty = {key: "" for key in row if key not in ("id", "tags")}
+    empty = {key: "" for key in row if key not in ("id", "bu", "tags")}
     assert normalize_items([{**row, **empty, "tags": []}], "dns") == [
         {**row, **empty, "tags": []}
     ]
     patch: dict[str, Any]
     for patch in (
-        {"bu": {"id": "1", "name": "group"}},
+        {"bu": ""},
+        {"bu": []},
+        {"bu": {}},
+        {"bu": {"id": "1"}},
+        {"bu": {"name": ""}},
+        {"bu": {"id": None, "name": ""}},
+        {"bu": {"id": "1", "name": None}},
+        {"bu": {"id": "1", "name": 7}},
+        {"bu": {"id": 9007199254740993, "name": ""}},
+        {"bu": {"id": "1.0", "name": ""}},
+        {"bu": {"id": "9" * 101, "name": ""}},
         {"tags": [{}]},
         {"tags": [{"pk": 9007199254740993, "name": ""}]},
         {"id": 9007199254740993},

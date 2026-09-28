@@ -1741,7 +1741,7 @@ def test_dns_unsealed_failure_preserves_complete_and_partial_history(
             return None
         row = dns_row(2)
         if fault == "bu":
-            row["bu"] = {"id": "1", "name": ""}
+            row["bu"] = ""
         elif fault == "missing":
             del row["record"]
         elif fault == "tags":
@@ -2042,6 +2042,10 @@ def test_dns_database_guards_freeze_flat_scope_and_refuse_false_seals(
     for fields, ip in (
         (dns_row(1), "2001:db8::1"),
         ({**dns_row(1), "bu": {}}, None),
+        ({**dns_row(1), "bu": ""}, None),
+        ({**dns_row(1), "bu": {"id": 1, "name": ""}}, None),
+        ({**dns_row(1), "bu": {"id": "1", "name": None}}, None),
+        ({**dns_row(1), "bu": {"id": "9" * 101, "name": ""}}, None),
         ({**dns_row(1), "tags": [{"pk": "1"}]}, None),
     ):
         with pytest.raises(SQLAlchemyError), state.db.begin_nested():

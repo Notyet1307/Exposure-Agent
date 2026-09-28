@@ -61,7 +61,10 @@ async function serve(
           rdtype: "CNAME",
           record: `<script>text-only</script> https://example.test/never-fetch ${"x".repeat(512)}`,
           status: "source-declared",
-          bu: "",
+          bu: {
+            id: "9007199254740993123456792",
+            name: "<img src=x onerror=alert(1)>Synthetic DNS group",
+          },
           tags: [
             { pk: "9007199254740993123456789", name: "Synthetic DNS tag" },
           ],
@@ -517,6 +520,14 @@ test("DNS flat records keep literal search, escaped detail, keyboard focus and r
   const dialog = page.getByRole("dialog")
   await expect(
     dialog.getByText("9007199254740993123456789", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    dialog.getByText("9007199254740993123456792", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    dialog.getByText("<img src=x onerror=alert(1)>Synthetic DNS group", {
+      exact: true,
+    }),
   ).toBeVisible()
   await expect(dialog.getByText("CNAME", { exact: true })).toBeVisible()
   await expect(
