@@ -31,7 +31,7 @@ export const SidebarAppearance = () => {
 
   return (
     <SidebarMenuItem>
-      <DropdownMenu modal={false}>
+      <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <SidebarMenuButton
             tooltip={t("Appearance", "外观")}
@@ -77,7 +77,7 @@ export const Appearance = () => {
 
   return (
     <div className="flex items-center justify-center">
-      <DropdownMenu modal={false}>
+      <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button data-testid="theme-button" variant="outline" size="icon">
             <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />

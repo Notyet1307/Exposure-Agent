@@ -27,6 +27,10 @@ Use `useI18n` from `src/lib/i18n.tsx` for interface text and dates. Keep error k
 
 Existing Playwright regressions import `tests/fixtures.ts` to select English at the actual test origin. The language-specific suite uses the product default directly; tests must not change that default or introduce a fixed origin.
 
+## Theme keyboard interaction
+
+The login and sidebar theme menus use Radix's default modal focus management, matching the other application menus. Selecting a theme or pressing Escape returns focus to the opening button, including when the menu is reopened during its closing animation. The language component suite covers both theme entry points.
+
 ## Published reading workspace
 
 The shared sidebar separates published Overview, Assets & differences, Lineage and Reports from current project management. Project choices come from the authorized project API; published Run choices come from the cursor-paginated report list. Initial selection probes the newest compatible published result and writes its explicit Run into the URL. An unavailable explicit Project or Run is never silently replaced.
