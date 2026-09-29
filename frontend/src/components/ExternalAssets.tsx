@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { getRouteApi, Link } from "@tanstack/react-router"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { z } from "zod"
 
 import {
@@ -31,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import useAuth from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
 import { syncedAssetSearch } from "@/lib/assetSearch"
@@ -39,6 +40,10 @@ import { useI18n } from "@/lib/i18n"
 const SIZE = 25
 const selectClass =
   "w-full min-w-0 rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-ring"
+const panelClass =
+  "left-auto right-0 top-0 h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:rounded-none motion-reduce:animate-none [&>div:first-child]:px-4 [&>div:first-child]:pt-3 [&>div:first-child]:pr-12"
+type Domain = ExternalVersionPublic["domain"]
+const domains: Domain[] = ["ip", "port", "root_domain", "dns"]
 
 const sourceDomain = (
   profile: ExternalSourcePublic["capability_profile"] | undefined,
@@ -48,6 +53,125 @@ const sourceDomain = (
     : profile === "root-domains-v1"
       ? "root_domain"
       : "ip"
+
+const supportsDomain = (source: ExternalSourcePublic, domain: Domain) =>
+  sourceDomain(source.capability_profile) === domain ||
+  (source.capability_profile === "assets-v1" && domain === "port")
+
+const categories = [
+  {
+    en: "Assets",
+    zh: "资产",
+    items: [
+      ["ip", "IP", "IP"],
+      ["root_domain", "Root domains", "主域名"],
+      ["dns", "Subdomains / DNS", "子域名 / DNS"],
+      ["subdomain", "Subdomain intelligence", "子域名情报"],
+      ["cert", "Certificates", "证书"],
+    ],
+  },
+  {
+    en: "Exposure",
+    zh: "暴露面",
+    items: [
+      ["port", "Port services", "端口服务"],
+      ["openport", "Open ports", "开放端口"],
+      ["web", "Websites", "网站实体"],
+      ["dir", "Website paths", "网站路径"],
+      ["appfinger", "Website fingerprints", "网站指纹"],
+      ["crawler", "Crawler data", "爬虫数据"],
+    ],
+  },
+  {
+    en: "Discovery seeds (read only)",
+    zh: "发现种子（只读）",
+    items: [
+      ["seed-enterprise", "Enterprises", "企业主体"],
+      ["seed-keyword", "Keywords", "关键词"],
+      ["seed-domain", "Domain WHOIS", "域名 WHOIS"],
+      ["seed-email", "Email domains", "邮箱域名"],
+      ["seed-cert", "Certificate information", "证书信息"],
+      ["seed-icon", "Website icons", "网站图标"],
+      ["seed-title", "Website titles", "网站标题"],
+    ],
+  },
+] as const
+
+function AssetDirectory({
+  selected,
+  onSelect,
+}: {
+  selected: string
+  onSelect: (category: string) => void
+}) {
+  const { t } = useI18n()
+  const items = (group: (typeof categories)[number]) => (
+    <div className="mt-2 space-y-1">
+      {group.items.map(([id, en, zh]) => (
+        <button
+          key={id}
+          type="button"
+          aria-current={id === selected ? "page" : undefined}
+          className={`flex w-full items-center justify-between gap-2 rounded px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-ring ${id === selected ? "bg-accent font-medium text-accent-foreground" : "hover:bg-muted"}`}
+          onClick={() => onSelect(id)}
+        >
+          <span>{t(en, zh)}</span>
+          <span
+            className="text-xs text-muted-foreground"
+            title={t(
+              "Counts belong to the selected source and version only.",
+              "计数仅属于选定来源和版本。",
+            )}
+          >
+            —
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+  return (
+    <>
+      <div className="space-y-1 md:hidden">
+        <Label htmlFor="external-domain">{t("Asset domain", "资产域")}</Label>
+        <select
+          id="external-domain"
+          className={selectClass}
+          value={selected}
+          onChange={(event) => onSelect(event.target.value)}
+        >
+          {categories.map((group) => (
+            <optgroup key={group.en} label={t(group.en, group.zh)}>
+              {group.items.map(([id, en, zh]) => (
+                <option key={id} value={id}>
+                  {t(en, zh)}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+      <nav
+        aria-label={t("Asset categories", "资产分类")}
+        className="hidden space-y-5 border-r pr-3 md:block"
+      >
+        {categories.slice(0, 2).map((group) => (
+          <section key={group.en}>
+            <h2 className="px-3 text-xs font-medium text-muted-foreground">
+              {t(group.en, group.zh)}
+            </h2>
+            {items(group)}
+          </section>
+        ))}
+        <details>
+          <summary className="cursor-pointer px-3 text-xs font-medium text-muted-foreground">
+            {t(categories[2].en, categories[2].zh)}
+          </summary>
+          {items(categories[2])}
+        </details>
+      </nav>
+    </>
+  )
+}
 
 const Route = getRouteApi("/_layout/projects/$projectId/cloudatlas-ledger")
 
@@ -142,6 +266,13 @@ function FieldValue({ value }: { value: unknown }) {
   )
 }
 
+const property = (value: unknown, key: string): unknown =>
+  value !== null && typeof value === "object" ? Reflect.get(value, key) : value
+const names = (value: unknown) =>
+  Array.isArray(value)
+    ? value.map((item) => property(item, "name"))
+    : property(value, "name")
+
 function RecordFields({
   record,
   domain,
@@ -150,75 +281,80 @@ function RecordFields({
   domain: string
 }) {
   const { t } = useI18n()
-  const common = [
-    "id",
-    "ip",
-    "status",
-    "bu",
-    "tags",
-    "created_at",
-    "updated_at",
-    "lastseen_at",
-  ]
-  const fields =
+  const groups: [string, string[]][] =
     domain === "dns"
       ? [
-          "id",
-          "domain",
-          "subdomain",
-          "rdtype",
-          "record",
-          "status",
-          "bu",
-          "tags",
-          "created_at",
-          "updated_at",
-          "lastseen_at",
+          [
+            t("DNS record", "解析记录"),
+            ["subdomain", "domain", "rdtype", "record", "status"],
+          ],
+          [t("Groups and tags", "分组与标签"), ["bu", "tags"]],
         ]
       : domain === "root_domain"
         ? [
-            "id",
-            "root_domain",
-            "status",
-            "icp_date",
-            "icp_num",
-            "icp_official_name",
-            "whois_registrant",
-            "whois_email",
-            "whois_expiration_time",
-            "valid_subdomain",
-            "sources",
-            "created_at",
-            "updated_at",
-            "lastseen_at",
+            [
+              t("Domain", "域名信息"),
+              ["root_domain", "status", "valid_subdomain"],
+            ],
+            [
+              t("Source-claimed ICP", "源声明备案"),
+              ["icp_official_name", "icp_num", "icp_date"],
+            ],
+            [
+              t("Source-claimed WHOIS", "源声明 WHOIS"),
+              ["whois_registrant", "whois_email", "whois_expiration_time"],
+            ],
+            [t("Source observations", "来源观测"), ["sources"]],
           ]
-        : [
-            ...common,
-            ...(domain === "ip"
-              ? [
-                  "version",
-                  "subnet",
-                  "live_port",
+        : domain === "ip"
+          ? [
+              [
+                t("Asset information", "资产信息"),
+                ["ip", "version", "status", "bu", "tags"],
+              ],
+              [
+                t("Network and location", "网络与地理"),
+                [
                   "provider",
                   "as_name",
                   "as_num",
+                  "subnet",
                   "location",
                   "country",
                   "province",
                   "city",
-                  "sources",
-                ]
-              : [
+                ],
+              ],
+              [
+                t("Source-reported live ports", "来源报告存活端口数"),
+                ["live_port"],
+              ],
+              [t("Source observations", "来源观测"), ["sources"]],
+            ]
+          : [
+              [
+                t("Service", "服务信息"),
+                [
+                  "ip",
                   "port",
                   "protocol",
                   "service",
-                  "tunnel",
                   "product",
                   "version",
-                  "banner",
-                  "categories",
-                ]),
-          ]
+                  "tunnel",
+                  "status",
+                ],
+              ],
+              [t("Groups and tags", "分组与标签"), ["bu", "tags"]],
+              [
+                t("Banner and categories", "Banner 与分类"),
+                ["banner", "categories"],
+              ],
+            ]
+  groups.push([
+    t("Source times", "源时间"),
+    ["created_at", "updated_at", "lastseen_at"],
+  ])
   const labels: Record<string, string> = {
     id: t("Source record ID", "源记录 ID"),
     ip: "IP",
@@ -273,6 +409,123 @@ function RecordFields({
   }
   return (
     <div className="space-y-3">
+      {groups.map(([title, fields]) => (
+        <section key={title} className="min-w-0 space-y-3">
+          <h3 className="border-b pb-2 font-medium">{title}</h3>
+          <dl className="grid min-w-0 gap-4 sm:grid-cols-2">
+            {fields.map((field) => (
+              <div
+                className={`min-w-0 ${["sources", "banner", "record", "categories"].includes(field) ? "sm:col-span-2" : ""}`}
+                key={field}
+              >
+                <dt className="mb-1 text-sm text-muted-foreground">
+                  {labels[field]}
+                </dt>
+                <dd className="min-w-0 text-sm">
+                  {field === "sources" &&
+                  Array.isArray(record.fields.sources) &&
+                  record.fields.sources.length ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t("Source", "来源")}</TableHead>
+                          <TableHead>{t("Reason", "原因")}</TableHead>
+                          <TableHead>{t("Factor", "依据")}</TableHead>
+                          {domain === "ip" && (
+                            <TableHead>
+                              {t("Source last-seen time", "源最近发现时间")}
+                            </TableHead>
+                          )}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {record.fields.sources.map((observation, index) => (
+                          <TableRow key={index}>
+                            {[
+                              "source",
+                              "reason",
+                              "factor",
+                              ...(domain === "ip" ? ["lastseen_at"] : []),
+                            ].map((key) => (
+                              <TableCell
+                                key={key}
+                                className="max-w-64 whitespace-normal align-top"
+                              >
+                                <FieldValue
+                                  value={property(observation, key)}
+                                />
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <div
+                      className={
+                        field === "banner" || field === "record"
+                          ? "max-h-80 overflow-auto rounded border p-3"
+                          : undefined
+                      }
+                    >
+                      <FieldValue
+                        value={
+                          field === "bu" || field === "tags"
+                            ? names(record.fields[field])
+                            : record.fields[field]
+                        }
+                      />
+                    </div>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ))}
+      <details className="rounded border p-3">
+        <summary className="cursor-pointer font-medium">
+          {t("Technical trace", "技术追溯")}
+        </summary>
+        <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <dt>{labels.id}</dt>
+            <dd>
+              <FieldValue value={record.fields.id} />
+            </dd>
+          </div>
+          {domain !== "root_domain" && (
+            <>
+              <div>
+                <dt>{t("Source group ID", "源分组 ID")}</dt>
+                <dd>
+                  <FieldValue value={property(record.fields.bu, "id")} />
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Source tag IDs", "源标签 ID")}</dt>
+                <dd>
+                  <FieldValue
+                    value={
+                      Array.isArray(record.fields.tags)
+                        ? record.fields.tags.map((tag) => property(tag, "pk"))
+                        : record.fields.tags
+                    }
+                  />
+                </dd>
+              </div>
+            </>
+          )}
+        </dl>
+      </details>
+      {domain === "port" && (
+        <p className="text-sm text-muted-foreground">
+          {t(
+            "Banner is source text, not a complete response packet. Response-packet material is not integrated.",
+            "Banner 是源文本，不是完整响应包；响应包材料尚未接入。",
+          )}
+        </p>
+      )}
       <p className="text-sm text-muted-foreground">
         {t(
           "Source times are original strings; timezone is unconfirmed. Source status is not local disposition.",
@@ -295,16 +548,6 @@ function RecordFields({
           )}
         </p>
       )}
-      <dl className="grid min-w-0 gap-4 sm:grid-cols-2">
-        {fields.map((field) => (
-          <div className="min-w-0 rounded border p-3" key={field}>
-            <dt className="mb-1 font-medium">{labels[field]}</dt>
-            <dd className="min-w-0 text-sm">
-              <FieldValue value={record.fields[field]} />
-            </dd>
-          </div>
-        ))}
-      </dl>
     </div>
   )
 }
@@ -432,7 +675,25 @@ function AssetsPage({
   projectId: string
 }) {
   const { t } = useI18n()
-  const search = Route.useSearch({ select: syncedAssetSearch })
+  // The validator leaves domain absent only for a bare entry. Read both values
+  // from the committed match: location can advance before its search does.
+  const { search, bare } = Route.useSearch({
+    select: (value) => ({
+      search: syncedAssetSearch(value),
+      bare: value.external_domain === undefined,
+    }),
+  })
+  const [category, setCategory] = useState<string>(search.external_domain)
+  const [management, setManagement] = useState<string | null>(
+    search.external_task ? "tasks" : null,
+  )
+  const [defaultState, setDefaultState] = useState<
+    "idle" | "loading" | "empty" | "error"
+  >("idle")
+  const defaultAttempt = useRef(false)
+  useEffect(() => {
+    setCategory(search.external_domain)
+  }, [search.external_domain])
   const navigate = Route.useNavigate()
   const cache = useQueryClient()
   const live = useRef(true)
@@ -457,7 +718,75 @@ function AssetsPage({
     (source) => source.id === search.external_source,
   )
   useEffect(() => {
-    if (!search.external_source && data?.data.length) {
+    if (!bare) {
+      defaultAttempt.current = false
+      return
+    }
+    if (!data?.data.length || defaultAttempt.current) return
+    defaultAttempt.current = true
+    let active = true
+    let finished = false
+    let request: ReturnType<typeof API.readExternalVersions> | undefined
+    setDefaultState("loading")
+    const select = async () => {
+      try {
+        // Metadata only: do not redefine the implicit backend head or read every domain's rows.
+        for (const domain of domains) {
+          for (const source of data.data) {
+            if (!source.data_access_enabled || !supportsDomain(source, domain))
+              continue
+            for (let skip = 0; active; skip += SIZE) {
+              request = API.readExternalVersions({
+                projectId,
+                sourceId: source.id,
+                domain,
+                skip,
+                limit: SIZE,
+              })
+              const page = await request
+              if (!active) return
+              const version = page.data.find(
+                (item) =>
+                  item.status === "PUBLISHED" &&
+                  Date.parse(item.retain_until) > Date.now(),
+              )
+              if (version) {
+                finished = true
+                await navigate({
+                  search: {
+                    asset_view: "synced",
+                    external_source: source.id,
+                    external_domain: domain,
+                    external_version: version.id,
+                  },
+                  replace: true,
+                  hash: true,
+                })
+                return
+              }
+              if (skip + page.data.length >= page.count) break
+              if (!page.data.length)
+                throw new Error("Incomplete version metadata")
+            }
+            if (!active) return
+          }
+        }
+        finished = true
+        if (active) setDefaultState("empty")
+      } catch {
+        finished = true
+        if (active) setDefaultState("error")
+      }
+    }
+    void select()
+    return () => {
+      active = false
+      request?.cancel()
+      if (!finished) defaultAttempt.current = false
+    }
+  }, [bare, data, navigate, projectId])
+  useEffect(() => {
+    if (!bare && !search.external_source && data?.data.length) {
       void navigate({
         search: {
           ...search,
@@ -468,7 +797,7 @@ function AssetsPage({
         hash: true,
       })
     }
-  }, [data, navigate, search])
+  }, [bare, data, navigate, search])
   useEffect(() => {
     if (
       (sources.error instanceof ApiError &&
@@ -507,6 +836,7 @@ function AssetsPage({
     search,
   ])
   const reload = async () => {
+    defaultAttempt.current = false
     await cache.cancelQueries({
       queryKey: ["external-assets", actor, projectId],
     })
@@ -514,28 +844,278 @@ function AssetsPage({
     await sources.refetch()
     setGeneration((value) => value + 1)
   }
+  const chooseCategory = (value: string) => {
+    setCategory(value)
+    const domain = domains.find((item) => item === value)
+    if (!domain) return
+    const target =
+      selected && supportsDomain(selected, domain)
+        ? selected
+        : (data?.data.find(
+            (item) => item.data_access_enabled && supportsDomain(item, domain),
+          ) ?? data?.data.find((item) => supportsDomain(item, domain)))
+    if (
+      !target ||
+      (target.id === selected?.id && domain === search.external_domain)
+    )
+      return
+    void navigate({
+      search: {
+        asset_view: "synced",
+        external_source: target.id,
+        external_domain: domain,
+      },
+      hash: true,
+    })
+  }
+  const sourceControls = data ? (
+    <section
+      className="space-y-3 rounded border p-4"
+      aria-labelledby="sources-heading"
+    >
+      <h2 id="sources-heading" className="text-lg font-medium">
+        {t("Sources", "来源")}
+      </h2>
+      {data.data.length ? (
+        <div className="space-y-2">
+          <Label htmlFor="external-source">
+            {t("Source instance", "来源实例")}
+          </Label>
+          <select
+            id="external-source"
+            className={selectClass}
+            value={search.external_source ?? ""}
+            onChange={(event) =>
+              void navigate({
+                search: {
+                  external_source: event.target.value,
+                  external_domain: sourceDomain(
+                    data.data.find((source) => source.id === event.target.value)
+                      ?.capability_profile,
+                  ),
+                  external_version: undefined,
+                  external_record: undefined,
+                  external_record_version: undefined,
+                  external_port_version: undefined,
+                  external_ip: undefined,
+                  external_root_domain: undefined,
+                  external_subdomain: undefined,
+                  external_status: undefined,
+                  external_task: undefined,
+                  external_page: 0,
+                  external_match_page: 0,
+                },
+              })
+            }
+          >
+            {!selected && (
+              <option value="">{t("Choose source", "选择来源")}</option>
+            )}
+            {data.data.map((source) => (
+              <option key={source.id} value={source.id}>
+                {source.instance_id} · {source.space_id} ·{" "}
+                {source.capability_profile === "dns-v1"
+                  ? t("DNS records", "DNS 记录")
+                  : source.capability_profile === "root-domains-v1"
+                    ? t("Root domains", "主域名")
+                    : t("IP and port services", "IP 与端口服务")}{" "}
+                ·{" "}
+                {source.enabled
+                  ? t("sync enabled", "同步启用")
+                  : t("sync disabled", "同步停用")}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <p>
+          {t(
+            "No synced-asset source configured. Historical Run snapshots remain available in the history view.",
+            "尚未配置已同步资产来源。历史 Run 快照仍可从历史视图访问。",
+          )}
+        </p>
+      )}
+      {data.can_manage && (
+        <details>
+          <summary className="cursor-pointer">
+            {t("Set up a new source", "配置新来源")}
+          </summary>
+          <form
+            className="mt-3 space-y-3"
+            onSubmit={async (event) => {
+              event.preventDefault()
+              if (busy) return
+              const form = event.currentTarget
+              const values = new FormData(form)
+              setBusy(true)
+              setNotice("")
+              try {
+                const created = await API.createExternalSource({
+                  projectId,
+                  requestBody: {
+                    capability_profile:
+                      values.get("capability_profile") === "dns-v1"
+                        ? "dns-v1"
+                        : values.get("capability_profile") === "root-domains-v1"
+                          ? "root-domains-v1"
+                          : "assets-v1",
+                    instance_id: String(values.get("instance")),
+                    capset_id: String(values.get("capset")),
+                    space_id: String(values.get("space")),
+                  },
+                })
+                if (!live.current) return
+                form.reset()
+                await sources.refetch()
+                if (!live.current) return
+                await navigate({
+                  search: {
+                    external_source: created.id,
+                    external_domain: sourceDomain(created.capability_profile),
+                    external_version: undefined,
+                    external_record: undefined,
+                    external_record_version: undefined,
+                    external_port_version: undefined,
+                    external_ip: undefined,
+                    external_root_domain: undefined,
+                    external_subdomain: undefined,
+                    external_status: undefined,
+                    external_task: undefined,
+                    external_page: 0,
+                    external_match_page: 0,
+                  },
+                })
+              } catch (error) {
+                if (!live.current) return
+                if (
+                  error instanceof ApiError &&
+                  [401, 403, 404, 410].includes(error.status)
+                )
+                  await reload()
+                if (!live.current) return
+                setNotice(
+                  t(
+                    "Source was not confirmed. Refresh the source list before trying again.",
+                    "未确认来源创建结果。请先刷新来源列表，再决定是否重试。",
+                  ),
+                )
+              } finally {
+                if (live.current) setBusy(false)
+              }
+            }}
+          >
+            <p className="text-sm text-muted-foreground">
+              {t(
+                "Choose the capability contract and bind its dedicated OctoBus instance, Capset, and space. Credentials are configured server-side; never paste a token here. Saved source identities and capabilities cannot be edited in place.",
+                "请选择能力合同并绑定其专用 OctoBus 实例、Capset 与空间。凭据由服务端配置，请勿在此粘贴 Token。已有来源身份与能力合同不可原地修改。",
+              )}
+            </p>
+            <div className="space-y-1">
+              <Label htmlFor="new-capability">
+                {t("Capability contract", "能力合同")}
+              </Label>
+              <select
+                id="new-capability"
+                name="capability_profile"
+                className={selectClass}
+                defaultValue="assets-v1"
+                disabled={busy}
+              >
+                <option value="assets-v1">
+                  {t(
+                    "IP and port services — assets-v1",
+                    "IP 与端口服务 — assets-v1",
+                  )}
+                </option>
+                <option value="root-domains-v1">
+                  {t(
+                    "Root domains only — root-domains-v1",
+                    "仅主域名 — root-domains-v1",
+                  )}
+                </option>
+                <option value="dns-v1">
+                  {t("DNS records only — dns-v1", "仅 DNS 记录 — dns-v1")}
+                </option>
+              </select>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                ["instance", t("Instance ID", "实例 ID")],
+                ["capset", t("Capset ID", "Capset ID")],
+                [
+                  "space",
+                  t(
+                    "Space ID (decimal string, e.g. 7)",
+                    "空间 ID（十进制字符串，如 7）",
+                  ),
+                ],
+              ].map(([name, label]) => (
+                <div key={name} className="space-y-1">
+                  <Label htmlFor={`new-${name}`}>{label}</Label>
+                  <Input
+                    id={`new-${name}`}
+                    name={name}
+                    required
+                    disabled={busy}
+                    autoComplete="off"
+                    inputMode={name === "space" ? "numeric" : undefined}
+                    pattern={name === "space" ? "[0-9]+" : undefined}
+                  />
+                </div>
+              ))}
+            </div>
+            <Button type="submit" disabled={busy}>
+              {t("Create disabled source", "创建停用来源")}
+            </Button>
+          </form>
+        </details>
+      )}
+    </section>
+  ) : null
   return (
-    <div className="mx-auto w-full max-w-7xl min-w-0 space-y-6 p-2 md:p-4">
-      <header className="space-y-2">
-        <h2 className="text-2xl font-semibold">
-          {t("Synced assets", "已同步资产")}
-        </h2>
+    <div className="min-w-0 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {t(
-            "Independent local IP, port-service, root-domain, and DNS versions. Browsing never calls CloudAtlas, OctoBus, or a model.",
-            "独立的本地 IP、端口服务、主域名与 DNS 版本。浏览不会调用云图、OctoBus 或模型。",
+            "Local published results. Browsing never calls a source or model.",
+            "本地已发布结果；浏览不会调用来源或模型。",
           )}
         </p>
-        <p className="rounded border p-3 text-sm">
-          {t(
-            "Risks: not connected / deferred. No risk statistics are available.",
-            "风险：暂未接入 / 后置。尚无风险统计。",
-          )}
-        </p>
-      </header>
-      <div role="status" className="text-sm">
-        {notice}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={sources.isFetching}
+            onClick={() => void reload()}
+          >
+            {t("Refresh local access and data", "刷新本地权限与数据")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!data}
+            onClick={() => setManagement("sources")}
+          >
+            {t("Sync management", "同步管理")}
+          </Button>
+          <Button
+            size="sm"
+            disabled={
+              !data?.can_manage ||
+              !selected?.data_access_enabled ||
+              category !== search.external_domain
+            }
+            onClick={() => setManagement("sync")}
+          >
+            {t("Update data", "更新数据")}
+          </Button>
+        </div>
       </div>
+      {notice && (
+        <p role="status" className="text-sm">
+          {notice}
+        </p>
+      )}
       {sources.isPending && (
         <p role="status">{t("Loading local sources…", "正在加载本地来源…")}</p>
       )}
@@ -547,247 +1127,108 @@ function AssetsPage({
           )}
         </p>
       )}
-      <Button
-        variant="outline"
-        disabled={sources.isFetching}
-        onClick={() => void reload()}
-      >
-        {t("Refresh local access and data", "刷新本地权限与数据")}
-      </Button>
       {data && !sources.isFetching && (
         <>
           {!data.can_manage && (
-            <p className="text-sm">
+            <p className="text-sm text-muted-foreground">
               {t(
                 "Read only: Viewer role or archived project. Source changes and synchronization are unavailable.",
                 "只读：查看者角色或已归档项目。不可更改来源或同步。",
               )}
             </p>
           )}
-          <section
-            className="space-y-3 rounded border p-4"
-            aria-labelledby="sources-heading"
-          >
-            <h2 id="sources-heading" className="text-lg font-medium">
-              {t("Sources", "来源")}
-            </h2>
-            {data.data.length ? (
-              <div className="space-y-2">
-                <Label htmlFor="external-source">
-                  {t("Source instance", "来源实例")}
-                </Label>
-                <select
-                  id="external-source"
-                  className={selectClass}
-                  value={search.external_source ?? ""}
-                  onChange={(event) =>
-                    void navigate({
-                      search: {
-                        external_source: event.target.value,
-                        external_domain: sourceDomain(
-                          data.data.find(
-                            (source) => source.id === event.target.value,
-                          )?.capability_profile,
-                        ),
-                        external_version: undefined,
-                        external_record: undefined,
-                        external_record_version: undefined,
-                        external_port_version: undefined,
-                        external_ip: undefined,
-                        external_root_domain: undefined,
-                        external_subdomain: undefined,
-                        external_status: undefined,
-                        external_task: undefined,
-                        external_page: 0,
-                        external_match_page: 0,
-                      },
-                    })
-                  }
-                >
-                  {!selected && (
-                    <option value="">{t("Choose source", "选择来源")}</option>
-                  )}
-                  {data.data.map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.instance_id} · {source.space_id} ·{" "}
-                      {source.capability_profile === "dns-v1"
-                        ? t("DNS records", "DNS 记录")
-                        : source.capability_profile === "root-domains-v1"
-                          ? t("Root domains", "主域名")
-                          : t("IP and port services", "IP 与端口服务")}{" "}
-                      ·{" "}
-                      {source.enabled
-                        ? t("sync enabled", "同步启用")
-                        : t("sync disabled", "同步停用")}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <p>
-                {t(
-                  "No synced-asset source configured. Historical Run snapshots remain available in the history view.",
-                  "尚未配置已同步资产来源。历史 Run 快照仍可从历史视图访问。",
-                )}
-              </p>
-            )}
-            {data.can_manage && (
-              <details>
-                <summary className="cursor-pointer">
-                  {t("Set up a new source", "配置新来源")}
-                </summary>
-                <form
-                  className="mt-3 space-y-3"
-                  onSubmit={async (event) => {
-                    event.preventDefault()
-                    if (busy) return
-                    const form = event.currentTarget
-                    const values = new FormData(form)
-                    setBusy(true)
-                    setNotice("")
-                    try {
-                      const created = await API.createExternalSource({
-                        projectId,
-                        requestBody: {
-                          capability_profile:
-                            values.get("capability_profile") === "dns-v1"
-                              ? "dns-v1"
-                              : values.get("capability_profile") ===
-                                  "root-domains-v1"
-                                ? "root-domains-v1"
-                                : "assets-v1",
-                          instance_id: String(values.get("instance")),
-                          capset_id: String(values.get("capset")),
-                          space_id: String(values.get("space")),
-                        },
-                      })
-                      if (!live.current) return
-                      form.reset()
-                      await sources.refetch()
-                      if (!live.current) return
-                      await navigate({
-                        search: {
-                          external_source: created.id,
-                          external_domain: sourceDomain(
-                            created.capability_profile,
-                          ),
-                          external_version: undefined,
-                          external_record: undefined,
-                          external_record_version: undefined,
-                          external_port_version: undefined,
-                          external_ip: undefined,
-                          external_root_domain: undefined,
-                          external_subdomain: undefined,
-                          external_status: undefined,
-                          external_task: undefined,
-                          external_page: 0,
-                          external_match_page: 0,
-                        },
-                      })
-                    } catch (error) {
-                      if (!live.current) return
-                      if (
-                        error instanceof ApiError &&
-                        [401, 403, 404, 410].includes(error.status)
-                      )
-                        await reload()
-                      if (!live.current) return
-                      setNotice(
-                        t(
-                          "Source was not confirmed. Refresh the source list before trying again.",
-                          "未确认来源创建结果。请先刷新来源列表，再决定是否重试。",
-                        ),
-                      )
-                    } finally {
-                      if (live.current) setBusy(false)
-                    }
-                  }}
-                >
+          <div className="grid min-w-0 gap-4 md:grid-cols-[177px_minmax(0,1fr)]">
+            <AssetDirectory selected={category} onSelect={chooseCategory} />
+            <div className="min-w-0">
+              {selected && (
+                <div hidden={category !== search.external_domain}>
+                  <SourceAssets
+                    key={`${selected.id}:${search.external_domain}:${generation}`}
+                    actor={actor}
+                    projectId={projectId}
+                    source={selected}
+                    canManage={data.can_manage}
+                    refreshSources={() => sources.refetch()}
+                    reload={reload}
+                    sourceControls={sourceControls}
+                    management={management}
+                    setManagement={setManagement}
+                  />
+                </div>
+              )}
+              {!domains.some((domain) => domain === category) ? (
+                <section className="space-y-2 rounded border p-6">
+                  <h2 className="font-medium">
+                    {t("Not integrated", "尚未接入")}
+                  </h2>
                   <p className="text-sm text-muted-foreground">
                     {t(
-                      "Choose the capability contract and bind its dedicated OctoBus instance, Capset, and space. Credentials are configured server-side; never paste a token here. Saved source identities and capabilities cannot be edited in place.",
-                      "请选择能力合同并绑定其专用 OctoBus 实例、Capset 与空间。凭据由服务端配置，请勿在此粘贴 Token。已有来源身份与能力合同不可原地修改。",
+                      "This category has no approved local collection/read path yet. This is not a successful zero result; discovery seeds are read-only inputs, not discovered assets.",
+                      "此分类尚无获准的本地采集与阅读接线，不是成功的零条结果；发现种子是只读输入，不是已发现资产。",
                     )}
                   </p>
-                  <div className="space-y-1">
-                    <Label htmlFor="new-capability">
-                      {t("Capability contract", "能力合同")}
-                    </Label>
-                    <select
-                      id="new-capability"
-                      name="capability_profile"
-                      className={selectClass}
-                      defaultValue="assets-v1"
-                      disabled={busy}
-                    >
-                      <option value="assets-v1">
-                        {t(
-                          "IP and port services — assets-v1",
-                          "IP 与端口服务 — assets-v1",
+                </section>
+              ) : category !== search.external_domain || !data.data.length ? (
+                <p role="status">
+                  {t(
+                    "No synced-asset source configured for this category.",
+                    "此分类尚未配置已同步资产来源。",
+                  )}
+                </p>
+              ) : bare && !selected ? (
+                defaultState === "error" ? (
+                  <p role="alert">
+                    {t(
+                      "Version metadata could not be read. No default was substituted; select a source explicitly in Sync management.",
+                      "无法读取版本元数据；未替换默认结果。请在同步管理中显式选择来源。",
+                    )}
+                  </p>
+                ) : (
+                  <p role="status">
+                    {defaultState === "empty"
+                      ? t(
+                          "No authorized published version is currently within retention. This is not a complete empty result; inspect sources and version history.",
+                          "当前没有获准且未到期的已发布版本。这不是完整空集；请检查来源和版本历史。",
+                        )
+                      : t(
+                          "Selecting an authorized local version…",
+                          "正在选择获准的本地版本…",
                         )}
-                      </option>
-                      <option value="root-domains-v1">
-                        {t(
-                          "Root domains only — root-domains-v1",
-                          "仅主域名 — root-domains-v1",
-                        )}
-                      </option>
-                      <option value="dns-v1">
-                        {t("DNS records only — dns-v1", "仅 DNS 记录 — dns-v1")}
-                      </option>
-                    </select>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {[
-                      ["instance", t("Instance ID", "实例 ID")],
-                      ["capset", t("Capset ID", "Capset ID")],
-                      [
-                        "space",
-                        t(
-                          "Space ID (decimal string, e.g. 7)",
-                          "空间 ID（十进制字符串，如 7）",
-                        ),
-                      ],
-                    ].map(([name, label]) => (
-                      <div key={name} className="space-y-1">
-                        <Label htmlFor={`new-${name}`}>{label}</Label>
-                        <Input
-                          id={`new-${name}`}
-                          name={name}
-                          required
-                          disabled={busy}
-                          autoComplete="off"
-                          inputMode={name === "space" ? "numeric" : undefined}
-                          pattern={name === "space" ? "[0-9]+" : undefined}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <Button type="submit" disabled={busy}>
-                    {t("Create disabled source", "创建停用来源")}
-                  </Button>
-                </form>
-              </details>
-            )}
-          </section>
-          {selected && (
-            <SourceAssets
-              key={`${selected.id}:${generation}`}
-              actor={actor}
-              projectId={projectId}
-              source={selected}
-              canManage={data.can_manage}
-              refreshSources={() => sources.refetch()}
-              reload={reload}
-            />
-          )}
-          {search.external_source && !selected && (
-            <p role="alert">
-              {t(
-                "The requested source is unavailable in this project.",
-                "请求的来源在本项目中不可用。",
+                  </p>
+                )
+              ) : null}
+              {search.external_source && !selected && (
+                <p role="alert">
+                  {t(
+                    "The requested source is unavailable in this project.",
+                    "请求的来源在本项目中不可用。",
+                  )}
+                </p>
               )}
-            </p>
+            </div>
+          </div>
+          {!selected && (
+            <Dialog
+              open={management !== null}
+              onOpenChange={(open) => {
+                if (!open) setManagement(null)
+              }}
+            >
+              <DialogContent className={`${panelClass} sm:max-w-4xl`}>
+                <DialogHeader className="border-b p-4 text-left">
+                  <DialogTitle>{t("Sync management", "同步管理")}</DialogTitle>
+                  <DialogDescription>
+                    {t(
+                      "Select or configure a source. No source read is started here.",
+                      "选择或配置来源；此处不会发起来源读取。",
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="min-h-0 overflow-y-auto p-4">
+                  {sourceControls}
+                </div>
+              </DialogContent>
+            </Dialog>
           )}
         </>
       )}
@@ -802,6 +1243,9 @@ function SourceAssets({
   canManage,
   refreshSources,
   reload,
+  sourceControls,
+  management,
+  setManagement,
 }: {
   actor: string
   projectId: string
@@ -809,6 +1253,9 @@ function SourceAssets({
   canManage: boolean
   refreshSources: () => Promise<unknown>
   reload: () => Promise<void>
+  sourceControls: ReactNode
+  management: string | null
+  setManagement: (tab: string | null) => void
 }) {
   const { showSuccessToast } = useCustomToast()
   const { t, formatDate } = useI18n()
@@ -849,6 +1296,12 @@ function SourceAssets({
   const [versionPage, setVersionPage] = useState(0)
   const [portVersionPage, setPortVersionPage] = useState(0)
   const heading = useRef<HTMLHeadingElement>(null)
+  const detailTrigger = useRef<HTMLElement | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  useEffect(() => setExpanded(false), [])
+  useEffect(() => {
+    if (search.external_task) setManagement("tasks")
+  }, [search.external_task, setManagement])
   const move = useCallback(
     (change: Partial<typeof search>, replace = false) =>
       navigate({ search: { ...search, ...change }, replace, hash: true }),
@@ -908,6 +1361,7 @@ function SourceAssets({
       else {
         deniedRef.current = true
         setDenied(true)
+        setManagement(null)
       }
       const filters = {
         queryKey: ["external-assets", actor, projectId],
@@ -926,7 +1380,7 @@ function SourceAssets({
         replace: true,
       })
     },
-    [actor, cache, navigate, projectId],
+    [actor, cache, navigate, projectId, setManagement],
   )
   const guarded = async <T,>(request: Promise<T>): Promise<T> => {
     try {
@@ -946,7 +1400,7 @@ function SourceAssets({
   const allowed = source.data_access_enabled && !denied
   const versions = useQuery({
     queryKey: [...prefix, "versions", domain, versionPage],
-    enabled: allowed && scopeReady,
+    enabled: allowed && scopeReady && management === "versions",
     queryFn: () =>
       guarded(
         API.readExternalVersions({
@@ -1132,14 +1586,17 @@ function SourceAssets({
     setNotice("")
     try {
       const result = await action()
+      if (!live.current) return
       showSuccessToast(
         typeof result === "string"
           ? result
           : t("Operation confirmed.", "操作已确认。"),
       )
       await cache.invalidateQueries({ queryKey: prefix })
+      if (!live.current) return
       await refreshSources()
     } catch (error) {
+      if (!live.current) return
       if (
         error instanceof ApiError &&
         [401, 403, 404, 410].includes(error.status)
@@ -1158,7 +1615,7 @@ function SourceAssets({
       )
     } finally {
       busyRef.current = false
-      setBusy(false)
+      if (live.current) setBusy(false)
     }
   }
   const sendIntent = async (pending: Intent) => {
@@ -1180,6 +1637,7 @@ function SourceAssets({
       await move({ external_task: result.id })
       await cache.invalidateQueries({ queryKey: prefix })
     } catch (error) {
+      if (!live.current) return
       if (error instanceof ApiError && error.status === 422) {
         // Validation rejection precedes task reservation; unlike transport failures,
         // this is a confirmed non-submission, so the operator may correct the budget.
@@ -1291,6 +1749,7 @@ function SourceAssets({
                 onClick={() => {
                   setExpired(false)
                   setVersionPage(0)
+                  setManagement(null)
                   void move({
                     external_domain: domain.domain,
                     external_version: domain.version_id!,
@@ -1352,12 +1811,17 @@ function SourceAssets({
       </details>
     </article>
   )
+  const cell = (value: unknown) => (
+    <div className="line-clamp-2 max-w-64 whitespace-normal break-words">
+      <FieldValue value={value} />
+    </div>
+  )
   const renderRows = (
     items: ExternalRecordPublic[],
     domain: string,
     versionId: string,
   ) => (
-    <Table>
+    <Table className="min-w-[760px]">
       <TableHeader>
         <TableRow>
           <TableHead>
@@ -1365,41 +1829,31 @@ function SourceAssets({
               ? t("Subdomain", "子域名")
               : domain === "root_domain"
                 ? t("Root domain", "主域名")
-                : "IP"}
+                : domain === "port"
+                  ? t("IP / port / protocol", "IP / 端口 / 协议")
+                  : t("IP / version", "IP / 版本")}
           </TableHead>
-          {domain === "port" && (
-            <>
-              <TableHead>{t("Port / protocol", "端口 / 协议")}</TableHead>
-              <TableHead>
-                {t("Service / product / version", "服务 / 产品 / 版本")}
-              </TableHead>
-            </>
-          )}
-          {domain === "dns" && (
-            <>
-              <TableHead>{t("Record type", "解析类型")}</TableHead>
-              <TableHead>{t("Record value", "解析值")}</TableHead>
-            </>
-          )}
-          <TableHead>{t("Source status", "源状态")}</TableHead>
-          {domain !== "dns" && (
-            <TableHead>
-              {domain === "root_domain"
-                ? t("Source-claimed ICP organization", "源声明备案主体")
-                : t("Business group", "业务分组")}
-            </TableHead>
-          )}
-          {domain === "root_domain" && (
-            <TableHead>
-              {t("Source-reported valid subdomains", "来源报告有效子域名数")}
-            </TableHead>
-          )}
           <TableHead>
-            {t(
-              "Source updated time (timezone unconfirmed)",
-              "源更新时间（时区未确认）",
-            )}
+            {domain === "dns"
+              ? t("Record type / value", "解析类型 / 值")
+              : domain === "root_domain"
+                ? t(
+                    "Source-claimed ICP organization / number",
+                    "源声明备案主体 / 号",
+                  )
+                : domain === "port"
+                  ? t("Service / product / version", "服务 / 产品 / 版本")
+                  : t("Group / tags", "分组 / 标签")}
           </TableHead>
+          <TableHead>
+            {domain === "ip"
+              ? t("Network ownership", "网络归属")
+              : domain === "root_domain"
+                ? t("Source-reported valid subdomains", "来源报告有效子域名数")
+                : t("Group / tags", "分组 / 标签")}
+          </TableHead>
+          <TableHead>{t("Source status", "源状态")}</TableHead>
+          <TableHead>{t("Source last-seen time", "源最近发现时间")}</TableHead>
           <TableHead>{t("Details", "详情")}</TableHead>
         </TableRow>
       </TableHeader>
@@ -1407,61 +1861,68 @@ function SourceAssets({
         {items.map((record) => (
           <TableRow key={record.id}>
             <TableCell className="font-mono">
-              <FieldValue
-                value={
-                  domain === "dns"
-                    ? record.fields.subdomain
-                    : domain === "root_domain"
-                      ? record.fields.root_domain
-                      : record.fields.ip
-                }
-              />
-            </TableCell>
-            {domain === "port" && (
-              <>
-                <TableCell>
+              {cell(
+                domain === "dns"
+                  ? record.fields.subdomain
+                  : domain === "root_domain"
+                    ? record.fields.root_domain
+                    : record.fields.ip,
+              )}
+              {domain === "port" && (
+                <div className="text-xs text-muted-foreground">
                   <FieldValue value={record.fields.port} /> /{" "}
                   <FieldValue value={record.fields.protocol} />
-                </TableCell>
-                <TableCell>
-                  <FieldValue value={record.fields.service} /> /{" "}
-                  <FieldValue value={record.fields.product} /> /{" "}
+                </div>
+              )}
+              {domain === "ip" && (
+                <div className="text-xs text-muted-foreground">
+                  {t("Version", "版本")}:{" "}
                   <FieldValue value={record.fields.version} />
-                </TableCell>
-              </>
-            )}
-            {domain === "dns" && (
-              <>
-                <TableCell>
-                  <FieldValue value={record.fields.rdtype} />
-                </TableCell>
-                <TableCell className="max-w-xs whitespace-normal align-top">
-                  <FieldValue value={record.fields.record} />
-                </TableCell>
-              </>
-            )}
-            <TableCell>
-              <FieldValue value={record.fields.status} />
+                </div>
+              )}
             </TableCell>
-            {domain !== "dns" && (
-              <TableCell>
-                <FieldValue
-                  value={
-                    domain === "root_domain"
-                      ? record.fields.icp_official_name
-                      : record.fields.bu
-                  }
-                />
-              </TableCell>
-            )}
-            {domain === "root_domain" && (
-              <TableCell>
-                <FieldValue value={record.fields.valid_subdomain} />
-              </TableCell>
-            )}
             <TableCell>
-              <FieldValue value={record.fields.updated_at} />
+              {domain === "ip" ? (
+                <>
+                  {cell(names(record.fields.bu))}
+                  {cell(names(record.fields.tags))}
+                </>
+              ) : domain === "port" ? (
+                <>
+                  {cell(record.fields.service)}
+                  {cell(record.fields.product)}
+                  {cell(record.fields.version)}
+                </>
+              ) : domain === "root_domain" ? (
+                <>
+                  {cell(record.fields.icp_official_name)}
+                  {cell(record.fields.icp_num)}
+                </>
+              ) : (
+                <>
+                  {cell(record.fields.rdtype)}
+                  {cell(record.fields.record)}
+                </>
+              )}
             </TableCell>
+            <TableCell>
+              {domain === "ip" ? (
+                <>
+                  {cell(record.fields.provider)}
+                  {cell(record.fields.as_name)}
+                  {cell(record.fields.as_num)}
+                </>
+              ) : domain === "root_domain" ? (
+                cell(record.fields.valid_subdomain)
+              ) : (
+                <>
+                  {cell(names(record.fields.bu))}
+                  {cell(names(record.fields.tags))}
+                </>
+              )}
+            </TableCell>
+            <TableCell>{cell(record.fields.status)}</TableCell>
+            <TableCell>{cell(record.fields.lastseen_at)}</TableCell>
             <TableCell>
               <Link
                 className="underline underline-offset-4"
@@ -1474,6 +1935,9 @@ function SourceAssets({
                   external_record_version: versionId,
                   external_port_version: undefined,
                   external_match_page: 0,
+                }}
+                onClick={(event) => {
+                  detailTrigger.current = event.currentTarget
                 }}
                 aria-label={t(
                   `Details for ${domain === "dns" ? record.fields.subdomain : domain === "root_domain" ? record.fields.root_domain : record.ip}, source ID ${record.source_id}`,
@@ -1490,114 +1954,26 @@ function SourceAssets({
   )
   return (
     <div className="min-w-0 space-y-6">
-      <section
-        className="space-y-3 rounded border p-4"
-        aria-labelledby="source-heading"
-      >
-        <h2 id="source-heading" className="text-lg font-medium">
-          {t("Source configuration", "来源配置")}
-        </h2>
-        <dl className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <dt>{t("Capability contract", "能力合同")}</dt>
-            <dd>{source.capability_profile}</dd>
-          </div>
-          <div>
-            <dt>{t("Instance / Capset / space", "实例 / Capset / 空间")}</dt>
-            <dd className="break-all">
-              {source.instance_id} / {source.capset_id} / {source.space_id}
-            </dd>
-          </div>
-          <div>
-            <dt>{t("Metadata validation", "元数据校验")}</dt>
-            <dd>
-              {source.validation_status === "validated"
-                ? t("Validated", "已校验")
-                : source.validation_status === "failed"
-                  ? t("Validation failed", "校验失败")
-                  : t("Not validated", "未校验")}
-            </dd>
-          </div>
-        </dl>
-        <p className="text-sm">
-          {source.enabled
-            ? t("Synchronization enabled", "同步已启用")
-            : t(
-                "Synchronization disabled — existing local versions remain readable",
-                "同步已停用 — 已有本地版本仍可读取",
-              )}{" "}
-          ·{" "}
-          {source.data_access_enabled
-            ? t("Historical data access enabled", "历史数据访问已启用")
-            : t("Historical data access revoked", "历史数据访问已撤销")}
+      {notice && (
+        <p role="status" className="text-sm">
+          {notice}
         </p>
-        <details>
-          <summary className="cursor-pointer text-sm">
-            {t("Validated technical fingerprint", "已校验技术指纹")}
-          </summary>
-          <FieldValue value={source.validated_fingerprint} />
-        </details>
-        {canManage && (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void operation(() =>
-                  API.validateExternalSource({
-                    projectId,
-                    sourceId: source.id,
-                  }),
-                )
-              }
-            >
-              {t(
-                "Validate metadata (no source read)",
-                "校验元数据（不读取来源）",
-              )}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void operation(() =>
-                  API.updateExternalSource({
-                    projectId,
-                    sourceId: source.id,
-                    requestBody: { enabled: !source.enabled },
-                  }),
-                )
-              }
-            >
-              {source.enabled
-                ? t("Disable synchronization", "停用同步")
-                : t("Enable synchronization", "启用同步")}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void operation(() =>
-                  API.updateExternalSource({
-                    projectId,
-                    sourceId: source.id,
-                    requestBody: {
-                      data_access_enabled: !source.data_access_enabled,
-                    },
-                  }),
-                )
-              }
-            >
-              {source.data_access_enabled
-                ? t("Revoke historical data access", "撤销历史数据访问")
-                : t("Restore historical data access", "恢复历史数据访问")}
-            </Button>
-          </div>
-        )}
-      </section>
-      <p role="status" className="text-sm">
-        {notice}
-      </p>
+      )}
+      {(intent || storageBroken) && (
+        <p role="status" className="flex flex-wrap items-center gap-2 text-sm">
+          {t(
+            "An original submission requires attention; a new request must not replace it.",
+            "原提交需要处理，不可用新请求替代。",
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setManagement("sync")}
+          >
+            {t("Inspect original submission", "检查原提交")}
+          </Button>
+        </p>
+      )}
       {!allowed ? (
         <section role="alert" className="space-y-3 rounded border p-4">
           <h2 className="font-medium">
@@ -1633,360 +2009,36 @@ function SourceAssets({
         </section>
       ) : (
         <>
-          <section
-            className="space-y-4 rounded border p-4"
-            aria-labelledby="sync-heading"
-          >
-            <h2 id="sync-heading" className="text-lg font-medium">
-              {t("Manual synchronization", "手动同步")}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {dnsRecords
-                ? t(
-                    "Explicit authorization required: DNS records only, flat=1, status=valid, sort=-id. Read serially from page 1; capacity = min(maximum pages, floor(maximum records / page size)), with at least one page. Normal quota completion publishes a partial batch. Anomalies stop calls; no retries, continuation, parsing, asset linking, or other-domain reads. Retention applies only to this new read.",
-                    "需显式授权：仅 DNS 记录，flat=1、status=valid、sort=-id。从第 1 页串行读取；容量 = min(最大页数, floor(最大记录数 / 每页条数))，至少一页。正常到额发布部分批次；异常停止，不重试、不续拉、不解析、不关联资产、不读取其他域。保留截止仅适用于本次新增读取。",
-                  )
-                : rootDomains
-                  ? t(
-                      "Explicit authorization required: root domains only, status=valid, sort=-id. Start at page 1 and read serially. Capacity = min(maximum pages, floor(maximum records / page size)), entirely reserved for root domains, with at least one page. Normal quota completion publishes a clearly partial batch; a complete version requires the entire requested range. Any anomaly stops source calls; no retries, continuation, cross-batch merging, or IP/port reads. Retention applies only to this new read.",
-                      "需显式授权：仅主域名，过滤 status=valid，排序 -id。从第 1 页串行读取。容量 = min(最大页数, floor(最大记录数 / 每页条数))，全部属于主域名且至少一页。正常到额可发布明确标识的部分批次；读完请求范围才是完整版本。异常停止来源调用，不重试、不续拉、不跨批次合并、不读取 IP 或端口；保留截止仅适用于本次新增读取。",
-                    )
-                  : t(
-                      "Explicit authorization required: IP status=valid; ports use source-default filtering; sort=-id. Both domains start at page 1, alternate serially, and reserve at least one page each. Capacity = min(maximum pages, floor(maximum records / page size)); IP gets the rounded-up half and ports the rounded-down half, with no borrowing. Normal quota completion publishes a clearly partial batch. Any anomaly stops further source calls; no automatic retries or cross-batch merging. Retention applies only to this new read.",
-                      "需显式授权：IP 过滤 status=valid；端口采用来源默认过滤；排序 -id。两域均从第 1 页串行轮转，各预留至少一页。容量 = min(最大页数, floor(最大记录数 / 每页条数))；IP 取上半数、端口取下半数，余量不借用。正常达到配额可发布明确标识的部分批次。异常立即停止后续来源调用，不自动重试、不跨批次合并；保留截止仅适用于本次新增读取。",
-                    )}
-            </p>
-            {!canManage && (
-              <p>
-                {t(
-                  "Only an Operator/Admin in an active project can start or reconcile tasks.",
-                  "仅活动项目的操作员 / 管理员可发起或核对任务。",
-                )}
-              </p>
-            )}
-            {storageBroken && (
-              <p role="alert">
-                {t(
-                  "The saved submission cannot be read safely. New submissions are blocked: inspect server task history and recover the original browser storage before proceeding.",
-                  "无法安全读取已保存的提交。已阻止新提交：请核对服务端任务历史并恢复原浏览器存储后再操作。",
-                )}
-              </p>
-            )}
-            {intent && (
-              <div className="space-y-2 rounded border p-3">
-                <h3 className="font-medium">
-                  {t("Unconfirmed original submission", "尚未确认的原提交")}
-                </h3>
-                <TechnicalValue
-                  value={intent.key}
-                  label={t("idempotency key", "幂等键")}
-                />
-                <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                  {Object.entries(intent.body).map(([key, value]) => (
-                    <div key={key}>
-                      <dt>{key}</dt>
-                      <dd>{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-                {intent.source === source.id ? (
-                  <Button
-                    disabled={!canManage || busy || storageBroken}
-                    onClick={() => void sendIntent(intent)}
-                  >
-                    {t(
-                      "Recover submission using the same key",
-                      "使用同一幂等键恢复提交",
-                    )}
-                  </Button>
-                ) : (
-                  <Link
-                    className="underline"
-                    to="/projects/$projectId/cloudatlas-ledger"
-                    params={{ projectId }}
-                    search={{
-                      asset_view: "synced",
-                      external_source: intent.source,
-                      external_domain: "ip",
-                      external_version: undefined,
-                      external_record: undefined,
-                      external_record_version: undefined,
-                      external_port_version: undefined,
-                      external_ip: undefined,
-                      external_root_domain: undefined,
-                      external_subdomain: undefined,
-                      external_status: undefined,
-                      external_task: undefined,
-                      external_page: 0,
-                      external_match_page: 0,
-                    }}
-                  >
-                    {t(
-                      "Open original source to recover submission",
-                      "打开原来源恢复提交",
-                    )}
-                  </Link>
-                )}
-              </div>
-            )}
-            {canManage && !intent && (
-              <form
-                className="space-y-3"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  if (
-                    busyRef.current ||
-                    storageBroken ||
-                    !source.enabled ||
-                    unresolved
-                  )
-                    return
-                  const values = new FormData(event.currentTarget)
-                  const retention = new Date(String(values.get("retain_until")))
-                  if (
-                    !Number.isFinite(retention.getTime()) ||
-                    retention.getTime() <= Date.now()
-                  ) {
-                    setNotice(
-                      t(
-                        "Choose a future retention deadline.",
-                        "请选择未来的保留截止时间。",
-                      ),
-                    )
-                    return
-                  }
-                  const parsed = intentSchema.safeParse({
-                    key: crypto.randomUUID(),
-                    source: source.id,
-                    body: {
-                      page_size: Number(values.get("page_size")),
-                      max_pages: Number(values.get("max_pages")),
-                      max_records: Number(values.get("max_records")),
-                      max_response_bytes: Number(
-                        values.get("max_response_bytes"),
-                      ),
-                      timeout_seconds: Number(values.get("timeout_seconds")),
-                      retain_until: retention.toISOString(),
-                    },
-                  })
-                  if (!parsed.success) {
-                    setNotice(
-                      t(
-                        "Enter every positive integer budget and a retention deadline.",
-                        "请填写全部正整数预算与保留截止时间。",
-                      ),
-                    )
-                    return
-                  }
-                  if (
-                    parsed.data.body.max_pages < (singleDomain ? 1 : 2) ||
-                    parsed.data.body.max_records <
-                      (singleDomain ? 1 : 2) * parsed.data.body.page_size
-                  ) {
-                    setNotice(
-                      dnsRecords
-                        ? t(
-                            "Reserve at least one page and at least the page size in records for DNS records.",
-                            "DNS 最大页数至少为 1，最大记录数至少为每页条数。",
-                          )
-                        : rootDomains
-                          ? t(
-                              "Reserve at least one page and at least the page size in records for root domains.",
-                              "主域名最大页数至少为 1，最大记录数至少为每页条数。",
-                            )
-                          : t(
-                              "Reserve at least two pages and twice the page size in records, one page per domain.",
-                              "最大页数至少为 2，最大记录数至少为每页条数的两倍，为每个域预留一页。",
-                            ),
-                    )
-                    return
-                  }
-                  try {
-                    sessionStorage.setItem(store, JSON.stringify(parsed.data))
-                    setIntent(parsed.data)
-                  } catch {
-                    setStorageBroken(true)
-                    return
-                  }
-                  void sendIntent(parsed.data)
-                }}
+          {!tasks.isError &&
+            taskPage === 0 &&
+            tasks.data?.data[0] &&
+            [
+              "FAILED",
+              "PARTIAL_FAILED",
+              "UNKNOWN",
+              "PENDING",
+              "RUNNING",
+            ].includes(tasks.data.data[0].status) && (
+              <div
+                role="status"
+                className="flex flex-wrap items-center gap-3 rounded border p-3 text-sm"
               >
-                <fieldset
-                  disabled={
-                    busy || storageBroken || !source.enabled || !!unresolved
-                  }
-                  className="space-y-3"
-                >
-                  <legend className="sr-only">
-                    {t("Synchronization authorization", "同步执行授权")}
-                  </legend>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {[
-                      {
-                        name: "page_size",
-                        label: t("Page size", "每页条数"),
-                        max: 200,
-                      },
-                      {
-                        name: "max_pages",
-                        label: t("Maximum pages", "最大页数"),
-                        max: 10000,
-                      },
-                      {
-                        name: "max_records",
-                        label: t("Maximum records", "最大记录数"),
-                        max: 1000000,
-                      },
-                      {
-                        name: "max_response_bytes",
-                        label: t("Maximum response bytes", "最大响应字节数"),
-                        max: 16777216,
-                      },
-                      {
-                        name: "timeout_seconds",
-                        label: t("Timeout seconds", "超时秒数"),
-                        max: 300,
-                      },
-                    ].map(({ name, label, max }) => (
-                      <div key={name} className="space-y-1">
-                        <Label htmlFor={`budget-${name}`}>{label}</Label>
-                        <Input
-                          id={`budget-${name}`}
-                          name={name}
-                          type="number"
-                          inputMode="numeric"
-                          required
-                          min={1}
-                          max={max}
-                          step={1}
-                        />
-                      </div>
-                    ))}
-                    <div className="space-y-1">
-                      <Label htmlFor="retain-until">
-                        {t(
-                          "Retention deadline (your local timezone)",
-                          "保留截止（浏览器本地时区）",
-                        )}
-                      </Label>
-                      <Input
-                        id="retain-until"
-                        name="retain_until"
-                        type="datetime-local"
-                        required
-                      />
-                    </div>
-                  </div>
-                  <Label className="flex items-start gap-2">
-                    <input type="checkbox" required className="mt-1" />
-                    {t(
-                      "I authorize this bounded read and private local retention until the deadline. Expired data is denied immediately; cleanup deletes only the new read model.",
-                      "我授权本次有界读取及截止时间前的私有本地保留。数据到期立即拒绝读取；清理仅删除新读模型。",
-                    )}
-                  </Label>
-                  <Button type="submit">
-                    {t("Start authorized synchronization", "开始已授权同步")}
-                  </Button>
-                </fieldset>
-              </form>
-            )}
-            {unresolved && (
-              <p role="status">
-                {t(
-                  "An execution is unresolved. Finish or reconcile its original session; a fresh task cannot bypass it.",
-                  "存在未决执行。请等待或核对原会话，不可用新任务绕过。",
-                )}
-              </p>
-            )}
-            {canManage && (
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  void operation(async () => {
-                    const result = await API.purgeExternalExpired({
-                      projectId,
-                      sourceId: source.id,
-                    })
-                    return t(
-                      `Deleted ${result.deleted_records} expired new-model records; legacy data unchanged.`,
-                      `已删除 ${result.deleted_records} 条到期新模型记录，旧数据不变。`,
-                    )
-                  })
-                }
-              >
-                {t("Clean up expired local records", "清理已到期本地记录")}
-              </Button>
-            )}
-          </section>
-          <section className="space-y-3" aria-labelledby="tasks-heading">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 id="tasks-heading" className="text-lg font-medium">
-                {t("Persistent synchronization tasks", "持久化同步任务")}
-              </h2>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  void tasks.refetch()
-                  if (search.external_task) void task.refetch()
-                }}
-              >
-                {t("Refresh task status (local)", "刷新任务状态（本地）")}
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {t(
-                "Status reads never execute or reconcile tasks. Full completion, normal bounded completion, partial failure, and unknown execution are distinct. Published partial batches never become complete versions; older complete versions remain explicitly selectable until expiry.",
-                "状态读取不会执行或核对任务。全量成功、正常批次完成、部分失败和未知执行分别显示。部分批次不会成为完整版本；旧完整版本在到期前仍可显式选择。",
-              )}
-            </p>
-            {search.external_task && (
-              <div className="space-y-2 rounded border p-3">
-                <h3 className="font-medium">
-                  {t("Selected task", "选定任务")}
-                </h3>
-                {task.isPending && (
-                  <p role="status">{t("Loading task…", "正在加载任务…")}</p>
-                )}
-                {task.isError && (
-                  <p role="alert">
-                    {t("Task could not be read.", "无法读取任务。")}
-                  </p>
-                )}
-                {task.isSuccess && renderTask(task.data)}
+                <Status value={tasks.data.data[0].status} />
+                <span>
+                  {t(
+                    "Task status does not replace the selected local version.",
+                    "任务状态不替换选定的本地版本。",
+                  )}
+                </span>
                 <Button
                   variant="outline"
-                  onClick={() => void move({ external_task: undefined })}
+                  size="sm"
+                  onClick={() => setManagement("tasks")}
                 >
-                  {t("Close selected task", "关闭选定任务")}
+                  {t("View tasks", "查看任务")}
                 </Button>
               </div>
             )}
-            {tasks.isPending && (
-              <p role="status">{t("Loading tasks…", "正在加载任务…")}</p>
-            )}
-            {tasks.isError && (
-              <p role="alert">
-                {t("Could not read local tasks.", "无法读取本地任务。")}
-              </p>
-            )}
-            {tasks.isSuccess && (
-              <>
-                {tasks.data.data.length ? (
-                  tasks.data.data.map(renderTask)
-                ) : (
-                  <p>{t("No synchronization tasks yet.", "尚无同步任务。")}</p>
-                )}
-                <ResultPagination
-                  label={t("Tasks", "任务")}
-                  page={taskPage}
-                  pageSize={SIZE}
-                  count={tasks.data.count}
-                  onPageChange={setTaskPage}
-                />
-              </>
-            )}
-          </section>
           <section
             className="min-w-0 space-y-4"
             aria-labelledby="records-heading"
@@ -1999,89 +2051,33 @@ function SourceAssets({
             >
               {t("Local asset records", "本地资产记录")}
             </h2>
-            <div className="space-y-1">
-              <Label htmlFor="external-domain">
-                {t("Asset domain", "资产域")}
-              </Label>
-              <select
-                id="external-domain"
-                className={selectClass}
-                value={domain}
-                onChange={(event) => {
-                  setExpired(false)
-                  setVersionPage(0)
-                  void move({
-                    external_domain: singleDomain
-                      ? sourceDomain(source.capability_profile)
-                      : event.target.value === "port"
-                        ? "port"
-                        : "ip",
-                    external_version: undefined,
-                    external_page: 0,
-                    external_record: undefined,
-                    external_record_version: undefined,
-                    external_port_version: undefined,
-                    external_match_page: 0,
-                    external_root_domain: undefined,
-                    external_subdomain: undefined,
-                    external_status: undefined,
-                  })
-                }}
-              >
-                {dnsRecords ? (
-                  <option value="dns">
-                    {t(
-                      "DNS records — flat=1, source status=valid",
-                      "DNS 记录 — flat=1，来源过滤 status=valid",
-                    )}
-                  </option>
-                ) : rootDomains ? (
-                  <option value="root_domain">
-                    {t(
-                      "Root domains — source status=valid",
-                      "主域名 — 来源过滤 status=valid",
-                    )}
-                  </option>
-                ) : (
-                  <>
-                    <option value="ip">
-                      {t(
-                        "IP assets — source status=valid",
-                        "IP 资产 — 来源过滤 status=valid",
-                      )}
-                    </option>
-                    <option value="port">
-                      {t(
-                        "Port services — source-default filtering",
-                        "端口服务 — 来源默认过滤",
-                      )}
-                    </option>
-                  </>
+            <details className="space-y-2 text-sm">
+              <summary className="cursor-pointer text-muted-foreground">
+                {t("Search and range semantics", "检索与范围说明")}
+              </summary>
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  "Partial batches contain only their fetched pages; local count is not source total. A complete version covers only its fixed requested range, not all upstream states or a guaranteed snapshot. Source IDs identify records within a version, not stable cross-version entities.",
+                  "部分批次仅包含已抓取页面，本地条数不是来源总量。完整版本也仅覆盖固定请求范围，不代表上游全部状态或一致性快照。源 ID 仅标识版本内记录，不是跨版本稳定实体。",
                 )}
-              </select>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {t(
-                "Partial batches contain only their fetched pages; local count is not source total. A complete version covers only its fixed requested range, not all upstream states or a guaranteed snapshot. Source IDs identify records within a version, not stable cross-version entities.",
-                "部分批次仅包含已抓取页面，本地条数不是来源总量。完整版本也仅覆盖固定请求范围，不代表上游全部状态或一致性快照。源 ID 仅标识版本内记录，不是跨版本稳定实体。",
+              </p>
+              {rootDomains && (
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "Search is a case-insensitive literal substring of the original root-domain text in the selected local version. The matching local row count is not the source total or the source-reported valid-subdomain count. ICP/WHOIS are source claims, not ownership proof; no subdomains are synchronized.",
+                    "搜索仅对选定本地版本的原主域名文本作大小写不敏感的字面子串匹配。匹配的本地行数不是来源总量，也不是来源报告有效子域名数。备案 / WHOIS 均为源声明，不证明归属；未同步子域名。",
+                  )}
+                </p>
               )}
-            </p>
-            {rootDomains && (
-              <p className="text-sm text-muted-foreground">
-                {t(
-                  "Search is a case-insensitive literal substring of the original root-domain text in the selected local version. The matching local row count is not the source total or the source-reported valid-subdomain count. ICP/WHOIS are source claims, not ownership proof; no subdomains are synchronized.",
-                  "搜索仅对选定本地版本的原主域名文本作大小写不敏感的字面子串匹配。匹配的本地行数不是来源总量，也不是来源报告有效子域名数。备案 / WHOIS 均为源声明，不证明归属；未同步子域名。",
-                )}
-              </p>
-            )}
-            {dnsRecords && (
-              <p className="text-sm text-muted-foreground">
-                {t(
-                  "Search matches only the original subdomain text in the selected local version, case-insensitively and literally. It does not search record values or infer asset relationships.",
-                  "搜索仅对选定本地版本的原子域名文本作大小写不敏感的字面子串匹配；不搜索解析值、不推导资产关系。",
-                )}
-              </p>
-            )}
+              {dnsRecords && (
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "Search matches only the original subdomain text in the selected local version, case-insensitively and literally. It does not search record values or infer asset relationships.",
+                    "搜索仅对选定本地版本的原子域名文本作大小写不敏感的字面子串匹配；不搜索解析值、不推导资产关系。",
+                  )}
+                </p>
+              )}
+            </details>
             <form
               key={`${domain}:${search.external_ip}:${search.external_root_domain}:${search.external_subdomain}:${search.external_status}`}
               className="flex flex-wrap items-end gap-3"
@@ -2167,53 +2163,6 @@ function SourceAssets({
                 {t("Clear filters", "清除筛选")}
               </Button>
             </form>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="break-all text-sm">
-                {search.external_version
-                  ? t(
-                      `Fixed version: ${search.external_version}`,
-                      `固定版本：${search.external_version}`,
-                    )
-                  : t(
-                      "Latest readable batch pointer (no fallback after expiry)",
-                      "最新可读批次指针（到期不回退）",
-                    )}
-              </span>
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  await cache.cancelQueries({
-                    queryKey: [...prefix, "records"],
-                  })
-                  cache.removeQueries({ queryKey: [...prefix, "records"] })
-                  setExpired(false)
-                  await move({ external_version: undefined, external_page: 0 })
-                }}
-              >
-                {t("Read latest local version", "读取最新本地版本")}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={
-                  !versions.isSuccess ||
-                  !versions.data.latest_complete_version ||
-                  Date.parse(
-                    versions.data.latest_complete_version.retain_until,
-                  ) <= Date.now()
-                }
-                onClick={() => {
-                  const complete = versions.data?.latest_complete_version
-                  if (!complete) return
-                  setExpired(false)
-                  void move({ external_version: complete.id, external_page: 0 })
-                }}
-              >
-                {t(
-                  "Read latest usable complete version",
-                  "读取最近可用完整版本",
-                )}
-              </Button>
-            </div>
             {expired && (
               <p role="alert">
                 {t(
@@ -2245,7 +2194,57 @@ function SourceAssets({
             )}
             {recordData?.state === "PUBLISHED" && recordData.version && (
               <>
-                <VersionInfo version={recordData.version} />
+                <div className="space-y-2 rounded border bg-muted/20 p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <span className="break-all font-medium">
+                      {source.instance_id} / {source.space_id}
+                    </span>
+                    <span>
+                      {domain === "port"
+                        ? t("Source-default scope", "来源默认范围")
+                        : domain === "dns"
+                          ? "flat=1 · status=valid"
+                          : "status=valid"}
+                    </span>
+                    <span>
+                      {recordData.version.complete
+                        ? t("Full requested range", "请求范围完整")
+                        : t("Partial batch", "部分批次")}
+                    </span>
+                    <span>
+                      {t("Filtered records", "筛选结果")}: {recordData.count}
+                    </span>
+                    <span>
+                      {t("Local records", "本地记录")}:{" "}
+                      {recordData.version.record_count}
+                    </span>
+                    <span>
+                      {t("Source-reported total", "来源声明总量")}:{" "}
+                      {recordData.version.expected_total ??
+                        t("unknown", "未知")}
+                    </span>
+                    <span>
+                      {t("Fetched locally", "本地采集时间")}:{" "}
+                      {formatDate(recordData.version.fetched_at)}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setManagement("versions")}
+                    >
+                      {t("More scopes / versions", "更多范围 / 版本")}
+                    </Button>
+                  </div>
+                  <details>
+                    <summary className="cursor-pointer text-muted-foreground">
+                      {t(
+                        "Fixed version and range details",
+                        "固定版本与范围详情",
+                      )}
+                    </summary>
+                    <VersionInfo version={recordData.version} />
+                  </details>
+                </div>
                 {recordData.data.length ? (
                   renderRows(recordData.data, domain, recordData.version.id)
                 ) : (
@@ -2273,59 +2272,6 @@ function SourceAssets({
                 />
               </>
             )}
-            <details className="space-y-3" open>
-              <summary className="cursor-pointer font-medium">
-                {t(
-                  "Version history (not source change history)",
-                  "版本历史（不是来源变更历史）",
-                )}
-              </summary>
-              {versions.isPending && (
-                <p role="status">{t("Loading versions…", "正在加载版本…")}</p>
-              )}
-              {versions.isError && (
-                <p role="alert">
-                  {t("Could not read version history.", "无法读取版本历史。")}
-                </p>
-              )}
-              {versions.isSuccess && (
-                <>
-                  {versions.data.data.length ? (
-                    versions.data.data.map((version) => (
-                      <article className="space-y-2" key={version.id}>
-                        <VersionInfo version={version} />
-                        <Button
-                          variant="outline"
-                          disabled={
-                            version.status === "EXPIRED" ||
-                            Date.parse(version.retain_until) <= Date.now()
-                          }
-                          onClick={() => {
-                            setExpired(false)
-                            void move({
-                              external_version: version.id,
-                              external_page: 0,
-                            })
-                            heading.current?.focus()
-                          }}
-                        >
-                          {t("Read this fixed version", "读取此固定版本")}
-                        </Button>
-                      </article>
-                    ))
-                  ) : (
-                    <p>{t("No published versions.", "尚无已发布版本。")}</p>
-                  )}
-                  <ResultPagination
-                    label={t("Versions", "版本")}
-                    count={versions.data.count}
-                    page={versionPage}
-                    pageSize={SIZE}
-                    onPageChange={setVersionPage}
-                  />
-                </>
-              )}
-            </details>
           </section>
           <Dialog
             open={!!search.external_record}
@@ -2341,16 +2287,30 @@ function SourceAssets({
             }}
           >
             <DialogContent
-              className="max-h-[90vh] max-w-[calc(100%-2rem)] overflow-y-auto sm:max-w-5xl"
+              className={`${panelClass} ${expanded ? "sm:max-w-[1040px]" : "sm:max-w-[650px]"}`}
               onCloseAutoFocus={(event) => {
                 event.preventDefault()
-                heading.current?.focus()
+                if (detailTrigger.current?.isConnected)
+                  detailTrigger.current.focus()
+                else heading.current?.focus()
               }}
             >
-              <DialogHeader>
-                <DialogTitle>
-                  {t("Fixed-version record details", "固定版本记录详情")}
-                </DialogTitle>
+              <DialogHeader className="border-b p-4 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <DialogTitle>
+                    {t("Fixed-version record details", "固定版本记录详情")}
+                  </DialogTitle>
+                  <Button
+                    className="hidden shrink-0 sm:inline-flex"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setExpanded((value) => !value)}
+                  >
+                    {expanded
+                      ? t("Restore width", "收起宽度")
+                      : t("Expand reading", "展开阅读")}
+                  </Button>
+                </div>
                 <DialogDescription>
                   {t(
                     "The URL fixes the source, domain version and record. Text is escaped; source times are not converted to UTC.",
@@ -2358,174 +2318,905 @@ function SourceAssets({
                   )}
                 </DialogDescription>
               </DialogHeader>
-              {!search.external_record_version && (
-                <p role="alert">
-                  {t(
-                    "This link is incomplete: a fixed record version is required.",
-                    "链接不完整：必须指定记录的固定版本。",
-                  )}
-                </p>
-              )}
-              {detail.isPending && search.external_record_version && (
-                <p role="status">
-                  {t("Loading fixed detail…", "正在加载固定详情…")}
-                </p>
-              )}
-              {detail.isError && (
-                <p role="alert">
-                  {t(
-                    "Detail unavailable. Cached detail is not displayed.",
-                    "详情不可用，不显示缓存详情。",
-                  )}
-                </p>
-              )}
-              {detailData && (
-                <div className="min-w-0 space-y-4">
-                  <VersionInfo version={detailData.version} />
-                  <div className="text-sm">
-                    <p>{t("Local record identity", "本地记录身份")}</p>
-                    <TechnicalValue value={detailData.record.id} />
-                    <p>
-                      {t("Lossless source ID", "无损源 ID")}:{" "}
-                      {detailData.record.source_id}
-                    </p>
-                    {(detailData.version.domain === "ip" ||
-                      detailData.version.domain === "port") && (
-                      <p>
-                        {t("Canonical IP", "规范化 IP")}:{" "}
-                        <FieldValue value={detailData.record.canonical_ip} />
-                      </p>
+              <div className="min-h-0 overflow-y-auto p-4">
+                {!search.external_record_version && (
+                  <p role="alert">
+                    {t(
+                      "This link is incomplete: a fixed record version is required.",
+                      "链接不完整：必须指定记录的固定版本。",
                     )}
-                  </div>
-                  <RecordFields
-                    record={detailData.record}
-                    domain={detailData.version.domain}
-                  />
-                  {detailData.version.domain === "ip" && (
-                    <section
-                      className="min-w-0 space-y-3 rounded border p-3"
-                      aria-labelledby="matches-heading"
-                    >
-                      <h3 id="matches-heading" className="font-medium">
-                        {t(
-                          "Same-IP matches across two selected versions",
-                          "两个选定版本间的同 IP 匹配",
+                  </p>
+                )}
+                {detail.isPending && search.external_record_version && (
+                  <p role="status">
+                    {t("Loading fixed detail…", "正在加载固定详情…")}
+                  </p>
+                )}
+                {detail.isError && (
+                  <p role="alert">
+                    {t(
+                      "Detail unavailable. Cached detail is not displayed.",
+                      "详情不可用，不显示缓存详情。",
+                    )}
+                  </p>
+                )}
+                {detailData && (
+                  <div className="min-w-0 space-y-4">
+                    <RecordFields
+                      record={detailData.record}
+                      domain={detailData.version.domain}
+                    />
+                    <details className="space-y-3 rounded border p-3">
+                      <summary className="cursor-pointer font-medium">
+                        {t("Version and local identity", "版本与本地身份")}
+                      </summary>
+                      <VersionInfo version={detailData.version} />
+                      <div className="text-sm">
+                        <p>{t("Local record identity", "本地记录身份")}</p>
+                        <TechnicalValue value={detailData.record.id} />
+                        <p>
+                          {t("Lossless source ID", "无损源 ID")}:{" "}
+                          {detailData.record.source_id}
+                        </p>
+                        {(detailData.version.domain === "ip" ||
+                          detailData.version.domain === "port") && (
+                          <p>
+                            {t("Canonical IP", "规范化 IP")}:{" "}
+                            <FieldValue
+                              value={detailData.record.canonical_ip}
+                            />
+                          </p>
                         )}
-                      </h3>
-                      <p className="text-sm">
-                        {t(
-                          "A query match within the same source and space, NOT a stable foreign key. Every match is preserved. Port records without a matching IP asset remain available in the independent port list.",
-                          "仅为同来源、同空间内的查询匹配，不是稳定外键。保留全部匹配；没有对应 IP 对象的端口仍可在独立端口列表中读取。",
-                        )}
-                      </p>
-                      <Label htmlFor="match-port-version">
-                        {t("Explicit port version", "显式选择端口版本")}
-                      </Label>
-                      <select
-                        id="match-port-version"
-                        className={selectClass}
-                        value={search.external_port_version ?? ""}
-                        onChange={(event) =>
-                          void move({
-                            external_port_version:
-                              event.target.value || undefined,
-                            external_match_page: 0,
-                          })
-                        }
+                      </div>
+                    </details>
+                    {detailData.version.domain === "ip" && (
+                      <section
+                        className="min-w-0 space-y-3 rounded border p-3"
+                        aria-labelledby="matches-heading"
                       >
-                        <option value="">
+                        <h3 id="matches-heading" className="font-medium">
                           {t(
-                            "Choose a port version — no implicit association",
-                            "选择端口版本 — 不自动关联",
+                            "Same-IP matches across two selected versions",
+                            "两个选定版本间的同 IP 匹配",
                           )}
-                        </option>
-                        {search.external_port_version &&
-                          !ports.data?.data.some(
-                            (version) =>
-                              version.id === search.external_port_version,
-                          ) && (
-                            <option value={search.external_port_version}>
-                              {search.external_port_version}
-                            </option>
-                          )}
-                        {!ports.isError &&
-                          ports.data?.data.map((version) => (
-                            <option
-                              key={version.id}
-                              value={version.id}
-                              disabled={
-                                version.status === "EXPIRED" ||
-                                Date.parse(version.retain_until) <= Date.now()
-                              }
-                            >
-                              {version.id} · {formatDate(version.published_at)}{" "}
-                              · {version.status} ·{" "}
-                              {version.complete
-                                ? t("Full requested range", "请求范围完整")
-                                : t("Partial batch", "部分批次")}
-                            </option>
-                          ))}
-                      </select>
-                      {ports.isError && (
-                        <p role="alert">
+                        </h3>
+                        <p className="text-sm">
                           {t(
-                            "Could not read port versions.",
-                            "无法读取端口版本。",
+                            "A query match within the same source and space, NOT a stable foreign key. Every match is preserved. Port records without a matching IP asset remain available in the independent port list.",
+                            "仅为同来源、同空间内的查询匹配，不是稳定外键。保留全部匹配；没有对应 IP 对象的端口仍可在独立端口列表中读取。",
                           )}
                         </p>
-                      )}
-                      {ports.isSuccess && (
-                        <ResultPagination
-                          label={t("Port versions", "端口版本")}
-                          count={ports.data.count}
-                          page={portVersionPage}
-                          pageSize={SIZE}
-                          onPageChange={setPortVersionPage}
-                        />
-                      )}
-                      {search.external_port_version &&
-                        detailData.port_version && (
-                          <>
-                            <VersionInfo version={detailData.port_version} />
-                            <p className="text-sm">
-                              {t(
-                                `Same-IP matches: ${detailData.matched_port_count}`,
-                                `同 IP 匹配：${detailData.matched_port_count}`,
-                              )}
-                            </p>
-                            {detailData.matched_ports.length ? (
-                              renderRows(
-                                detailData.matched_ports,
-                                "port",
-                                detailData.port_version.id,
-                              )
-                            ) : (
-                              <p>
+                        <Label htmlFor="match-port-version">
+                          {t("Explicit port version", "显式选择端口版本")}
+                        </Label>
+                        <select
+                          id="match-port-version"
+                          className={selectClass}
+                          value={search.external_port_version ?? ""}
+                          onChange={(event) =>
+                            void move({
+                              external_port_version:
+                                event.target.value || undefined,
+                              external_match_page: 0,
+                            })
+                          }
+                        >
+                          <option value="">
+                            {t(
+                              "Choose a port version — no implicit association",
+                              "选择端口版本 — 不自动关联",
+                            )}
+                          </option>
+                          {search.external_port_version &&
+                            !ports.data?.data.some(
+                              (version) =>
+                                version.id === search.external_port_version,
+                            ) && (
+                              <option value={search.external_port_version}>
+                                {search.external_port_version}
+                              </option>
+                            )}
+                          {!ports.isError &&
+                            ports.data?.data.map((version) => (
+                              <option
+                                key={version.id}
+                                value={version.id}
+                                disabled={
+                                  version.status === "EXPIRED" ||
+                                  Date.parse(version.retain_until) <= Date.now()
+                                }
+                              >
+                                {version.id} ·{" "}
+                                {formatDate(version.published_at)} ·{" "}
+                                {version.status} ·{" "}
+                                {version.complete
+                                  ? t("Full requested range", "请求范围完整")
+                                  : t("Partial batch", "部分批次")}
+                              </option>
+                            ))}
+                        </select>
+                        {ports.isError && (
+                          <p role="alert">
+                            {t(
+                              "Could not read port versions.",
+                              "无法读取端口版本。",
+                            )}
+                          </p>
+                        )}
+                        {ports.isSuccess && (
+                          <ResultPagination
+                            label={t("Port versions", "端口版本")}
+                            count={ports.data.count}
+                            page={portVersionPage}
+                            pageSize={SIZE}
+                            onPageChange={setPortVersionPage}
+                          />
+                        )}
+                        {search.external_port_version &&
+                          detailData.port_version && (
+                            <>
+                              <VersionInfo version={detailData.port_version} />
+                              <p className="text-sm">
                                 {t(
-                                  "No same-IP match in these two versions. This is not evidence that the IP has no open ports.",
-                                  "这两个版本之间无同 IP 匹配，不代表此 IP 没有开放端口。",
+                                  `Same-IP matches: ${detailData.matched_port_count}`,
+                                  `同 IP 匹配：${detailData.matched_port_count}`,
                                 )}
                               </p>
-                            )}
-                            <ResultPagination
-                              label={t("Same-IP matches", "同 IP 匹配")}
-                              count={detailData.matched_port_count}
-                              page={search.external_match_page}
-                              pageSize={SIZE}
-                              onPageChange={(next) =>
-                                void move({ external_match_page: next })
-                              }
-                            />
-                          </>
-                        )}
-                    </section>
-                  )}
-                </div>
-              )}
+                              {detailData.matched_ports.length ? (
+                                renderRows(
+                                  detailData.matched_ports,
+                                  "port",
+                                  detailData.port_version.id,
+                                )
+                              ) : (
+                                <p>
+                                  {t(
+                                    "No same-IP match in these two versions. This is not evidence that the IP has no open ports.",
+                                    "这两个版本之间无同 IP 匹配，不代表此 IP 没有开放端口。",
+                                  )}
+                                </p>
+                              )}
+                              <ResultPagination
+                                label={t("Same-IP matches", "同 IP 匹配")}
+                                count={detailData.matched_port_count}
+                                page={search.external_match_page}
+                                pageSize={SIZE}
+                                onPageChange={(next) =>
+                                  void move({ external_match_page: next })
+                                }
+                              />
+                            </>
+                          )}
+                      </section>
+                    )}
+                  </div>
+                )}
+              </div>
             </DialogContent>
           </Dialog>
         </>
       )}
+      <Dialog
+        open={management !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setManagement(null)
+            setTaskPage(0)
+          }
+        }}
+      >
+        <DialogContent className={`${panelClass} sm:max-w-4xl`}>
+          <DialogHeader className="border-b p-4 text-left">
+            <DialogTitle>{t("Sync management", "同步管理")}</DialogTitle>
+            <DialogDescription>
+              {t(
+                "Local settings and task history. Opening this panel never starts a source read.",
+                "本地配置与任务历史。打开面板不会发起来源读取。",
+              )}
+            </DialogDescription>
+            <p role="status" className="text-sm">
+              {notice}
+            </p>
+            {!allowed && (
+              <p role="alert">
+                {t(
+                  "Record access is unavailable. Only authorized source configuration is shown.",
+                  "记录访问不可用；仅显示获准的来源配置。",
+                )}
+              </p>
+            )}
+          </DialogHeader>
+          <Tabs
+            value={!allowed ? "sources" : (management ?? "sources")}
+            onValueChange={setManagement}
+            className="min-h-0 overflow-hidden"
+          >
+            <TabsList className="m-4 mb-0 grid h-auto w-auto shrink-0 grid-cols-2 sm:grid-cols-4">
+              <TabsTrigger value="sources">
+                {t("Sources", "来源配置")}
+              </TabsTrigger>
+              <TabsTrigger value="sync" disabled={!allowed}>
+                {t("Read scope", "同步范围")}
+              </TabsTrigger>
+              <TabsTrigger value="tasks" disabled={!allowed}>
+                {t("Tasks", "任务诊断")}
+              </TabsTrigger>
+              <TabsTrigger value="versions" disabled={!allowed}>
+                {t("Versions", "版本历史")}
+              </TabsTrigger>
+            </TabsList>
+            <div className="min-h-0 overflow-y-auto p-4">
+              <TabsContent value="sources" className="space-y-4">
+                {sourceControls}
+                <section
+                  className="space-y-3 rounded border p-4"
+                  aria-labelledby="source-heading"
+                >
+                  <h2 id="source-heading" className="text-lg font-medium">
+                    {t("Source configuration", "来源配置")}
+                  </h2>
+                  <dl className="grid min-w-0 gap-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt>{t("Capability contract", "能力合同")}</dt>
+                      <dd>{source.capability_profile}</dd>
+                    </div>
+                    <div>
+                      <dt>
+                        {t("Instance / Capset / space", "实例 / Capset / 空间")}
+                      </dt>
+                      <dd className="break-all">
+                        {source.instance_id} / {source.capset_id} /{" "}
+                        {source.space_id}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t("Metadata validation", "元数据校验")}</dt>
+                      <dd>
+                        {source.validation_status === "validated"
+                          ? t("Validated", "已校验")
+                          : source.validation_status === "failed"
+                            ? t("Validation failed", "校验失败")
+                            : t("Not validated", "未校验")}
+                      </dd>
+                    </div>
+                  </dl>
+                  <p className="text-sm">
+                    {source.enabled
+                      ? t("Synchronization enabled", "同步已启用")
+                      : t(
+                          "Synchronization disabled — existing local versions remain readable",
+                          "同步已停用 — 已有本地版本仍可读取",
+                        )}{" "}
+                    ·{" "}
+                    {source.data_access_enabled
+                      ? t(
+                          "Historical data access enabled",
+                          "历史数据访问已启用",
+                        )
+                      : t(
+                          "Historical data access revoked",
+                          "历史数据访问已撤销",
+                        )}
+                  </p>
+                  <details>
+                    <summary className="cursor-pointer text-sm">
+                      {t("Validated technical fingerprint", "已校验技术指纹")}
+                    </summary>
+                    <FieldValue value={source.validated_fingerprint} />
+                  </details>
+                  {canManage && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          void operation(() =>
+                            API.validateExternalSource({
+                              projectId,
+                              sourceId: source.id,
+                            }),
+                          )
+                        }
+                      >
+                        {t(
+                          "Validate metadata (no source read)",
+                          "校验元数据（不读取来源）",
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          void operation(() =>
+                            API.updateExternalSource({
+                              projectId,
+                              sourceId: source.id,
+                              requestBody: { enabled: !source.enabled },
+                            }),
+                          )
+                        }
+                      >
+                        {source.enabled
+                          ? t("Disable synchronization", "停用同步")
+                          : t("Enable synchronization", "启用同步")}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          void operation(() =>
+                            API.updateExternalSource({
+                              projectId,
+                              sourceId: source.id,
+                              requestBody: {
+                                data_access_enabled:
+                                  !source.data_access_enabled,
+                              },
+                            }),
+                          )
+                        }
+                      >
+                        {source.data_access_enabled
+                          ? t(
+                              "Revoke historical data access",
+                              "撤销历史数据访问",
+                            )
+                          : t(
+                              "Restore historical data access",
+                              "恢复历史数据访问",
+                            )}
+                      </Button>
+                    </div>
+                  )}
+                </section>
+              </TabsContent>
+              {allowed && (
+                <>
+                  <TabsContent value="sync">
+                    <section
+                      className="space-y-4 rounded border p-4"
+                      aria-labelledby="sync-heading"
+                    >
+                      <h2 id="sync-heading" className="text-lg font-medium">
+                        {t("Manual synchronization", "手动同步")}
+                      </h2>
+                      <p className="text-sm text-muted-foreground">
+                        {dnsRecords
+                          ? t(
+                              "Explicit authorization required: DNS records only, flat=1, status=valid, sort=-id. Read serially from page 1; capacity = min(maximum pages, floor(maximum records / page size)), with at least one page. Normal quota completion publishes a partial batch. Anomalies stop calls; no retries, continuation, parsing, asset linking, or other-domain reads. Retention applies only to this new read.",
+                              "需显式授权：仅 DNS 记录，flat=1、status=valid、sort=-id。从第 1 页串行读取；容量 = min(最大页数, floor(最大记录数 / 每页条数))，至少一页。正常到额发布部分批次；异常停止，不重试、不续拉、不解析、不关联资产、不读取其他域。保留截止仅适用于本次新增读取。",
+                            )
+                          : rootDomains
+                            ? t(
+                                "Explicit authorization required: root domains only, status=valid, sort=-id. Start at page 1 and read serially. Capacity = min(maximum pages, floor(maximum records / page size)), entirely reserved for root domains, with at least one page. Normal quota completion publishes a clearly partial batch; a complete version requires the entire requested range. Any anomaly stops source calls; no retries, continuation, cross-batch merging, or IP/port reads. Retention applies only to this new read.",
+                                "需显式授权：仅主域名，过滤 status=valid，排序 -id。从第 1 页串行读取。容量 = min(最大页数, floor(最大记录数 / 每页条数))，全部属于主域名且至少一页。正常到额可发布明确标识的部分批次；读完请求范围才是完整版本。异常停止来源调用，不重试、不续拉、不跨批次合并、不读取 IP 或端口；保留截止仅适用于本次新增读取。",
+                              )
+                            : t(
+                                "Explicit authorization required: IP status=valid; ports use source-default filtering; sort=-id. Both domains start at page 1, alternate serially, and reserve at least one page each. Capacity = min(maximum pages, floor(maximum records / page size)); IP gets the rounded-up half and ports the rounded-down half, with no borrowing. Normal quota completion publishes a clearly partial batch. Any anomaly stops further source calls; no automatic retries or cross-batch merging. Retention applies only to this new read.",
+                                "需显式授权：IP 过滤 status=valid；端口采用来源默认过滤；排序 -id。两域均从第 1 页串行轮转，各预留至少一页。容量 = min(最大页数, floor(最大记录数 / 每页条数))；IP 取上半数、端口取下半数，余量不借用。正常达到配额可发布明确标识的部分批次。异常立即停止后续来源调用，不自动重试、不跨批次合并；保留截止仅适用于本次新增读取。",
+                              )}
+                      </p>
+                      {!canManage && (
+                        <p>
+                          {t(
+                            "Only an Operator/Admin in an active project can start or reconcile tasks.",
+                            "仅活动项目的操作员 / 管理员可发起或核对任务。",
+                          )}
+                        </p>
+                      )}
+                      {storageBroken && (
+                        <p role="alert">
+                          {t(
+                            "The saved submission cannot be read safely. New submissions are blocked: inspect server task history and recover the original browser storage before proceeding.",
+                            "无法安全读取已保存的提交。已阻止新提交：请核对服务端任务历史并恢复原浏览器存储后再操作。",
+                          )}
+                        </p>
+                      )}
+                      {intent && (
+                        <div className="space-y-2 rounded border p-3">
+                          <h3 className="font-medium">
+                            {t(
+                              "Unconfirmed original submission",
+                              "尚未确认的原提交",
+                            )}
+                          </h3>
+                          <TechnicalValue
+                            value={intent.key}
+                            label={t("idempotency key", "幂等键")}
+                          />
+                          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                            {Object.entries(intent.body).map(([key, value]) => (
+                              <div key={key}>
+                                <dt>{key}</dt>
+                                <dd>{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                          {intent.source === source.id ? (
+                            <Button
+                              disabled={!canManage || busy || storageBroken}
+                              onClick={() => void sendIntent(intent)}
+                            >
+                              {t(
+                                "Recover submission using the same key",
+                                "使用同一幂等键恢复提交",
+                              )}
+                            </Button>
+                          ) : (
+                            <Link
+                              className="underline"
+                              to="/projects/$projectId/cloudatlas-ledger"
+                              params={{ projectId }}
+                              search={{
+                                asset_view: "synced",
+                                external_source: intent.source,
+                                external_domain: "ip",
+                                external_version: undefined,
+                                external_record: undefined,
+                                external_record_version: undefined,
+                                external_port_version: undefined,
+                                external_ip: undefined,
+                                external_root_domain: undefined,
+                                external_subdomain: undefined,
+                                external_status: undefined,
+                                external_task: undefined,
+                                external_page: 0,
+                                external_match_page: 0,
+                              }}
+                            >
+                              {t(
+                                "Open original source to recover submission",
+                                "打开原来源恢复提交",
+                              )}
+                            </Link>
+                          )}
+                        </div>
+                      )}
+                      {canManage && !intent && (
+                        <form
+                          className="space-y-3"
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            if (
+                              busyRef.current ||
+                              storageBroken ||
+                              !source.enabled ||
+                              unresolved
+                            )
+                              return
+                            const values = new FormData(event.currentTarget)
+                            const retention = new Date(
+                              String(values.get("retain_until")),
+                            )
+                            if (
+                              !Number.isFinite(retention.getTime()) ||
+                              retention.getTime() <= Date.now()
+                            ) {
+                              setNotice(
+                                t(
+                                  "Choose a future retention deadline.",
+                                  "请选择未来的保留截止时间。",
+                                ),
+                              )
+                              return
+                            }
+                            const parsed = intentSchema.safeParse({
+                              key: crypto.randomUUID(),
+                              source: source.id,
+                              body: {
+                                page_size: Number(values.get("page_size")),
+                                max_pages: Number(values.get("max_pages")),
+                                max_records: Number(values.get("max_records")),
+                                max_response_bytes: Number(
+                                  values.get("max_response_bytes"),
+                                ),
+                                timeout_seconds: Number(
+                                  values.get("timeout_seconds"),
+                                ),
+                                retain_until: retention.toISOString(),
+                              },
+                            })
+                            if (!parsed.success) {
+                              setNotice(
+                                t(
+                                  "Enter every positive integer budget and a retention deadline.",
+                                  "请填写全部正整数预算与保留截止时间。",
+                                ),
+                              )
+                              return
+                            }
+                            if (
+                              parsed.data.body.max_pages <
+                                (singleDomain ? 1 : 2) ||
+                              parsed.data.body.max_records <
+                                (singleDomain ? 1 : 2) *
+                                  parsed.data.body.page_size
+                            ) {
+                              setNotice(
+                                dnsRecords
+                                  ? t(
+                                      "Reserve at least one page and at least the page size in records for DNS records.",
+                                      "DNS 最大页数至少为 1，最大记录数至少为每页条数。",
+                                    )
+                                  : rootDomains
+                                    ? t(
+                                        "Reserve at least one page and at least the page size in records for root domains.",
+                                        "主域名最大页数至少为 1，最大记录数至少为每页条数。",
+                                      )
+                                    : t(
+                                        "Reserve at least two pages and twice the page size in records, one page per domain.",
+                                        "最大页数至少为 2，最大记录数至少为每页条数的两倍，为每个域预留一页。",
+                                      ),
+                              )
+                              return
+                            }
+                            try {
+                              sessionStorage.setItem(
+                                store,
+                                JSON.stringify(parsed.data),
+                              )
+                              setIntent(parsed.data)
+                            } catch {
+                              setStorageBroken(true)
+                              return
+                            }
+                            void sendIntent(parsed.data)
+                          }}
+                        >
+                          <fieldset
+                            disabled={
+                              busy ||
+                              storageBroken ||
+                              !source.enabled ||
+                              !!unresolved
+                            }
+                            className="space-y-3"
+                          >
+                            <legend className="sr-only">
+                              {t(
+                                "Synchronization authorization",
+                                "同步执行授权",
+                              )}
+                            </legend>
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                              {[
+                                {
+                                  name: "page_size",
+                                  label: t("Page size", "每页条数"),
+                                  max: 200,
+                                },
+                                {
+                                  name: "max_pages",
+                                  label: t("Maximum pages", "最大页数"),
+                                  max: 10000,
+                                },
+                                {
+                                  name: "max_records",
+                                  label: t("Maximum records", "最大记录数"),
+                                  max: 1000000,
+                                },
+                                {
+                                  name: "max_response_bytes",
+                                  label: t(
+                                    "Maximum response bytes",
+                                    "最大响应字节数",
+                                  ),
+                                  max: 16777216,
+                                },
+                                {
+                                  name: "timeout_seconds",
+                                  label: t("Timeout seconds", "超时秒数"),
+                                  max: 300,
+                                },
+                              ].map(({ name, label, max }) => (
+                                <div key={name} className="space-y-1">
+                                  <Label htmlFor={`budget-${name}`}>
+                                    {label}
+                                  </Label>
+                                  <Input
+                                    id={`budget-${name}`}
+                                    name={name}
+                                    type="number"
+                                    inputMode="numeric"
+                                    required
+                                    min={1}
+                                    max={max}
+                                    step={1}
+                                  />
+                                </div>
+                              ))}
+                              <div className="space-y-1">
+                                <Label htmlFor="retain-until">
+                                  {t(
+                                    "Retention deadline (your local timezone)",
+                                    "保留截止（浏览器本地时区）",
+                                  )}
+                                </Label>
+                                <Input
+                                  id="retain-until"
+                                  name="retain_until"
+                                  type="datetime-local"
+                                  required
+                                />
+                              </div>
+                            </div>
+                            <Label className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                required
+                                className="mt-1"
+                              />
+                              {t(
+                                "I authorize this bounded read and private local retention until the deadline. Expired data is denied immediately; cleanup deletes only the new read model.",
+                                "我授权本次有界读取及截止时间前的私有本地保留。数据到期立即拒绝读取；清理仅删除新读模型。",
+                              )}
+                            </Label>
+                            <Button type="submit">
+                              {t(
+                                "Start authorized synchronization",
+                                "开始已授权同步",
+                              )}
+                            </Button>
+                          </fieldset>
+                        </form>
+                      )}
+                      {unresolved && (
+                        <p role="status">
+                          {t(
+                            "An execution is unresolved. Finish or reconcile its original session; a fresh task cannot bypass it.",
+                            "存在未决执行。请等待或核对原会话，不可用新任务绕过。",
+                          )}
+                        </p>
+                      )}
+                      {canManage && (
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() =>
+                            void operation(async () => {
+                              const result = await API.purgeExternalExpired({
+                                projectId,
+                                sourceId: source.id,
+                              })
+                              return t(
+                                `Deleted ${result.deleted_records} expired new-model records; legacy data unchanged.`,
+                                `已删除 ${result.deleted_records} 条到期新模型记录，旧数据不变。`,
+                              )
+                            })
+                          }
+                        >
+                          {t(
+                            "Clean up expired local records",
+                            "清理已到期本地记录",
+                          )}
+                        </Button>
+                      )}
+                    </section>
+                  </TabsContent>
+                  <TabsContent value="tasks">
+                    <section
+                      className="space-y-3"
+                      aria-labelledby="tasks-heading"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h2 id="tasks-heading" className="text-lg font-medium">
+                          {t(
+                            "Persistent synchronization tasks",
+                            "持久化同步任务",
+                          )}
+                        </h2>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            void tasks.refetch()
+                            if (search.external_task) void task.refetch()
+                          }}
+                        >
+                          {t(
+                            "Refresh task status (local)",
+                            "刷新任务状态（本地）",
+                          )}
+                        </Button>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {t(
+                          "Status reads never execute or reconcile tasks. Full completion, normal bounded completion, partial failure, and unknown execution are distinct. Published partial batches never become complete versions; older complete versions remain explicitly selectable until expiry.",
+                          "状态读取不会执行或核对任务。全量成功、正常批次完成、部分失败和未知执行分别显示。部分批次不会成为完整版本；旧完整版本在到期前仍可显式选择。",
+                        )}
+                      </p>
+                      {search.external_task && (
+                        <div className="space-y-2 rounded border p-3">
+                          <h3 className="font-medium">
+                            {t("Selected task", "选定任务")}
+                          </h3>
+                          {task.isPending && (
+                            <p role="status">
+                              {t("Loading task…", "正在加载任务…")}
+                            </p>
+                          )}
+                          {task.isError && (
+                            <p role="alert">
+                              {t("Task could not be read.", "无法读取任务。")}
+                            </p>
+                          )}
+                          {task.isSuccess && renderTask(task.data)}
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              void move({ external_task: undefined })
+                            }
+                          >
+                            {t("Close selected task", "关闭选定任务")}
+                          </Button>
+                        </div>
+                      )}
+                      {tasks.isPending && (
+                        <p role="status">
+                          {t("Loading tasks…", "正在加载任务…")}
+                        </p>
+                      )}
+                      {tasks.isError && (
+                        <p role="alert">
+                          {t(
+                            "Could not read local tasks.",
+                            "无法读取本地任务。",
+                          )}
+                        </p>
+                      )}
+                      {tasks.isSuccess && (
+                        <>
+                          {tasks.data.data.length ? (
+                            tasks.data.data.map(renderTask)
+                          ) : (
+                            <p>
+                              {t(
+                                "No synchronization tasks yet.",
+                                "尚无同步任务。",
+                              )}
+                            </p>
+                          )}
+                          <ResultPagination
+                            label={t("Tasks", "任务")}
+                            page={taskPage}
+                            pageSize={SIZE}
+                            count={tasks.data.count}
+                            onPageChange={setTaskPage}
+                          />
+                        </>
+                      )}
+                    </section>
+                  </TabsContent>
+                  <TabsContent value="versions" className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="break-all text-sm">
+                        {search.external_version
+                          ? t(
+                              `Fixed version: ${search.external_version}`,
+                              `固定版本：${search.external_version}`,
+                            )
+                          : t(
+                              "Latest readable batch pointer (no fallback after expiry)",
+                              "最新可读批次指针（到期不回退）",
+                            )}
+                      </span>
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          await cache.cancelQueries({
+                            queryKey: [...prefix, "records"],
+                          })
+                          cache.removeQueries({
+                            queryKey: [...prefix, "records"],
+                          })
+                          setExpired(false)
+                          setManagement(null)
+                          await move({
+                            external_version: undefined,
+                            external_page: 0,
+                          })
+                        }}
+                      >
+                        {t("Read latest local version", "读取最新本地版本")}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        disabled={
+                          !versions.isSuccess ||
+                          !versions.data.latest_complete_version ||
+                          Date.parse(
+                            versions.data.latest_complete_version.retain_until,
+                          ) <= Date.now()
+                        }
+                        onClick={() => {
+                          const complete =
+                            versions.data?.latest_complete_version
+                          if (!complete) return
+                          setExpired(false)
+                          setManagement(null)
+                          void move({
+                            external_version: complete.id,
+                            external_page: 0,
+                          })
+                        }}
+                      >
+                        {t(
+                          "Read latest usable complete version",
+                          "读取最近可用完整版本",
+                        )}
+                      </Button>
+                    </div>
+                    <details className="space-y-3" open>
+                      <summary className="cursor-pointer font-medium">
+                        {t(
+                          "Version history (not source change history)",
+                          "版本历史（不是来源变更历史）",
+                        )}
+                      </summary>
+                      {versions.isPending && (
+                        <p role="status">
+                          {t("Loading versions…", "正在加载版本…")}
+                        </p>
+                      )}
+                      {versions.isError && (
+                        <p role="alert">
+                          {t(
+                            "Could not read version history.",
+                            "无法读取版本历史。",
+                          )}
+                        </p>
+                      )}
+                      {versions.isSuccess && (
+                        <>
+                          {versions.data.data.length ? (
+                            versions.data.data.map((version) => (
+                              <article className="space-y-2" key={version.id}>
+                                <VersionInfo version={version} />
+                                <Button
+                                  variant="outline"
+                                  disabled={
+                                    version.status === "EXPIRED" ||
+                                    Date.parse(version.retain_until) <=
+                                      Date.now()
+                                  }
+                                  onClick={() => {
+                                    setExpired(false)
+                                    setManagement(null)
+                                    void move({
+                                      external_version: version.id,
+                                      external_page: 0,
+                                    })
+                                    heading.current?.focus()
+                                  }}
+                                >
+                                  {t(
+                                    "Read this fixed version",
+                                    "读取此固定版本",
+                                  )}
+                                </Button>
+                              </article>
+                            ))
+                          ) : (
+                            <p>
+                              {t("No published versions.", "尚无已发布版本。")}
+                            </p>
+                          )}
+                          <ResultPagination
+                            label={t("Versions", "版本")}
+                            count={versions.data.count}
+                            page={versionPage}
+                            pageSize={SIZE}
+                            onPageChange={setVersionPage}
+                          />
+                        </>
+                      )}
+                    </details>
+                  </TabsContent>
+                </>
+              )}
+            </div>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

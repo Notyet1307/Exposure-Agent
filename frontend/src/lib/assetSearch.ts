@@ -124,5 +124,12 @@ export function validateAssetSearch(s: Record<string, unknown>): AssetSearch {
   )
     return { asset_error: "conflict" }
   const view = s.asset_view ?? (history ? "history" : "synced")
+  // Keep bare intent observable after router canonicalization; component
+  // selectors supply their own domain and pagination defaults.
+  if (
+    view === "synced" &&
+    Object.keys(s).every((key) => s[key] === undefined || key === "asset_view")
+  )
+    return { asset_view: "synced" }
   return view === "history" ? historicalAssetSearch(s) : syncedAssetSearch(s)
 }

@@ -613,7 +613,7 @@ function Dashboard() {
     ) : (
       <section className="space-y-3">
         <h1 className="text-2xl font-bold">
-          {t("CloudAtlas ledger", "云图原生资产账")}
+          {t("Internet exposure assets", "互联网暴露面资产")}
         </h1>
         <p role="status">
           {t(

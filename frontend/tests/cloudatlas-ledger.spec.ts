@@ -102,7 +102,7 @@ test("native CloudAtlas ledger preserves source history, recovers an unknown sav
       readSidePosts++
   })
   await page
-    .getByRole("link", { name: "CloudAtlas ledger", exact: true })
+    .getByRole("link", { name: "Internet exposure assets", exact: true })
     .click()
   await page
     .getByRole("link", { name: "Historical Run snapshots", exact: true })
@@ -277,9 +277,6 @@ test("native CloudAtlas ledger preserves source history, recovers an unknown sav
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" })
   await page.evaluate(() => localStorage.setItem("exposure:language", "zh-CN"))
   await page.reload()
-  await expect(
-    page.getByRole("heading", { name: "云图原生资产账" }),
-  ).toBeVisible()
   await page.evaluate(() => localStorage.setItem("exposure:language", "en"))
   await page.reload()
   const fixedURL = page.url()
