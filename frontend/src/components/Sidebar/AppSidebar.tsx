@@ -53,7 +53,7 @@ export function AppSidebar() {
     home("overview", t("Overview", "概览"), Home),
     {
       icon: Waypoints,
-      title: t("CloudAtlas ledger", "云图原生资产账"),
+      title: t("Internet exposure assets", "互联网暴露面资产"),
       path: project ? `/projects/${project}/cloudatlas-ledger` : "/",
       search: project ? undefined : { view: "cloudatlas-ledger" },
       active:

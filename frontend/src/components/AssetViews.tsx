@@ -14,14 +14,14 @@ export default function AssetViews({
   const { t } = useI18n()
   useEffect(() => {
     document.title = t(
-      "CloudAtlas ledger - Exposure",
-      "云图原生资产账 - Exposure",
+      "Internet exposure assets - Exposure",
+      "互联网暴露面资产 - Exposure",
     )
   }, [t])
   return (
     <header className="space-y-3">
       <h1 className="text-2xl font-bold">
-        {t("CloudAtlas ledger", "云图原生资产账")}
+        {t("Internet exposure assets", "互联网暴露面资产")}
       </h1>
       {search.asset_error && (
         <p role="alert">
