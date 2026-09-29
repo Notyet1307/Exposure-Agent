@@ -12,6 +12,10 @@ _Avoid_: 租户、工作区、单次对账、Run 分组
 Project 对一个外部系统 OctoBus Instance 的业务引用，标明其为客户系统来源或暴露面来源，并记录启用状态及当前连接配置是否通过读取验证；凭据仍由 OctoBus 管理。同一 Project 每类外部来源最多启用一个 SourceInstance，可以保留已停用的历史引用；验证在绑定或连接配置变化后失效，配置不变时不按时间自动过期。初期测试只有云图 SourceInstance；客户系统可达后最终也通过 SourceInstance 接入。
 _Avoid_: Connector、凭据副本、SourceSnapshot、CustomerUpload
 
+**CloudAtlas Asset Ledger（云图资产台账）**:
+云图资产与暴露面信息在 Exposure 中的本地结果视图，以资产分类、业务字段和详情为主体，同步任务、来源配置与版本追溯为支撑。它只呈现获准保存且仍可读取的信息，不等于云图实时状态或无条件全量镜像。
+_Avoid_: 同步任务清单、同步控制台、实时云图镜像
+
 **External Asset Batch（外部资产采集批次）**:
 同一授权来源空间内，一个数据域在明确读取范围和预算下正常结束采集的不可变版本。批次可以尚未覆盖来源报告的全部记录，但必须明确其范围，不能把失败暂存或不同批次拼接成完整结果。
 _Avoid_: SourceSnapshot、全量快照、增量游标、跨批次稳定资产、任意暂存预览

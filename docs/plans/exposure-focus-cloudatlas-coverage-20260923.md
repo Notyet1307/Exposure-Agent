@@ -19,6 +19,7 @@
 | E11 | 维护者在本会话确认产品**v1.2**、OctoBus＋开源CLI路径，并提供暴露面/风险/种子数据三张截图 | 产品版本已知；仅转述栏目，不复制客户标识、原图或真实行。UI存在不等于API返回齐全；空风险表不能证明无风险/无权限，也不能代替详情/依据样例 |
 | E12 | 2026-09-24维护者明确授权的临时OctoBus＋固定CLI＋受限HTTPS转发器实读；来源代号LIVE-A，完整方法/预算/指纹与清理记录见回执 | 7次GET均HTTP/业务200；IP valid、端口各两页共10条；漏洞列表0条；一条端口IP过滤取得一个IP对象；IP首页面重读字节一致。IP `bu`实为object，与E10 string声明冲突；时间无显式时区。仅有界样本，不证明完整同步、长期稳定键或非空风险/依据。临时包不是当前产品包，未落业务库 |
 | E13 | #262于2026-09-27另获许可的两次DNS脱敏诊断：[20条顶层类型](https://github.com/Notyet1307/Exposure-Agent/issues/262#issuecomment-5852239889)、[1条bu子结构](https://github.com/Notyet1307/Exposure-Agent/issues/262#issuecomment-5853167217) | 首次20/20条bu为object；第二次独立1次GET/1条确认bu.id/name存在且为integer/string，其他bu键计数0。仅输出类型/计数，未保存真实值或发布数据；原生产string校验拒绝。不能证明全空间必填/可空、完整同步或正式产品验收，也不将其他域样本当DNS证据 |
+| E14 | 2026-09-29重新获取并以 Bun 内置 YAML 解析器解析 E10 固定公开 schema；对照代码 `6eeb02bba406878a3a5e306e353e7ca0a1fea3a9` 与 E11 的既有截图栏目转述 | 文件 SHA-256 仍为 `4bce5d8165f7ddfd992558d4d74b707f806881f0ed951a76c65a9cbcc8e1f5bd`，172 个路径中 asset/attack 族恰有 11 个 GET，当前独立本地模型只承接四域；下方追加全部读面及其余七类精确字段。仅公开静态解析和源码核对，无真实来源、模型或业务数据读取，不构成新增字段合同或完整 UI 验收 |
 
 资料检索范围：原仓库、历史聚合回执、固定CLI发布版完整schema及生成/传输代码、E12的单空间三GET有界样本，以及E13独立获准的DNS类型诊断。目标产品v1.2已确认；已有非空IP/端口样本和DNS类型差额，剩余缺口是公开声明差异、非空风险/依据、详情/关系及长期同步/安全语义。不再索取已有公开资料；新来源读取仍须另获精确许可，凭据和原始响应不入仓库。
 
@@ -143,3 +144,91 @@ E13补齐了本次有界DNS样本的bu类型差额，但诊断未发布产品DNS
 - **G4—安全不随风险后置取消**：资产本地权限、脱离上游阅读、撤访问和有界保留在01B落实；风险正文/附件的目标网络、类型/大小/有效期、敏感字段及保留策略在01C接入前补齐。无需当前先提供非空风险脱敏包，也不能用后置放开原始材料出域。
 
 Laya仓库/版本/许可、cumora部署网络分别到03/04补，不作为01A材料门槛。收到资料后的真实“接口缺失/权限缺失/明确不适用”须逐项记录依据；必需缺项未解决，不宣布完整同步，也不自行改变约定范围。
+
+## 2026-09-29结果台账补证（静态）
+
+维护者明确要求把云图资产与暴露面信息下载并在 Exposure 展示，选择完整信息对齐而非限定四域。展示与验收见[正式Spec的RESULT节](../specs/exposure-focus-release-1.md#exp-focus-01c-result云图资产与暴露面结果台账)；本节只追加 E14 静态事实，不修改既有冻结字段合同、风险后置或历史验收，不授予新增实读/保留许可。正式条款批准不把下述公开声明升级为现场已验证事实，具体来源/材料仍按R3准入。
+
+唯一公开字段来源仍是 [E10 固定 OpenAPI](https://github.com/chaitin/chaitin-cli/blob/857ae38973b9c7886fc088a4065e3694202b7982/products/cloudatlas/spec/openapi.yaml)。下表以精确 GET 路径定位；记录属性均位于该操作 `responses.200.content.application/json.schema.properties.data.properties.items.items`，不是独立详情响应。HTTP 包裹为 `code/message/data`，分页数据为 `data.current/size/total/items`；未声明 asset/attack 的独立 `/{pk}` GET。不由此推断供应商不存在其他详情接口。
+
+### 完整公开读面与当前覆盖
+
+| GET 路径 | 顶层字段数 | 公开声明必填 query | 声明的 status 查询值 | Exposure 当前独立读模型 |
+|---|---:|---|---|---|
+| `/v1/asset/ip` | 19 | space、status | valid、await、ignored、invalid | 已有；固定 valid；字段及 bu 修正沿用上文 A01—A15/E12 |
+| `/v1/asset/root-domain` | 14 | space、status | valid、await、ignored、negative | 已有；固定 valid；沿用 ROOT 14 字段合同 |
+| `/v1/asset/dns` | 11 | space、flat | valid、invalid、ignored | 已有；固定 flat=1、valid；沿用 DNS 11 字段及 E13 bu 修正 |
+| `/v1/asset/subdomain` | 7 | space、status | valid、ignored | 未接入；不是 DNS 记录的别名 |
+| `/v1/asset/cert` | 19 | space | valid、await、ignored | 未接入 |
+| `/v1/attack/port` | 16 | space | valid、invalid、ignored | 已有；不传 status，明确为来源默认范围 |
+| `/v1/attack/openport` | 7 | 无 | 未声明 status 参数或记录字段 | 未接入；不能由端口服务表推定已覆盖 |
+| `/v1/attack/web` | 14 | space | valid、invalid、ignored | 未接入 |
+| `/v1/attack/dir` | 33 | space、flat | valid、invalid、ignored | 未接入 |
+| `/v1/attack/appfinger` | 19 | space | valid、invalid、ignored | 未接入 |
+| `/v1/attack/crawler` | 14 | space | valid、invalid、ignored | 未接入 |
+
+表中“必填”只是公开 schema 声明：Exposure 所有读取仍必须绑定并校验获准空间，不能因 openport 的 space 可选而允许无空间请求。DNS/dir/openport/port 的 space 声明为 integer，其他上述 GET 为 string；不能将十进制来源身份转成有损 JavaScript number。声明可选的 status 不证明默认返回全状态，各域相同状态字符串的中文含义也不同。
+
+所有 11 个 GET 均声明 page/size/sort；它们不提供一致性快照、稳定跨批次身份或可靠增量承诺。DNS/dir 的 flat 参数区分列表/聚合，但当前公开响应不能证明 flat=0 的聚合形状；不能从 flat=1 记录自行猜供应商聚合或关系。范围、分页及发布仍须按新增批准合同落地。
+
+### 七类尚未接入记录的完整属性清单
+
+以下为公开 schema 的字段声明，不是从现场返回观察所得。除 crawler 外，表内其他六类的全部顶层字段都列在 required 中；crawler 没有 required 列表，缺失字段不等于声明 nullable，也不能擅自规定 14 项全部必填。
+
+| 分类 / 对应 GET | 全部顶层字段 | 标量、嵌套与空值边界 |
+|---|---|---|
+| 子域名情报 `/asset/subdomain` | `id, subdomain, source_name, reason, status, created_at, lastseen_at` | id 为 integer，其余 string；无 updated_at、tags、bu 或解析记录值。reason 是源发现依据，不是风险检测证明 |
+| 证书 `/asset/cert` | `id, cn_name, o_name, ou_name, email_name, subject, issuer, serial_number, sha256, sha1, md5, start_date, end_date, trusted, sources, status, created_at, updated_at, lastseen_at` | id 为 integer，trusted 为 boolean；sources 为对象数组，其他项为 string；顶层未声明 nullable，不等于现场已经证实无空值。证书属性不包含 PEM/DER 本体或已证实资产外键 |
+| 开放端口 `/attack/openport` | `id, ip, port, protocol, created_at, updated_at, lastseen_at` | id/port 为 integer，其他 string；无 status、服务、产品、分组、标签或 banner，不能拿 `/attack/port` 的字段补入 |
+| 网站实体 `/attack/web` | `id, url, scheme, hostname, netloc, port, ip, entity, bu, tags, status, created_at, updated_at, lastseen_at` | id/port 为 integer，tags 为对象数组，其他 string；entity 描述为 scheme+hostname+port 对应的网站 MD5，不是已证明的跨域外键；bu 的 string 声明尚未现场核实 |
+| 网站路径 `/attack/dir` | `id, status, scheme, netloc, hostname, port, ip, ip_info, url, bu, tags, apps, path, level, status_code, title, render_title, server, x_powered_by, screenshot_link, location, content_type, content_lines, content_words, content_length, body_md5_hash, icon_url, icon_mmh3_hash, icon_md5_hash, isadmin, created_at, updated_at, lastseen_at` | id/port/level/status_code/content_lines/content_words/content_length 为 integer，isadmin 为 boolean；ip_info 为 object，tags/apps 为对象数组，其他 string。screenshot_link/icon_url/icon_mmh3_hash/icon_md5_hash 允许 null；bu 声明 string，未现场核实；没有页面 body 正文、完整 HTTP 响应或证书关联字段 |
+| 网站指纹 `/attack/appfinger` | `id, url, scheme, hostname, netloc, path, port, product_name, product_uuid, vendor, vendor_uuid, version, cpe, bu, tags, status, created_at, updated_at, lastseen_at` | id/port 为 integer，tags 为对象数组，其他 string；bu 声明 string，未现场核实。vendor 与 dir.apps 的 vendor_name 不是同名字段；产品 UUID 不等于指纹记录、网站或风险实例身份 |
+| 爬虫数据 `/attack/crawler` | `id, target, hostname, uri, path, method, request_type, headers, data, source, status, created_at, updated_at, lastseen_at` | id 声明 integer，其他 string；headers 不是声明的键值对象，data 描述为请求数据，二者不等于响应报文。没有顶层字段必填保证，记录身份及缺失处理仍需冻结合同 |
+
+嵌套属性同样属于信息对齐范围，不能把对象转成字符串摘要后称为完整：
+
+- cert 的 `sources[]`：`source/reason/factor`，均必填 string；没有 IP `sources[]` 的 lastseen_at。
+- web/dir/appfinger 的 `tags[]`：`pk` integer、`name` string，均必填。全部来源整数身份都须无损保留，不能借这些字段建立未经证实的跨域关系。
+- dir 的 `apps[]`：`product_uuid/vendor_uuid/product_name/vendor_name/cpe/version/created_at/updated_at/lastseen_at`，均必填 string；数组不是完整 appfinger 实体集合。
+- dir 的 `ip_info`：`ip/version/subnet/provider/as_name/as_num/location/country/province/city`；version 为 integer，其余 string，subnet 允许 null。该对象没有子字段 required 列表，不直接套用既有 IP 实体的完整必填合同。
+- IP/DNS 的公开 bu string 声明已被 E12/E13 和各自批准合同的 `{id,name}` object 修正；端口 schema 本身声明该 object。新域的 bu 不能未经核实沿用任一猜测类型或宽松兼容转换。
+
+### 已定位但不能据此宣称完成的差额
+
+- **端口响应包**：E11 暴露面截图有此栏目；port 的 nullable banner 只证明该字段声明，不证明完整报文、捕获文件或下载方法。crawler 的 headers/data 也不是替代物。
+- **网站图片与正文**：dir 的 screenshot_link/icon_url 是可空链接；未声明可信目标、下载权限、大小/类型/签名有效期或本地保留合同。body_md5_hash 是摘要而不是正文。图片及获准请求材料属于完整资产/暴露面结果需求中的待核实项，不因风险后置自动从需求删除；也不据此读取 risk 或执行种子管理动作。
+- **筛选差异**：web 声明 ip/port/hostname，dir 声明 scheme/hostname/port/path/level/isadmin，appfinger 声明 url/hostname/cpe，crawler 声明 netloc/method/path；query 字段不一定出现在返回项，例如 crawler 返回 hostname 而不是 netloc。不把过滤参数当可保存的响应字段或已验证关系。
+- **证书 OU 查询冲突**：cert 的 ou_name query 描述为“部门（OU）”，却枚举 ANDROID/IOS；不能据此把证书组织单元解释为移动平台或照搬为可执行筛选合同。
+- **声明不是封闭字段全集**：资产对象的 required 说明字段存在要求，不禁止额外字段；未设置 additionalProperties=false，也未声明完整错误响应。运行时新增字段仍须进入差额核对，不能默认整包保存或只凭已列属性宣告 UI 完整。
+- **时间类型冲突**：dir 的 created_at_before/lastseen_at_after/lastseen_at_before 分别声明 integer/integer/boolean，而说明为日期范围；不能据此生成可执行时间筛选合同。源时间的时区和首次发现含义沿用 A13 差额，不自行补 UTC 或重命名。
+- **完整 UI 对齐**：E11 已确认五个暴露面栏目、端口列表列项和资产导航下的种子栏目；其他详情、更多界面信息或来源方法仍须补核。11 只是固定 schema 的 asset/attack GET 数，另有下节种子只读信息，不是已验证的云图 UI 全覆盖比例。
+
+本轮复查是实际下载、校验哈希并用 Bun 内置解析器枚举 paths/get 与响应属性；未安装依赖，未运行新增采集方法、业务测试或 UI 验收，没有客户原值留存。E14 只补静态事实，不能把 G1—G4 或相关历史未验项改成 PASS。
+
+### 资产导航下的种子只读信息
+
+E11 第三张截图是“资产/种子数据”。种子是来源声明/发现输入，不等于已发现资产；但完整界面信息核对不能因为它们在 `/seed` 而遗漏。以下只列读取，不复制监控、创建、修改、删除或其他管理动作；没有新增真实调用。
+
+本轮解析同一 E10 文件得到七组列表 GET 和七个对应 `/{pk}` GET，共 14 个；与上方 11 个 asset/attack GET 合计 25 个已定位读操作，表示 18 类信息，不是 25 类资产或整体 UI 已验证比例。下面路径均以 `/v1/seed` 开头；列表记录在 `data.items[]`，单条对象在 `data`，来源均为各 GET 的 `responses.200` schema。
+
+| 类别 | 列表 GET / 单条 GET | 字段数 | 两种响应声明的相同属性集合 |
+|---|---|---:|---|
+| 企业主体 | `/v1/seed/enterprise` / `/v1/seed/enterprise/{pk}` | 9 | `id, name, confidence, equity, investment_path, is_history, enable, created_at, updated_at` |
+| 关键词 | `/v1/seed/keyword` / `/v1/seed/keyword/{pk}` | 7 | `id, name, type, enable, confidence, created_at, updated_at` |
+| 域名 WHOIS | `/v1/seed/domain` / `/v1/seed/domain/{pk}` | 7 | `id, name, type, enable, confidence, created_at, updated_at` |
+| 邮箱域名 | `/v1/seed/email-domain` / `/v1/seed/email-domain/{pk}` | 6 | `id, name, enable, confidence, created_at, updated_at` |
+| 证书信息 | `/v1/seed/cert` / `/v1/seed/cert/{pk}` | 7 | `id, name, type, enable, confidence, created_at, updated_at` |
+| 网站图标 | `/v1/seed/icon` / `/v1/seed/icon/{pk}` | 8 | `id, icon_url, md5_value, mmh3_value, enable, confidence, created_at, updated_at` |
+| 网站标题 | `/v1/seed/web-title` / `/v1/seed/web-title/{pk}` | 7 | `id, name, type, enable, confidence, created_at, updated_at` |
+
+所有记录的 id 为 integer，enable 为 boolean，confidence/时间为 string；企业另有 equity integer、is_history boolean、investment_path string，不能把该字符串臆造为关系树。其余属性为 string，只有 icon_url/md5_value/mmh3_value 明确 nullable。七种单条响应及企业列表声明全部属性 required，其他六种列表项没有 required 列表；相同属性集合不等于相同必填保证。公开列表已提供同一字段集合时优先复用列表，不预设逐条详情的 N+1 调用。
+
+七个列表均声明可选 space integer、name、enable、confidence、sort/page/size；confidence query 只列字符串 `60/100`。单条 GET 需要 path pk string，space integer 仍声明可选。Exposure 必须始终绑定并校验获准空间，无损保存身份，不能由可选 space 推导跨空间读取许可，也不把查询枚举收窄为响应事实类型。icon 的 name 只是查询参数，不是返回属性。
+
+种子特有差额：
+
+- E11 企业 UI 有“层级/状态”，但上述企业返回属性没有 level/status；可查询的 status 枚举为“存续/在业/注销/吊销”，不能据查询参数、is_history 或 investment_path 猜返还的企业状态、层级和关系。
+- keyword 的 type 查询枚举为“品牌标识/业务系统”，domain 为“NS/MX/注册邮箱”，cert 为“O/OU”，web-title 为“full/like”；各响应 type 仅声明 string，不自行映射成资产类型或风险分类。
+- enable/confidence 是来源种子属性，不是 Exposure 同步启用、客户归属证明或模型置信度；只读展示不提供监控开关。域名 WHOIS 种子不冒充主域名 WHOIS，证书种子不冒充发现证书。
+- 网站图标的链接/指纹不证明图标本体已下载，适用与网站图片相同的来源、SSRF、内容、授权及保留差额。
+- E11 已有“网页哈希”入口，但固定公开 schema 未定位相应读取方法；保留为界面信息差额，不猜 endpoint，不用 dir.body_md5_hash 或图标 MD5 充当该种子列表，也不从 schema 遗漏断言供应商没有能力。
