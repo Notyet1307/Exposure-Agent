@@ -26,12 +26,15 @@ WORKDIR /app/
 ARG RUNNER_BUILD_VERSION=development
 RUN test -n "$RUNNER_BUILD_VERSION" && printf '%s\n' "$RUNNER_BUILD_VERSION" > /app/runner-build-version
 
+COPY ./backend/pyproject.toml ./backend/alembic.ini /app/backend/
+COPY ./backend/vendor /app/backend/vendor
+RUN echo "eba079556be6066c66eb450421571acb07afe527d46dd4e5b8b6b95c93c56d3f  /app/backend/vendor/netflow_processor-0.4.0-py3-none-any.whl" | sha256sum -c -
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --frozen --no-install-workspace --package app
 
-COPY ./backend/pyproject.toml ./backend/alembic.ini /app/backend/
 COPY ./backend/app /app/backend/app
 
 # The single-asset supervisor loads only this bundled Pi extension. Fail image

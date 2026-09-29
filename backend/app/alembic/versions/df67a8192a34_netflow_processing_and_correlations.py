@@ -34,26 +34,62 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["dataset_id", "project_id", "tenant_id"],
-            ["netflow_datasets.id", "netflow_datasets.project_id", "netflow_datasets.tenant_id"],
+            [
+                "netflow_datasets.id",
+                "netflow_datasets.project_id",
+                "netflow_datasets.tenant_id",
+            ],
             ondelete="RESTRICT",
         ),
-        sa.UniqueConstraint("id", "dataset_id", "project_id", "tenant_id", name="uq_nf_context_scope"),
+        sa.UniqueConstraint(
+            "id", "dataset_id", "project_id", "tenant_id", name="uq_nf_context_scope"
+        ),
         sa.ForeignKeyConstraint(
             ["parent_id", "dataset_id", "project_id", "tenant_id"],
-            ["netflow_context_revisions.id", "netflow_context_revisions.dataset_id", "netflow_context_revisions.project_id", "netflow_context_revisions.tenant_id"],
+            [
+                "netflow_context_revisions.id",
+                "netflow_context_revisions.dataset_id",
+                "netflow_context_revisions.project_id",
+                "netflow_context_revisions.tenant_id",
+            ],
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(["created_by"], ["user.id"], ondelete="RESTRICT"),
         sa.UniqueConstraint("dataset_id", "revision", name="uq_nf_context_revision"),
-        sa.UniqueConstraint("project_id", "dataset_id", "created_by", "operation_key", name="uq_nf_context_operation"),
+        sa.UniqueConstraint(
+            "project_id",
+            "dataset_id",
+            "created_by",
+            "operation_key",
+            name="uq_nf_context_operation",
+        ),
         sa.UniqueConstraint("parent_id", name="uq_nf_context_successor"),
-        sa.CheckConstraint("revision > 0 AND state IN ('CONFIRMED','UNKNOWN','CONFLICT','REVOKED')", name="ck_nf_context_state"),
-        sa.CheckConstraint("network_namespace ~ '^[a-z][a-z0-9_-]{0,63}$'", name="ck_nf_context_namespace"),
-        sa.CheckConstraint("raw_sha256 ~ '^[0-9a-f]{64}$' AND normalized_sha256 ~ '^[0-9a-f]{64}$' AND request_sha256 ~ '^[0-9a-f]{64}$'", name="ck_nf_context_hashes"),
+        sa.CheckConstraint(
+            "revision > 0 AND state IN ('CONFIRMED','UNKNOWN','CONFLICT','REVOKED')",
+            name="ck_nf_context_state",
+        ),
+        sa.CheckConstraint(
+            "network_namespace ~ '^[a-z][a-z0-9_-]{0,63}$'",
+            name="ck_nf_context_namespace",
+        ),
+        sa.CheckConstraint(
+            "raw_sha256 ~ '^[0-9a-f]{64}$' AND normalized_sha256 ~ '^[0-9a-f]{64}$' AND request_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_nf_context_hashes",
+        ),
     )
     for field in ("project_id", "dataset_id"):
-        op.create_index("ix_netflow_context_revisions_" + field, "netflow_context_revisions", [field])
-    op.create_index("uq_nf_context_root", "netflow_context_revisions", ["dataset_id"], unique=True, postgresql_where=sa.text("parent_id IS NULL"))
+        op.create_index(
+            "ix_netflow_context_revisions_" + field,
+            "netflow_context_revisions",
+            [field],
+        )
+    op.create_index(
+        "uq_nf_context_root",
+        "netflow_context_revisions",
+        ["dataset_id"],
+        unique=True,
+        postgresql_where=sa.text("parent_id IS NULL"),
+    )
 
     op.create_table(
         "netflow_analyses",
@@ -84,27 +120,68 @@ def upgrade() -> None:
         sa.Column("completed_at", sa.DateTime(timezone=True)),
         sa.ForeignKeyConstraint(
             ["context_revision_id", "dataset_id", "project_id", "tenant_id"],
-            ["netflow_context_revisions.id", "netflow_context_revisions.dataset_id", "netflow_context_revisions.project_id", "netflow_context_revisions.tenant_id"],
+            [
+                "netflow_context_revisions.id",
+                "netflow_context_revisions.dataset_id",
+                "netflow_context_revisions.project_id",
+                "netflow_context_revisions.tenant_id",
+            ],
             ondelete="RESTRICT",
         ),
-        sa.UniqueConstraint("id", "project_id", "tenant_id", name="uq_nf_analysis_scope"),
-        sa.UniqueConstraint("id", "processing_identity_sha256", "project_id", "tenant_id", name="uq_nf_analysis_identity_scope"),
+        sa.UniqueConstraint(
+            "id", "project_id", "tenant_id", name="uq_nf_analysis_scope"
+        ),
+        sa.UniqueConstraint(
+            "id",
+            "processing_identity_sha256",
+            "project_id",
+            "tenant_id",
+            name="uq_nf_analysis_identity_scope",
+        ),
         sa.ForeignKeyConstraint(
-            ["retry_of_analysis_id", "processing_identity_sha256", "project_id", "tenant_id"],
-            ["netflow_analyses.id", "netflow_analyses.processing_identity_sha256", "netflow_analyses.project_id", "netflow_analyses.tenant_id"],
+            [
+                "retry_of_analysis_id",
+                "processing_identity_sha256",
+                "project_id",
+                "tenant_id",
+            ],
+            [
+                "netflow_analyses.id",
+                "netflow_analyses.processing_identity_sha256",
+                "netflow_analyses.project_id",
+                "netflow_analyses.tenant_id",
+            ],
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(["created_by"], ["user.id"], ondelete="RESTRICT"),
         sa.UniqueConstraint("retry_of_analysis_id", name="uq_nf_analysis_retry"),
         sa.UniqueConstraint("agent_run_id"),
-        sa.CheckConstraint("status IN ('PENDING','RUNNING','SUCCEEDED','SUCCEEDED_WITH_WARNINGS','FAILED','UNKNOWN')", name="ck_nf_analysis_status"),
-        sa.CheckConstraint("processing_identity_sha256 ~ '^[0-9a-f]{64}$' AND agent_run_id ~ '^[0-9a-f]{64}$' AND agent_project_id ~ '^[0-9a-f]{64}$'", name="ck_nf_analysis_identity"),
-        sa.CheckConstraint("network_namespace ~ '^[a-z][a-z0-9_-]{0,63}$'", name="ck_nf_analysis_namespace"),
-        sa.CheckConstraint("(status IN ('SUCCEEDED','SUCCEEDED_WITH_WARNINGS') AND result IS NOT NULL AND completed_at IS NOT NULL AND initial_feedback_revision_id IS NOT NULL AND session_id IS NOT NULL) OR (status NOT IN ('SUCCEEDED','SUCCEEDED_WITH_WARNINGS') AND result IS NULL AND initial_feedback_revision_id IS NULL)", name="ck_nf_analysis_publication"),
+        sa.CheckConstraint(
+            "status IN ('PENDING','RUNNING','SUCCEEDED','SUCCEEDED_WITH_WARNINGS','FAILED','UNKNOWN')",
+            name="ck_nf_analysis_status",
+        ),
+        sa.CheckConstraint(
+            "processing_identity_sha256 ~ '^[0-9a-f]{64}$' AND agent_run_id ~ '^[0-9a-f]{64}$' AND agent_project_id ~ '^[0-9a-f]{64}$'",
+            name="ck_nf_analysis_identity",
+        ),
+        sa.CheckConstraint(
+            "network_namespace ~ '^[a-z][a-z0-9_-]{0,63}$'",
+            name="ck_nf_analysis_namespace",
+        ),
+        sa.CheckConstraint(
+            "(status IN ('SUCCEEDED','SUCCEEDED_WITH_WARNINGS') AND result IS NOT NULL AND completed_at IS NOT NULL AND initial_feedback_revision_id IS NOT NULL AND session_id IS NOT NULL) OR (status NOT IN ('SUCCEEDED','SUCCEEDED_WITH_WARNINGS') AND result IS NULL AND initial_feedback_revision_id IS NULL)",
+            name="ck_nf_analysis_publication",
+        ),
     )
     for field in ("project_id", "dataset_id"):
         op.create_index("ix_netflow_analyses_" + field, "netflow_analyses", [field])
-    op.create_index("uq_nf_analysis_identity_root", "netflow_analyses", ["project_id", "processing_identity_sha256"], unique=True, postgresql_where=sa.text("retry_of_analysis_id IS NULL"))
+    op.create_index(
+        "uq_nf_analysis_identity_root",
+        "netflow_analyses",
+        ["project_id", "processing_identity_sha256"],
+        unique=True,
+        postgresql_where=sa.text("retry_of_analysis_id IS NULL"),
+    )
 
     op.create_table(
         "netflow_feedback_revisions",
@@ -122,29 +199,60 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["analysis_id", "project_id", "tenant_id"],
-            ["netflow_analyses.id", "netflow_analyses.project_id", "netflow_analyses.tenant_id"],
+            [
+                "netflow_analyses.id",
+                "netflow_analyses.project_id",
+                "netflow_analyses.tenant_id",
+            ],
             ondelete="RESTRICT",
         ),
-        sa.UniqueConstraint("id", "analysis_id", "project_id", "tenant_id", name="uq_nf_feedback_scope"),
+        sa.UniqueConstraint(
+            "id", "analysis_id", "project_id", "tenant_id", name="uq_nf_feedback_scope"
+        ),
         sa.ForeignKeyConstraint(
             ["parent_id", "analysis_id", "project_id", "tenant_id"],
-            ["netflow_feedback_revisions.id", "netflow_feedback_revisions.analysis_id", "netflow_feedback_revisions.project_id", "netflow_feedback_revisions.tenant_id"],
+            [
+                "netflow_feedback_revisions.id",
+                "netflow_feedback_revisions.analysis_id",
+                "netflow_feedback_revisions.project_id",
+                "netflow_feedback_revisions.tenant_id",
+            ],
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(["created_by"], ["user.id"], ondelete="RESTRICT"),
         sa.UniqueConstraint("analysis_id", "revision", name="uq_nf_feedback_revision"),
         sa.UniqueConstraint("parent_id", name="uq_nf_feedback_successor"),
-        sa.CheckConstraint("revision > 0 AND (parent_id IS NOT NULL OR revision = 1)", name="ck_nf_feedback_revision"),
-        sa.CheckConstraint("NOT system_generated OR (created_by IS NULL AND parent_id IS NULL)", name="ck_nf_feedback_system_author"),
+        sa.CheckConstraint(
+            "revision > 0 AND (parent_id IS NOT NULL OR revision = 1)",
+            name="ck_nf_feedback_revision",
+        ),
+        sa.CheckConstraint(
+            "NOT system_generated OR (created_by IS NULL AND parent_id IS NULL)",
+            name="ck_nf_feedback_system_author",
+        ),
     )
     for field in ("project_id", "analysis_id"):
-        op.create_index("ix_netflow_feedback_revisions_" + field, "netflow_feedback_revisions", [field])
-    op.create_index("uq_nf_feedback_root", "netflow_feedback_revisions", ["analysis_id"], unique=True, postgresql_where=sa.text("parent_id IS NULL"))
+        op.create_index(
+            "ix_netflow_feedback_revisions_" + field,
+            "netflow_feedback_revisions",
+            [field],
+        )
+    op.create_index(
+        "uq_nf_feedback_root",
+        "netflow_feedback_revisions",
+        ["analysis_id"],
+        unique=True,
+        postgresql_where=sa.text("parent_id IS NULL"),
+    )
     op.create_foreign_key(
-        "fk_nf_analysis_initial_feedback", "netflow_analyses", "netflow_feedback_revisions",
+        "fk_nf_analysis_initial_feedback",
+        "netflow_analyses",
+        "netflow_feedback_revisions",
         ["initial_feedback_revision_id", "id", "project_id", "tenant_id"],
         ["id", "analysis_id", "project_id", "tenant_id"],
-        ondelete="RESTRICT", deferrable=True, initially="DEFERRED",
+        ondelete="RESTRICT",
+        deferrable=True,
+        initially="DEFERRED",
     )
 
     op.create_table(
@@ -162,23 +270,53 @@ def upgrade() -> None:
         sa.Column("evidence", sa.String(2048)),
         sa.Column("created_by", sa.Uuid(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["project_id", "tenant_id"], ["projects.id", "projects.tenant_id"], ondelete="RESTRICT"),
-        sa.UniqueConstraint("id", "root_id", "project_id", "tenant_id", name="uq_nf_correlation_scope"),
+        sa.ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            ondelete="RESTRICT",
+        ),
+        sa.UniqueConstraint(
+            "id", "root_id", "project_id", "tenant_id", name="uq_nf_correlation_scope"
+        ),
         sa.ForeignKeyConstraint(
             ["parent_id", "root_id", "project_id", "tenant_id"],
-            ["source_correlation_revisions.id", "source_correlation_revisions.root_id", "source_correlation_revisions.project_id", "source_correlation_revisions.tenant_id"],
+            [
+                "source_correlation_revisions.id",
+                "source_correlation_revisions.root_id",
+                "source_correlation_revisions.project_id",
+                "source_correlation_revisions.tenant_id",
+            ],
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(["created_by"], ["user.id"], ondelete="RESTRICT"),
         sa.UniqueConstraint("root_id", "revision", name="uq_nf_correlation_revision"),
         sa.UniqueConstraint("parent_id", name="uq_nf_correlation_successor"),
-        sa.CheckConstraint("revision > 0 AND ((parent_id IS NULL AND root_id = id AND revision = 1) OR parent_id IS NOT NULL)", name="ck_nf_correlation_root"),
-        sa.CheckConstraint("scope_state IN ('UNKNOWN','CONFIRMED','REVOKED')", name="ck_nf_correlation_state"),
-        sa.CheckConstraint("network_namespace ~ '^[a-z][a-z0-9_-]{0,63}$'", name="ck_nf_correlation_namespace"),
+        sa.CheckConstraint(
+            "revision > 0 AND ((parent_id IS NULL AND root_id = id AND revision = 1) OR parent_id IS NOT NULL)",
+            name="ck_nf_correlation_root",
+        ),
+        sa.CheckConstraint(
+            "scope_state IN ('UNKNOWN','CONFIRMED','REVOKED')",
+            name="ck_nf_correlation_state",
+        ),
+        sa.CheckConstraint(
+            "network_namespace ~ '^[a-z][a-z0-9_-]{0,63}$'",
+            name="ck_nf_correlation_namespace",
+        ),
     )
     for field in ("project_id", "root_id"):
-        op.create_index("ix_source_correlation_revisions_" + field, "source_correlation_revisions", [field])
-    op.create_index("uq_nf_correlation_root", "source_correlation_revisions", ["root_id"], unique=True, postgresql_where=sa.text("parent_id IS NULL"))
+        op.create_index(
+            "ix_source_correlation_revisions_" + field,
+            "source_correlation_revisions",
+            [field],
+        )
+    op.create_index(
+        "uq_nf_correlation_root",
+        "source_correlation_revisions",
+        ["root_id"],
+        unique=True,
+        postgresql_where=sa.text("parent_id IS NULL"),
+    )
 
     # Reuse the existing append-only audit stream, not another operation table.
     op.execute("""
@@ -195,8 +333,14 @@ def upgrade() -> None:
         END;
         $$
     """)
-    for table in ("netflow_context_revisions", "netflow_feedback_revisions", "source_correlation_revisions"):
-        op.execute(f"CREATE TRIGGER netflow_revision_immutable BEFORE UPDATE OR DELETE ON {table} FOR EACH ROW EXECUTE FUNCTION guard_netflow_revision_mutation()")
+    for table in (
+        "netflow_context_revisions",
+        "netflow_feedback_revisions",
+        "source_correlation_revisions",
+    ):
+        op.execute(
+            f"CREATE TRIGGER netflow_revision_immutable BEFORE UPDATE OR DELETE ON {table} FOR EACH ROW EXECUTE FUNCTION guard_netflow_revision_mutation()"
+        )
 
     op.execute("""
         CREATE FUNCTION guard_netflow_context_chain() RETURNS trigger
@@ -223,7 +367,9 @@ def upgrade() -> None:
         END;
         $$
     """)
-    op.execute("CREATE TRIGGER netflow_context_chain BEFORE INSERT ON netflow_context_revisions FOR EACH ROW EXECUTE FUNCTION guard_netflow_context_chain()")
+    op.execute(
+        "CREATE TRIGGER netflow_context_chain BEFORE INSERT ON netflow_context_revisions FOR EACH ROW EXECUTE FUNCTION guard_netflow_context_chain()"
+    )
     op.execute("""
         CREATE FUNCTION guard_netflow_feedback_chain() RETURNS trigger
         LANGUAGE plpgsql AS $$
@@ -250,7 +396,9 @@ def upgrade() -> None:
         END;
         $$
     """)
-    op.execute("CREATE TRIGGER netflow_feedback_chain BEFORE INSERT ON netflow_feedback_revisions FOR EACH ROW EXECUTE FUNCTION guard_netflow_feedback_chain()")
+    op.execute(
+        "CREATE TRIGGER netflow_feedback_chain BEFORE INSERT ON netflow_feedback_revisions FOR EACH ROW EXECUTE FUNCTION guard_netflow_feedback_chain()"
+    )
     op.execute("""
         CREATE FUNCTION guard_netflow_correlation_chain() RETURNS trigger
         LANGUAGE plpgsql AS $$
@@ -273,7 +421,9 @@ def upgrade() -> None:
         END;
         $$
     """)
-    op.execute("CREATE TRIGGER netflow_correlation_chain BEFORE INSERT ON source_correlation_revisions FOR EACH ROW EXECUTE FUNCTION guard_netflow_correlation_chain()")
+    op.execute(
+        "CREATE TRIGGER netflow_correlation_chain BEFORE INSERT ON source_correlation_revisions FOR EACH ROW EXECUTE FUNCTION guard_netflow_correlation_chain()"
+    )
 
     op.execute("""
         CREATE FUNCTION guard_netflow_analysis() RETURNS trigger
@@ -358,7 +508,9 @@ def upgrade() -> None:
         END;
         $$
     """)
-    op.execute("CREATE TRIGGER netflow_analysis_guard BEFORE INSERT OR UPDATE OR DELETE ON netflow_analyses FOR EACH ROW EXECUTE FUNCTION guard_netflow_analysis()")
+    op.execute(
+        "CREATE TRIGGER netflow_analysis_guard BEFORE INSERT OR UPDATE OR DELETE ON netflow_analyses FOR EACH ROW EXECUTE FUNCTION guard_netflow_analysis()"
+    )
 
     # Both triggers inspect committed-candidate rows, not the intermediate NEW
     # snapshot: publication may flush feedback while its Analysis is RUNNING.
@@ -417,15 +569,21 @@ def downgrade() -> None:
           netflow_feedback_revisions, source_correlation_revisions
           IN ACCESS EXCLUSIVE MODE
     """)
-    if op.get_bind().scalar(sa.text("""
+    if op.get_bind().scalar(
+        sa.text("""
         SELECT EXISTS (SELECT 1 FROM netflow_context_revisions)
           OR EXISTS (SELECT 1 FROM netflow_analyses)
           OR EXISTS (SELECT 1 FROM netflow_feedback_revisions)
           OR EXISTS (SELECT 1 FROM source_correlation_revisions)
-    """)):
-        raise RuntimeError("Cannot remove NetFlow processing while immutable facts exist")
+    """)
+    ):
+        raise RuntimeError(
+            "Cannot remove NetFlow processing while immutable facts exist"
+        )
     op.drop_index("uq_netflow_operation_key", table_name="audit_events")
-    op.drop_constraint("fk_nf_analysis_initial_feedback", "netflow_analyses", type_="foreignkey")
+    op.drop_constraint(
+        "fk_nf_analysis_initial_feedback", "netflow_analyses", type_="foreignkey"
+    )
     op.drop_table("source_correlation_revisions")
     op.drop_table("netflow_feedback_revisions")
     op.drop_table("netflow_analyses")

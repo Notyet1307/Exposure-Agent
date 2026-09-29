@@ -210,6 +210,11 @@ class AgentComposeClient:
             agent_name="cloudatlas-sync", client_request_id=client_request_id
         )
 
+    def expected_netflow_analysis_run_id(self, client_request_id: str) -> str:
+        return self._expected_run_id(
+            agent_name="netflow-processor", client_request_id=client_request_id
+        )
+
     def get_run(self, run_id: str) -> AgentComposeRunStart | None:
         body = self._request(
             _GET_RUN_PATH,
@@ -375,6 +380,24 @@ class AgentComposeClient:
                 ),
             },
             command="/app/.venv/bin/python -m app.cloudatlas_sync_runner",
+        )
+
+    def start_netflow_analysis(
+        self, *, client_request_id: str, analysis_id: str
+    ) -> AgentComposeRunStart:
+        return self._start_run(
+            agent_name="netflow-processor",
+            client_request_id=client_request_id,
+            environment={
+                "NETFLOW_ANALYSIS_ID": analysis_id,
+                "NETFLOW_ANALYSIS_RUN_ID": self.expected_netflow_analysis_run_id(
+                    client_request_id
+                ),
+                "NETFLOW_ALLOW_TEST_FIXTURES": str(
+                    settings.NETFLOW_ALLOW_TEST_FIXTURES
+                ).lower(),
+            },
+            command="/app/.venv/bin/python -m app.netflow_processing_runner",
         )
 
     def _start_run(

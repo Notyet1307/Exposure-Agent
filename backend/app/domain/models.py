@@ -22,6 +22,7 @@ from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
 from app.domain import external_asset_models as external_asset_models
+from app.domain import netflow_models as netflow_models
 
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 

@@ -75,6 +75,37 @@ agents:
       AGENT_COMPOSE_PROJECT_NAME: exposure-agent-governance
       RUNNER_BUILD_VERSION: ${GOVERNANCE_RUNNER_BUILD_VERSION}
 
+  netflow-processor:
+    provider: codex
+    image: ${DOCKER_IMAGE_RUNNER}:${GOVERNANCE_RUNNER_BUILD_VERSION}
+    driver:
+      docker: {}
+    env:
+      PROJECT_NAME: ${PROJECT_NAME}
+      ENVIRONMENT: ${ENVIRONMENT}
+      FIRST_SUPERUSER: netflow-worker@example.com
+      FIRST_SUPERUSER_PASSWORD: unused-for-netflow-worker
+      POSTGRES_SERVER: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD:
+        value: ${POSTGRES_PASSWORD}
+        secret: true
+      ARTIFACT_ROOT: /app/artifacts
+      NETFLOW_MAX_BYTES: ${NETFLOW_MAX_BYTES}
+      NETFLOW_ALLOW_TEST_FIXTURES: "false"
+      AGENT_COMPOSE_URL: http://agent-compose:7410
+      AGENT_COMPOSE_AUTH_TOKEN:
+        value: ${AGENT_COMPOSE_AUTH_TOKEN}
+        secret: true
+      AGENT_COMPOSE_PROJECT_NAME: exposure-agent-governance
+      RUNNER_BUILD_VERSION: ${GOVERNANCE_RUNNER_BUILD_VERSION}
+    volumes:
+      - type: bind
+        source: ${ARTIFACT_HOST_PATH}
+        target: /app/artifacts
+
   model-qualifier:
     provider: pi
     model: customer/${MODEL_IDENTITY}
