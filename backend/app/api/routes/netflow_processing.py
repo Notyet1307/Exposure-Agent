@@ -8,7 +8,7 @@ from app.api.deps import CurrentUser, SessionDep
 from app.api.routes.netflow_http import ERROR_RESPONSES, NetFlowRoute
 from app.core.config import settings
 from app.domain import netflow_processing as service
-from app.domain.models import Artifact
+from app.domain.models import Artifact, Project
 from app.domain.netflow_common import (
     deny,
     new_output_directory,
@@ -287,6 +287,10 @@ async def import_analysis(
     finally:
         if not created and directory.exists():
             session.rollback()
+            # Wait for an uncertain reservation transaction before reading ownership.
+            session.exec(
+                select(Project.id).where(Project.id == project_id).with_for_update()
+            ).one()
             source = directory / "source.zip"
             storage_key = source.relative_to(settings.ARTIFACT_ROOT.resolve()).as_posix()
             # A lost commit acknowledgement may still leave a durable owner.
