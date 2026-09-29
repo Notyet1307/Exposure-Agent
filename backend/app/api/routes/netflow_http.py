@@ -20,7 +20,7 @@ class NetFlowError(BaseModel):
 
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     status: {"model": NetFlowError}
-    for status in (400, 401, 403, 404, 409, 410, 413, 422, 503)
+    for status in (400, 401, 403, 404, 409, 410, 413, 415, 422, 503)
 }
 
 
