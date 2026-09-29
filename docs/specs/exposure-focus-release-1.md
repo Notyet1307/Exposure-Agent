@@ -541,6 +541,104 @@ ENTRY Issue固定本Spec及ADR-0021的同一准确commit，四域继承字段矩
 
 继续适用R4。后续按父Seed-ID `EXP-FOCUS-01C-RESULT`及本片Seed-ID `EXP-FOCUS-01C-RESULT-UI-A`与范围查重，实际任务必须固定包含本节的Spec、对应ADR及同一矩阵准确已发布commit；没有真实任务编号与实施许可不切current或借#267开始编码。本次确认不自动授予commit/push/PR/merge、建单、部署、真实读取、保留调整或关闭权限；所需发布与任务绑定先另获明确授权。
 
+## EXP-NF-INT-01：固定输入的 NetFlow 关联与人工复核材料
+
+2026-09-29 维护者批准接管方案、接口与本窄扩展，并确认当前 OMP 会话唯一写入本阶段共享 Spec、ADR 和 current。批准范围是阶段 B 的正式文档固定/发布及任务登记，不是后端实施、前端接线、业务代码发布/合并、部署、生产迁移或 Issue 关闭许可；后续各阶段另行授权。
+
+行为以本节 N1–N8 和 [netflow-correlation-v1 API 合同](netflow-correlation-api-v1.md) 为同一规范合同，正式 Issue 引用二者及 [ADR-0020 窄扩展](../adr/0020-netflow-native-endpoints-and-local-candidates.md#已接受的窄扩展源侧分析与固定来源关联) 的同一 Git commit。接口文档是待实现的合同而非已生成 OpenAPI。旧双端账、Run/Resource/报告/ManualReview 不替代；RESULT-UI-A 四域任务不因此扩权，NetFlow 也不是新云图独立阅读的前置。
+
+最小持久事实限于独立 NetFlow 上下文修订、Analysis/Artifact 处理收据、固定来源选择与同空间确认修订、反馈修订；继续以 PostgreSQL 为唯一结构化业务事实库，不新增资产主表或重复持久云图明细。组件分发必须有权利人与真实构建来源依据，不因 wheel 未声明许可证而推定可公开分发；本阶段不将组件二进制放入公开仓库。
+
+### N1 范围与责任
+
+复用 `netflow_processor==0.4.0`，完成客户兼容台账、已经保存的云图版本、本方 NetFlow 活动的地址关联、服务材料比对、证据追溯、复核任务和追加回填。它是现有 Exposure 的后端能力，不恢复三账 CMDB 主导航，不另建 Web、资产平台、调度系统或模型平台。
+
+本片后端负责 API、依赖、必要迁移、确定性处理、权限审计、合成验证及前端合同。`frontend/**`、根 `bun.lock`、生成客户端、页面与浏览器验收归前端方；本会话只读。共享 Spec/ADR/current 与后端依赖/调度注册须指定文件级唯一写入者，实际归属和双方 branch/base/HEAD 在 GitHub Issue 固定；不共同推送实现分支。
+
+仅继承明确批准的接口行为，不继承旧 Issue 的真实读取、模型、部署或发布授权。无扫描、云图实时读取、自动纳管、生产库查询导出/修补。默认 rules，不能通过 Laya 判断资产身份；现有模型不重装、升级或下载权重。
+
+### N2 来源身份与声明
+
+1. 服务端从认证和 Project 授权取得 tenant/project，不能相信文件中的同名字段。网络空间使用稳定标识，沿用 `^[a-z][a-z0-9_-]{0,63}$`，不同 Project/namespace 永不关联。IPv4、IPv6 按现有规范化处理，标准 mapped IPv6 折叠为 IPv4，拒绝 zone/非法值，不按前缀展开资产。
+2. 新增独立、追加不可变的 NetFlow 处理上下文修订，绑定一个明确 Dataset 的 raw/normalized Hash；由全局 Admin 确认或撤销 namespace、逐行位置声明及证据。它不同于已有 CIDR/PUBLIC 候选授权，不修改原 `NetFlowLedgerRevision`、候选资格或旧 Run 启动合同。
+3. 本批已确认 `declared_source`：每行 SRC 本方内侧、DST 外侧；`scope_confirmation=confirmed` 只确认位置，`managed_cidrs=[]`。不再次索要 CIDR 来确定本批两列，不把源列解释为发起方、managed、正式资产或暴露确认。
+4. 本批 `nat_context=none` 来自独立的未转换声明，不重复索要 NAT 映射，也不扩展为全网无 NAT。其他批次仍可明确 unknown/mapped。采集视角与采样保持 UNKNOWN；组件对已接受 canonical 时间的 UTC 解释，不等于原采集时区/窗口的业务资格已经确认。
+5. 客户来源固定 `CustomerUpload ID/raw Hash/Profile` 和可选管理 Revision；云图来源显式二选一：旧 `SourceSnapshot/Run` 或新 `SourceInstance + IP/port ExternalAssetVersion`。两种类型不得混称、互相补字段或回退 latest。新云图两域各自固定版本、来源空间、时间、过滤、完整性和保留截止，不能声称跨域原子快照。
+6. 关联需要针对这些确切版本的同空间依据。旧 legacy 确认可复用已有、当前仍有效的 Admin 修订；其他空间由 Admin 对本次固定来源集合追加同空间确认。默认 UNKNOWN 仅显示来源自身事实，不按同 IP 合并。确认新版本、更正空间或撤销均追加修订；没有 namespace 目录、跨空间 Resource 迁移或猜测式自动继承。
+
+### N3 组件执行与已有结果接收
+
+- 正常入口复用已接受 Dataset 的受控 canonical Artifact，以 `input_profile=exposure` 调用真实 `process_file`，再复用 `triage_result`、`create_feedback_template`、`review_feedback`。不重新实现解析、聚合、行为分类或回填校验。原 raw 字节及其质量计数继续保留；组件 canonical 输入行数等于 Dataset 有效行数，不冒充 raw 总行数。
+- canonical 只有表头不总是合法空：Dataset 的 raw_record_count=0 且有效/隔离均为 0 才是空输入；raw>0 且有效=0 是全部隔离，Analysis 为 FAILED/`netflow_no_valid_records`，来源 READ_FAILED，不发布有效空结果。部分隔离保留全部有效源对象并显示原质量计数和覆盖限制，绝不因 canonical 丢弃了坏行而宣称原输入完整。
+- 使用固定 wheel SHA256 `eba079556be6066c66eb450421571acb07afe527d46dd4e5b8b6b95c93c56d3f`。包版本、schema、规则/特征/triage 版本、config/context/input Hash 和实际 Runner build 都进入处理身份。
+- 用既有 agent-compose 执行确定性 worker，复用持久预留、原 Session 身份、终态核验和显式恢复模式；不在 GET、FastAPI BackgroundTasks 或浏览器生命周期内跑整条链，不新增第二调度器。worker 无模型和云图 capability/凭据。
+- 复用 Artifact 存储，输出先写本次独立暂存区，完整验证后在项目锁与一次数据库事务内提交元数据、可读状态和脱敏审计。失败/未完成/degraded 不发布业务结果，不覆盖旧产物；Session 未知不能视为已失败或自动另起执行。
+- 读取 `observations` 全集，校验 `review/candidates` 是正确子集且不重复计数；不能只读 candidates 或只取优先线索。`peers.jsonl` 作为独立目的侧集合，不能并入源地址、端口、记录计数或任务对象。
+- 允许接收组件既有完整结果包，保留原 manifest/context/object/task/run 标识、Hash 和反馈出处，不改写文件让其“匹配”数据库。只接受白名单文件、有界 ZIP（禁重复路径、穿越、绝对路径、链接、未知文件和解压越界），不能接收服务端任意路径/URL。输入包的全部声明都不是身份认证。
+- 既有结果的原 tenant/project/dataset 标识若不是 Exposure 身份，必须由 Admin 明确绑定原 manifest Hash、原身份/context Hash、同一 raw Dataset Hash 和目标 Project/namespace；禁止静默替换。新生成结果直接用服务端身份。Hash 仅证明字节一致，不证明结果真实：导入在隔离 worker 用固定组件、原受控输入及已校验配置重放，比较确定性 observation/peer/任务内容；忽略的仅是新执行 UUID/耗时等执行元数据，不能忽略对象、计数、端口、引用、任务依赖或状态。原反馈按原 binding 再校验，不重生成原任务 ID。
+- 同一 Project 的相同 Dataset/context/config/component 处理身份及相同导入 manifest，普通重复请求返回既有结果；同一幂等键异内容 409。失败/未知仍返回原操作，不能因换 key 或重传创建新尝试。确需在权威终态 FAILED 后重新处理时，在原创建/导入请求中显式提供 `retry_of_analysis_id`；服务端确认固定处理身份相同、原 Session 终态、原记录无已预留后继，再原子创建唯一新 Analysis/Session。对同一失败父记录的重复/并发请求恢复同一个后继；PENDING/RUNNING/UNKNOWN/成功状态拒绝该操作，旧记录及产物不变。材料/context 改变是另一个处理身份，不是这项恢复操作；不增加自动重试。
+- 合成标识默认不能进入生产接收路径；隔离合成环境显式允许后仍完整保留 `test_fixture=true`。处理硬上限为现有 Dataset 上传部署限额（最大 50 MiB）、100 MiB canonical、100000 有效行，与组件各阶段更小限制的交集；不以本批 999 宣称容量。尤其 feedback 只支持最多 10000 任务、16 MiB submission、64 KiB 单响应和 64 MiB 输出；成功发布前必须连初始反馈原版一起验证，不能发布一个任务集却在回填时才发现根本不能消费。超限拒绝，不截断成功；提高限制需另有性能证据和合同变更。
+
+### N4 地址关联与差异含义
+
+1. 在确认的同一网络空间内，对完整、已验证的选定来源做规范 IP 精确关联。集合包括全部客户有效条目、云图 IP 及端口记录实际出现的地址、全部 NetFlow 源地址。云图只有端口记录的地址也保留，标明证据类型，不冒充 IP 账中的资产行。
+2. 一个地址可对应多条客户/云图原生记录及多个 NetFlow 源侧对象，全部可分页追溯；不能用当前页、报告样本或优先清单重建全集。
+3. 匹配含来源版本、源记录键、规范化方式、namespace 确认修订及原因 `CANONICAL_IP_EQUAL_WITH_CONFIRMED_SCOPE`。这是固定版本内关联，不是供应商保证的稳定外键或业务归属确认。
+4. 仅 NetFlow 有正向证据的地址保持 `resource_id=null` 的未匹配活动线索；不丢弃，不新建 Resource/Finding/Run。仅当存在同 Project legacy Resource 且所选旧 Run/权限/范围依据有效时，返回明确历史链接；不读取最新 Run 冒充本次结果。
+5. SRC/DST 同地址仍分开。地址级源记录计数为该地址所有源对象记录数之和，每条有效记录只贡献一次源侧计数；peers、目的端口及目的侧计数不参加。稳定地址键独立于 Dataset/分析 UUID；组件服务键保留，不能用它替换 Resource key。任务身份必须用 `(analysis_id, component_task_id)`，不能把组件 task_id 当跨分析唯一。
+6. 每来源分别返回读取状态、覆盖状态和计数。外层状态至少为 `VALID_NONEMPTY / VALID_EMPTY / NOT_PROVIDED / READ_FAILED / INSUFFICIENT_COVERAGE`；覆盖不足时仍保留有效已读数量和 `read_state`，UNKNOWN 覆盖与已证实不足再用 `coverage_state` 区分。计数未知为 null，合法零为 0。没输入不造空 Artifact；失败不返回假空表。
+7. 正向集合交集与“未匹配原因”分开：记录本次有证据的来源组合，不把另两源未提供、失败、不同空间或覆盖不足写成已经确认缺失。完整输入内无匹配仅说明选定版本未匹配；不表示下线、漏扫、漏管或零风险。云图非全量批次无匹配必须带覆盖限制；NetFlow 未观测不证明无活动。
+
+### N5 服务材料比对
+
+- 按规范 IP、明确协议、本方 `local_port` 对客户闭区间 `[start_port,end_port]` 和云图 port 证据比较；不展开整个端口区间。组件 `protocol` 保留 0–255 原编号，6/17 才按 TCP/UDP 端口比较，其他协议端口不适用。
+- 当前 CustomerUpload 没有传输层协议字段，`service_type`、是否 Web、URL 不代替协议；保留端口区间相交事实，协议比较 UNKNOWN，不能补 TCP。本片不修改 XLSX/Profile 合同。
+- 新云图 `protocol` 保留源值；只确定性映射合同支持的 TCP/UDP 表达，空、缺失或其他不能可靠映射的值为 UNKNOWN，不从端口、service、banner 或 URL 推断。旧 SourceSnapshot 无端口证据时明确 `PORT_EVIDENCE_NOT_RETAINED`，不临时查云图。
+- 分别返回 `protocol_relation`、`port_relation`、`time_relation`、`role_state` 和原因。时间要区分来源原字符串/时区资格、采集时间、上传时间和观测窗口；上传/抓取时间不是服务存活时间。缺完整可比较时间、时区未知或窗口不重叠，不能输出确定的同时服务差异。
+- 源侧服务角色 UNKNOWN 不阻止地址关联。常见源端口、临时端口或端口区间命中仅为材料事实；即使协议/端口/时间可比，也不能据活动证明监听、应用识别或公网可达。对外可达性一直为 `NOT_VERIFIED`。
+
+### N6 复核任务、回填与证据
+
+复用组件行为解释、review task、依赖及六种材料状态：`AWAITING_FEEDBACK`、`MATERIAL_INCOMPLETE`、`INVALID_MATERIAL`、`MATERIAL_CONFLICT`、`AWAITING_DEPENDENCY_MATERIAL`、`FIELDS_COMPLETE_PENDING_REVIEW`。review.jsonl 对象数不是人工任务数，批次任务不按地址复制。
+
+Operator/全局 Admin 可对明确 analysis/task 追加回填版本及人工说明；Viewer/仅 Approver 只读。服务端记录实际提交账号/时间，导入中的 provided_by/submitted_at 仅作为原提供方声明另存。更正使用预期父版本及幂等键，旧版本/原反馈字节不变；一次只提交部分任务时保留其他任务已接受答案，不把它们退回未回填。组件依赖校验读取同一个冻结的有效回填集合，不混用随后版本。
+
+每次 Analysis 成功发布同时保留一个系统生成、没有人为答案的初始 `feedback_revision_id`。任务列表/详情、材料状态筛选、依赖和相关汇总使用同一明确反馈版本；首次读取可解析当前封存版本并回传其 ID，后续分页/筛选/详情必须传回该 ID。新反馈不得令正在分页的旧版本任务消失或改变其 count；更正写入仍以 expected_parent_id 校验，不以隐式 latest 覆盖。
+
+字段齐全仍待人工核验。关联不填答案、无模型自动核验，不关闭组件任务、Finding 或旧人工记录；`review_required=true / task_closed=false / facts_changed=false` 保持。材料改变上下文时必须另建 Admin 上下文修订和分析，不能回写旧处理结果。旧 `ManualReview` 的 Resource/Run 前置不放宽，不能建假 Resource/Run 来复用它。
+
+证据接口绑定 Analysis/来源版本/对象，原始文件只走受控 Artifact 路径；源记录样本有 `omitted_count`，不能声称样本代表完整细节。详情可分页读取所选对象的来源引用；外侧对端为独立视图。引用和人工备注不自动访问路径、URL、附件或模型。已有实验文字提示原样保留为未取得业务资格的历史提示，本片不增加调用入口。
+
+### N7 历史、权限和保留
+
+- 新关联记录是固定输入选择与同空间确认的版本，不是 GovernanceRun，也不是第四份资产主表。新输入/上下文/反馈追加，不替换已发布 Run/SourceSnapshot/Observation/Resource/Finding/Report、原报告字节/Hash/引用或旧失败结果。
+- 每次列表、汇总、详情、反馈、证据均复核当前账号、Project、namespace 上下文及全部依赖来源权限。跨范围统一 404；已获知范围的明确撤权按既有 403。归档禁止新写，历史按现有读权限处理。所有新 GET `Cache-Control: private, no-store`，不触发处理或模型。
+- 关联不复制 ExternalAssetRecord 全字段或持久缓存云图地址矩阵。新云图读取复用 `data_access_enabled / retain_until / source.space_id / selected_version` 校验；撤权即时 403、到期 410，不用旧缓存或历史 SourceSnapshot 兜底。元数据墓碑可保留；按既有到期清理逻辑删除源记录不会因本功能的外键/副本被阻塞。NetFlow 自身结果仍可从其独立 Analysis 读取，不能从受拒读的组合结果泄漏云图片段。
+- 旧上下文和同空间确认可追溯；当前撤销/更正优先阻止新的跨源关联及写入。历史事实不删除或重算，但历史读不能绕过当前权限/保留限制。
+- 审计追加保存 actor/Project/操作/版本/Hash/状态，不包含真实行或自由材料正文。全局原始 AuditEvent 仍仅 Admin 可读，普通读取不等于开放全局审计。
+
+### N8 验收条件
+
+| 编号 | 必须观察到的结果 |
+|---|---|
+| AC-NF-01 | 真 wheel → 已接受 Dataset → 真实 worker → API 链路；rules；组件/来源/配置/上下文 Hash 与版本完整，断开模型/云图仍可运行 |
+| AC-NF-02 | C/G/N 各自独有及七种非空交集、超过一页的全集；全部 SRC 可见，只有 NetFlow 的地址无 Resource/Run 也可读，外侧 peer 不进入主集合 |
+| AC-NF-03 | 有效有记录、合法空、未提供、读取失败、覆盖不足/未知分开；全隔离不伪装有效空；缺少协议/服务角色不妨碍合法地址关联 |
+| AC-NF-04 | IPv4/IPv6/mapped 等价规范化、zone/非法拒绝；跨 tenant/Project/namespace 不串；未确认只显示自身材料，撤销及历史确认都按规则处理 |
+| AC-NF-05 | 同 IP 跨 SRC/DST、不同源/目的端口、自环、重复行、源引用省略数均正确；不能以 candidates 为空或非优先丢源对象 |
+| AC-NF-06 | 区间边界、同号不同协议、未知协议/端口、旧云图无端口、新云图仅 port 的地址、时区未知/不同窗口、临时端口均不产生假服务结论 |
+| AC-NF-07 | 新上传/新云图版本/范围更正/反馈更正后，旧 Run/report/hash/Resource/Finding 和固定关联输入不变；不自动读取 current/latest |
+| AC-NF-08 | 错误 Hash/schema/context/version、篡改计数/任务/子集、failed/degraded/未完成/缺 manifest、越界/恶意 ZIP、生产 test_fixture 全部拒绝；无可用半结果 |
+| AC-NF-09 | 重复与并发导入、相同键异请求、丢响应、Session 未知/终态、发布事务/审计失败不重复任务或覆盖历史；显式 FAILED 父记录重新处理只有一个后继，UNKNOWN/成功拒绝且普通换 key 不重调度 |
+| AC-NF-10 | 列表筛选/分页/排序/全量筛选总数、地址详情、服务/来源证据/peers/任务回填一致；固定反馈版本分页期间更正共享依赖不改变旧页/筛选 count；Viewer/Operator/Admin、归档、跨范围直调、账号/来源撤权及到期拒读 |
+| AC-NF-11 | 回填六状态、字段齐全待人工、共享依赖、部分提交保留其他答案、更正留史；本批 none 不生 NAT 任务；不自动填写/关闭任何任务或 Finding |
+| AC-NF-12 | 正式后端 lint/typecheck/tests、追加迁移升级与防丢数据回退、API 和 worker 构建、Standards/固定 Spec 两轴独立审阅；独立业务验收另记 |
+| AC-NF-13 | 交付真实 FastAPI 导出的固定 OpenAPI、接口语义、合成请求响应、后端 SHA 和兼容性；前端方生成客户端，mock 只算 UI 验证 |
+| AC-NF-14 | 包含双方确切提交的同一候选，真实 API＋合成数据浏览器联调，含 1366/1920/390、键盘焦点、双语、主题、固定身份/返回、失败与缓存撤权 |
+| AC-NF-15 | 另获许可且有完整客户台账/云图本地快照后只读离线真实三方验收；仅输出聚合/Hash，真实明细不进入模型、日志或公开产物 |
+
+AC-NF-01–13 为后端交付范围，AC-NF-14 归前端/集成负责人但仍是整体完成条件。没有真实台账/快照时 AC-NF-15 为 BLOCKED，不阻止后端实现及合成验收；没有前端接入时 AC-NF-14 为 NOT_RUN，不能宣称整个接入完成。部署、生产迁移、Issue 关闭另行决定。所有验收只用 PASS/FAIL/BLOCKED/NOT_RUN，不用代码审阅或组件历史 PASS 替代业务验收。
+
 ## 第一业务里程碑的验收合同
 
 此处定义01整体而非01A已交付：无客户台账、无NetFlow、无旧Run的新项目，按批准来源独立同步；多页资产/风险按同范围可核对；详情/依据完整本地阅读；风险先到保留待关联；各域时间诚实；第N页失败保留最近完整结果；重复/重试无重复对象/事项；消失不自动关闭；断开云图后仍可读已同步详情/约定附件且显示更新失败；撤权在页面/API/导出/cumora一致受限；旧报告/引用/共享迁移不变。矩阵必需项未完成不得用01B局部成功代替整个01。
