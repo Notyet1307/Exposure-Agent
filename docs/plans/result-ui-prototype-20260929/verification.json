@@ -1,0 +1,276 @@
+{
+  "baseline": "0756d25f3be7968340873478e325a3c0c25af74f",
+  "scope": "STATIC_SYNTHETIC_DESIGN_ONLY — not ACRESULT business acceptance",
+  "prototype": "../result-ui-prototype-20260929.html",
+  "prototypeSha256": "d4a83912c08e166c624f8fe6e200e2b1ef9bb5b969856a440cd0f5f7baf37369",
+  "attachmentSha256": {
+    "html": "1fe3fa6c9366f5624d19b99e6947b7f743a04b0b8145fee3b7d7d435b078ad78",
+    "brief": "dafb3acd2add38a2d68fd294150b4389d3a614597629fd4b8b370836b8d4f18d"
+  },
+  "checkedAt": "2026-09-29T08:48:24.119Z",
+  "checks": [
+    {
+      "name": "file opens directly; result-first list",
+      "status": "PASS",
+      "detail": {
+        "rows": 10,
+        "sourceFormBeforeList": 0
+      }
+    },
+    {
+      "name": "IP exact search",
+      "status": "PASS",
+      "detail": "本地 36 条 · 命中 1 条 · 当前 1–1 条\n按 IP 精确查询；不检索其他资产类型\n10 条 / 页\n‹\n1\n›"
+    },
+    {
+      "name": "business details first",
+      "status": "PASS",
+      "detail": "IP 资产详情"
+    },
+    {
+      "name": "expanded long detail",
+      "status": "PASS",
+      "detail": {
+        "x": 326,
+        "y": 0,
+        "height": 960,
+        "width": 1040
+      }
+    },
+    {
+      "name": "Escape restores original row focus and query",
+      "status": "PASS",
+      "detail": "192.0.2.10"
+    },
+    {
+      "name": "IPv6 normalized exact search",
+      "status": "PASS",
+      "detail": "IP 地址\t业务分组 / 标签\t网络归属\t源状态\t源最近发现时间\t\n\n2001:db8::1\nIPv6\n\t测试环境\n测试\n\t示例网络 C\n示例区域 C\n\t\nvalid\t09-29 08:40\n来源原值 · 时区未确认"
+    },
+    {
+      "name": "invalid IP is validation not empty success",
+      "status": "PASS"
+    },
+    {
+      "name": "detail return preserves page",
+      "status": "PASS"
+    },
+    {
+      "name": "root domain case-insensitive literal substring",
+      "status": "PASS"
+    },
+    {
+      "name": "root literal metacharacters do not act as wildcards",
+      "status": "PASS"
+    },
+    {
+      "name": "DNS searches subdomain only",
+      "status": "PASS"
+    },
+    {
+      "name": "DNS never searches resolution values",
+      "status": "PASS"
+    },
+    {
+      "name": "port query returns exact same-IP services",
+      "status": "PASS"
+    },
+    {
+      "name": "banner is not response packet",
+      "status": "PASS"
+    },
+    {
+      "name": "update opens shared IP-port scope without execution",
+      "status": "PASS"
+    },
+    {
+      "name": "source controls distinguish sync and read authorization",
+      "status": "PASS"
+    },
+    {
+      "name": "historical Run is a separate context",
+      "status": "PASS"
+    },
+    {
+      "name": "scenario normal",
+      "status": "PASS",
+      "detail": {
+        "rows": 10
+      }
+    },
+    {
+      "name": "scenario complete",
+      "status": "PASS",
+      "detail": {
+        "rows": 10
+      }
+    },
+    {
+      "name": "scenario failed",
+      "status": "PASS",
+      "detail": {
+        "rows": 10
+      }
+    },
+    {
+      "name": "scenario unknown",
+      "status": "PASS",
+      "detail": {
+        "rows": 10
+      }
+    },
+    {
+      "name": "scenario unconfigured",
+      "status": "PASS",
+      "detail": {
+        "rows": 0
+      }
+    },
+    {
+      "name": "scenario unsynced",
+      "status": "PASS",
+      "detail": {
+        "rows": 0
+      }
+    },
+    {
+      "name": "scenario empty",
+      "status": "PASS",
+      "detail": {
+        "rows": 0
+      }
+    },
+    {
+      "name": "scenario expired",
+      "status": "PASS",
+      "detail": {
+        "rows": 0
+      }
+    },
+    {
+      "name": "scenario revoked",
+      "status": "PASS",
+      "detail": {
+        "rows": 0
+      }
+    },
+    {
+      "name": "scenario invalid",
+      "status": "PASS",
+      "detail": {
+        "rows": 0
+      }
+    },
+    {
+      "name": "expiry clears open detail and restricted DOM",
+      "status": "PASS"
+    },
+    {
+      "name": "revocation clears open detail and restricted DOM",
+      "status": "PASS"
+    },
+    {
+      "name": "account/project switch clears old results and disables writes",
+      "status": "PASS"
+    },
+    {
+      "name": "archived project remains readable but no update",
+      "status": "PASS"
+    },
+    {
+      "name": "unintegrated is not zero records",
+      "status": "PASS"
+    },
+    {
+      "name": "seed is read-only discovery input",
+      "status": "PASS"
+    },
+    {
+      "name": "website target preview never claims real acquisition",
+      "status": "PASS"
+    },
+    {
+      "name": "390px page contains horizontal overflow",
+      "status": "PASS"
+    },
+    {
+      "name": "390px fullscreen detail",
+      "status": "PASS"
+    },
+    {
+      "name": "UNKNOWN explains same-task explicit reconciliation",
+      "status": "PASS"
+    },
+    {
+      "name": "reduced-motion preference disables transitions",
+      "status": "PASS"
+    },
+    {
+      "name": "keyboard can scroll the narrow business table",
+      "status": "PASS"
+    },
+    {
+      "name": "modal keyboard focus remains inside detail",
+      "status": "PASS"
+    },
+    {
+      "name": "mobile Escape restores record focus",
+      "status": "PASS"
+    },
+    {
+      "name": "prototype performs no HTTP or external resource requests",
+      "status": "PASS",
+      "detail": {
+        "httpRequests": 0
+      }
+    },
+    {
+      "name": "prototype has no browser errors",
+      "status": "PASS"
+    }
+  ],
+  "screenshots": [
+    "list-1366.png",
+    "detail-1366.png",
+    "detail-expanded.png",
+    "no-match.png",
+    "sync-management.png",
+    "state-normal.png",
+    "state-complete.png",
+    "state-failed.png",
+    "state-unknown.png",
+    "state-unconfigured.png",
+    "state-unsynced.png",
+    "state-empty.png",
+    "state-expired.png",
+    "state-revoked.png",
+    "state-invalid.png",
+    "viewer-project-b.png",
+    "unintegrated.png",
+    "list-wide-1920.png",
+    "list-dark-1920.png",
+    "list-390.png",
+    "detail-390.png",
+    "sync-390.png",
+    "unknown-task-390.png"
+  ],
+  "network": {
+    "fileDocuments": 2,
+    "httpRequests": 0,
+    "browserErrors": 0
+  },
+  "notRun": [
+    "Production React/FastAPI/PostgreSQL acquisition-publication chain and all ACRESULT business acceptance",
+    "Real CloudAtlas/model/API or deployed application access",
+    "Production routing/back-forward/cache-race/authorization/retention verification",
+    "English layout and production theme/Radix integration",
+    "All 18 types, complete field coverage, packet/image/request material acquisition",
+    "Repository frontend/backend suites and build (no business code changed)"
+  ],
+  "notes": [
+    "Native HTML dialog, synthetic in-memory fixtures; not a source/field authority.",
+    "Browser helper press argument signature corrected; empty fill did not dispatch input, so actual keyboard typing/backspace exercised clearing.",
+    "Harness evaluation cannot resolve page script globals; synthetic revocation dispatched the existing DOM change event instead.",
+    "Keyboard scroll observation initially preceded browser paint; observed scrollLeft=40 after the actual key action."
+  ]
+}
