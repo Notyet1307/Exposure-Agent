@@ -135,3 +135,44 @@ test("admin pagination and an open validated form survive language changes", asy
     page.getByText("第 2 页，共 2 页", { exact: true }),
   ).toBeVisible()
 })
+
+for (const path of ["/login", "/admin"]) {
+  test(`theme focus survives rapid reopening and Escape on ${path}`, async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("exposure:language", "en")
+      localStorage.setItem("vite-ui-theme", "light")
+    })
+    if (path === "/admin") await mockAdmin(page)
+    await page.goto(path)
+    const trigger = page.getByTestId("theme-button")
+    await trigger.focus()
+    // Hold the first exit animation to make rapid reopening deterministic.
+    const closingAnimation = await page.addStyleTag({
+      content:
+        '[role="menu"][data-state="closed"] { animation-duration: 30s; }',
+    })
+    await page.keyboard.press("Enter")
+    await expect(page.getByTestId("light-mode")).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("menu")).toHaveAttribute("data-state", "closed")
+    await trigger.focus()
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("menu")).toHaveAttribute("data-state", "open")
+    await closingAnimation.evaluate((style) => style.remove())
+    await page.getByTestId("dark-mode").focus()
+    await expect(page.getByTestId("dark-mode")).toBeFocused()
+    await page.keyboard.press("Enter")
+    await expect(page.locator("html")).toHaveClass(/dark/)
+    await expect(page.getByRole("menu")).toBeHidden()
+    await expect(trigger).toBeFocused()
+
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("menu")).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("menu")).toBeHidden()
+    await expect(trigger).toBeFocused()
+    await expect(page.locator("html")).toHaveClass(/dark/)
+  })
+}
