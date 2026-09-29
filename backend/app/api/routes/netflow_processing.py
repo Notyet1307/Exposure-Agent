@@ -6,7 +6,9 @@ from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
 from app.api.routes.netflow_http import ERROR_RESPONSES, NetFlowRoute
+from app.core.config import settings
 from app.domain import netflow_processing as service
+from app.domain.models import Artifact
 from app.domain.netflow_common import (
     deny,
     new_output_directory,
@@ -269,22 +271,33 @@ async def import_analysis(
     project = project_for(session, current_user, project_id, write=True, admin=True)
     service.dataset_for(session, project, dataset_id)
     directory = new_output_directory(project.id, "imports")
-    upload, metadata = await receive_result(request, directory)
-    row, created = service.reserve_analysis(
-        session,
-        project,
-        current_user,
-        dataset_id,
-        metadata,
-        idempotency_key,
-        import_directory=directory,
-        import_sha256=upload.raw_sha256,
-    )
+    created = False
+    try:
+        upload, metadata = await receive_result(request, directory)
+        row, created = service.reserve_analysis(
+            session,
+            project,
+            current_user,
+            dataset_id,
+            metadata,
+            idempotency_key,
+            import_directory=directory,
+            import_sha256=upload.raw_sha256,
+        )
+    finally:
+        if not created and directory.exists():
+            session.rollback()
+            source = directory / "source.zip"
+            storage_key = source.relative_to(settings.ARTIFACT_ROOT.resolve()).as_posix()
+            # A lost commit acknowledgement may still leave a durable owner.
+            owner = session.exec(
+                select(Artifact.id).where(Artifact.storage_key == storage_key)
+            ).first()
+            if owner is None:
+                source.unlink(missing_ok=True)
+                directory.rmdir()
     if created:
         row = service.launch_analysis(session, row)
-    else:
-        upload.temporary_path.unlink()
-        directory.rmdir()
     return service.analysis_public(session, project, row)
 
 

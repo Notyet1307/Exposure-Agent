@@ -478,6 +478,40 @@ def test_real_import_preserves_original_bytes_and_optional_feedback(
     assert len(setup["control"].starts) == 1
 
 
+def test_rejected_import_uploads_are_removed_without_losing_reserved_input(
+    client: TestClient,
+    db: Session,
+    setup: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    bundle, metadata = _import_fixture(db, setup, tmp_path)
+    archive = _zip(bundle)
+    setup["control"].lose_start_response = True
+    queued = _import(client, setup, metadata, archive)
+    assert queued.status_code == 202
+    assert queued.json()["status"] == "UNKNOWN"
+    imports = tmp_path / "netflow-processing" / setup["project_id"] / "imports"
+    reserved = set(imports.iterdir())
+
+    conflict = _import(
+        client, setup, metadata | {"binding_evidence": "Changed evidence"}, archive
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"]["code"] == "netflow_key_conflict"
+    assert set(imports.iterdir()) == reserved
+
+    invalid = _import(
+        client, setup, metadata | {"unexpected": True}, archive, key="invalid"
+    )
+    assert invalid.status_code == 422
+    assert set(imports.iterdir()) == reserved
+
+    row = execute(db, setup, queued.json()["analysis_id"])
+    result = _get(client, setup, str(row.id))
+    assert result["pipeline_complete"]
+    assert result["result"]["component_run_id"] == bundle.manifest["run_id"]
+
+
 @pytest.mark.parametrize(
     "unsafe",
     [
@@ -641,3 +675,46 @@ def test_fixture_admission_revocation_blocks_published_material(
     response = client.get(_url(setup, queued["analysis_id"]), headers=setup["headers"])
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["code"] == "netflow_test_fixture_forbidden"
+
+
+@pytest.mark.parametrize("committed", [False, True])
+def test_import_commit_failure_preserves_only_durable_uploads(
+    client: TestClient,
+    db: Session,
+    setup: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    committed: bool,
+) -> None:
+    bundle, metadata = _import_fixture(db, setup, tmp_path)
+    archive = _zip(bundle)
+    commit = Session.commit
+
+    def fail_reservation(session: Session) -> None:
+        reserving = any(isinstance(row, NetFlowAnalysis) for row in session.new)
+        if not reserving or committed:
+            commit(session)
+        if reserving:
+            raise RuntimeError("Reservation commit response lost")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Session, "commit", fail_reservation)
+        with pytest.raises(RuntimeError, match="Reservation commit response lost"):
+            _import(client, setup, metadata, archive)
+
+    recovered = client.get(
+        setup["dataset_url"] + "/analysis-imports/operations/import",
+        headers=setup["headers"],
+    )
+    imports = tmp_path / "netflow-processing" / setup["project_id"] / "imports"
+    if committed:
+        assert recovered.status_code == 200
+        assert recovered.json()["status"] == "PENDING"
+        row = db.get(NetFlowAnalysis, uuid.UUID(recovered.json()["analysis_id"]))
+        assert row is not None
+        receipt = settings.ARTIFACT_ROOT / row.request["import_artifacts"]["root"]
+        assert (receipt / "source.zip").read_bytes() == archive
+        assert set(imports.iterdir()) == {receipt}
+    else:
+        assert recovered.status_code == 404
+        assert not list(imports.iterdir())
