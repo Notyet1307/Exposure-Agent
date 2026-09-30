@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     ARTIFACT_ROOT: Path = Path("/app/artifacts")
     # Required deployment limit; 50 MiB is the admitted maximum.
     NETFLOW_MAX_BYTES: int = Field(gt=0, le=50 * 1024 * 1024)
+    NETFLOW_ALLOW_TEST_FIXTURES: bool = False
     OCTOBUS_URL: str = "http://octobus:9000"
     OCTOBUS_TIMEOUT_SECONDS: float = 65.0
     CLOUDATLAS_CAPSET_TOKEN: SecretStr = SecretStr("")

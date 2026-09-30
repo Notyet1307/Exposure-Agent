@@ -599,7 +599,9 @@ ENTRY Issue固定本Spec及ADR-0021的同一准确commit，四域继承字段矩
 
 ### N6 复核任务、回填与证据
 
-复用组件行为解释、review task、依赖及六种材料状态：`AWAITING_FEEDBACK`、`MATERIAL_INCOMPLETE`、`INVALID_MATERIAL`、`MATERIAL_CONFLICT`、`AWAITING_DEPENDENCY_MATERIAL`、`FIELDS_COMPLETE_PENDING_REVIEW`。review.jsonl 对象数不是人工任务数，批次任务不按地址复制。
+复用组件行为解释、review task、依赖及完整材料状态词表：`AWAITING_FEEDBACK`、`MATERIAL_INCOMPLETE`、`INVALID_MATERIAL`、`MATERIAL_CONFLICT`、`AWAITING_DEPENDENCY_MATERIAL`、`FIELDS_COMPLETE_PENDING_REVIEW`。review.jsonl 对象数不是人工任务数，批次任务不按地址复制。
+
+2026-09-29 阶段 C 实测组件兼容性后，维护者批准保留固定 0.4.0 wheel 并修订本切片验收：组件只在未确认 scope 时生成 scope 任务，`MATERIAL_CONFLICT` 又仅由该任务产生；本切片强制 `confirmed declared_source`，因此该状态不适用，AC-NF-11 验收其余五种可达状态。API 保留完整六项词表，不注入任务、不修改 wheel、不弱化上下文确认。未来需要该状态可达时，须另行批准组件和固定合同变更。
 
 Operator/全局 Admin 可对明确 analysis/task 追加回填版本及人工说明；Viewer/仅 Approver 只读。服务端记录实际提交账号/时间，导入中的 provided_by/submitted_at 仅作为原提供方声明另存。更正使用预期父版本及幂等键，旧版本/原反馈字节不变；一次只提交部分任务时保留其他任务已接受答案，不把它们退回未回填。组件依赖校验读取同一个冻结的有效回填集合，不混用随后版本。
 
@@ -631,7 +633,7 @@ Operator/全局 Admin 可对明确 analysis/task 追加回填版本及人工说�
 | AC-NF-08 | 错误 Hash/schema/context/version、篡改计数/任务/子集、failed/degraded/未完成/缺 manifest、越界/恶意 ZIP、生产 test_fixture 全部拒绝；无可用半结果 |
 | AC-NF-09 | 重复与并发导入、相同键异请求、丢响应、Session 未知/终态、发布事务/审计失败不重复任务或覆盖历史；显式 FAILED 父记录重新处理只有一个后继，UNKNOWN/成功拒绝且普通换 key 不重调度 |
 | AC-NF-10 | 列表筛选/分页/排序/全量筛选总数、地址详情、服务/来源证据/peers/任务回填一致；固定反馈版本分页期间更正共享依赖不改变旧页/筛选 count；Viewer/Operator/Admin、归档、跨范围直调、账号/来源撤权及到期拒读 |
-| AC-NF-11 | 回填六状态、字段齐全待人工、共享依赖、部分提交保留其他答案、更正留史；本批 none 不生 NAT 任务；不自动填写/关闭任何任务或 Finding |
+| AC-NF-11 | 固定 0.4.0 confirmed declared_source 下五种可达材料状态、字段齐全待人工、共享依赖、部分提交保留其他答案、更正留史；MATERIAL_CONFLICT 保留词表但在本切片不适用；本批 none 不生 NAT 任务；不自动填写/关闭任何任务或 Finding |
 | AC-NF-12 | 正式后端 lint/typecheck/tests、追加迁移升级与防丢数据回退、API 和 worker 构建、Standards/固定 Spec 两轴独立审阅；独立业务验收另记 |
 | AC-NF-13 | 交付真实 FastAPI 导出的固定 OpenAPI、接口语义、合成请求响应、后端 SHA 和兼容性；前端方生成客户端，mock 只算 UI 验证 |
 | AC-NF-14 | 包含双方确切提交的同一候选，真实 API＋合成数据浏览器联调，含 1366/1920/390、键盘焦点、双语、主题、固定身份/返回、失败与缓存撤权 |

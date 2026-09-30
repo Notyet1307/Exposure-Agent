@@ -22,6 +22,10 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Install dependencies
 # Ref: https://docs.astral.sh/uv/guides/integration/docker/#intermediate-layers
+COPY ./backend/pyproject.toml ./backend/alembic.ini /app/backend/
+COPY ./backend/vendor /app/backend/vendor
+RUN echo "eba079556be6066c66eb450421571acb07afe527d46dd4e5b8b6b95c93c56d3f  /app/backend/vendor/netflow_processor-0.4.0-py3-none-any.whl" | sha256sum -c -
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
@@ -29,7 +33,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY ./backend/scripts /app/backend/scripts
 
-COPY ./backend/pyproject.toml ./backend/alembic.ini /app/backend/
 
 COPY ./backend/app /app/backend/app
 

@@ -16,8 +16,11 @@ from app.api.routes import (
     model_connections,
     model_qualification,
     netflow_ledger,
+    netflow_processing,
+    netflow_reviews,
     project_memberships,
     projects,
+    source_correlations,
     users,
 )
 
@@ -42,3 +45,6 @@ api_router.include_router(customer_ledger.router)
 
 api_router.include_router(cloudatlas_ledger.router)
 api_router.include_router(netflow_ledger.router)
+api_router.include_router(netflow_processing.router)
+api_router.include_router(netflow_reviews.router)
+api_router.include_router(source_correlations.router)
