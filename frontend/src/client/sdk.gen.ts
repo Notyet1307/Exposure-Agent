@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AiInvestigationsCreateAiInvestigationData, AiInvestigationsCreateAiInvestigationResponse, AiInvestigationsReadAiInvestigationsData, AiInvestigationsReadAiInvestigationsResponse, AiInvestigationsCreateAiInvestigationFollowupData, AiInvestigationsCreateAiInvestigationFollowupResponse, AiInvestigationsReadAiInvestigationData, AiInvestigationsReadAiInvestigationResponse, AnalysisReportsCreateAnalysisReportData, AnalysisReportsCreateAnalysisReportResponse, AnalysisReportsReadAnalysisReportsData, AnalysisReportsReadAnalysisReportsResponse, AnalysisReportsReadAnalysisReportData, AnalysisReportsReadAnalysisReportResponse, AnalysisReportsUpdateAnalysisReportData, AnalysisReportsUpdateAnalysisReportResponse, AnalysisReportsConfirmAnalysisReportData, AnalysisReportsConfirmAnalysisReportResponse, AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasLedgerReadCloudatlasLedgerData, CloudatlasLedgerReadCloudatlasLedgerResponse, CloudatlasLedgerReadCloudatlasLedgerSnapshotsData, CloudatlasLedgerReadCloudatlasLedgerSnapshotsResponse, CloudatlasLedgerReadCloudatlasLedgerRevisionsData, CloudatlasLedgerReadCloudatlasLedgerRevisionsResponse, CloudatlasLedgerCreateCloudatlasLedgerRevisionData, CloudatlasLedgerCreateCloudatlasLedgerRevisionResponse, CloudatlasLedgerReadCloudatlasLedgerOperationData, CloudatlasLedgerReadCloudatlasLedgerOperationResponse, CloudatlasLedgerReadCloudatlasIpProfileData, CloudatlasLedgerReadCloudatlasIpProfileResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, CustomerLedgerReadCustomerLedgerData, CustomerLedgerReadCustomerLedgerResponse, CustomerLedgerReadCustomerLedgerRevisionsData, CustomerLedgerReadCustomerLedgerRevisionsResponse, CustomerLedgerCreateCustomerLedgerRevisionData, CustomerLedgerCreateCustomerLedgerRevisionResponse, CustomerLedgerReadCustomerLedgerOperationData, CustomerLedgerReadCustomerLedgerOperationResponse, ExternalAssetsReadExternalSourcesData, ExternalAssetsReadExternalSourcesResponse, ExternalAssetsCreateExternalSourceData, ExternalAssetsCreateExternalSourceResponse, ExternalAssetsValidateExternalSourceData, ExternalAssetsValidateExternalSourceResponse, ExternalAssetsUpdateExternalSourceData, ExternalAssetsUpdateExternalSourceResponse, ExternalAssetsCreateExternalSyncData, ExternalAssetsCreateExternalSyncResponse, ExternalAssetsReadExternalSyncsData, ExternalAssetsReadExternalSyncsResponse, ExternalAssetsReadExternalSyncData, ExternalAssetsReadExternalSyncResponse, ExternalAssetsReconcileExternalSyncData, ExternalAssetsReconcileExternalSyncResponse, ExternalAssetsReadExternalVersionsData, ExternalAssetsReadExternalVersionsResponse, ExternalAssetsReadExternalRecordsData, ExternalAssetsReadExternalRecordsResponse, ExternalAssetsReadExternalRecordData, ExternalAssetsReadExternalRecordResponse, ExternalAssetsPurgeExternalExpiredData, ExternalAssetsPurgeExternalExpiredResponse, GovernanceReportsReadGovernanceReportsData, GovernanceReportsReadGovernanceReportsResponse, GovernanceReportsReadGovernanceReportData, GovernanceReportsReadGovernanceReportResponse, GovernanceReportsRequestAiGovernanceDraftData, GovernanceReportsRequestAiGovernanceDraftResponse, GovernanceReportsDownloadGovernanceReportCsvData, GovernanceReportsDownloadGovernanceReportCsvResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, IpResultsReadGovernanceRunSourcesData, IpResultsReadGovernanceRunSourcesResponse, IpResultsReadGovernanceRunIpSourceComparisonsData, IpResultsReadGovernanceRunIpSourceComparisonsResponse, IpResultsReadIpAssetsData, IpResultsReadIpAssetsResponse, IpResultsReadIpAssetData, IpResultsReadIpAssetResponse, IpResultsReadFindingsData, IpResultsReadFindingsResponse, IpResultsReadGovernanceRunLineageData, IpResultsReadGovernanceRunLineageResponse, IpResultsReadFindingData, IpResultsReadFindingResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ManualReviewsCreateManualReviewData, ManualReviewsCreateManualReviewResponse, ManualReviewsReadManualReviewsData, ManualReviewsReadManualReviewsResponse, ModelConnectionsStatusResponse, ModelConnectionsReadConnectionsResponse, ModelConnectionsSaveData, ModelConnectionsSaveResponse, ModelConnectionsAdoptLegacyData, ModelConnectionsAdoptLegacyResponse, ModelConnectionsActionData, ModelConnectionsActionResponse, ModelConnectionsRecoverOperationData, ModelConnectionsRecoverOperationResponse, ModelConnectionsOperationData, ModelConnectionsOperationResponse, ModelQualificationReadModelQualificationStatusResponse, NetflowLedgerReadNetflowLedgerData, NetflowLedgerReadNetflowLedgerResponse, NetflowLedgerCreateNetflowLedgerRevisionData, NetflowLedgerCreateNetflowLedgerRevisionResponse, NetflowLedgerReadNetflowLedgerRevisionsData, NetflowLedgerReadNetflowLedgerRevisionsResponse, NetflowLedgerReadNetflowLedgerOperationData, NetflowLedgerReadNetflowLedgerOperationResponse, NetflowLedgerReadNetflowLedgerProfileData, NetflowLedgerReadNetflowLedgerProfileResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsReadNetflowDatasetsData, ProjectsReadNetflowDatasetsResponse, ProjectsCreateNetflowDatasetData, ProjectsCreateNetflowDatasetResponse, ProjectsSelectCurrentNetflowDatasetData, ProjectsSelectCurrentNetflowDatasetResponse, ProjectsClearCurrentNetflowDatasetData, ProjectsClearCurrentNetflowDatasetResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsDeleteCustomerUploadData, ProjectsDeleteCustomerUploadResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+import type { AiInvestigationsCreateAiInvestigationData, AiInvestigationsCreateAiInvestigationResponse, AiInvestigationsReadAiInvestigationsData, AiInvestigationsReadAiInvestigationsResponse, AiInvestigationsCreateAiInvestigationFollowupData, AiInvestigationsCreateAiInvestigationFollowupResponse, AiInvestigationsReadAiInvestigationData, AiInvestigationsReadAiInvestigationResponse, AnalysisReportsCreateAnalysisReportData, AnalysisReportsCreateAnalysisReportResponse, AnalysisReportsReadAnalysisReportsData, AnalysisReportsReadAnalysisReportsResponse, AnalysisReportsReadAnalysisReportData, AnalysisReportsReadAnalysisReportResponse, AnalysisReportsUpdateAnalysisReportData, AnalysisReportsUpdateAnalysisReportResponse, AnalysisReportsConfirmAnalysisReportData, AnalysisReportsConfirmAnalysisReportResponse, AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasLedgerReadCloudatlasLedgerData, CloudatlasLedgerReadCloudatlasLedgerResponse, CloudatlasLedgerReadCloudatlasLedgerSnapshotsData, CloudatlasLedgerReadCloudatlasLedgerSnapshotsResponse, CloudatlasLedgerReadCloudatlasLedgerRevisionsData, CloudatlasLedgerReadCloudatlasLedgerRevisionsResponse, CloudatlasLedgerCreateCloudatlasLedgerRevisionData, CloudatlasLedgerCreateCloudatlasLedgerRevisionResponse, CloudatlasLedgerReadCloudatlasLedgerOperationData, CloudatlasLedgerReadCloudatlasLedgerOperationResponse, CloudatlasLedgerReadCloudatlasIpProfileData, CloudatlasLedgerReadCloudatlasIpProfileResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, CustomerLedgerReadCustomerLedgerData, CustomerLedgerReadCustomerLedgerResponse, CustomerLedgerReadCustomerLedgerRevisionsData, CustomerLedgerReadCustomerLedgerRevisionsResponse, CustomerLedgerCreateCustomerLedgerRevisionData, CustomerLedgerCreateCustomerLedgerRevisionResponse, CustomerLedgerReadCustomerLedgerOperationData, CustomerLedgerReadCustomerLedgerOperationResponse, ExternalAssetsReadExternalSourcesData, ExternalAssetsReadExternalSourcesResponse, ExternalAssetsCreateExternalSourceData, ExternalAssetsCreateExternalSourceResponse, ExternalAssetsValidateExternalSourceData, ExternalAssetsValidateExternalSourceResponse, ExternalAssetsUpdateExternalSourceData, ExternalAssetsUpdateExternalSourceResponse, ExternalAssetsCreateExternalSyncData, ExternalAssetsCreateExternalSyncResponse, ExternalAssetsReadExternalSyncsData, ExternalAssetsReadExternalSyncsResponse, ExternalAssetsReadExternalSyncData, ExternalAssetsReadExternalSyncResponse, ExternalAssetsReconcileExternalSyncData, ExternalAssetsReconcileExternalSyncResponse, ExternalAssetsReadExternalVersionsData, ExternalAssetsReadExternalVersionsResponse, ExternalAssetsReadExternalRecordsData, ExternalAssetsReadExternalRecordsResponse, ExternalAssetsReadExternalRecordData, ExternalAssetsReadExternalRecordResponse, ExternalAssetsPurgeExternalExpiredData, ExternalAssetsPurgeExternalExpiredResponse, GovernanceReportsReadGovernanceReportsData, GovernanceReportsReadGovernanceReportsResponse, GovernanceReportsReadGovernanceReportData, GovernanceReportsReadGovernanceReportResponse, GovernanceReportsRequestAiGovernanceDraftData, GovernanceReportsRequestAiGovernanceDraftResponse, GovernanceReportsDownloadGovernanceReportCsvData, GovernanceReportsDownloadGovernanceReportCsvResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, IpResultsReadGovernanceRunSourcesData, IpResultsReadGovernanceRunSourcesResponse, IpResultsReadGovernanceRunIpSourceComparisonsData, IpResultsReadGovernanceRunIpSourceComparisonsResponse, IpResultsReadIpAssetsData, IpResultsReadIpAssetsResponse, IpResultsReadIpAssetData, IpResultsReadIpAssetResponse, IpResultsReadFindingsData, IpResultsReadFindingsResponse, IpResultsReadGovernanceRunLineageData, IpResultsReadGovernanceRunLineageResponse, IpResultsReadFindingData, IpResultsReadFindingResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ManualReviewsCreateManualReviewData, ManualReviewsCreateManualReviewResponse, ManualReviewsReadManualReviewsData, ManualReviewsReadManualReviewsResponse, ModelConnectionsStatusResponse, ModelConnectionsReadConnectionsResponse, ModelConnectionsSaveData, ModelConnectionsSaveResponse, ModelConnectionsAdoptLegacyData, ModelConnectionsAdoptLegacyResponse, ModelConnectionsActionData, ModelConnectionsActionResponse, ModelConnectionsRecoverOperationData, ModelConnectionsRecoverOperationResponse, ModelConnectionsOperationData, ModelConnectionsOperationResponse, ModelQualificationReadModelQualificationStatusResponse, NetflowLedgerReadNetflowLedgerData, NetflowLedgerReadNetflowLedgerResponse, NetflowLedgerCreateNetflowLedgerRevisionData, NetflowLedgerCreateNetflowLedgerRevisionResponse, NetflowLedgerReadNetflowLedgerRevisionsData, NetflowLedgerReadNetflowLedgerRevisionsResponse, NetflowLedgerReadNetflowLedgerOperationData, NetflowLedgerReadNetflowLedgerOperationResponse, NetflowLedgerReadNetflowLedgerProfileData, NetflowLedgerReadNetflowLedgerProfileResponse, NetflowProcessingReadContextsData, NetflowProcessingReadContextsResponse, NetflowProcessingCreateContextData, NetflowProcessingCreateContextResponse, NetflowProcessingContextOperationData, NetflowProcessingContextOperationResponse, NetflowProcessingCreateAnalysisData, NetflowProcessingCreateAnalysisResponse, NetflowProcessingReadAnalysesData, NetflowProcessingReadAnalysesResponse, NetflowProcessingAnalysisOperationData, NetflowProcessingAnalysisOperationResponse, NetflowProcessingImportAnalysisData, NetflowProcessingImportAnalysisResponse, NetflowProcessingImportOperationData, NetflowProcessingImportOperationResponse, NetflowProcessingReadAnalysisData, NetflowProcessingReadAnalysisResponse, NetflowProcessingReconcileAnalysisData, NetflowProcessingReconcileAnalysisResponse, NetflowProcessingReconcileOperationData, NetflowProcessingReconcileOperationResponse, NetflowReviewsReadPeersData, NetflowReviewsReadPeersResponse, NetflowReviewsReadTasksData, NetflowReviewsReadTasksResponse, NetflowReviewsReadTaskData, NetflowReviewsReadTaskResponse, NetflowReviewsReadFeedbackData, NetflowReviewsReadFeedbackResponse, NetflowReviewsAppendFeedbackData, NetflowReviewsAppendFeedbackResponse, NetflowReviewsReadOperationData, NetflowReviewsReadOperationResponse, NetflowReviewsReadEvidenceData, NetflowReviewsReadEvidenceResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsReadNetflowDatasetsData, ProjectsReadNetflowDatasetsResponse, ProjectsCreateNetflowDatasetData, ProjectsCreateNetflowDatasetResponse, ProjectsSelectCurrentNetflowDatasetData, ProjectsSelectCurrentNetflowDatasetResponse, ProjectsClearCurrentNetflowDatasetData, ProjectsClearCurrentNetflowDatasetResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsDeleteCustomerUploadData, ProjectsDeleteCustomerUploadResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, SourceCorrelationsCreateCorrelationData, SourceCorrelationsCreateCorrelationResponse, SourceCorrelationsListCorrelationsData, SourceCorrelationsListCorrelationsResponse, SourceCorrelationsCreationOperationData, SourceCorrelationsCreationOperationResponse, SourceCorrelationsScopeRevisionData, SourceCorrelationsScopeRevisionResponse, SourceCorrelationsScopeOperationData, SourceCorrelationsScopeOperationResponse, SourceCorrelationsSummaryData, SourceCorrelationsSummaryResponse, SourceCorrelationsListAddressesData, SourceCorrelationsListAddressesResponse, SourceCorrelationsAddressDetailData, SourceCorrelationsAddressDetailResponse, SourceCorrelationsAddressServicesData, SourceCorrelationsAddressServicesResponse, SourceCorrelationsAddressEvidenceData, SourceCorrelationsAddressEvidenceResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
 
 export class AiInvestigationsService {
     /**
@@ -1842,6 +1842,672 @@ export class NetflowLedgerService {
     }
 }
 
+export class NetflowProcessingService {
+    /**
+     * Read Contexts
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.skip
+     * @param data.limit
+     * @returns ContextPage Successful Response
+     * @throws ApiError
+     */
+    public static readContexts(data: NetflowProcessingReadContextsData): CancelablePromise<NetflowProcessingReadContextsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-datasets/{dataset_id}/processing-contexts',
+            path: {
+                project_id: data.projectId,
+                dataset_id: data.datasetId
+            },
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Create Context
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns ContextPublic Successful Response
+     * @throws ApiError
+     */
+    public static createContext(data: NetflowProcessingCreateContextData): CancelablePromise<NetflowProcessingCreateContextResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/netflow-datasets/{dataset_id}/processing-contexts',
+            path: {
+                project_id: data.projectId,
+                dataset_id: data.datasetId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Context Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.key
+     * @returns ContextPublic Successful Response
+     * @throws ApiError
+     */
+    public static contextOperation(data: NetflowProcessingContextOperationData): CancelablePromise<NetflowProcessingContextOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-datasets/{dataset_id}/processing-contexts/operations/{key}',
+            path: {
+                project_id: data.projectId,
+                dataset_id: data.datasetId,
+                key: data.key
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Create Analysis
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns AnalysisPublic Successful Response
+     * @throws ApiError
+     */
+    public static createAnalysis(data: NetflowProcessingCreateAnalysisData): CancelablePromise<NetflowProcessingCreateAnalysisResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/netflow-datasets/{dataset_id}/analyses',
+            path: {
+                project_id: data.projectId,
+                dataset_id: data.datasetId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Read Analyses
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.skip
+     * @param data.limit
+     * @returns AnalysisPage Successful Response
+     * @throws ApiError
+     */
+    public static readAnalyses(data: NetflowProcessingReadAnalysesData): CancelablePromise<NetflowProcessingReadAnalysesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-datasets/{dataset_id}/analyses',
+            path: {
+                project_id: data.projectId,
+                dataset_id: data.datasetId
+            },
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Analysis Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.key
+     * @returns AnalysisPublic Successful Response
+     * @throws ApiError
+     */
+    public static analysisOperation(data: NetflowProcessingAnalysisOperationData): CancelablePromise<NetflowProcessingAnalysisOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-datasets/{dataset_id}/analyses/operations/{key}',
+            path: {
+                project_id: data.projectId,
+                dataset_id: data.datasetId,
+                key: data.key
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Import Analysis
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.idempotencyKey
+     * @param data.formData
+     * @returns AnalysisPublic Successful Response
+     * @throws ApiError
+     */
+    public static importAnalysis(data: NetflowProcessingImportAnalysisData): CancelablePromise<NetflowProcessingImportAnalysisResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/netflow-datasets/{dataset_id}/analysis-imports',
+            path: {
+                project_id: data.projectId,
+                dataset_id: data.datasetId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            formData: data.formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Import Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.key
+     * @returns AnalysisPublic Successful Response
+     * @throws ApiError
+     */
+    public static importOperation(data: NetflowProcessingImportOperationData): CancelablePromise<NetflowProcessingImportOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-datasets/{dataset_id}/analysis-imports/operations/{key}',
+            path: {
+                project_id: data.projectId,
+                dataset_id: data.datasetId,
+                key: data.key
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Read Analysis
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @returns AnalysisPublic Successful Response
+     * @throws ApiError
+     */
+    public static readAnalysis(data: NetflowProcessingReadAnalysisData): CancelablePromise<NetflowProcessingReadAnalysisResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Reconcile Analysis
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @param data.idempotencyKey
+     * @returns AnalysisPublic Successful Response
+     * @throws ApiError
+     */
+    public static reconcileAnalysis(data: NetflowProcessingReconcileAnalysisData): CancelablePromise<NetflowProcessingReconcileAnalysisResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}/reconcile',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Reconcile Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @param data.key
+     * @returns AnalysisPublic Successful Response
+     * @throws ApiError
+     */
+    public static reconcileOperation(data: NetflowProcessingReconcileOperationData): CancelablePromise<NetflowProcessingReconcileOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}/reconcile/operations/{key}',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId,
+                key: data.key
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+}
+
+export class NetflowReviewsService {
+    /**
+     * Read Peers
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @param data.ip
+     * @param data.protocol
+     * @param data.peerPort
+     * @param data.sort
+     * @param data.skip
+     * @param data.limit
+     * @returns PeerPage Successful Response
+     * @throws ApiError
+     */
+    public static readPeers(data: NetflowReviewsReadPeersData): CancelablePromise<NetflowReviewsReadPeersResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}/peers',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId
+            },
+            query: {
+                ip: data.ip,
+                protocol: data.protocol,
+                peer_port: data.peerPort,
+                sort: data.sort,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Read Tasks
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @param data.feedbackRevisionId
+     * @param data.taskScope
+     * @param data.taskKind
+     * @param data.materialStatus
+     * @param data.objectKey
+     * @param data.skip
+     * @param data.limit
+     * @returns TaskPage Successful Response
+     * @throws ApiError
+     */
+    public static readTasks(data: NetflowReviewsReadTasksData): CancelablePromise<NetflowReviewsReadTasksResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}/review-tasks',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId
+            },
+            query: {
+                feedback_revision_id: data.feedbackRevisionId,
+                task_scope: data.taskScope,
+                task_kind: data.taskKind,
+                material_status: data.materialStatus,
+                object_key: data.objectKey,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Read Task
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @param data.taskId
+     * @param data.feedbackRevisionId
+     * @returns TaskDetail Successful Response
+     * @throws ApiError
+     */
+    public static readTask(data: NetflowReviewsReadTaskData): CancelablePromise<NetflowReviewsReadTaskResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}/review-tasks/{task_id}',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId,
+                task_id: data.taskId
+            },
+            query: {
+                feedback_revision_id: data.feedbackRevisionId
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Read Feedback
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @param data.feedbackRevisionId
+     * @returns FeedbackPublic Successful Response
+     * @throws ApiError
+     */
+    public static readFeedback(data: NetflowReviewsReadFeedbackData): CancelablePromise<NetflowReviewsReadFeedbackResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}/feedback',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId
+            },
+            query: {
+                feedback_revision_id: data.feedbackRevisionId
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Append Feedback
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns FeedbackPublic Successful Response
+     * @throws ApiError
+     */
+    public static appendFeedback(data: NetflowReviewsAppendFeedbackData): CancelablePromise<NetflowReviewsAppendFeedbackResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}/feedback',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Read Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @param data.key
+     * @returns FeedbackPublic Successful Response
+     * @throws ApiError
+     */
+    public static readOperation(data: NetflowReviewsReadOperationData): CancelablePromise<NetflowReviewsReadOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}/feedback/operations/{key}',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId,
+                key: data.key
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Read Evidence
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @param data.objectKey
+     * @param data.peerKey
+     * @param data.skip
+     * @param data.limit
+     * @returns app__domain__netflow_reviews__EvidencePage Successful Response
+     * @throws ApiError
+     */
+    public static readEvidence(data: NetflowReviewsReadEvidenceData): CancelablePromise<NetflowReviewsReadEvidenceResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/netflow-analyses/{analysis_id}/evidence',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId
+            },
+            query: {
+                object_key: data.objectKey,
+                peer_key: data.peerKey,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+}
+
 export class ProjectMembershipsService {
     /**
      * Read Project Memberships
@@ -2294,6 +2960,380 @@ export class ProjectsService {
             },
             errors: {
                 422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class SourceCorrelationsService {
+    /**
+     * Create Correlation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns app__domain__source_correlations__RevisionPublic Successful Response
+     * @throws ApiError
+     */
+    public static createCorrelation(data: SourceCorrelationsCreateCorrelationData): CancelablePromise<SourceCorrelationsCreateCorrelationResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/source-correlations',
+            path: {
+                project_id: data.projectId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * List Correlations
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.datasetId
+     * @param data.networkNamespace
+     * @param data.skip
+     * @param data.limit
+     * @returns RevisionPage Successful Response
+     * @throws ApiError
+     */
+    public static listCorrelations(data: SourceCorrelationsListCorrelationsData): CancelablePromise<SourceCorrelationsListCorrelationsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/source-correlations',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                dataset_id: data.datasetId,
+                network_namespace: data.networkNamespace,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Creation Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.key
+     * @returns app__domain__source_correlations__RevisionPublic Successful Response
+     * @throws ApiError
+     */
+    public static creationOperation(data: SourceCorrelationsCreationOperationData): CancelablePromise<SourceCorrelationsCreationOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/source-correlations/operations/{key}',
+            path: {
+                project_id: data.projectId,
+                key: data.key
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Scope Revision
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.revisionId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns app__domain__source_correlations__RevisionPublic Successful Response
+     * @throws ApiError
+     */
+    public static scopeRevision(data: SourceCorrelationsScopeRevisionData): CancelablePromise<SourceCorrelationsScopeRevisionResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/source-correlations/{revision_id}/scope-revisions',
+            path: {
+                project_id: data.projectId,
+                revision_id: data.revisionId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Scope Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.revisionId
+     * @param data.key
+     * @returns app__domain__source_correlations__RevisionPublic Successful Response
+     * @throws ApiError
+     */
+    public static scopeOperation(data: SourceCorrelationsScopeOperationData): CancelablePromise<SourceCorrelationsScopeOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/source-correlations/{revision_id}/scope-revisions/operations/{key}',
+            path: {
+                project_id: data.projectId,
+                revision_id: data.revisionId,
+                key: data.key
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Summary
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.revisionId
+     * @returns Summary Successful Response
+     * @throws ApiError
+     */
+    public static summary(data: SourceCorrelationsSummaryData): CancelablePromise<SourceCorrelationsSummaryResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/source-correlations/{revision_id}',
+            path: {
+                project_id: data.projectId,
+                revision_id: data.revisionId
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * List Addresses
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.revisionId
+     * @param data.ip
+     * @param data.positiveSources
+     * @param data.unmatchedNetflow
+     * @param data.hasReviewTask
+     * @param data.sort
+     * @param data.skip
+     * @param data.limit
+     * @returns AddressPage Successful Response
+     * @throws ApiError
+     */
+    public static listAddresses(data: SourceCorrelationsListAddressesData): CancelablePromise<SourceCorrelationsListAddressesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/source-correlations/{revision_id}/addresses',
+            path: {
+                project_id: data.projectId,
+                revision_id: data.revisionId
+            },
+            query: {
+                ip: data.ip,
+                positive_sources: data.positiveSources,
+                unmatched_netflow: data.unmatchedNetflow,
+                has_review_task: data.hasReviewTask,
+                sort: data.sort,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Address Detail
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.revisionId
+     * @param data.addressKey
+     * @returns AddressPublic Successful Response
+     * @throws ApiError
+     */
+    public static addressDetail(data: SourceCorrelationsAddressDetailData): CancelablePromise<SourceCorrelationsAddressDetailResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/source-correlations/{revision_id}/addresses/{address_key}',
+            path: {
+                project_id: data.projectId,
+                revision_id: data.revisionId,
+                address_key: data.addressKey
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Address Services
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.revisionId
+     * @param data.addressKey
+     * @param data.skip
+     * @param data.limit
+     * @param data.comparisonSkip
+     * @param data.comparisonLimit
+     * @returns ServicePage Successful Response
+     * @throws ApiError
+     */
+    public static addressServices(data: SourceCorrelationsAddressServicesData): CancelablePromise<SourceCorrelationsAddressServicesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/source-correlations/{revision_id}/addresses/{address_key}/services',
+            path: {
+                project_id: data.projectId,
+                revision_id: data.revisionId,
+                address_key: data.addressKey
+            },
+            query: {
+                skip: data.skip,
+                limit: data.limit,
+                comparison_skip: data.comparisonSkip,
+                comparison_limit: data.comparisonLimit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Address Evidence
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.revisionId
+     * @param data.addressKey
+     * @param data.source
+     * @param data.skip
+     * @param data.limit
+     * @returns app__domain__source_correlations__EvidencePage Successful Response
+     * @throws ApiError
+     */
+    public static addressEvidence(data: SourceCorrelationsAddressEvidenceData): CancelablePromise<SourceCorrelationsAddressEvidenceResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/source-correlations/{revision_id}/addresses/{address_key}/evidence',
+            path: {
+                project_id: data.projectId,
+                revision_id: data.revisionId,
+                address_key: data.addressKey
+            },
+            query: {
+                source: data.source,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
             }
         });
     }
