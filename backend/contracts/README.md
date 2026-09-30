@@ -3,12 +3,13 @@
 ## 固定身份与取得方式
 
 - Issue：[后端 #273](https://github.com/Notyet1307/Exposure-Agent/issues/273)；前端消费者 [#274](https://github.com/Notyet1307/Exposure-Agent/issues/274)。任务状态、授权及验收回执以 Issue 为准。
-- 后端分支：`feat/netflow-source-correlation-273`；集成基线：`61f30702abf4c58d28a656fa57ab314f11306828`。
+- 后端分支：`feat/netflow-source-correlation-273`；原实现基线：`61f30702abf4c58d28a656fa57ab314f11306828`。main 同步 commit `bf66e7a1725034c3d288b869eceaa5ebca5a7d12` 保留既有提交身份。
 - **后端源码 commit：`241a0ae5c10447292f60373bc11892d1266985cf`**。本目录的接口材料单独提交，避免把文件自身 commit 写入自身内容。
 - 批准 Spec commit：`ea1ea7563c0f41dc19b4f0c6c4cc81470709b742`，包含 [EXP-NF-INT-01 N1–N8 / AC-NF-01–15](../../docs/specs/exposure-focus-release-1.md#exp-nf-int-01固定输入的-netflow-关联与人工复核材料) 与 [规范性 API 合同](../../docs/specs/netflow-correlation-api-v1.md)。这是原 `5d95f8a0a0367ac8fa4351170b5c6dd53a27cd07` 合同经维护者批准的窄修订：固定组件的五种可达状态验收及内层比较分页。完整六项材料状态词表不变。
 - 固定 `netflow_processor==0.4.0` wheel 的来源、原字节 Hash 和分发授权见 [vendor 说明](../vendor/README.md)。不补造许可证。
+- 生成客户端 commit：`0487125185d3b1aa17c2189329f6267e7fbcf611`，仅由原 `scripts/generate-client.sh` 更新 `frontend/src/client/{schemas,sdk,types}.gen.ts`，没有手工修改。
 
-提交的远端可取得性、PR/CI 状态与当前授权以 [#273](https://github.com/Notyet1307/Exposure-Agent/issues/273) 的最新回执为准，不推定另一台电脑已同步。阶段 C 实施和 wheel 分发授权分别见 [实施评论](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5890042266)、[分发评论](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5890071682)；本轮 [发布授权](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5903066444) 仅增加后端 push、创建 PR 与观察 CI。Spec 中阶段 B 的授权说明是当时记录，不覆盖后续明确批准；merge、部署、生产迁移及 Issue 关闭仍未授权，客户端生成仍按前端单写者边界交接。
+提交的远端可取得性、PR/CI 状态与当前授权以 [#273](https://github.com/Notyet1307/Exposure-Agent/issues/273) 最新回执为准，不推定另一台电脑已同步。阶段 C 实施和 wheel 分发授权分别见 [实施评论](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5890042266)、[分发评论](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5890071682)；[发布授权](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5903066444) 之后，[本轮窄授权](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5903483698) 另允许 main→任务分支同步及三个客户端文件的生成、提交与 CI。Spec 中阶段 B 的授权说明是当时记录，不覆盖后续明确批准；PR 合入 main、页面开发、部署、生产迁移及 Issue 关闭仍未授权。
 
 ## 导出与字节校验
 
@@ -48,4 +49,4 @@ shasum -a 256 backend/contracts/netflow-correlation-v1.openapi.json backend/cont
 - legacy：准备材料时复用旧合成 publisher fixture，并模拟旧外部/控制面响应；随后关联读取全部经过真实 HTTP。所选旧 Run 的历史链接保留，旧快照没有端口时明确 `PORT_EVIDENCE_NOT_RETAINED`，不伪造端口。
 - 原双端 NetFlow、Resource、GovernanceRun、Finding、报告和 ManualReview 合同不变；本接口不会生成假 Resource/Run 来承接活动对象。没有做最大容量吞吐验收，不以这组样例宣称最大上限性能。
 
-前端方在取得已授权发布的确切源码/接口材料后自行生成客户端；本后端会话没有修改 `frontend/**`、根 `bun.lock` 或运行客户端生成脚本。另一台电脑的实际 branch/base/HEAD/WIP 及最终集成人尚未交换，不作推定。**AC-NF-14 为 NOT_RUN；AC-NF-15 因缺真实三方材料与对应授权为 BLOCKED。** 代码审阅、单元测试及这些合成运行证据均不替代独立业务验收，也不代表整个前后端接入完成。
+前端页面和后续业务接入仍归前端方；本会话仅按上述单写者窄例外生成三个客户端文件，没有修改根 `bun.lock`、生成路由或开发页面。生成器重复运行无漂移，三个新增服务已通过生成 SDK→真实隔离 API→PostgreSQL 的只读合成 smoke，覆盖固定反馈分页、合法空/未提供/覆盖未知和错误反馈 UUID 的拒读；这不是浏览器验收。另一台电脑的实际 branch/base/HEAD/WIP 及最终业务集成人尚未交换，不作推定。**AC-NF-14 为 NOT_RUN；AC-NF-15 因缺真实三方材料与对应授权为 BLOCKED。** 代码审阅、自动化检查及合成运行证据不替代独立业务验收，也不代表整个前后端接入完成。
