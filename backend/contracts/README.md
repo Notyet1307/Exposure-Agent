@@ -8,7 +8,7 @@
 - 批准 Spec commit：`ea1ea7563c0f41dc19b4f0c6c4cc81470709b742`，包含 [EXP-NF-INT-01 N1–N8 / AC-NF-01–15](../../docs/specs/exposure-focus-release-1.md#exp-nf-int-01固定输入的-netflow-关联与人工复核材料) 与 [规范性 API 合同](../../docs/specs/netflow-correlation-api-v1.md)。这是原 `5d95f8a0a0367ac8fa4351170b5c6dd53a27cd07` 合同经维护者批准的窄修订：固定组件的五种可达状态验收及内层比较分页。完整六项材料状态词表不变。
 - 固定 `netflow_processor==0.4.0` wheel 的来源、原字节 Hash 和分发授权见 [vendor 说明](../vendor/README.md)。不补造许可证。
 
-**上述新 Spec 与后端提交均只在本地，尚未 push，不能声称另一台电脑已可从 GitHub checkout。** 阶段 C 实施和 wheel 分发授权已分别登记于 [实施评论](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5890042266)、[分发评论](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5890071682)。Spec 中阶段 B 的授权说明是当时记录，不覆盖后续明确批准；业务代码远端发布、部署、生产迁移及 Issue 关闭仍未授权。
+提交的远端可取得性、PR/CI 状态与当前授权以 [#273](https://github.com/Notyet1307/Exposure-Agent/issues/273) 的最新回执为准，不推定另一台电脑已同步。阶段 C 实施和 wheel 分发授权分别见 [实施评论](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5890042266)、[分发评论](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5890071682)；本轮 [发布授权](https://github.com/Notyet1307/Exposure-Agent/issues/273#issuecomment-5903066444) 仅增加后端 push、创建 PR 与观察 CI。Spec 中阶段 B 的授权说明是当时记录，不覆盖后续明确批准；merge、部署、生产迁移及 Issue 关闭仍未授权，客户端生成仍按前端单写者边界交接。
 
 ## 导出与字节校验
 
