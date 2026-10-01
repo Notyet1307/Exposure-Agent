@@ -47,6 +47,10 @@ The single **CloudAtlas ledger / 云图原生资产账** navigation item opens `
 
 `/projects/{projectId}/external-assets` is a replace-only compatibility redirect, preserving supported fixed query identities and fragments. New internal links use the canonical route. Project/account changes discard the previous page's cached data and editors; saved synchronization intent stays actor/project/source scoped and is never replayed by navigation. The old root **CloudAtlas** source-management form remains `legacy-ip-v1` configuration for historical Runs and links to the independent source setup.
 
+## NetFlow source correlation
+
+The **NetFlow source correlation / NetFlow 来源关联** page at `/projects/{projectId}/netflow-correlation` fixes Dataset, processing context, Analysis, namespace, source versions, correlation revision, and feedback revision in the URL. It reads the generated `netflow-correlation-v1` client for summary, complete address pages, NetFlow-only clues, peers, source-side service comparisons, bounded evidence, review tasks, and append-only feedback. Explicit IDs never fall back to `latest`; changing the account, project, or fixed scope removes the page's scoped cache. The legacy NetFlow ledger remains available separately.
+
 
 ## Generated client
 
