@@ -1709,7 +1709,7 @@ function SummaryView({
   revision: { correlation_revision_id: string }
   error: unknown
 }) {
-  const { t } = useI18n()
+  const { t, formatDate } = useI18n()
   if (error) return <ErrorNotice error={error} />
   if (!summary)
     return (
@@ -1719,7 +1719,7 @@ function SummaryView({
     )
   return (
     <div className="space-y-4">
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric
           label={t("Addresses", "地址")}
           value={summary.total_addresses}
@@ -1736,7 +1736,7 @@ function SummaryView({
           label={t("Limitations", "限制")}
           value={summary.limitations.length}
         />
-      </section>
+      </dl>
       <section className="rounded-md border p-4">
         <h3 className="font-semibold">{t("Source states", "来源状态")}</h3>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
@@ -1758,7 +1758,7 @@ function SummaryView({
             Revision: <code>{revision.correlation_revision_id}</code>
           </p>
           <p>
-            {t("Created", "创建")}: {summary.created_at}
+            {t("Created", "创建")}: {formatDate(summary.created_at)}
           </p>
         </div>
         <Technical
