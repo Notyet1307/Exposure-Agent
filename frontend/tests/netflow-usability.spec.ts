@@ -90,9 +90,28 @@ test("fresh project to real worker, three sources, review history and local-only
   await contextForm
     .getByLabel("NAT evidence")
     .fill("Synthetic unconverted endpoints")
+  const contextEndpoint = `**/api/v1${root}/netflow-datasets/${dataset}/processing-contexts`
+  let contextPosts = 0
+  await page.route(contextEndpoint, async (route) => {
+    if (route.request().method() !== "POST") return route.continue()
+    contextPosts += 1
+    const result = await route.fetch()
+    expect(result.ok()).toBe(true)
+    // Lose only the HTTP response after the real server has committed the Context.
+    await route.abort("failed")
+  })
   await contextForm
     .getByRole("button", { name: "Append context version" })
     .click()
+  await contextForm
+    .getByRole("button", { name: "Query original context operation" })
+    .click()
+  await page.unroute(contextEndpoint)
+  expect(contextPosts).toBe(1)
+  expect(
+    (await get(`${root}/netflow-datasets/${dataset}/processing-contexts`))
+      .count,
+  ).toBe(1)
   await page
     .getByRole("button", { name: "Start selected context analysis" })
     .click()
@@ -104,6 +123,9 @@ test("fresh project to real worker, three sources, review history and local-only
       { timeout: 240_000, intervals: [1000, 2000] },
     )
     .toMatch(/^SUCCEEDED/)
+  expect(
+    (await get(`${root}/netflow-datasets/${dataset}/analyses`)).count,
+  ).toBe(1)
   // The first usable correlation is created by the page, with NetFlow alone.
   await page.getByRole("button", { name: "Create fixed correlation" }).click()
   await page.waitForURL((url) => url.searchParams.has("revision"))
@@ -276,6 +298,54 @@ test("fresh project to real worker, three sources, review history and local-only
     page.getByRole("button", { name: "Append correction", exact: true }),
   ).toBeDisabled()
   expect(await fixedPages(partial)).toEqual(parentPages)
+
+  // Delay a real committed feedback response while the user starts another draft.
+  const feedbackEndpoint = `**/api/v1${reviews}/feedback`
+  let releaseResponse: (() => void) | undefined
+  let committedFeedback: { feedback_revision_id: string } | undefined
+  const gate = new Promise<void>((resolve) => {
+    releaseResponse = resolve
+  })
+  await page.route(feedbackEndpoint, async (route) => {
+    if (route.request().method() !== "POST") return route.continue()
+    const response = await route.fetch()
+    expect(response.ok()).toBe(true)
+    committedFeedback = await response.json()
+    await gate
+    await route.fulfill({ response })
+  })
+  await page.goto(taskUrl(exportTask.task_id, latest))
+  await answers
+    .getByLabel("Responsible unit", { exact: true })
+    .fill("Synthetic delayed correction")
+  await page
+    .getByRole("button", { name: "Append correction", exact: true })
+    .click()
+  await expect.poll(() => committedFeedback).toBeTruthy()
+  await page
+    .getByRole("region", { name: "Task table" })
+    .getByRole("button", {
+      name: `Service role material · ${serviceTask.task.target.ip} · ${serviceTask.task.target.local_port}`,
+      exact: true,
+    })
+    .click()
+  await fill("Responsible unit", "Other task's unsubmitted draft")
+  const lateResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/feedback"),
+  )
+  releaseResponse!()
+  await lateResponse
+  await expect(
+    answers.getByLabel("Responsible unit", { exact: true }),
+  ).toHaveValue("Other task's unsubmitted draft")
+  expect(new URL(page.url()).searchParams.get("feedbackRevision")).toBe(latest)
+  expect(new URL(page.url()).searchParams.get("taskId")).toBe(
+    serviceTask.task_id,
+  )
+  latest = committedFeedback!.feedback_revision_id
+  await page.unroute(feedbackEndpoint)
 
   await page.goto(taskUrl(serviceTask.task_id, latest))
   for (const [label, value] of [

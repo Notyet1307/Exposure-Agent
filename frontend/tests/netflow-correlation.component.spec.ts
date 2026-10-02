@@ -1034,3 +1034,56 @@ for (const failure of [
     expect(posts).toBe(1)
   })
 }
+
+test("switching projects clears every NetFlow fixed selection", async ({
+  page,
+}) => {
+  await setup(page)
+  const next = "00000000-0000-4000-8000-000000000299"
+  await page.route("**/api/v1/projects/?*", (route) =>
+    route.fulfill({
+      json: {
+        data: [
+          { id: project, name: "Original synthetic", status: "active" },
+          { id: next, name: "Next synthetic", status: "active" },
+        ],
+        count: 2,
+      },
+    }),
+  )
+  await page.route("**/api/v1/projects/", (route) =>
+    route.fulfill({
+      json: {
+        data: [
+          { id: project, name: "Original synthetic", status: "active" },
+          { id: next, name: "Next synthetic", status: "active" },
+        ],
+        count: 2,
+      },
+    }),
+  )
+  await page.goto(
+    `/projects/${project}/netflow-correlation?revision=${revision}&namespace=synthetic&tab=addresses`,
+  )
+  await page
+    .getByRole("combobox", { name: "Project", exact: true })
+    .selectOption(next)
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/${next}/netflow-correlation`),
+  )
+  const url = new URL(page.url())
+  for (const field of [
+    "dataset",
+    "context",
+    "analysis",
+    "revision",
+    "customerUpload",
+    "cloudSource",
+    "feedbackRevision",
+    "taskId",
+  ])
+    expect(url.searchParams.has(field)).toBe(false)
+  await expect(page.getByRole("region", { name: "Address table" })).toHaveCount(
+    0,
+  )
+})
