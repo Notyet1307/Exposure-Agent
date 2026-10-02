@@ -882,7 +882,7 @@ export default function NetflowCorrelation({
           ...previous,
           namespace: body.network_namespace,
           revision: revision.correlation_revision_id,
-          tab: "summary",
+          feedbackRevision: undefined,
           taskId: undefined,
           addressKey: undefined,
         }),

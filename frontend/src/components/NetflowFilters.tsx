@@ -179,7 +179,10 @@ export function NetflowFilters({
         </>
       ) : (
         <Label>
-          {t("Address order", "地址排序")}
+          {t(
+            tab === "peers" ? "Peer order" : "Address order",
+            tab === "peers" ? "对端排序" : "地址排序",
+          )}
           <select
             name="sort"
             defaultValue={search.sort ?? "ip_asc"}
