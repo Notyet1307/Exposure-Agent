@@ -1,4 +1,6 @@
-# 接管回执
+# 历史接管回执
+
+此文件是下列代码身份对应的静态快照，不代表当前 main、运行镜像、部署或任务状态。当前入口为 [work/current.md](work/current.md)；#279 本地合成验收见 [NetFlow 首次使用静态交接](work/netflow-usability-handoff.md)。历史证据保持原样。
 
 给新会话定位当前基线、能力分级、已测/未测和证据取得方式。不是第二份 Issue 账本。秘密、原始日志、固定 Run 快照、真实 canary 路径和个人安装路径不入 Git。
 

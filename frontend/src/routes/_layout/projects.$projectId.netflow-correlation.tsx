@@ -6,11 +6,36 @@ import NetflowCorrelation, {
 import useAuth from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
 
-const text = (value: unknown) =>
-  typeof value === "string" && value ? value : undefined
-const integer = (value: unknown) => {
+const uuid = (key: string, value: unknown, errors: string[]) => {
+  if (value === undefined) return undefined
+  if (
+    typeof value !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  )
+    errors.push(key)
+  return typeof value === "string" && value ? value : undefined
+}
+const text = (key: string, value: unknown, errors: string[]) => {
+  if (value === undefined) return undefined
+  if (typeof value !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(value))
+    errors.push(key)
+  return typeof value === "string" && value ? value : undefined
+}
+const integer = (key: string, value: unknown, errors: string[]) => {
+  if (value === undefined) return undefined
+  if (typeof value !== "string" && typeof value !== "number") {
+    errors.push(key)
+    return undefined
+  }
+  if (typeof value === "string" && !/^(0|[1-9][0-9]*)$/.test(value)) {
+    errors.push(key)
+    return undefined
+  }
   const parsed = Number(value)
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
+  if (!Number.isSafeInteger(parsed) || parsed < 0) errors.push(key)
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 const tab = (value: unknown): NetflowCorrelationSearch["tab"] =>
   value === "summary" ||
@@ -48,53 +73,113 @@ export const Route = createFileRoute(
 )({
   validateSearch: (
     search: Record<string, unknown>,
-  ): NetflowCorrelationSearch => ({
-    dataset: text(search.dataset),
-    context: text(search.context),
-    analysis: text(search.analysis),
-    revision: text(search.revision),
-    namespace: text(search.namespace),
-    customerUpload: text(search.customerUpload),
-    cloudMode: cloudMode(search.cloudMode),
-    cloudSnapshot: text(search.cloudSnapshot),
-    cloudLedgerRevision: integer(search.cloudLedgerRevision),
-    cloudScopeRevision: integer(search.cloudScopeRevision),
-    cloudSource: text(search.cloudSource),
-    cloudIpVersion: text(search.cloudIpVersion),
-    cloudPortVersion: text(search.cloudPortVersion),
-    tab: tab(search.tab),
-    taskId: text(search.taskId),
-    addressIp: text(search.addressIp),
-    addressKey: text(search.addressKey),
-    addressPage: integer(search.addressPage),
-    servicePage: integer(search.servicePage),
-    peerPage: integer(search.peerPage),
-    taskPage: integer(search.taskPage),
-    taskStatus: taskStatus(search.taskStatus),
-    feedbackRevision: text(search.feedbackRevision),
-    evidencePage: integer(search.evidencePage),
-    evidenceSource: evidenceSource(search.evidenceSource),
-    comparisonPage: integer(search.comparisonPage),
-    positiveSources: text(search.positiveSources),
-    unmatchedNetflow:
-      typeof search.unmatchedNetflow === "boolean"
-        ? search.unmatchedNetflow
-        : undefined,
-    hasReviewTask:
-      typeof search.hasReviewTask === "boolean"
-        ? search.hasReviewTask
-        : undefined,
-    sort: search.sort === "ip_desc" ? "ip_desc" : "ip_asc",
-    peerIp: text(search.peerIp),
-    peerProtocol: integer(search.peerProtocol),
-    peerPort: integer(search.peerPort),
-    taskScope:
-      search.taskScope === "object" || search.taskScope === "dataset"
-        ? search.taskScope
-        : undefined,
-    taskKind: text(search.taskKind),
-    objectKey: text(search.objectKey),
-  }),
+  ): NetflowCorrelationSearch => {
+    const identityErrors: string[] = []
+    const mode = cloudMode(search.cloudMode)
+    const customerOriginal =
+      search.customerOriginal === undefined
+        ? undefined
+        : typeof search.customerOriginal === "boolean"
+          ? search.customerOriginal
+          : undefined
+    if (search.cloudMode !== undefined && mode === undefined)
+      identityErrors.push("cloudMode")
+    if (search.customerOriginal !== undefined && customerOriginal === undefined)
+      identityErrors.push("customerOriginal")
+    if (customerOriginal === false) identityErrors.push("customerOriginal")
+    if (customerOriginal && search.customerRevision !== undefined)
+      identityErrors.push("customerRevision")
+    return {
+      dataset: uuid("dataset", search.dataset, identityErrors),
+      context: uuid("context", search.context, identityErrors),
+      analysis: uuid("analysis", search.analysis, identityErrors),
+      revision: uuid("revision", search.revision, identityErrors),
+      namespace: text("namespace", search.namespace, identityErrors),
+      customerUpload: uuid(
+        "customerUpload",
+        search.customerUpload,
+        identityErrors,
+      ),
+      customerRevision: uuid(
+        "customerRevision",
+        search.customerRevision,
+        identityErrors,
+      ),
+      customerOriginal,
+      historyRun: uuid("historyRun", search.historyRun, identityErrors),
+      cloudMode: mode,
+      cloudSnapshot: uuid(
+        "cloudSnapshot",
+        search.cloudSnapshot,
+        identityErrors,
+      ),
+      cloudLedgerRevision: integer(
+        "cloudLedgerRevision",
+        search.cloudLedgerRevision,
+        identityErrors,
+      ),
+      cloudScopeRevision: integer(
+        "cloudScopeRevision",
+        search.cloudScopeRevision,
+        identityErrors,
+      ),
+      cloudSource: uuid("cloudSource", search.cloudSource, identityErrors),
+      cloudIpVersion: uuid(
+        "cloudIpVersion",
+        search.cloudIpVersion,
+        identityErrors,
+      ),
+      cloudPortVersion: uuid(
+        "cloudPortVersion",
+        search.cloudPortVersion,
+        identityErrors,
+      ),
+      tab: tab(search.tab),
+      taskId: typeof search.taskId === "string" ? search.taskId : undefined,
+      addressIp:
+        typeof search.addressIp === "string" ? search.addressIp : undefined,
+      addressKey:
+        typeof search.addressKey === "string" ? search.addressKey : undefined,
+      addressPage: integer("addressPage", search.addressPage, []),
+      servicePage: integer("servicePage", search.servicePage, []),
+      peerPage: integer("peerPage", search.peerPage, []),
+      taskPage: integer("taskPage", search.taskPage, []),
+      taskStatus: taskStatus(search.taskStatus),
+      feedbackRevision: uuid(
+        "feedbackRevision",
+        search.feedbackRevision,
+        identityErrors,
+      ),
+      evidencePage: integer("evidencePage", search.evidencePage, []),
+      evidenceSource: evidenceSource(search.evidenceSource),
+      comparisonPage: integer("comparisonPage", search.comparisonPage, []),
+      positiveSources:
+        typeof search.positiveSources === "string"
+          ? search.positiveSources
+          : undefined,
+      unmatchedNetflow:
+        typeof search.unmatchedNetflow === "boolean"
+          ? search.unmatchedNetflow
+          : undefined,
+      hasReviewTask:
+        typeof search.hasReviewTask === "boolean"
+          ? search.hasReviewTask
+          : undefined,
+      sort: search.sort === "ip_desc" ? "ip_desc" : "ip_asc",
+      peerIp: typeof search.peerIp === "string" ? search.peerIp : undefined,
+      peerProtocol: integer("peerProtocol", search.peerProtocol, []),
+      peerPort: integer("peerPort", search.peerPort, []),
+      taskScope:
+        search.taskScope === "object" || search.taskScope === "dataset"
+          ? search.taskScope
+          : undefined,
+      taskKind:
+        typeof search.taskKind === "string" ? search.taskKind : undefined,
+      objectKey:
+        typeof search.objectKey === "string" ? search.objectKey : undefined,
+      identityErrors,
+    }
+  },
   component: NetflowCorrelationRoute,
 })
 
@@ -121,6 +206,9 @@ function NetflowCorrelationRoute() {
         search.revision,
         search.namespace,
         search.customerUpload,
+        search.customerRevision,
+        search.customerOriginal,
+        search.historyRun,
         search.cloudMode,
         search.cloudSnapshot,
         search.cloudLedgerRevision,

@@ -27,6 +27,9 @@ export default function WorkspaceSelector() {
   const externalAssetsPage = useRouterState({
     select: (state) => state.location.pathname.endsWith("/external-assets"),
   })
+  const netflowCorrelationPage = useRouterState({
+    select: (state) => state.location.pathname.endsWith("/netflow-correlation"),
+  })
   const { search, projectId, runId, project, projects, reports, latest } =
     useWorkspaceContext()
   const assetView = useSearch({ strict: false }).asset_view
@@ -110,7 +113,13 @@ export default function WorkspaceSelector() {
           value={projectId ?? ""}
           disabled={!projectChoices}
           onChange={(event) => {
-            if (cloudAssetPage) {
+            if (netflowCorrelationPage) {
+              void navigate({
+                to: "/projects/$projectId/netflow-correlation",
+                params: { projectId: event.target.value },
+                search: {},
+              })
+            } else if (cloudAssetPage) {
               void navigate({
                 to: "/projects/$projectId/cloudatlas-ledger",
                 params: { projectId: event.target.value },
@@ -173,7 +182,7 @@ export default function WorkspaceSelector() {
           ))}
         </select>
       </label>
-      {!ledgerPage && !cloudAssetPage && (
+      {!ledgerPage && !cloudAssetPage && !netflowCorrelationPage && (
         <label className="flex min-w-0 items-center gap-2 text-sm">
           <span>{t("Published run", "已发布运行")}</span>
           <select
@@ -211,14 +220,17 @@ export default function WorkspaceSelector() {
           </select>
         </label>
       )}
-      {!ledgerPage && !cloudAssetPage && runId !== undefined && (
-        <details className="min-w-0 max-w-full text-sm">
-          <summary className="cursor-pointer">
-            {t("Selected run details", "所选批次详情")}
-          </summary>
-          <TechnicalValue value={runId} label={t("Run ID", "运行 ID")} />
-        </details>
-      )}
+      {!ledgerPage &&
+        !cloudAssetPage &&
+        !netflowCorrelationPage &&
+        runId !== undefined && (
+          <details className="min-w-0 max-w-full text-sm">
+            <summary className="cursor-pointer">
+              {t("Selected run details", "所选批次详情")}
+            </summary>
+            <TechnicalValue value={runId} label={t("Run ID", "运行 ID")} />
+          </details>
+        )}
     </div>
   )
 }

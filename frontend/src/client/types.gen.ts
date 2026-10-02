@@ -2135,6 +2135,7 @@ export type CloudatlasLedgerReadCloudatlasLedgerSnapshotsData = {
     limit?: number;
     projectId: string;
     skip?: number;
+    snapshotId?: (string | null);
     sourceId: string;
 };
 
@@ -2327,6 +2328,7 @@ export type ExternalAssetsReadExternalVersionsData = {
     projectId: string;
     skip?: number;
     sourceId: string;
+    versionId?: (string | null);
 };
 
 export type ExternalAssetsReadExternalVersionsResponse = (ExternalVersionsPublic);
@@ -2609,6 +2611,7 @@ export type NetflowLedgerReadNetflowLedgerProfileData = {
 export type NetflowLedgerReadNetflowLedgerProfileResponse = (Profile);
 
 export type NetflowProcessingReadContextsData = {
+    contextRevisionId?: (string | null);
     datasetId: string;
     limit?: number;
     projectId: string;
@@ -2847,6 +2850,7 @@ export type ProjectsReadCurrentCustomerUploadProfileData = {
 export type ProjectsReadCurrentCustomerUploadProfileResponse = (CustomerUploadProfilePublic);
 
 export type ProjectsReadNetflowDatasetsData = {
+    datasetId?: (string | null);
     limit?: number;
     projectId: string;
     skip?: number;
@@ -2889,6 +2893,7 @@ export type ProjectsReadCustomerUploadsData = {
     limit?: number;
     projectId: string;
     skip?: number;
+    uploadId?: (string | null);
 };
 
 export type ProjectsReadCustomerUploadsResponse = (CustomerUploadsPublic);

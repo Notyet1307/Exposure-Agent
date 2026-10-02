@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import { ApiError, type ScopeChange, SourceCorrelationsService } from "@/client"
+import { type ScopeChange, SourceCorrelationsService } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { useI18n } from "@/lib/i18n"
+import { netflowRequestRejected } from "@/lib/netflow-errors"
 
 export function NetflowScopeControl({
   actor,
@@ -67,11 +68,7 @@ export function NetflowScopeControl({
       onRevision(revision.correlation_revision_id)
     } catch (cause) {
       if (!active.current) return
-      if (
-        !recover &&
-        cause instanceof ApiError &&
-        [400, 401, 403, 404, 409, 410, 422].includes(cause.status)
-      ) {
+      if (!recover && netflowRequestRejected(cause)) {
         sessionStorage.removeItem(store)
         setPending(undefined)
       }
@@ -98,9 +95,9 @@ export function NetflowScopeControl({
             setState(event.target.value as ScopeChange["scope_state"])
           }
         >
-          <option value="CONFIRMED">CONFIRMED</option>
-          <option value="UNKNOWN">UNKNOWN</option>
-          <option value="REVOKED">REVOKED</option>
+          <option value="CONFIRMED">{t("Confirmed", "已确认")}</option>
+          <option value="UNKNOWN">{t("Unknown", "未知")}</option>
+          <option value="REVOKED">{t("Revoked", "已撤销")}</option>
         </select>
       </Label>
       <Label>

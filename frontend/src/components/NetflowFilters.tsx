@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useI18n } from "@/lib/i18n"
+import { netflowText } from "@/lib/netflow-labels"
 
 export function NetflowFilters({
   search,
@@ -95,7 +96,10 @@ export function NetflowFilters({
                 "CUSTOMER,CLOUD,NETFLOW",
               ].map((value) => (
                 <option key={value} value={value}>
-                  {value}
+                  {value
+                    .split(",")
+                    .map((source) => netflowText(source, t))
+                    .join(" + ")}
                 </option>
               ))}
             </select>
@@ -170,12 +174,41 @@ export function NetflowFilters({
           </Label>
           <Label>
             {t("Task kind", "任务类型")}
-            <Input name="taskKind" defaultValue={search.taskKind} />
+            <select
+              name="taskKind"
+              defaultValue={search.taskKind ?? ""}
+              className={selectClass}
+            >
+              <option value="">{t("All", "全部")}</option>
+              {["export", "nat", "source", "tcp", "coverage", "service"].map(
+                (kind) => (
+                  <option key={kind} value={kind}>
+                    {netflowText(kind, t)}
+                  </option>
+                ),
+              )}
+              {search.taskKind &&
+                ![
+                  "export",
+                  "nat",
+                  "source",
+                  "tcp",
+                  "coverage",
+                  "service",
+                ].includes(search.taskKind) && (
+                  <option value={search.taskKind}>{search.taskKind}</option>
+                )}
+            </select>
           </Label>
-          <Label>
-            {t("Object key", "对象键")}
-            <Input name="objectKey" defaultValue={search.objectKey} />
-          </Label>
+          <details>
+            <summary className="cursor-pointer text-sm">
+              {t("Technical filter", "技术筛选")}
+            </summary>
+            <Label>
+              {t("Object key", "对象键")}
+              <Input name="objectKey" defaultValue={search.objectKey} />
+            </Label>
+          </details>
         </>
       ) : (
         <Label>
