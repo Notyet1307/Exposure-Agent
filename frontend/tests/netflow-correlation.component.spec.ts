@@ -414,3 +414,34 @@ test("revocation removes cached rows and rejects an already pending page", async
   await expect(page.getByText("192.0.2.99", { exact: true })).toHaveCount(0)
   await expect(page.getByText("192.0.2.1", { exact: true })).toHaveCount(0)
 })
+
+for (const cloud of [
+  "cloudSource=60000000-0000-4000-8000-000000000279",
+  "cloudMode=none&cloudSource=60000000-0000-4000-8000-000000000279",
+  "cloudMode=legacy&cloudSource=60000000-0000-4000-8000-000000000279&cloudSnapshot=70000000-0000-4000-8000-000000000279&cloudLedgerRevision=0&cloudScopeRevision=0",
+  "cloudMode=legacy&cloudSource=60000000-0000-4000-8000-000000000279&cloudSnapshot=70000000-0000-4000-8000-000000000279",
+]) {
+  test(`unresolved cloud identity never becomes an omitted input: ${cloud}`, async ({
+    page,
+  }) => {
+    await setup(page)
+    let writes = 0
+    page.on("request", (request) => {
+      if (request.method() === "POST") writes++
+    })
+    await page.route(`**${root}/external-assets/sources`, (route) =>
+      route.fulfill({ json: { data: [], count: 0, can_manage: true } }),
+    )
+    await page.goto(
+      `/projects/${project}/netflow-correlation?namespace=synthetic&customerUpload=50000000-0000-4000-8000-000000000279&${cloud}`,
+    )
+    await expect(
+      page.getByRole("button", {
+        name: "Create fixed correlation",
+        exact: true,
+      }),
+    ).toBeDisabled()
+    await expect(page).toHaveURL(/cloudSource=60000000/)
+    expect(writes).toBe(0)
+  })
+}

@@ -1129,16 +1129,24 @@ export default function NetflowCorrelation({
         namespace.trim() === selectedContext.network_namespace),
   )
   const selectedCloud = useMemo(() => {
-    if (search.cloudMode === "legacy" && search.cloudSnapshot) {
+    if (
+      search.cloudMode === "legacy" &&
+      search.cloudSnapshot &&
+      search.cloudLedgerRevision !== undefined &&
+      search.cloudScopeRevision !== undefined
+    ) {
       const snapshot =
-        fixedSnapshot.data?.[0] ??
-        snapshots.data?.find((item) => item.id === search.cloudSnapshot)
-      return snapshot
+        fixedSnapshot.isSuccess && !fixedSnapshot.isError
+          ? fixedSnapshot.data?.[0]
+          : undefined
+      return snapshot?.id === search.cloudSnapshot &&
+        (!search.cloudSource ||
+          snapshot.source_instance_id === search.cloudSource)
         ? {
             kind: "legacy_snapshot" as const,
             source_snapshot_id: snapshot.id,
-            ledger_revision: search.cloudLedgerRevision ?? 0,
-            scope_revision: search.cloudScopeRevision ?? 0,
+            ledger_revision: search.cloudLedgerRevision,
+            scope_revision: search.cloudScopeRevision,
           }
         : null
     }
@@ -1149,11 +1157,22 @@ export default function NetflowCorrelation({
     ) {
       const ipReady =
         !search.cloudIpVersion ||
-        fixedExternalVersions.data?.ip?.data[0]?.id === search.cloudIpVersion
+        (fixedExternalVersions.isSuccess &&
+          !fixedExternalVersions.isError &&
+          fixedExternalVersions.data?.ip?.data[0]?.status !== "EXPIRED" &&
+          fixedExternalVersions.data?.ip?.data[0]?.id ===
+            search.cloudIpVersion &&
+          fixedExternalVersions.data.ip.data[0]?.source_id ===
+            search.cloudSource)
       const portReady =
         !search.cloudPortVersion ||
-        fixedExternalVersions.data?.port?.data[0]?.id ===
-          search.cloudPortVersion
+        (fixedExternalVersions.isSuccess &&
+          !fixedExternalVersions.isError &&
+          fixedExternalVersions.data?.port?.data[0]?.status !== "EXPIRED" &&
+          fixedExternalVersions.data?.port?.data[0]?.id ===
+            search.cloudPortVersion &&
+          fixedExternalVersions.data.port.data[0]?.source_id ===
+            search.cloudSource)
       if (!ipReady || !portReady) return null
       return {
         kind: "external_versions" as const,
@@ -1171,17 +1190,25 @@ export default function NetflowCorrelation({
     search.cloudScopeRevision,
     search.cloudSnapshot,
     search.cloudSource,
-    snapshots.data,
     fixedSnapshot.data,
+    fixedSnapshot.isSuccess,
+    fixedSnapshot.isError,
     fixedExternalVersions.data,
+    fixedExternalVersions.isSuccess,
+    fixedExternalVersions.isError,
   ])
+  const hasExplicitCloudIdentity = Boolean(
+    search.cloudSnapshot ||
+      search.cloudLedgerRevision !== undefined ||
+      search.cloudScopeRevision !== undefined ||
+      search.cloudSource ||
+      search.cloudIpVersion ||
+      search.cloudPortVersion,
+  )
   const cloudSelectionReady =
     search.cloudMode === undefined ||
     search.cloudMode === "none" ||
-    (search.cloudMode === "legacy" &&
-      Boolean(search.cloudSnapshot) &&
-      search.cloudLedgerRevision !== undefined &&
-      search.cloudScopeRevision !== undefined) ||
+    (search.cloudMode === "legacy" && Boolean(selectedCloud)) ||
     (search.cloudMode === "external" && Boolean(selectedCloud))
   const hasSource = Boolean(
     search.analysis || search.customerUpload || selectedCloud,
@@ -1192,15 +1219,8 @@ export default function NetflowCorrelation({
         search.customerOriginal !== undefined)) ||
     (search.customerOriginal === true &&
       search.customerRevision !== undefined) ||
-    (search.cloudMode === "none" &&
-      Boolean(
-        search.cloudSnapshot ||
-          search.cloudLedgerRevision !== undefined ||
-          search.cloudScopeRevision !== undefined ||
-          search.cloudSource ||
-          search.cloudIpVersion ||
-          search.cloudPortVersion,
-      )) ||
+    (!search.cloudMode && hasExplicitCloudIdentity) ||
+    (search.cloudMode === "none" && hasExplicitCloudIdentity) ||
     (search.cloudMode !== "legacy" &&
       Boolean(
         search.cloudSnapshot ||
