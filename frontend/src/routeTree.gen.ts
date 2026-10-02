@@ -16,6 +16,7 @@ import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutAiSettingsRouteImport } from './routes/_layout/ai-settings'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
 import { Route as LayoutProjectsProjectIdNetflowLedgerRouteImport } from './routes/_layout/projects.$projectId.netflow-ledger'
+import { Route as LayoutProjectsProjectIdNetflowCorrelationRouteImport } from './routes/_layout/projects.$projectId.netflow-correlation'
 import { Route as LayoutProjectsProjectIdExternalAssetsRouteImport } from './routes/_layout/projects.$projectId.external-assets'
 import { Route as LayoutProjectsProjectIdCustomerLedgerRouteImport } from './routes/_layout/projects.$projectId.customer-ledger'
 import { Route as LayoutProjectsProjectIdCloudatlasLedgerRouteImport } from './routes/_layout/projects.$projectId.cloudatlas-ledger'
@@ -55,6 +56,12 @@ const LayoutProjectsProjectIdNetflowLedgerRoute =
   LayoutProjectsProjectIdNetflowLedgerRouteImport.update({
     id: '/projects/$projectId/netflow-ledger',
     path: '/projects/$projectId/netflow-ledger',
+    getParentRoute: () => LayoutRoute,
+  } as any)
+const LayoutProjectsProjectIdNetflowCorrelationRoute =
+  LayoutProjectsProjectIdNetflowCorrelationRouteImport.update({
+    id: '/projects/$projectId/netflow-correlation',
+    path: '/projects/$projectId/netflow-correlation',
     getParentRoute: () => LayoutRoute,
   } as any)
 const LayoutProjectsProjectIdExternalAssetsRoute =
@@ -97,6 +104,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectId/cloudatlas-ledger': typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   '/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
   '/projects/$projectId/external-assets': typeof LayoutProjectsProjectIdExternalAssetsRoute
+  '/projects/$projectId/netflow-correlation': typeof LayoutProjectsProjectIdNetflowCorrelationRoute
   '/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
@@ -110,6 +118,7 @@ export interface FileRoutesByTo {
   '/projects/$projectId/cloudatlas-ledger': typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   '/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
   '/projects/$projectId/external-assets': typeof LayoutProjectsProjectIdExternalAssetsRoute
+  '/projects/$projectId/netflow-correlation': typeof LayoutProjectsProjectIdNetflowCorrelationRoute
   '/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
@@ -125,6 +134,7 @@ export interface FileRoutesById {
   '/_layout/projects/$projectId/cloudatlas-ledger': typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   '/_layout/projects/$projectId/customer-ledger': typeof LayoutProjectsProjectIdCustomerLedgerRoute
   '/_layout/projects/$projectId/external-assets': typeof LayoutProjectsProjectIdExternalAssetsRoute
+  '/_layout/projects/$projectId/netflow-correlation': typeof LayoutProjectsProjectIdNetflowCorrelationRoute
   '/_layout/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
   '/_layout/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/_layout/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
@@ -140,6 +150,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId/cloudatlas-ledger'
     | '/projects/$projectId/customer-ledger'
     | '/projects/$projectId/external-assets'
+    | '/projects/$projectId/netflow-correlation'
     | '/projects/$projectId/netflow-ledger'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
@@ -153,6 +164,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId/cloudatlas-ledger'
     | '/projects/$projectId/customer-ledger'
     | '/projects/$projectId/external-assets'
+    | '/projects/$projectId/netflow-correlation'
     | '/projects/$projectId/netflow-ledger'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
@@ -167,6 +179,7 @@ export interface FileRouteTypes {
     | '/_layout/projects/$projectId/cloudatlas-ledger'
     | '/_layout/projects/$projectId/customer-ledger'
     | '/_layout/projects/$projectId/external-assets'
+    | '/_layout/projects/$projectId/netflow-correlation'
     | '/_layout/projects/$projectId/netflow-ledger'
     | '/_layout/projects/$projectId/runs/$runId/comparison'
     | '/_layout/projects/$projectId/runs/$runId/lineage'
@@ -228,6 +241,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutProjectsProjectIdNetflowLedgerRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/projects/$projectId/netflow-correlation': {
+      id: '/_layout/projects/$projectId/netflow-correlation'
+      path: '/projects/$projectId/netflow-correlation'
+      fullPath: '/projects/$projectId/netflow-correlation'
+      preLoaderRoute: typeof LayoutProjectsProjectIdNetflowCorrelationRouteImport
+      parentRoute: typeof LayoutRoute
+    }
     '/_layout/projects/$projectId/external-assets': {
       id: '/_layout/projects/$projectId/external-assets'
       path: '/projects/$projectId/external-assets'
@@ -274,6 +294,7 @@ interface LayoutRouteChildren {
   LayoutProjectsProjectIdCloudatlasLedgerRoute: typeof LayoutProjectsProjectIdCloudatlasLedgerRoute
   LayoutProjectsProjectIdCustomerLedgerRoute: typeof LayoutProjectsProjectIdCustomerLedgerRoute
   LayoutProjectsProjectIdExternalAssetsRoute: typeof LayoutProjectsProjectIdExternalAssetsRoute
+  LayoutProjectsProjectIdNetflowCorrelationRoute: typeof LayoutProjectsProjectIdNetflowCorrelationRoute
   LayoutProjectsProjectIdNetflowLedgerRoute: typeof LayoutProjectsProjectIdNetflowLedgerRoute
   LayoutProjectsProjectIdRunsRunIdComparisonRoute: typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   LayoutProjectsProjectIdRunsRunIdLineageRoute: typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
@@ -290,6 +311,8 @@ const LayoutRouteChildren: LayoutRouteChildren = {
     LayoutProjectsProjectIdCustomerLedgerRoute,
   LayoutProjectsProjectIdExternalAssetsRoute:
     LayoutProjectsProjectIdExternalAssetsRoute,
+  LayoutProjectsProjectIdNetflowCorrelationRoute:
+    LayoutProjectsProjectIdNetflowCorrelationRoute,
   LayoutProjectsProjectIdNetflowLedgerRoute:
     LayoutProjectsProjectIdNetflowLedgerRoute,
   LayoutProjectsProjectIdRunsRunIdComparisonRoute:
