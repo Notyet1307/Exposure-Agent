@@ -6,7 +6,7 @@
 
 - 接管的远端 main：`f1f3be9e54308d2e125e1fdba6f8e886305b14b8`，包含 #277/#278。
 - 批准 Spec：`85c360edc1f88718895ff8da9f978742f3c24bd0` 的 `docs/specs/exposure-focus-release-1.md` NU0–NU3、AC-NU-*，`docs/specs/netflow-correlation-api-v1.md` 第 8 节及 ADR-0020 窄扩展。
-- 分支：`codex/netflow-usability`。阶段 A：`36b8d4ca33195823a601d3533c11960c5bc73df5` 与 `32e6882d07dcf00e3098465c0e437e11864e3e63`；阶段 B/PR 的最终身份待本轮验证完成后写入本快照。
+- 分支：`codex/netflow-usability`。阶段 A：`36b8d4ca33195823a601d3533c11960c5bc73df5` 与 `32e6882d07dcf00e3098465c0e437e11864e3e63`；阶段 B：`e4f747aec45da68f1b58893e46e9f0c6c304d8e1`；测试脚本 import 整理 `3dd2b3526b978283bdfe3ca39e294b7a99b750f1`；真实恢复/晚到响应验收 `eef5150`。PR：[\#280](https://github.com/Notyet1307/Exposure-Agent/pull/280)，未合并且未启用自动合并。
 - 原工作区的 main 与未提交 Spec/current/plans 保持原样；所有候选变更在独立 worktree。
 - 仅合成数据、隔离凭据和任务 PostgreSQL。未调用真实客户或业务模型，未扫描，未合并、部署、生产迁移或关闭 Issue。合成通过不代表 AC-NF-15 真实客户验收。
 
@@ -31,18 +31,18 @@ B 结果页将完整 ID、Hash、JSON、Schema 与逐条来源比较折叠。来
 | 层次 | 本快照的结果 | 证据 |
 |---|---|---|
 | A 后端定向回归 | 22 PASS；混合/跨页/全到期/空集、项目拒绝、撤权、损坏、未知错误、101 条 count/page、固定详情 | `a-directory-tests.log` |
-| 后端全套 | 早期 1350 PASS；最终候选全套正在重跑，不能将早期结果冒称最终 SHA | `backend-tests.log`、`backend-tests-final.log` |
+| 后端全套 | 1360 PASS，3 warnings，754.05s，90% coverage；覆盖 B 的最终后端源码（后续仅前端验收和脚本文档） | `backend-tests.log`、`backend-tests-final.log` |
 | 后端 lint/type | PASS，214 个 mypy 文件、ruff、ty | `b3-backend-lint.log` |
 | 实际 Schema 一致性 | 18 个 processor 集成测试 PASS；六类答案 fixture 与固定 0.4.0 wheel 的 inline answer schema 一致，未引用的定义不复制 | `b3-schema-test.log` |
-| Mock 组件测试 | 全部 210 PASS；本轮 29 项含七类目录 101 记录/后页、固定身份、恢复和表单边界 | `frontend-all-components.log` |
+| Mock 组件测试 | 全部 211 PASS（`eef5150`）；本轮 30 项含七类目录 101 记录/后页、固定身份、恢复和表单边界 | `frontend-final-components.log` |
 | 前端 lint/build | PASS；已有 Biome 配置 schema 版本提示不影响退出码，未升级工具链 | `b-final-lint.log`、`b-final-build.log` |
-| 真实 API/worker 与页面 | 工作树原型与 portable 首跑均通过（不归因到旧 HEAD）：新项目、页面 Context、真实 worker、三源 TLS 同步、部分/更正/历史、停止上游后 GET-only 分页及角色 | `harness-root.log`；正式仓库入口已完成 1 项全链路，提交后将以固定 SHA 再跑 |
+| 真实 API/worker 与页面 | PASS @干净 `eef5150`：新项目、页面上传/Context、真实响应丢失后原操作恢复、真实 worker、三源 TLS 同步、部分/更正/历史、共享依赖、真实晚到反馈响应、停止上游后 GET-only 分页/角色/到期/跨项目/撤权 | `harness-final.log`；完整运行证据 `/private/tmp/exposure-netflow-usability-azdzazg0/{result.json,browser-result.json,harness.log}` |
 | 自然到期/跨项目 | 到期固定详情 410，目录 3→2，有效固定详情 200；跨项目 404 | `retention-check.log` |
-| 独立 Standards | 最初 Context 409 清 key 问题已修复并复核；最终完整候选复核待收尾 | 独立审阅记录随 Issue/PR 回执 |
+| 独立 Standards | PASS；Context 409 恢复、harness 输出目录保护与固定构建身份的问题均修复后独立复核 | 独立审阅记录随 Issue/PR 回执 |
 | 独立 Spec | A 与 B UI 分别复核 PASS，无遗留 P1/P2；不替代业务验收 | 独立审阅记录随 Issue/PR 回执 |
 | 独立业务验收 | PASS：服务材料先等待共享依赖，补齐导出后两者待人工复核，task_closed/facts_changed 均 false；历史页哈希稳定 | `acceptance-postcheck-result.json`、`acceptance-postcheck.log` |
 | 布局与交互 | 独立验收 390/1366/1920、CN/EN、Tab、summary Enter、reduced-motion PASS；复核阶段零 POST | `acceptance-postcheck-*.png` |
-| CI | 尚未创建 PR，NOT_RUN | 最终 PR 回执补充 |
+| CI | 本静态快照提交时尚在运行；最终结果读取 [PR #280 Checks](https://github.com/Notyet1307/Exposure-Agent/pull/280/checks)，以其确切 head 为准 | 最终 PR 回执补充 |
 | 真实客户 AC-NF-15、生产部署 | NOT_RUN；本轮未授权 | 不以合成样本替代 |
 
 ## 可复用全栈入口
@@ -59,6 +59,8 @@ python3 scripts/test-netflow-usability.py
 
 ## 停止线与具体下一步
 
-本快照尚待：正式 portable harness 复跑、最终后端全套、最终 Standards 复核、分阶段 B 提交、push/PR/CI 与最终身份写回。下一会话先读取 #279 最新记录并核对 `git status`/HEAD，再从脚本打印的最新 `result.json` 和 `harness.log` 处理明确失败；不要重开已通过的 A 行为或重造旧数据。
+A/B 实现、本地验证、独立双轴审阅和独立业务验收已完成，无已知代码 blocker。真实客户 AC-NF-15、部署和生产迁移仍 NOT_RUN。此文档提交后的 CI 状态仅在 #279/#280 更新，不建立第二个实时状态账。
+
+下一会话先执行 `gh pr view 280 --json state,headRefOid,baseRefOid,mergeStateStatus,autoMergeRequest` 和 `gh pr checks 280`，核对当前 head 与本轮代码身份。若有失败，只处理该 head 的失败日志；所有必需门禁通过后，等待维护者明确决定是否合并。不要重开已通过的 A 行为或重造旧数据。
 
 最终交付后由维护者决定合并；本轮不得自动 merge/deploy/close。后续仅记录“新来源对象接入核查”候选：需另定受支持对象、输入 Evidence、权限与独立 Spec/Issue，不实现新的问题、交办审批或处置生命周期。
