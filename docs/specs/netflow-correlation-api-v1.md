@@ -1,6 +1,6 @@
 # NetFlow 源侧关联 API 合同 v1
 
-状态：已批准的待实现合同，随 [EXP-NF-INT-01](exposure-focus-release-1.md#exp-nf-int-01固定输入的-netflow-关联与人工复核材料) 固定同一 Git commit。阶段 B 只发布文档并登记任务，以下端点尚未实现；现有 API 保持不变。这不是从当前 FastAPI 导出的 OpenAPI。阶段 C 另获实施授权后，必须交付实际后端 SHA、`app.openapi()` 导出的完整合同及其 SHA256、合成样例和兼容说明；前端方在自己的分支运行 `bash scripts/generate-client.sh`，该脚本会写入 `frontend/openapi.json` 并执行生成/lint，后端会话不执行它。
+状态：EXP-NF-INT-01 的规范性合同。后端与前端已分别由 PR #277/#278 合并；本文件不是 OpenAPI 导出。固定历史接口样例见 [backend/contracts](../../backend/contracts/README.md)，当前接口以实际源码导出核验。本轮补充见下节及主 Spec `EXP-NF-USABILITY-01`，任务状态以专属 Issue 为准。
 
 本文件是 EXP-NF-INT-01 的规范性接口附录，行为、字段、失败与恢复合同随主 Spec 一起批准；Issue 必须引用两者的同一固定 commit。实际授权、文件唯一写入者及双方候选 SHA 留 GitHub Issue，不由文档批准推导。所有样例值均为合成，不对应客户文件。
 
@@ -36,7 +36,7 @@
 
 `correlation_revision_id` 是固定读身份；`root_id` 仅用于找当前撤销/更正门禁。确认/更正返回新 revision ID，旧 ID 保持。读取旧确认时同时回传 `historical_scope_state` 与 `current_scope_state`；撤销不重写旧结果，但阻止当前跨源关联显示/写入。
 
-## 3. 新增端点合同（待实现）
+## 3. 端点合同
 
 | 方法/路径（均在基路径下） | 权限/用途/返回 |
 |---|---|
@@ -260,3 +260,12 @@ Analysis 作业状态沿现有独立 worker 模式固定为：`PENDING / RUNNING
 - 回填状态分页固定反馈 UUID：第一页后更正共享依赖，再取第二页/详情，旧筛选集合和总数保持；用户明确切新版本才显示新状态。失败后重试必须明确引用失败 Analysis，未知响应先恢复原 key/Session，不能换 key 盲目再建。
 - 验证分页/筛选/排序和返回状态、显式旧版本、Viewer、Admin 空间确认、部分回填更正、归档/撤权/到期、晚到响应与账户切换。
 - 实际 1366/1920/390、键盘焦点、双语与主题；没有前端候选时全部记 NOT_RUN。最终记录 backend SHA＋frontend SHA＋组合候选 SHA，真实 API＋合成数据浏览器通过才算联调；mock 通过仅算界面检查。
+
+## 8. EXP-NF-USABILITY-01 目录与页面消费补充
+
+2026-10-02 维护者批准，与主 Spec NU0–NU3 固定同一 commit。仅替代第 3 节关联**目录**遇已知来源不可读时整体拒绝的行为；固定详情/证据/写入与其他授权不放宽。
+
+- `GET /source-correlations` 先复核 Project，按来源权限、自然保留期限筛出可读修订，再应用统一 count/分页。被排除项不返回身份、名称、内容、额外统计。项目拒绝全请求；完整性损坏/未知故障保持明确错误。GET 无副作用。
+- 选择器统一使用既有 skip/limit 信封；固定历史可增加受现有相同授权和保留约束的 Dataset/Context 最小按 ID 元信息读取。既有 Analysis/客户/云图固定读取优先复用，不扩数据模型。
+- 显式错误身份一律拒绝；URL 真正遗漏才可由权威固定修订补全。客户 revision_id 的 null 为上传原版，不可替换为当前管理版。反馈 UUID 必须属于固定 Analysis。
+- Context 表单直接消费现有 ContextCreate/expected_parent_id/operations 恢复合同，不用关联 scope-revision 冒充处理 context。答案表单直接消费任务 answer_schema，不改变 Feedback POST 的任务替换与部分任务保留语义。
