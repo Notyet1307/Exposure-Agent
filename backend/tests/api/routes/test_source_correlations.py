@@ -460,10 +460,16 @@ def test_all_combined_paths_recheck_source_gates(
         detail,
         detail + "/services",
         detail + "/evidence?source=cloud",
-        c["base"],
     ):
         response = client.get(path, headers=c["headers"])
         assert response.status_code == expected, response.text
+    listing = client.get(c["base"], headers=c["headers"])
+    if gate in {"revoked", "expired"}:
+        assert listing.status_code == 200, listing.text
+        assert listing.json()["data"] == []
+        assert listing.json()["count"] == 0
+    else:
+        assert listing.status_code == expected, listing.text
     # Correlation persistence contains identities/hashes, not copied source fields.
     stored = db.get(
         SourceCorrelationRevision, uuid.UUID(c["confirmed"]["correlation_revision_id"])
@@ -547,6 +553,47 @@ def test_expired_rows_can_be_purged_without_correlation_foreign_keys(
     response = client.get(url, headers=c["headers"])
     assert response.status_code == 410
     assert response.json()["detail"]["code"] == "correlation_source_expired"
+
+
+@pytest.mark.parametrize("gate", ["expired", "revoked"])
+def test_correlation_directory_skips_only_known_unreadable_rows(
+    client: TestClient,
+    db: Session,
+    correlation: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    gate: str,
+) -> None:
+    c = correlation
+    readable = _post(
+        client,
+        c["base"],
+        c["headers"],
+        {
+            "network_namespace": c["namespace"],
+            "netflow": {"analysis_id": c["analysis_id"]},
+        },
+    )
+    if gate == "expired":
+        monkeypatch.setattr(
+            source_correlations,
+            "get_datetime_utc",
+            lambda: c["now"] + timedelta(days=3),
+        )
+    else:
+        c["source"].data_access_enabled = False
+        db.add(c["source"])
+        db.commit()
+
+    listing = _get(client, c["base"], c["headers"], limit=1)
+    assert listing["count"] == 1
+    assert [row["correlation_revision_id"] for row in listing["data"]] == [
+        readable["correlation_revision_id"]
+    ]
+    unavailable = client.get(
+        c["base"] + "/" + c["confirmed"]["correlation_revision_id"],
+        headers=c["headers"],
+    )
+    assert unavailable.status_code == (410 if gate == "expired" else 403)
 
 
 def test_netflow_valid_empty_is_not_missing_input(
@@ -701,3 +748,193 @@ def test_context_correction_blocks_writes_but_preserves_fixed_history(
     )
     assert str(feedback["feedback_revision_id"]) == c["feedback_revision_id"]
     assert len(c["control"].starts) == 1
+
+
+def test_readable_directory_pages_over_101_revisions_without_gaps(
+    client: TestClient,
+    db: Session,
+    correlation: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    c = correlation
+    first = _post(
+        client,
+        c["base"],
+        c["headers"],
+        {
+            "network_namespace": c["namespace"],
+            "netflow": {"analysis_id": c["analysis_id"]},
+        },
+    )
+    row = db.get(SourceCorrelationRevision, uuid.UUID(first["correlation_revision_id"]))
+    assert row is not None
+    expected = {str(row.id)}
+    # Synthetic metadata exercises real PostgreSQL. The full-stack suite creates
+    # its business objects exclusively through formal APIs.
+    for index in range(100):
+        identity = uuid.uuid4()
+        db.add(
+            SourceCorrelationRevision(
+                **(
+                    row.model_dump()
+                    | {
+                        "id": identity,
+                        "root_id": identity,
+                        "created_at": c["now"] + timedelta(seconds=index - 50),
+                    }
+                )
+            )
+        )
+        expected.add(str(identity))
+    db.commit()
+    monkeypatch.setattr(
+        source_correlations, "get_datetime_utc", lambda: c["now"] + timedelta(days=3)
+    )
+    original_materials = source_correlations.materials
+    calls = []
+
+    def checked_materials(*args: Any, **kwargs: Any) -> Any:
+        calls.append(True)
+        return original_materials(*args, **kwargs)
+
+    monkeypatch.setattr(source_correlations, "materials", checked_materials)
+    found: list[str] = []
+    for skip in range(0, 101, 25):
+        calls.clear()
+        page = _get(
+            client,
+            c["base"],
+            c["headers"],
+            dataset_id=c["dataset_id"],
+            skip=skip,
+            limit=25,
+        )
+        assert page["count"] == 101
+        assert len(page["data"]) == min(25, 101 - skip)
+        assert len(calls) == 2
+        found.extend(item["correlation_revision_id"] for item in page["data"])
+    assert len(set(found)) == 101 and set(found) == expected
+    empty = _get(client, c["base"], c["headers"], dataset_id=uuid.uuid4())
+    assert empty["count"] == 0 and empty["data"] == []
+    assert (
+        client.get(
+            c["base"] + "/" + c["confirmed"]["correlation_revision_id"],
+            headers=c["headers"],
+        ).status_code
+        == 410
+    )
+    assert (
+        _get(client, c["base"] + "/" + first["correlation_revision_id"], c["headers"])[
+            "total_addresses"
+        ]
+        > 0
+    )
+
+
+def test_empty_directory_and_project_denial_precede_source_reads(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _project(client, superuser_token_headers)
+    other = _project(client, superuser_token_headers)
+    viewer = _member(client, superuser_token_headers, other["id"], ["viewer"])
+    url = f"{settings.API_V1_STR}/projects/{project['id']}/source-correlations"
+    assert _get(client, url, superuser_token_headers)["count"] == 0
+
+    def unexpected(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("Project authorization must precede source reads")
+
+    monkeypatch.setattr(source_correlations, "materials", unexpected)
+    assert client.get(url, headers=viewer).status_code == 404
+    assert client.get(url).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "status,detail",
+    [
+        (409, {"code": "netflow_artifact_integrity_failed"}),
+        (500, {"code": "unknown_material_failure"}),
+        (403, {"code": "unexpected_denial"}),
+        (410, {"code": "unexpected_expiry"}),
+        (500, {"code": "correlation_source_expired"}),
+        (403, "unexpected string detail"),
+    ],
+)
+def test_directory_does_not_hide_integrity_or_unknown_errors(
+    client: TestClient,
+    correlation: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    detail: Any,
+) -> None:
+    from fastapi import HTTPException
+
+    def fail(*_args: Any, **_kwargs: Any) -> Any:
+        raise HTTPException(status_code=status, detail=detail)
+
+    monkeypatch.setattr(source_correlations, "materials", fail)
+    response = client.get(correlation["base"], headers=correlation["headers"])
+    assert response.status_code == status
+    assert response.json()["detail"] == detail
+
+
+def test_fixed_metadata_filters_never_substitute_another_version(
+    client: TestClient,
+    correlation: dict[str, Any],
+) -> None:
+    c = correlation
+    cases = [
+        ("/netflow-datasets", "dataset_id", c["dataset_id"], "id", {}),
+        (
+            f"/netflow-datasets/{c['dataset_id']}/processing-contexts",
+            "context_revision_id",
+            c["context_revision_id"],
+            "context_revision_id",
+            {},
+        ),
+        (
+            "/customer-uploads",
+            "upload_id",
+            c["body"]["customer"]["upload_id"],
+            "id",
+            {},
+        ),
+        (
+            f"/external-assets/sources/{c['source'].id}/versions",
+            "version_id",
+            str(c["versions"]["ip"].id),
+            "id",
+            {"domain": "ip"},
+        ),
+        (
+            f"/external-assets/sources/{c['source'].id}/versions",
+            "version_id",
+            str(c["versions"]["port"].id),
+            "id",
+            {"domain": "port"},
+        ),
+    ]
+    for suffix, key, identity, response_key, params in cases:
+        response = client.get(
+            c["root"] + suffix,
+            headers=c["headers"],
+            params={**params, key: identity, "limit": 1},
+        )
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["count"] == 1 and page["data"][0][response_key] == identity
+        response = client.get(
+            c["root"] + suffix,
+            headers=c["headers"],
+            params={**params, key: str(uuid.uuid4()), "limit": 1},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["count"] == 0 and response.json()["data"] == []
+    # Domain identity remains part of the query; a valid port UUID is not an IP version.
+    response = client.get(
+        c["root"] + cases[-1][0],
+        headers=c["headers"],
+        params={"domain": "ip", "version_id": str(c["versions"]["port"].id)},
+    )
+    assert response.status_code == 200 and response.json()["count"] == 0

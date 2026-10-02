@@ -306,6 +306,7 @@ export class CloudatlasLedgerService {
      * @param data The data for the request.
      * @param data.projectId
      * @param data.sourceId
+     * @param data.snapshotId
      * @param data.skip
      * @param data.limit
      * @returns CloudSnapshotPublic Successful Response
@@ -320,6 +321,7 @@ export class CloudatlasLedgerService {
             },
             query: {
                 source_id: data.sourceId,
+                snapshot_id: data.snapshotId,
                 skip: data.skip,
                 limit: data.limit
             },
@@ -903,6 +905,7 @@ export class ExternalAssetsService {
      * @param data.projectId
      * @param data.sourceId
      * @param data.domain
+     * @param data.versionId
      * @param data.skip
      * @param data.limit
      * @returns ExternalVersionsPublic Successful Response
@@ -918,6 +921,7 @@ export class ExternalAssetsService {
             },
             query: {
                 domain: data.domain,
+                version_id: data.versionId,
                 skip: data.skip,
                 limit: data.limit
             },
@@ -1848,6 +1852,7 @@ export class NetflowProcessingService {
      * @param data The data for the request.
      * @param data.projectId
      * @param data.datasetId
+     * @param data.contextRevisionId
      * @param data.skip
      * @param data.limit
      * @returns ContextPage Successful Response
@@ -1862,6 +1867,7 @@ export class NetflowProcessingService {
                 dataset_id: data.datasetId
             },
             query: {
+                context_revision_id: data.contextRevisionId,
                 skip: data.skip,
                 limit: data.limit
             },
@@ -2744,6 +2750,7 @@ export class ProjectsService {
      * Read Netflow Datasets
      * @param data The data for the request.
      * @param data.projectId
+     * @param data.datasetId
      * @param data.skip
      * @param data.limit
      * @returns NetFlowDatasetsPublic Successful Response
@@ -2757,6 +2764,7 @@ export class ProjectsService {
                 project_id: data.projectId
             },
             query: {
+                dataset_id: data.datasetId,
                 skip: data.skip,
                 limit: data.limit
             },
@@ -2858,6 +2866,7 @@ export class ProjectsService {
      * Read Customer Uploads
      * @param data The data for the request.
      * @param data.projectId
+     * @param data.uploadId
      * @param data.skip
      * @param data.limit
      * @returns CustomerUploadsPublic Successful Response
@@ -2871,6 +2880,7 @@ export class ProjectsService {
                 project_id: data.projectId
             },
             query: {
+                upload_id: data.uploadId,
                 skip: data.skip,
                 limit: data.limit
             },

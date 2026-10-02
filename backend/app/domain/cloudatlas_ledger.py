@@ -232,7 +232,13 @@ def _revisions(
 
 
 def snapshots(
-    session: Session, project: Project, source_id: uuid.UUID, skip: int, limit: int
+    session: Session,
+    project: Project,
+    source_id: uuid.UUID,
+    skip: int,
+    limit: int,
+    *,
+    snapshot_id: uuid.UUID | None = None,
 ) -> list[CloudSnapshotPublic]:
     source = session.exec(
         select(SourceInstance).where(
@@ -244,7 +250,7 @@ def snapshots(
     ).one_or_none()
     if source is None:
         raise CloudLedgerError("cloud_ledger_source_not_found", 404)
-    rows = session.exec(
+    query = (
         select(SourceSnapshot)
         .join(GovernanceRun, col(GovernanceRun.id) == SourceSnapshot.governance_run_id)
         .where(
@@ -254,7 +260,13 @@ def snapshots(
             SourceSnapshot.source_type == "CLOUDATLAS",
             published_run_predicate(),
         )
-        .order_by(col(GovernanceRun.completed_at).desc(), col(SourceSnapshot.id).desc())
+    )
+    if snapshot_id is not None:
+        query = query.where(SourceSnapshot.id == snapshot_id)
+    rows = session.exec(
+        query.order_by(
+            col(GovernanceRun.completed_at).desc(), col(SourceSnapshot.id).desc()
+        )
         .offset(skip)
         .limit(limit)
     ).all()

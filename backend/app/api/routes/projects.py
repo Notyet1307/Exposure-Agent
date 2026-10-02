@@ -283,6 +283,7 @@ def read_netflow_datasets(
     session: SessionDep,
     project_id: uuid.UUID,
     current_user: CurrentUser,
+    dataset_id: uuid.UUID | None = None,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 100,
 ) -> Any:
@@ -292,10 +293,12 @@ def read_netflow_datasets(
         project_id=project_id,
         allowed_roles=PROJECT_READ_ROLES,
     )
-    dataset_scope = (
+    dataset_scope = [
         NetFlowDataset.project_id == project.id,
         NetFlowDataset.tenant_id == project.tenant_id,
-    )
+    ]
+    if dataset_id is not None:
+        dataset_scope.append(NetFlowDataset.id == dataset_id)
     count = session.exec(
         select(func.count()).select_from(NetFlowDataset).where(*dataset_scope)
     ).one()
@@ -309,7 +312,8 @@ def read_netflow_datasets(
     current_dataset = session.exec(
         select(NetFlowDataset).where(
             NetFlowDataset.id == project.current_netflow_dataset_id,
-            *dataset_scope,
+            NetFlowDataset.project_id == project.id,
+            NetFlowDataset.tenant_id == project.tenant_id,
         )
     ).one_or_none()
     has_operator_access = session.exec(
@@ -550,6 +554,7 @@ def read_customer_uploads(
     session: SessionDep,
     project_id: uuid.UUID,
     current_user: CurrentUser,
+    upload_id: uuid.UUID | None = None,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 100,
 ) -> Any:
@@ -559,14 +564,15 @@ def read_customer_uploads(
         project_id=project_id,
         allowed_roles=PROJECT_READ_ROLES,
     )
+    upload_scope = [CustomerUpload.project_id == project.id]
+    if upload_id is not None:
+        upload_scope.append(CustomerUpload.id == upload_id)
     count = session.exec(
-        select(func.count())
-        .select_from(CustomerUpload)
-        .where(CustomerUpload.project_id == project.id)
+        select(func.count()).select_from(CustomerUpload).where(*upload_scope)
     ).one()
     uploads = session.exec(
         select(CustomerUpload)
-        .where(CustomerUpload.project_id == project.id)
+        .where(*upload_scope)
         .order_by(col(CustomerUpload.created_at).desc(), col(CustomerUpload.id).desc())
         .offset(skip)
         .limit(limit)

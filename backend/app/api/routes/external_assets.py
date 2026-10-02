@@ -279,18 +279,22 @@ def read_external_versions(
     project_id: uuid.UUID,
     source_id: uuid.UUID,
     domain: m.Domain,
+    version_id: uuid.UUID | None = None,
     skip: Skip = 0,
     limit: Limit = 25,
 ) -> m.ExternalVersionsPublic:
     project = _project(session, current_user, project_id)
     source = service.source_for(session, project, source_id)
     service.require_domain(source, domain)
-    query = select(m.ExternalAssetVersion).where(
+    version_scope = [
         m.ExternalAssetVersion.source_id == source.id,
         m.ExternalAssetVersion.domain == domain,
         m.ExternalAssetVersion.space_id == source.space_id,
         m.ExternalAssetVersion.status == "PUBLISHED",
-    )
+    ]
+    if version_id is not None:
+        version_scope.append(m.ExternalAssetVersion.id == version_id)
+    query = select(m.ExternalAssetVersion).where(*version_scope)
     count = session.exec(select(func.count()).select_from(query.subquery())).one()
     query = query.order_by(
         col(m.ExternalAssetVersion.published_at).desc(), col(m.ExternalAssetVersion.id)

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AddressPublic,
   type AnalysisPublic,
@@ -40,12 +40,17 @@ function fixedInputSearch(
   pins: Record<string, unknown>,
 ): Partial<NetflowCorrelationSearch> {
   const cloud = selection.cloud
+  const cloudPin = pins.CLOUD
   return {
     dataset: pinnedString(pins.NETFLOW, "dataset_id"),
     context: pinnedString(pins.NETFLOW, "context_revision_id"),
     analysis: selection.netflow?.analysis_id,
     namespace: selection.network_namespace,
     customerUpload: selection.customer?.upload_id,
+    customerRevision: selection.customer?.revision_id ?? undefined,
+    customerOriginal:
+      selection.customer?.revision_id === null ? true : undefined,
+    historyRun: selection.history_run_id ?? undefined,
     cloudMode:
       cloud?.kind === "legacy_snapshot"
         ? "legacy"
@@ -61,7 +66,7 @@ function fixedInputSearch(
     cloudSource:
       cloud?.kind === "external_versions"
         ? cloud.source_instance_id
-        : undefined,
+        : pinnedString(cloudPin, "source_instance_id"),
     cloudIpVersion:
       cloud?.kind === "external_versions"
         ? (cloud.ip_version_id ?? undefined)
@@ -84,6 +89,9 @@ export type NetflowCorrelationSearch = {
   revision?: string
   namespace?: string
   customerUpload?: string
+  customerRevision?: string
+  customerOriginal?: boolean
+  historyRun?: string
   cloudMode?: "none" | "legacy" | "external"
   cloudSnapshot?: string
   cloudLedgerRevision?: number
@@ -114,6 +122,7 @@ export type NetflowCorrelationSearch = {
   taskScope?: "object" | "dataset"
   taskKind?: string
   objectKey?: string
+  identityErrors?: string[]
 }
 
 type Navigate = (options: {
@@ -147,6 +156,42 @@ const COMBINED_READS = [
   "services",
   "evidence",
 ]
+
+function SelectorPage({
+  label,
+  page,
+  hasNext,
+  onPage,
+}: {
+  label: string
+  page: number
+  hasNext: boolean
+  onPage: (page: number) => void
+}) {
+  return (
+    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+      {label} {page + 1}
+      <Button
+        variant="outline"
+        size="sm"
+        aria-label={`${label} previous page`}
+        disabled={!page}
+        onClick={() => onPage(page - 1)}
+      >
+        ←
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        aria-label={`${label} next page`}
+        disabled={!hasNext}
+        onClick={() => onPage(page + 1)}
+      >
+        →
+      </Button>
+    </span>
+  )
+}
 
 function useScopeCleanup(scope: string) {
   const cache = useQueryClient()
@@ -270,6 +315,9 @@ export default function NetflowCorrelation({
     search.revision,
     search.namespace,
     search.customerUpload,
+    search.customerRevision,
+    search.customerOriginal,
+    search.historyRun,
     search.cloudMode,
     search.cloudSnapshot,
     search.cloudLedgerRevision,
@@ -280,6 +328,7 @@ export default function NetflowCorrelation({
   ])
   const readErrors = useScopeCleanup(scope)
   const accessError = readErrors.scopeAccess ?? readErrors.summary
+  const identityError = Boolean(search.identityErrors?.length)
   const readable = (kind: string) => !accessError && !readErrors[kind]
   const independentInput = useRef<
     Partial<NetflowCorrelationSearch> | undefined
@@ -303,41 +352,64 @@ export default function NetflowCorrelation({
   }, [scope])
   const tab = search.tab ?? "summary"
   const [notice, setNotice] = useState<[string, string]>()
+  const [datasetPage, setDatasetPage] = useState(0)
+  const [contextPage, setContextPage] = useState(0)
+  const [analysisPage, setAnalysisPage] = useState(0)
+  const [uploadPage, setUploadPage] = useState(0)
+  const [snapshotPage, setSnapshotPage] = useState(0)
+  const [versionPage, setVersionPage] = useState(0)
+  const [correlationPage, setCorrelationPage] = useState(0)
   const [addressQuery, setAddressQuery] = useState(search.addressIp ?? "")
   const [namespace, setNamespace] = useState(search.namespace ?? "")
   const [pendingKey, setPendingKey] = useState<string>()
   const correlationStore = `exposure:netflow-correlation:${scope}`
 
   const datasets = useQuery({
-    queryKey: ["netflow-correlation", scope, "datasets"],
-    enabled: readable("datasets"),
+    queryKey: ["netflow-correlation", scope, "datasets", datasetPage],
+    enabled: readable("datasets") && !identityError,
     queryFn: () =>
-      ProjectsService.readNetflowDatasets({ projectId, skip: 0, limit: 100 }),
+      ProjectsService.readNetflowDatasets({
+        projectId,
+        skip: datasetPage * PAGE_SIZE,
+        limit: PAGE_SIZE,
+      }),
     retry: false,
     staleTime: 0,
   })
   const contexts = useQuery({
-    queryKey: ["netflow-correlation", scope, "contexts", search.dataset],
-    enabled: readable("contexts") && Boolean(search.dataset),
+    queryKey: [
+      "netflow-correlation",
+      scope,
+      "contexts",
+      search.dataset,
+      contextPage,
+    ],
+    enabled: readable("contexts") && Boolean(search.dataset) && !identityError,
     queryFn: () =>
       NetflowProcessingService.readContexts({
         projectId,
         datasetId: search.dataset!,
-        skip: 0,
-        limit: 100,
+        skip: contextPage * PAGE_SIZE,
+        limit: PAGE_SIZE,
       }),
     retry: false,
     staleTime: 0,
   })
   const analyses = useQuery({
-    queryKey: ["netflow-correlation", scope, "analyses", search.dataset],
-    enabled: readable("analyses") && Boolean(search.dataset),
+    queryKey: [
+      "netflow-correlation",
+      scope,
+      "analyses",
+      search.dataset,
+      analysisPage,
+    ],
+    enabled: readable("analyses") && Boolean(search.dataset) && !identityError,
     queryFn: () =>
       NetflowProcessingService.readAnalyses({
         projectId,
         datasetId: search.dataset!,
-        skip: 0,
-        limit: 100,
+        skip: analysisPage * PAGE_SIZE,
+        limit: PAGE_SIZE,
       }),
     retry: false,
     staleTime: 0,
@@ -352,45 +424,58 @@ export default function NetflowCorrelation({
         : false,
   })
   const uploads = useQuery({
-    queryKey: ["netflow-correlation", scope, "customer-uploads"],
-    enabled: readable("customer-uploads"),
+    queryKey: ["netflow-correlation", scope, "customer-uploads", uploadPage],
+    enabled: readable("customer-uploads") && !identityError,
     queryFn: () =>
-      ProjectsService.readCustomerUploads({ projectId, skip: 0, limit: 100 }),
+      ProjectsService.readCustomerUploads({
+        projectId,
+        skip: uploadPage * PAGE_SIZE,
+        limit: PAGE_SIZE,
+      }),
     retry: false,
     staleTime: 0,
   })
   const legacySources = useQuery({
     queryKey: ["netflow-correlation", scope, "legacy-sources"],
-    enabled: readable("legacy-sources"),
+    enabled: readable("legacy-sources") && !identityError,
     queryFn: () =>
       CloudatlasSourceInstancesService.readCloudatlasSources({ projectId }),
     retry: false,
     staleTime: 0,
   })
-  const legacySourceId = legacySources.data?.data.find(
-    (source) => source.source_type === "cloudatlas",
-  )?.id
+  const legacySourceId =
+    search.cloudMode === "legacy" && search.cloudSource
+      ? search.cloudSource
+      : legacySources.data?.data.filter(
+            (source) => source.source_type === "cloudatlas",
+          ).length === 1
+        ? legacySources.data.data.find(
+            (source) => source.source_type === "cloudatlas",
+          )?.id
+        : undefined
   const snapshots = useQuery({
     queryKey: [
       "netflow-correlation",
       scope,
       "legacy-snapshots",
       legacySourceId,
+      snapshotPage,
     ],
-    enabled: readable("legacy-snapshots") && Boolean(legacySourceId),
+    enabled:
+      readable("legacy-snapshots") && Boolean(legacySourceId) && !identityError,
     queryFn: () =>
       CloudatlasLedgerService.readCloudatlasLedgerSnapshots({
         projectId,
         sourceId: legacySourceId!,
-        skip: 0,
-        limit: 100,
+        skip: snapshotPage * PAGE_SIZE,
+        limit: PAGE_SIZE,
       }),
     retry: false,
     staleTime: 0,
   })
   const sources = useQuery({
     queryKey: ["netflow-correlation", scope, "external-sources"],
-    enabled: readable("external-sources"),
+    enabled: readable("external-sources") && !identityError,
     queryFn: () => ExternalAssetsService.readExternalSources({ projectId }),
     retry: false,
     staleTime: 0,
@@ -409,23 +494,25 @@ export default function NetflowCorrelation({
       scope,
       "external-versions",
       assetSource?.id,
+      versionPage,
     ],
-    enabled: readable("external-versions") && Boolean(assetSource),
+    enabled:
+      readable("external-versions") && Boolean(assetSource) && !identityError,
     queryFn: async () => {
       const [ip, port] = await Promise.all([
         ExternalAssetsService.readExternalVersions({
           projectId,
           sourceId: assetSource!.id,
           domain: "ip",
-          skip: 0,
-          limit: 100,
+          skip: versionPage * PAGE_SIZE,
+          limit: PAGE_SIZE,
         }),
         ExternalAssetsService.readExternalVersions({
           projectId,
           sourceId: assetSource!.id,
           domain: "port",
-          skip: 0,
-          limit: 100,
+          skip: versionPage * PAGE_SIZE,
+          limit: PAGE_SIZE,
         }),
       ])
       return { ip, port }
@@ -434,37 +521,164 @@ export default function NetflowCorrelation({
     staleTime: 0,
   })
   const correlations = useQuery({
-    enabled: readable("correlations") && !search.revision,
+    enabled: readable("correlations") && !search.revision && !identityError,
     queryKey: [
       "netflow-correlation",
       scope,
       "correlations",
       search.dataset,
       search.namespace,
+      correlationPage,
     ],
     queryFn: () =>
       SourceCorrelationsService.listCorrelations({
         projectId,
         datasetId: search.dataset,
         networkNamespace: search.namespace,
-        skip: 0,
-        limit: 100,
+        skip: correlationPage * PAGE_SIZE,
+        limit: PAGE_SIZE,
       }),
     retry: false,
     staleTime: 0,
   })
-  const selectedDataset = datasets.data?.data.find(
-    (dataset) => dataset.id === search.dataset,
-  )
-  const selectedContext = contexts.data?.data.find(
-    (context) => context.context_revision_id === search.context,
-  )
-  const selectedAnalysis = analyses.data?.data.find(
-    (analysis) => analysis.analysis_id === search.analysis,
-  )
+  const fixedDataset = useQuery({
+    queryKey: ["netflow-correlation", scope, "fixed-dataset", search.dataset],
+    enabled:
+      readable("fixed-dataset") && Boolean(search.dataset) && !identityError,
+    queryFn: () =>
+      ProjectsService.readNetflowDatasets({
+        projectId,
+        datasetId: search.dataset!,
+        limit: 1,
+      }),
+    retry: false,
+  })
+  const fixedContext = useQuery({
+    queryKey: [
+      "netflow-correlation",
+      scope,
+      "fixed-context",
+      search.dataset,
+      search.context,
+    ],
+    enabled:
+      readable("fixed-context") &&
+      Boolean(search.dataset && search.context) &&
+      !identityError,
+    queryFn: () =>
+      NetflowProcessingService.readContexts({
+        projectId,
+        datasetId: search.dataset!,
+        contextRevisionId: search.context!,
+        limit: 1,
+      }),
+    retry: false,
+  })
+  const fixedAnalysis = useQuery({
+    queryKey: ["netflow-correlation", scope, "fixed-analysis", search.analysis],
+    enabled:
+      readable("fixed-analysis") && Boolean(search.analysis) && !identityError,
+    queryFn: () =>
+      NetflowProcessingService.readAnalysis({
+        projectId,
+        analysisId: search.analysis!,
+      }),
+    retry: false,
+  })
+  const fixedUpload = useQuery({
+    queryKey: [
+      "netflow-correlation",
+      scope,
+      "fixed-upload",
+      search.customerUpload,
+    ],
+    enabled:
+      readable("fixed-upload") &&
+      Boolean(search.customerUpload) &&
+      !identityError,
+    queryFn: () =>
+      ProjectsService.readCustomerUploads({
+        projectId,
+        uploadId: search.customerUpload!,
+        limit: 1,
+      }),
+    retry: false,
+  })
+  const fixedSnapshot = useQuery({
+    queryKey: [
+      "netflow-correlation",
+      scope,
+      "fixed-snapshot",
+      legacySourceId,
+      search.cloudSnapshot,
+    ],
+    enabled:
+      readable("fixed-snapshot") &&
+      Boolean(legacySourceId && search.cloudSnapshot) &&
+      !identityError,
+    queryFn: () =>
+      CloudatlasLedgerService.readCloudatlasLedgerSnapshots({
+        projectId,
+        sourceId: legacySourceId!,
+        snapshotId: search.cloudSnapshot!,
+        limit: 1,
+      }),
+    retry: false,
+  })
+  const fixedExternalVersions = useQuery({
+    queryKey: [
+      "netflow-correlation",
+      scope,
+      "fixed-external-versions",
+      search.cloudSource,
+      search.cloudIpVersion,
+      search.cloudPortVersion,
+    ],
+    enabled:
+      readable("fixed-external-versions") &&
+      Boolean(
+        search.cloudSource &&
+          (search.cloudIpVersion || search.cloudPortVersion),
+      ) &&
+      !identityError,
+    queryFn: async () => {
+      const read = (domain: "ip" | "port", versionId?: string) =>
+        versionId
+          ? ExternalAssetsService.readExternalVersions({
+              projectId,
+              sourceId: search.cloudSource!,
+              domain,
+              versionId,
+              limit: 1,
+            })
+          : Promise.resolve(undefined)
+      const [ip, port] = await Promise.all([
+        read("ip", search.cloudIpVersion),
+        read("port", search.cloudPortVersion),
+      ])
+      return { ip, port }
+    },
+    retry: false,
+  })
+  const selectedDataset =
+    fixedDataset.data?.data[0] ??
+    datasets.data?.data.find((dataset) => dataset.id === search.dataset)
+  const selectedContext =
+    fixedContext.data?.data[0] ??
+    contexts.data?.data.find(
+      (context) => context.context_revision_id === search.context,
+    )
+  const selectedAnalysis =
+    fixedAnalysis.data ??
+    analyses.data?.data.find(
+      (analysis) => analysis.analysis_id === search.analysis,
+    )
+  const selectedUpload =
+    fixedUpload.data?.data[0] ??
+    uploads.data?.data.find((upload) => upload.id === search.customerUpload)
   const summary = useQuery({
     queryKey: ["netflow-correlation", scope, "summary", search.revision],
-    enabled: Boolean(search.revision) && !accessError,
+    enabled: Boolean(search.revision) && !accessError && !identityError,
     queryFn: () =>
       SourceCorrelationsService.summary({
         projectId,
@@ -475,6 +689,14 @@ export default function NetflowCorrelation({
     refetchInterval: accessError ? false : 5000,
   })
   const netflowPin = summary.data?.pins.NETFLOW
+  const pinnedCloudMode =
+    summary.data?.selection.cloud?.kind === "legacy_snapshot"
+      ? "legacy"
+      : summary.data?.selection.cloud?.kind === "external_versions"
+        ? "external"
+        : "none"
+  const pinnedCustomer = summary.data?.selection.customer
+  const pinnedCloud = summary.data?.selection.cloud
   const identityMatches = Boolean(
     summary.data &&
       summary.data.project_id === projectId &&
@@ -492,7 +714,37 @@ export default function NetflowCorrelation({
         (netflowPin &&
           typeof netflowPin === "object" &&
           "context_revision_id" in netflowPin &&
-          netflowPin.context_revision_id === search.context)),
+          netflowPin.context_revision_id === search.context)) &&
+      (!search.customerUpload ||
+        pinnedCustomer?.upload_id === search.customerUpload) &&
+      (!search.customerRevision ||
+        pinnedCustomer?.revision_id === search.customerRevision) &&
+      (search.customerOriginal === undefined ||
+        (search.customerOriginal === true &&
+          pinnedCustomer?.revision_id === null)) &&
+      (!search.historyRun ||
+        summary.data.selection.history_run_id === search.historyRun) &&
+      (!search.cloudMode || pinnedCloudMode === search.cloudMode) &&
+      (!search.cloudSnapshot ||
+        (pinnedCloud?.kind === "legacy_snapshot" &&
+          pinnedCloud.source_snapshot_id === search.cloudSnapshot)) &&
+      (search.cloudLedgerRevision === undefined ||
+        (pinnedCloud?.kind === "legacy_snapshot" &&
+          pinnedCloud.ledger_revision === search.cloudLedgerRevision)) &&
+      (search.cloudScopeRevision === undefined ||
+        (pinnedCloud?.kind === "legacy_snapshot" &&
+          pinnedCloud.scope_revision === search.cloudScopeRevision)) &&
+      (!search.cloudSource ||
+        (pinnedCloud?.kind === "external_versions"
+          ? pinnedCloud.source_instance_id === search.cloudSource
+          : pinnedString(summary.data?.pins.CLOUD, "source_instance_id") ===
+            search.cloudSource)) &&
+      (!search.cloudIpVersion ||
+        (pinnedCloud?.kind === "external_versions" &&
+          pinnedCloud.ip_version_id === search.cloudIpVersion)) &&
+      (!search.cloudPortVersion ||
+        (pinnedCloud?.kind === "external_versions" &&
+          pinnedCloud.port_version_id === search.cloudPortVersion)),
   )
   const revisionIdentity =
     identityMatches && !summary.isError && !accessError
@@ -506,7 +758,7 @@ export default function NetflowCorrelation({
     [revisionIdentity],
   )
   useEffect(() => {
-    if (!search.revision || !pinnedInputSearch) return
+    if (!search.revision || !pinnedInputSearch || identityError) return
     const changed = Object.entries(pinnedInputSearch).some(
       ([key, value]) => search[key as keyof NetflowCorrelationSearch] !== value,
     )
@@ -516,7 +768,7 @@ export default function NetflowCorrelation({
         search: (previous) => ({ ...previous, ...pinnedInputSearch }),
       })
     }
-  }, [navigate, pinnedInputSearch, search, search.revision])
+  }, [identityError, navigate, pinnedInputSearch, search, search.revision])
   const revisionId = revisionIdentity?.correlation_revision_id
   const independentAnalysis =
     !search.revision &&
@@ -531,6 +783,38 @@ export default function NetflowCorrelation({
   const selectedAnalysisId =
     revisionIdentity?.selection.netflow?.analysis_id ??
     independentAnalysis?.analysis_id
+  const analysisIdentity = {
+    dataset:
+      revisionIdentity && netflowPin
+        ? pinnedString(netflowPin, "dataset_id")
+        : search.dataset,
+    context:
+      revisionIdentity && netflowPin
+        ? pinnedString(netflowPin, "context_revision_id")
+        : search.context,
+    namespace: revisionIdentity?.network_namespace ?? search.namespace,
+  }
+  const matchesAnalysisIdentity = useCallback(
+    (value: {
+      project_id: string
+      analysis_id: string
+      dataset_id: string
+      context_revision_id: string
+      network_namespace: string
+    }) =>
+      value.project_id === projectId &&
+      value.analysis_id === selectedAnalysisId &&
+      value.dataset_id === analysisIdentity.dataset &&
+      value.context_revision_id === analysisIdentity.context &&
+      value.network_namespace === analysisIdentity.namespace,
+    [
+      analysisIdentity.context,
+      analysisIdentity.dataset,
+      analysisIdentity.namespace,
+      projectId,
+      selectedAnalysisId,
+    ],
+  )
   if (
     revisionIdentity?.selection.netflow &&
     netflowPin &&
@@ -694,6 +978,26 @@ export default function NetflowCorrelation({
     staleTime: 0,
     refetchInterval: readable("current-feedback") ? 5000 : false,
   })
+  const feedbackValidation = useQuery({
+    queryKey: [
+      "netflow-correlation",
+      scope,
+      "feedback-validation",
+      selectedAnalysisId,
+      search.feedbackRevision,
+    ],
+    enabled:
+      readable("feedback-validation") &&
+      Boolean(selectedAnalysisId && search.feedbackRevision),
+    queryFn: () =>
+      NetflowReviewsService.readFeedback({
+        projectId,
+        analysisId: selectedAnalysisId!,
+        feedbackRevisionId: search.feedbackRevision!,
+      }),
+    retry: false,
+    staleTime: 0,
+  })
   const feedback = useQuery({
     queryKey: [
       "netflow-correlation",
@@ -715,7 +1019,11 @@ export default function NetflowCorrelation({
     staleTime: 0,
   })
   useEffect(() => {
-    if (latestFeedback.data?.feedback_revision_id && !search.feedbackRevision) {
+    if (
+      latestFeedback.data?.feedback_revision_id &&
+      matchesAnalysisIdentity(latestFeedback.data) &&
+      !search.feedbackRevision
+    ) {
       void navigate({
         replace: true,
         search: (previous) => ({
@@ -725,7 +1033,12 @@ export default function NetflowCorrelation({
         }),
       })
     }
-  }, [latestFeedback.data, navigate, search.feedbackRevision])
+  }, [
+    latestFeedback.data,
+    matchesAnalysisIdentity,
+    navigate,
+    search.feedbackRevision,
+  ])
   const tasks = useQuery({
     queryKey: [
       "netflow-correlation",
@@ -784,6 +1097,29 @@ export default function NetflowCorrelation({
     retry: false,
     staleTime: 0,
   })
+  const feedbackMatches =
+    !feedback.data ||
+    (matchesAnalysisIdentity(feedback.data) &&
+      feedback.data.feedback_revision_id === search.feedbackRevision)
+  const latestFeedbackMatches =
+    !latestFeedback.data || matchesAnalysisIdentity(latestFeedback.data)
+  const tasksMatch =
+    !tasks.data ||
+    (matchesAnalysisIdentity(tasks.data) &&
+      tasks.data.feedback_revision_id === search.feedbackRevision)
+  const taskMatches =
+    !task.data ||
+    (matchesAnalysisIdentity(task.data) &&
+      task.data.feedback_revision_id === search.feedbackRevision)
+  const feedbackIdentityError =
+    feedbackMatches && latestFeedbackMatches && tasksMatch && taskMatches
+      ? undefined
+      : new Error("fixed_analysis_identity_mismatch")
+  const explicitFeedbackMismatch =
+    Boolean(search.feedbackRevision) &&
+    (!feedbackValidation.data ||
+      !matchesAnalysisIdentity(feedbackValidation.data) ||
+      feedbackValidation.data.feedback_revision_id !== search.feedbackRevision)
   const identityReady = Boolean(
     (!search.dataset && !search.analysis && namespace.trim()) ||
       (selectedContext &&
@@ -794,9 +1130,9 @@ export default function NetflowCorrelation({
   )
   const selectedCloud = useMemo(() => {
     if (search.cloudMode === "legacy" && search.cloudSnapshot) {
-      const snapshot = snapshots.data?.find(
-        (item) => item.id === search.cloudSnapshot,
-      )
+      const snapshot =
+        fixedSnapshot.data?.[0] ??
+        snapshots.data?.find((item) => item.id === search.cloudSnapshot)
       return snapshot
         ? {
             kind: "legacy_snapshot" as const,
@@ -811,6 +1147,14 @@ export default function NetflowCorrelation({
       search.cloudSource &&
       (search.cloudIpVersion || search.cloudPortVersion)
     ) {
+      const ipReady =
+        !search.cloudIpVersion ||
+        fixedExternalVersions.data?.ip?.data[0]?.id === search.cloudIpVersion
+      const portReady =
+        !search.cloudPortVersion ||
+        fixedExternalVersions.data?.port?.data[0]?.id ===
+          search.cloudPortVersion
+      if (!ipReady || !portReady) return null
       return {
         kind: "external_versions" as const,
         source_instance_id: search.cloudSource,
@@ -828,6 +1172,8 @@ export default function NetflowCorrelation({
     search.cloudSnapshot,
     search.cloudSource,
     snapshots.data,
+    fixedSnapshot.data,
+    fixedExternalVersions.data,
   ])
   const cloudSelectionReady =
     search.cloudMode === undefined ||
@@ -840,25 +1186,62 @@ export default function NetflowCorrelation({
   const hasSource = Boolean(
     search.analysis || search.customerUpload || selectedCloud,
   )
+  const creationIdentityInvalid =
+    (!search.customerUpload &&
+      (search.customerRevision !== undefined ||
+        search.customerOriginal !== undefined)) ||
+    (search.customerOriginal === true &&
+      search.customerRevision !== undefined) ||
+    (search.cloudMode === "none" &&
+      Boolean(
+        search.cloudSnapshot ||
+          search.cloudLedgerRevision !== undefined ||
+          search.cloudScopeRevision !== undefined ||
+          search.cloudSource ||
+          search.cloudIpVersion ||
+          search.cloudPortVersion,
+      )) ||
+    (search.cloudMode !== "legacy" &&
+      Boolean(
+        search.cloudSnapshot ||
+          search.cloudLedgerRevision !== undefined ||
+          search.cloudScopeRevision !== undefined,
+      )) ||
+    (search.cloudMode !== "external" &&
+      Boolean(search.cloudIpVersion || search.cloudPortVersion))
   const createSelection = async () => {
     setNotice(undefined)
     if (
+      search.revision ||
+      creationIdentityInvalid ||
       !canWrite ||
       pendingKey ||
       !hasSource ||
       !identityReady ||
       !cloudSelectionReady
-    )
+    ) {
+      if (creationIdentityInvalid) {
+        setNotice([
+          "The explicit source identity is incomplete or conflicts with its mode.",
+          "明确来源身份不完整或与其模式冲突。",
+        ])
+      }
       return
+    }
     const capturedScope = scope
     const body = {
       network_namespace: namespace.trim(),
       customer: search.customerUpload
-        ? { upload_id: search.customerUpload, revision_id: null }
+        ? {
+            upload_id: search.customerUpload,
+            revision_id: search.customerOriginal
+              ? null
+              : (search.customerRevision ?? null),
+          }
         : null,
       cloud: selectedCloud,
       netflow: search.analysis ? { analysis_id: search.analysis } : null,
-      history_run_id: null,
+      history_run_id: search.historyRun ?? null,
     }
     const key = crypto.randomUUID()
     try {
@@ -955,6 +1338,29 @@ export default function NetflowCorrelation({
     setNamespace(search.namespace ?? "")
   }, [search.addressIp, search.namespace])
   if (!user) return null
+  if (identityError)
+    return (
+      <section className="space-y-3">
+        <p role="alert" className="text-sm text-destructive">
+          {t(
+            "The explicit fixed identity is invalid; it was not corrected or read.",
+            "明确固定身份格式无效；系统未修正或读取该链接。",
+          )}{" "}
+          {search.identityErrors?.join(", ")}
+        </p>
+      </section>
+    )
+  if (explicitFeedbackMismatch && !feedbackValidation.isLoading)
+    return (
+      <section className="space-y-3">
+        <p role="alert" className="text-sm text-destructive">
+          {t(
+            "The explicit feedback revision does not belong to this fixed Analysis.",
+            "明确反馈修订不属于当前固定 Analysis。",
+          )}
+        </p>
+      </section>
+    )
   if (accessError)
     return (
       <section className="space-y-3">
@@ -1050,7 +1456,10 @@ export default function NetflowCorrelation({
             <select
               className="mt-1 block w-full rounded border bg-background p-2"
               value={search.dataset ?? ""}
-              onChange={(event) =>
+              onChange={(event) => {
+                setContextPage(0)
+                setAnalysisPage(0)
+                setCorrelationPage(0)
                 change(
                   {
                     dataset: event.target.value || undefined,
@@ -1066,7 +1475,7 @@ export default function NetflowCorrelation({
                   },
                   true,
                 )
-              }
+              }}
             >
               <option value="">{t("Choose explicitly", "明确选择")}</option>
               {datasets.data?.data.map((dataset: NetFlowDatasetPublic) => (
@@ -1134,6 +1543,38 @@ export default function NetflowCorrelation({
             </select>
           </Label>
         </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <SelectorPage
+            label={t("Datasets", "数据集")}
+            page={datasetPage}
+            hasNext={
+              (datasets.data?.count ?? 0) > (datasetPage + 1) * PAGE_SIZE
+            }
+            onPage={setDatasetPage}
+          />
+          <SelectorPage
+            label={t("Contexts", "上下文")}
+            page={contextPage}
+            hasNext={
+              (contexts.data?.count ?? 0) > (contextPage + 1) * PAGE_SIZE
+            }
+            onPage={setContextPage}
+          />
+          <SelectorPage
+            label={t("Analyses", "分析")}
+            page={analysisPage}
+            hasNext={
+              (analyses.data?.count ?? 0) > (analysisPage + 1) * PAGE_SIZE
+            }
+            onPage={setAnalysisPage}
+          />
+          <SelectorPage
+            label={t("Customer versions", "客户版本")}
+            page={uploadPage}
+            hasNext={(uploads.data?.count ?? 0) > (uploadPage + 1) * PAGE_SIZE}
+            onPage={setUploadPage}
+          />
+        </div>
         {selectedDataset && (
           <p className="mt-3 text-xs text-muted-foreground">
             {selectedDataset.display_filename} · raw{" "}
@@ -1154,6 +1595,12 @@ export default function NetflowCorrelation({
             {t("Analysis status", "Analysis 状态")}:{" "}
             <StateText state={selectedAnalysis.status} />;{" "}
             {selectedAnalysis.error_code ?? "—"}
+          </p>
+        )}
+        {selectedUpload && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("Customer version", "客户版本")}:{" "}
+            {selectedUpload.display_filename}
           </p>
         )}
         {search.dataset &&
@@ -1220,7 +1667,9 @@ export default function NetflowCorrelation({
             <select
               className="mt-1 block w-full rounded border bg-background p-2"
               value={search.cloudMode ?? "none"}
-              onChange={(event) =>
+              onChange={(event) => {
+                setSnapshotPage(0)
+                setVersionPage(0)
                 change(
                   {
                     cloudMode: event.target
@@ -1233,7 +1682,7 @@ export default function NetflowCorrelation({
                   },
                   true,
                 )
-              }
+              }}
             >
               <option value="none">{t("Not provided", "未提供")}</option>
               <option value="legacy">{t("Legacy snapshot", "旧快照")}</option>
@@ -1317,7 +1766,8 @@ export default function NetflowCorrelation({
               <select
                 className="mt-1 block w-full rounded border bg-background p-2"
                 value={search.cloudSource ?? ""}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setVersionPage(0)
                   change(
                     {
                       cloudSource: event.target.value || undefined,
@@ -1327,7 +1777,7 @@ export default function NetflowCorrelation({
                     },
                     true,
                   )
-                }
+                }}
               >
                 <option value="">{t("Choose explicitly", "明确选择")}</option>
                 {sources.data?.data
@@ -1390,11 +1840,41 @@ export default function NetflowCorrelation({
             </Label>
           </div>
         )}
+        <div className="mt-2 flex flex-wrap gap-2">
+          <SelectorPage
+            label={t("Legacy snapshots", "旧快照")}
+            page={snapshotPage}
+            hasNext={(snapshots.data?.length ?? 0) === PAGE_SIZE}
+            onPage={setSnapshotPage}
+          />
+          <SelectorPage
+            label={t("External versions", "外部版本")}
+            page={versionPage}
+            hasNext={
+              (externalVersions.data?.ip.count ?? 0) >
+                (versionPage + 1) * PAGE_SIZE ||
+              (externalVersions.data?.port.count ?? 0) >
+                (versionPage + 1) * PAGE_SIZE
+            }
+            onPage={setVersionPage}
+          />
+          <SelectorPage
+            label={t("Correlations", "关联")}
+            page={correlationPage}
+            hasNext={
+              (correlations.data?.count ?? 0) >
+              (correlationPage + 1) * PAGE_SIZE
+            }
+            onPage={setCorrelationPage}
+          />
+        </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button
             onClick={() => void createSelection()}
             disabled={
               !canWrite ||
+              Boolean(search.revision) ||
+              creationIdentityInvalid ||
               !hasSource ||
               !identityReady ||
               !cloudSelectionReady ||
@@ -1621,6 +2101,7 @@ export default function NetflowCorrelation({
           )}
           {tab === "tasks" &&
             latestFeedback.data &&
+            latestFeedbackMatches &&
             latestFeedback.data.feedback_revision_id !==
               search.feedbackRevision && (
               <div className="flex flex-wrap items-center gap-3">
@@ -1650,14 +2131,21 @@ export default function NetflowCorrelation({
               key={`${scope}/${search.feedbackRevision}/${search.addressKey}`}
               canWrite={
                 canWrite &&
+                !feedbackIdentityError &&
                 !latestFeedback.isError &&
+                latestFeedbackMatches &&
                 latestFeedback.data?.feedback_revision_id ===
                   search.feedbackRevision
               }
-              tasks={tasks.data}
-              task={task.data}
-              feedback={feedback.data}
-              error={tasks.error ?? feedback.error ?? task.error}
+              tasks={tasksMatch ? tasks.data : undefined}
+              task={taskMatches ? task.data : undefined}
+              feedback={feedbackMatches ? feedback.data : undefined}
+              error={
+                feedbackIdentityError ??
+                tasks.error ??
+                feedback.error ??
+                task.error
+              }
               status={search.taskStatus}
               onStatus={(status) =>
                 change({

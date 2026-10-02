@@ -1,9 +1,10 @@
 """Version-pinned source correlation API; all reads reauthorize every input."""
 
 import uuid
-from typing import Annotated, Literal
+from collections import OrderedDict
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Header, Query, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from sqlmodel import col, select
 
 from app.api.deps import CurrentUser, SessionDep
@@ -70,32 +71,60 @@ def list_correlations(
         query = query.where(
             SourceCorrelationRevision.network_namespace == network_namespace
         )
+    if dataset_id is not None:
+        query = query.where(
+            SourceCorrelationRevision.pins["NETFLOW"]["dataset_id"].astext
+            == str(dataset_id)
+        )
     rows = session.exec(
         query.order_by(
             col(SourceCorrelationRevision.created_at).desc(),
             col(SourceCorrelationRevision.id).desc(),
-        )
-    ).all()
-    if dataset_id is not None:
-        rows = [
-            row
-            for row in rows
-            if row.pins.get("NETFLOW", {}).get("dataset_id") == str(dataset_id)
-        ]
+        ).execution_options(yield_per=100)
+    )
     data = []
-    for index, row in enumerate(rows):
-        loaded = service.materials(
-            session, project, service.Selection.model_validate(row.selection)
-        )
-        if request_hash({s: m.pins for s, m in loaded.items()}) != request_hash(
-            row.pins
-        ):
+    readable_count = 0
+    # Count must validate the whole filtered set, including off-page integrity.
+    # Stream metadata and retain only this page plus a bounded fingerprint cache.
+    # No material or authorization decision survives this request.
+    fingerprints: OrderedDict[str, str | None] = OrderedDict()
+    for row in rows:
+        selection_key = request_hash(row.selection)
+        if selection_key not in fingerprints:
+            try:
+                loaded = service.materials(
+                    session, project, service.Selection.model_validate(row.selection)
+                )
+            except HTTPException as error:
+                detail: Any = error.detail
+                code = detail.get("code") if isinstance(detail, dict) else None
+                if (error.status_code, code) not in {
+                    (403, "correlation_source_access_revoked"),
+                    (410, "correlation_source_expired"),
+                }:
+                    raise
+                fingerprints[selection_key] = None
+            else:
+                fingerprints[selection_key] = request_hash(
+                    {s: m.pins for s, m in loaded.items()}
+                )
+        fingerprints.move_to_end(selection_key)
+        fingerprint = fingerprints[selection_key]
+        if len(fingerprints) > 100:
+            fingerprints.popitem(last=False)
+        if fingerprint is None:
+            continue
+        if fingerprint != request_hash(row.pins):
             deny("netflow_artifact_integrity_failed")
-        current = service.current_for(session, row)
-        if skip <= index < skip + limit:
-            data.append(service.public(row, current))
+        if skip <= readable_count < skip + limit:
+            data.append(service.public(row, service.current_for(session, row)))
+        readable_count += 1
     return service.RevisionPage(
-        project_id=project.id, data=data, count=len(rows), skip=skip, limit=limit
+        project_id=project.id,
+        data=data,
+        count=readable_count,
+        skip=skip,
+        limit=limit,
     )
 
 

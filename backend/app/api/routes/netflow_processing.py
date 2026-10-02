@@ -44,17 +44,20 @@ def read_contexts(
     response: Response,
     project_id: uuid.UUID,
     dataset_id: uuid.UUID,
+    context_revision_id: uuid.UUID | None = None,
     skip: Skip = 0,
     limit: Limit = 25,
 ) -> service.ContextPage:
     _private(response)
     project = project_for(session, current_user, project_id)
     service.dataset_for(session, project, dataset_id)
-    where = (
+    where = [
         NetFlowContextRevision.project_id == project.id,
         NetFlowContextRevision.tenant_id == project.tenant_id,
         NetFlowContextRevision.dataset_id == dataset_id,
-    )
+    ]
+    if context_revision_id is not None:
+        where.append(NetFlowContextRevision.id == context_revision_id)
     count = session.exec(
         select(func.count()).select_from(NetFlowContextRevision).where(*where)
     ).one()

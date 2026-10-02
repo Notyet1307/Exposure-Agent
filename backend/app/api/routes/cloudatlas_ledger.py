@@ -100,6 +100,7 @@ def read_cloudatlas_ledger_snapshots(
     project_id: uuid.UUID,
     source_id: uuid.UUID,
     response: Response,
+    snapshot_id: uuid.UUID | None = None,
     skip: Skip = 0,
     limit: Limit = 25,
 ) -> list[service.CloudSnapshotPublic]:
@@ -111,7 +112,9 @@ def read_cloudatlas_ledger_snapshots(
     )
     response.headers["Cache-Control"] = "private, no-store"
     with _errors():
-        return service.snapshots(session, project, source_id, skip, limit)
+        return service.snapshots(
+            session, project, source_id, skip, limit, snapshot_id=snapshot_id
+        )
 
 
 @router.get("/revisions", response_model=list[service.CloudRevisionPublic])
