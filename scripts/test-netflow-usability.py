@@ -2,7 +2,15 @@
 """Disposable real NetFlow usability runtime harness."""
 
 from __future__ import annotations
-import argparse, json, os, secrets, shutil, socket, subprocess, sys, tempfile, time
+import argparse
+import json
+import os
+import secrets
+import socket
+import subprocess
+import sys
+import tempfile
+import time
 from pathlib import Path
 
 DEFAULT_REPO = Path(__file__).resolve().parents[1]
