@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import {
-  type AnalysisPublic,
-  ApiError,
-  NetflowProcessingService,
-} from "@/client"
+import { type AnalysisPublic, NetflowProcessingService } from "@/client"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/lib/i18n"
+import { netflowRequestRejected } from "@/lib/netflow-errors"
 
 export function NetflowAnalysisActions({
   actor,
@@ -103,11 +100,7 @@ export function NetflowAnalysisActions({
       onAnalysis(result)
     } catch (cause) {
       if (!active.current) return
-      if (
-        !recover &&
-        cause instanceof ApiError &&
-        [400, 401, 403, 404, 409, 410, 422].includes(cause.status)
-      ) {
+      if (!recover && netflowRequestRejected(cause)) {
         sessionStorage.removeItem(store)
         setPending(undefined)
       }

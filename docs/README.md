@@ -18,3 +18,5 @@
 当前代码与已接受 ADR 冲突时必须停止并报告。目标架构不能证明功能已经实现。历史文档（含旧 REL-003）不能充当当前 Spec。过程证据由 Git 历史保存。Issue 不是第二份可漂移的完整 Spec。
 
 main 不接受 Issue 专属 probe、临时 Evidence 或固定 Run 验收快照。
+
+静态交接：[NetFlow 首次使用 #279](work/netflow-usability-handoff.md) 记录本轮提交和合成验收；[历史接管回执](handoff-receipt.md) 仅对应其旧 SHA。它们均不替代 GitHub Issue 的当前状态与授权。

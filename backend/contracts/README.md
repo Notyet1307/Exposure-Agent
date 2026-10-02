@@ -1,4 +1,6 @@
-# NetFlow correlation v1：后端接口交付
+# NetFlow correlation v1：后端接口历史交付快照
+
+本目录保留 #273/#274 当时的固定接口与验收字节，不是当前运行时 OpenAPI。后续已合并能力与任务状态以 [current.md](../../docs/work/current.md) 所指 Issue 为准；#279 的可读目录和元信息检索窄变更见固定规格 `85c360edc1f88718895ff8da9f978742f3c24bd0`。下列“未授权”等语句仅描述原交付时点，不覆盖后续 Issue 授权。不要覆盖历史样例或重写其 Hash。
 
 ## 固定身份与取得方式
 

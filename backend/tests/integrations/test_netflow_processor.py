@@ -409,3 +409,23 @@ def test_imported_provider_claims_are_not_the_system_blank_revision(
         r["provided_by"] == "Original synthetic provider" for r in retained.progress
     )
     assert all(r["provided_by"] is None for r in blank.progress)
+
+
+def test_frontend_answer_schema_fixture_matches_pinned_component() -> None:
+    from app.integrations.netflow_processor import answer_schema
+
+    fixture = (
+        Path(__file__).resolve().parents[3]
+        / "frontend/tests/fixtures/netflow-answer-schemas.json"
+    )
+    schemas = json.loads(fixture.read_text())
+    assert set(schemas) == {"export", "nat", "source", "tcp", "coverage", "service"}
+    for kind, schema in schemas.items():
+        # The six current answer objects are inline; unrelated submission $defs
+        # are omitted from the browser fixture only while no answer uses $ref.
+        assert '"$ref"' not in json.dumps(schema)
+        assert schema == {
+            key: value
+            for key, value in answer_schema(kind).items()
+            if key not in {"$schema", "$defs"}
+        }

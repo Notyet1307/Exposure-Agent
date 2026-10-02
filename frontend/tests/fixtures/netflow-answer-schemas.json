@@ -1,0 +1,691 @@
+{
+  "export": {
+    "type": "object",
+    "properties": {
+      "responsible_unit": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料对应的责任单位"
+      },
+      "supporting_evidence": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "\\S"
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料引用；仅记录引用，不自动读取文件或URL"
+      },
+      "sampling": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "enum": ["unknown", "sampled", "unsampled"]
+              },
+              "rate": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["mode", "rate"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "采样方式及保留比例，非sampler ID"
+      },
+      "input_timezone": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "导出时间的IANA时区或+08:00"
+      },
+      "counter_semantics": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "IN/OUT计数的含义及是否已按采样估算"
+      },
+      "export_selection": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "导出过滤、截取与选取方法"
+      },
+      "observation_view": {
+        "anyOf": [
+          {
+            "enum": ["PUBLIC_EDGE", "INTERNAL", "UNKNOWN"]
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "采集视角"
+      },
+      "direction_semantics": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "源和目的方向的导出定义"
+      },
+      "tcp_flags_semantics": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "flags是聚合位还是其他明确定义"
+      }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "required_for_completeness": [
+      "responsible_unit",
+      "supporting_evidence",
+      "sampling",
+      "input_timezone",
+      "counter_semantics",
+      "export_selection",
+      "observation_view",
+      "direction_semantics",
+      "tcp_flags_semantics"
+    ]
+  },
+  "nat": {
+    "type": "object",
+    "properties": {
+      "responsible_unit": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料对应的责任单位"
+      },
+      "supporting_evidence": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "\\S"
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料引用；仅记录引用，不自动读取文件或URL"
+      },
+      "nat_mapping": {
+        "anyOf": [
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {
+              "type": "object",
+              "properties": {
+                "protocol": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "pre_ip": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "ipv4"
+                    },
+                    {
+                      "type": "string",
+                      "format": "ipv6"
+                    }
+                  ]
+                },
+                "pre_port": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "post_ip": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "ipv4"
+                    },
+                    {
+                      "type": "string",
+                      "format": "ipv6"
+                    }
+                  ]
+                },
+                "post_port": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "protocol",
+                "pre_ip",
+                "pre_port",
+                "post_ip",
+                "post_port"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "NAT前后端点对应表"
+      },
+      "mapping_time_window": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 64,
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+              },
+              "end": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 64,
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+              }
+            },
+            "required": ["start", "end"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "该对应表适用时间，含时区"
+      },
+      "observation_view": {
+        "anyOf": [
+          {
+            "enum": ["BEFORE_NAT", "AFTER_NAT", "BOTH", "UNKNOWN"]
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "原观察地址位于NAT哪一侧"
+      }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "required_for_completeness": [
+      "responsible_unit",
+      "supporting_evidence",
+      "nat_mapping",
+      "mapping_time_window",
+      "observation_view"
+    ]
+  },
+  "source": {
+    "type": "object",
+    "properties": {
+      "responsible_unit": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料对应的责任单位"
+      },
+      "supporting_evidence": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "\\S"
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料引用；仅记录引用，不自动读取文件或URL"
+      },
+      "business_role": {
+        "anyOf": [
+          {
+            "enum": [
+              "service_provider",
+              "outbound_client",
+              "mixed",
+              "nat_aggregate",
+              "unknown"
+            ]
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "人工声明的业务角色"
+      },
+      "business_purpose": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "业务通信用途"
+      }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "required_for_completeness": [
+      "responsible_unit",
+      "supporting_evidence",
+      "business_role",
+      "business_purpose"
+    ]
+  },
+  "tcp": {
+    "type": "object",
+    "properties": {
+      "responsible_unit": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料对应的责任单位"
+      },
+      "supporting_evidence": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "\\S"
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料引用；仅记录引用，不自动读取文件或URL"
+      },
+      "cause_assessment": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "有依据的原因判断或未解决原因"
+      }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "required_for_completeness": [
+      "responsible_unit",
+      "supporting_evidence",
+      "cause_assessment"
+    ]
+  },
+  "coverage": {
+    "type": "object",
+    "properties": {
+      "responsible_unit": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料对应的责任单位"
+      },
+      "supporting_evidence": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "\\S"
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料引用；仅记录引用，不自动读取文件或URL"
+      },
+      "additional_dataset": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "补充数据集引用，不自动打开或纳入分析"
+      },
+      "coverage_notes": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "补充窗口、筛选条件及方向覆盖说明"
+      },
+      "observation_window": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 64,
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+              },
+              "end": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 64,
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+              }
+            },
+            "required": ["start", "end"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "补充资料的时间窗口，含时区"
+      }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "required_for_completeness": [
+      "responsible_unit",
+      "supporting_evidence",
+      "additional_dataset",
+      "coverage_notes",
+      "observation_window"
+    ]
+  },
+  "service": {
+    "type": "object",
+    "properties": {
+      "responsible_unit": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料对应的责任单位"
+      },
+      "supporting_evidence": {
+        "anyOf": [
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "\\S"
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料引用；仅记录引用，不自动读取文件或URL"
+      },
+      "business_role": {
+        "anyOf": [
+          {
+            "enum": [
+              "service_provider",
+              "outbound_client",
+              "mixed",
+              "nat_aggregate",
+              "unknown"
+            ]
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "人工声明的业务角色"
+      },
+      "actual_service": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "材料声明的实际服务"
+      },
+      "business_purpose": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "业务用途"
+      },
+      "external_access_need": {
+        "anyOf": [
+          {
+            "enum": ["required", "not_required", "unknown"]
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "当前对外访问需求声明"
+      },
+      "access_control": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "\\S"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "现有访问控制与来源限制说明"
+      }
+    },
+    "required": [],
+    "additionalProperties": false,
+    "required_for_completeness": [
+      "responsible_unit",
+      "supporting_evidence",
+      "business_role",
+      "actual_service",
+      "business_purpose",
+      "external_access_need",
+      "access_control"
+    ]
+  }
+}

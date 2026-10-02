@@ -20,14 +20,21 @@ import {
   type TaskMaterial,
 } from "@/client"
 import { NetflowAnalysisActions } from "@/components/NetflowAnalysisActions"
+import { NetflowContextForm } from "@/components/NetflowContextForm"
 import { NetflowFilters } from "@/components/NetflowFilters"
 import { NetflowScopeControl } from "@/components/NetflowScopeControl"
+import { NetflowTaskAnswers } from "@/components/NetflowTaskAnswers"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import useAuth from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
+import {
+  netflowErrorCode as errorCode,
+  netflowRequestRejected as isClientError,
+} from "@/lib/netflow-errors"
+import { netflowText } from "@/lib/netflow-labels"
 
 function pinnedString(pin: unknown, key: string) {
   if (!pin || typeof pin !== "object" || !(key in pin)) return undefined
@@ -132,22 +139,6 @@ type Navigate = (options: {
 
 const count = (value: number | null | undefined) =>
   value === null || value === undefined ? "—" : String(value)
-const errorCode = (error: unknown) => {
-  if (!(error instanceof ApiError)) return undefined
-  const body = error.body
-  if (body && typeof body === "object" && "detail" in body) {
-    const detail = body.detail
-    if (detail && typeof detail === "object" && "code" in detail) {
-      const code = detail.code
-      return typeof code === "string" ? code : undefined
-    }
-    return typeof detail === "string" ? detail : undefined
-  }
-  return undefined
-}
-const isClientError = (error: unknown) =>
-  error instanceof ApiError &&
-  [400, 401, 403, 404, 409, 410, 422].includes(error.status)
 
 const COMBINED_READS = [
   "summary",
@@ -276,7 +267,9 @@ function useScopeCleanup(scope: string) {
 
 function StateText({ state }: { state: string | undefined }) {
   const { t } = useI18n()
-  return <span>{state ? t(state, state) : t("Not selected", "未选择")}</span>
+  return (
+    <span>{state ? netflowText(state, t) : t("Not selected", "未选择")}</span>
+  )
 }
 
 function Technical({ label, value }: { label: string; value: unknown }) {
@@ -304,7 +297,7 @@ export default function NetflowCorrelation({
   search: NetflowCorrelationSearch
   navigate: Navigate
 }) {
-  const { t } = useI18n()
+  const { t, formatDate } = useI18n()
   const { user } = useAuth()
   const scope = JSON.stringify([
     actor,
@@ -391,6 +384,29 @@ export default function NetflowCorrelation({
         datasetId: search.dataset!,
         skip: contextPage * PAGE_SIZE,
         limit: PAGE_SIZE,
+      }),
+    retry: false,
+    staleTime: 0,
+  })
+  const currentContextId = contexts.data?.data[0]?.current_context_revision_id
+  const currentContext = useQuery({
+    queryKey: [
+      "netflow-correlation",
+      scope,
+      "current-context",
+      search.dataset,
+      currentContextId,
+    ],
+    enabled:
+      readable("current-context") &&
+      Boolean(search.dataset && currentContextId) &&
+      !identityError,
+    queryFn: () =>
+      NetflowProcessingService.readContexts({
+        projectId,
+        datasetId: search.dataset!,
+        contextRevisionId: currentContextId!,
+        limit: 1,
       }),
     retry: false,
     staleTime: 0,
@@ -584,6 +600,12 @@ export default function NetflowCorrelation({
         analysisId: search.analysis!,
       }),
     retry: false,
+    refetchInterval: (query) =>
+      readable("fixed-analysis") &&
+      query.state.data &&
+      ["PENDING", "RUNNING", "UNKNOWN"].includes(query.state.data.status)
+        ? 5000
+        : false,
   })
   const fixedUpload = useQuery({
     queryKey: [
@@ -668,6 +690,12 @@ export default function NetflowCorrelation({
     contexts.data?.data.find(
       (context) => context.context_revision_id === search.context,
     )
+  const authoritativeCurrentContext =
+    currentContext.data?.data[0] ??
+    (selectedContext?.current_context_revision_id ===
+    selectedContext?.context_revision_id
+      ? selectedContext
+      : undefined)
   const selectedAnalysis =
     fixedAnalysis.data ??
     analyses.data?.data.find(
@@ -1433,7 +1461,7 @@ export default function NetflowCorrelation({
     })
   const selectedAddress = addressDetail.data
   return (
-    <main className="min-w-0 space-y-6 [overflow-wrap:anywhere] [&_label]:block [&_select]:min-w-0 [&_select]:max-w-full [&_code]:break-all">
+    <main className="min-w-0 space-y-6 [overflow-wrap:anywhere] [&_label]:block [&_label]:min-w-0 [&_label]:max-w-full [&_select]:min-w-0 [&_select]:max-w-full [&_code]:break-all">
       {Object.entries(readErrors).map(([kind, error]) => (
         <ErrorNotice key={kind} error={error} />
       ))}
@@ -1443,8 +1471,8 @@ export default function NetflowCorrelation({
         </h1>
         <p className="text-sm text-muted-foreground">
           {t(
-            "Fixed Project, namespace, Analysis and correlation revision. Reading never starts analysis, synchronization, model work or upstream reads.",
-            "固定 Project、namespace、Analysis 与关联修订。浏览不会启动分析、同步、模型或上游读取。",
+            "Review observed addresses and source evidence, then supply missing material. Observations do not prove public reachability.",
+            "查看观测地址与来源依据，再补充复核材料。观测记录不代表公网可达。",
           )}
         </p>
         <div className="flex flex-wrap gap-3 text-sm">
@@ -1454,467 +1482,544 @@ export default function NetflowCorrelation({
           >
             {t("Legacy NetFlow ledger", "旧 NetFlow 活动账")}
           </a>
-          <span>
-            {t("Project", "Project")}: <code>{projectId}</code>
-          </span>
-          {search.revision && (
-            <span>
-              {t("Correlation revision", "关联修订")}:{" "}
-              <code>{search.revision}</code>
-            </span>
-          )}
+          <a
+            className="underline"
+            href={`/?project=${projectId}&view=inputs#netflow-inputs`}
+          >
+            {t("Import NetFlow data", "导入 NetFlow 数据")}
+          </a>
+          <Technical
+            label={t("Fixed identifiers", "固定标识详情")}
+            value={{
+              project_id: projectId,
+              correlation_revision_id: search.revision,
+            }}
+          />
         </div>
       </header>
       <section
-        className="rounded-md border p-4"
+        className={search.revision ? "text-sm" : "rounded-md border p-4"}
         aria-label={t("Fixed inputs", "固定输入")}
       >
-        <h2 className="font-semibold">{t("Fixed inputs", "固定输入")}</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <Label>
-            {t("Dataset", "Dataset")}
-            <select
-              className="mt-1 block w-full rounded border bg-background p-2"
-              value={search.dataset ?? ""}
-              onChange={(event) => {
-                setContextPage(0)
-                setAnalysisPage(0)
-                setCorrelationPage(0)
-                change(
-                  {
-                    dataset: event.target.value || undefined,
-                    context: undefined,
-                    analysis: undefined,
-                    namespace: undefined,
-                    customerUpload: undefined,
-                    cloudMode: "none",
-                    cloudSnapshot: undefined,
-                    cloudLedgerRevision: undefined,
-                    cloudScopeRevision: undefined,
-                    cloudSource: undefined,
-                  },
-                  true,
-                )
-              }}
-            >
-              <option value="">{t("Choose explicitly", "明确选择")}</option>
-              {datasets.data?.data.map((dataset: NetFlowDatasetPublic) => (
-                <option key={dataset.id} value={dataset.id}>
-                  {dataset.display_filename} · {dataset.id}
-                </option>
-              ))}
-            </select>
-          </Label>
-          <Label>
-            {t("Processing context", "处理上下文")}
-            <select
-              className="mt-1 block w-full rounded border bg-background p-2"
-              value={search.context ?? ""}
-              onChange={(event) =>
-                change(
-                  {
-                    context: event.target.value || undefined,
-                    namespace: contexts.data?.data.find(
-                      (item) => item.context_revision_id === event.target.value,
-                    )?.network_namespace,
-                    analysis: undefined,
-                    revision: undefined,
-                  },
-                  true,
-                )
-              }
-              disabled={!search.dataset}
-            >
-              <option value="">{t("Choose explicitly", "明确选择")}</option>
-              {contexts.data?.data.map((context: ContextPublic) => (
-                <option
-                  key={context.context_revision_id}
-                  value={context.context_revision_id}
-                >
-                  {context.network_namespace} · {context.state} · r
-                  {context.revision}
-                </option>
-              ))}
-            </select>
-          </Label>
-          <Label>
-            {t("Analysis", "Analysis")}
-            <select
-              className="mt-1 block w-full rounded border bg-background p-2"
-              value={search.analysis ?? ""}
-              onChange={(event) =>
-                change(
-                  {
-                    analysis: event.target.value || undefined,
-                    revision: undefined,
-                    feedbackRevision: undefined,
-                  },
-                  true,
-                )
-              }
-              disabled={!search.dataset}
-            >
-              <option value="">{t("Choose explicitly", "明确选择")}</option>
-              {analyses.data?.data.map((analysis: AnalysisPublic) => (
-                <option key={analysis.analysis_id} value={analysis.analysis_id}>
-                  {analysis.status} · {analysis.analysis_id}
-                </option>
-              ))}
-            </select>
-          </Label>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <SelectorPage
-            label={t("Datasets", "数据集")}
-            page={datasetPage}
-            hasNext={
-              (datasets.data?.count ?? 0) > (datasetPage + 1) * PAGE_SIZE
-            }
-            onPage={setDatasetPage}
-          />
-          <SelectorPage
-            label={t("Contexts", "上下文")}
-            page={contextPage}
-            hasNext={
-              (contexts.data?.count ?? 0) > (contextPage + 1) * PAGE_SIZE
-            }
-            onPage={setContextPage}
-          />
-          <SelectorPage
-            label={t("Analyses", "分析")}
-            page={analysisPage}
-            hasNext={
-              (analyses.data?.count ?? 0) > (analysisPage + 1) * PAGE_SIZE
-            }
-            onPage={setAnalysisPage}
-          />
-          <SelectorPage
-            label={t("Customer versions", "客户版本")}
-            page={uploadPage}
-            hasNext={(uploads.data?.count ?? 0) > (uploadPage + 1) * PAGE_SIZE}
-            onPage={setUploadPage}
-          />
-        </div>
-        {selectedDataset && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            {selectedDataset.display_filename} · raw{" "}
-            {selectedDataset.raw_record_count} · valid{" "}
-            {selectedDataset.activity_valid_record_count} · isolated{" "}
-            {selectedDataset.isolated_record_count}
-          </p>
-        )}
-        {selectedContext && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("Context state", "上下文状态")}: {selectedContext.current_state};{" "}
-            {t("namespace", "namespace")}:{" "}
-            <code>{selectedContext.network_namespace}</code>
-          </p>
-        )}
-        {selectedAnalysis && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("Analysis status", "Analysis 状态")}:{" "}
-            <StateText state={selectedAnalysis.status} />;{" "}
-            {selectedAnalysis.error_code ?? "—"}
-          </p>
-        )}
-        {selectedUpload && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("Customer version", "客户版本")}:{" "}
-            {selectedUpload.display_filename}
-          </p>
-        )}
-        {search.dataset &&
-          selectedContext &&
-          (!search.analysis || selectedAnalysis) && (
-            <NetflowAnalysisActions
-              key={`${scope}/analysis-actions`}
-              actor={actor}
-              projectId={projectId}
-              datasetId={search.dataset}
-              contextId={selectedContext.context_revision_id}
-              analysis={selectedAnalysis}
-              canWrite={
-                canWrite && selectedContext.current_state === "CONFIRMED"
-              }
-              onAnalysis={(value) => {
-                void analyses.refetch()
-                change({ analysis: value.analysis_id, tab: "summary" }, true)
-              }}
-            />
-          )}
-      </section>
-      <section
-        className="rounded-md border p-4"
-        aria-label={t("Source selection", "来源选择")}
-      >
-        <h2 className="font-semibold">
-          {t("Fixed source selection", "固定来源选择")}
+        <h2 className={search.revision ? "sr-only" : "font-semibold"}>
+          {t("Fixed inputs", "固定输入")}
         </h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <Label>
-            {t("Network namespace", "网络空间")}
-            <Input
-              value={namespace}
-              onChange={(event) => setNamespace(event.target.value)}
-              placeholder="synthetic-edge-a"
-            />
-          </Label>
-          <Label>
-            {t("Customer version", "客户版本")}
-            <select
-              className="mt-1 block w-full rounded border bg-background p-2"
-              value={search.customerUpload ?? ""}
-              onChange={(event) =>
-                change(
-                  {
-                    customerUpload: event.target.value || undefined,
-                    revision: undefined,
-                  },
-                  true,
-                )
-              }
-            >
-              <option value="">{t("Not provided", "未提供")}</option>
-              {uploads.data?.data.map((upload) => (
-                <option key={upload.id} value={upload.id}>
-                  {upload.display_filename} · {upload.id}
-                </option>
-              ))}
-            </select>
-          </Label>
-          <Label>
-            {t("Cloud source", "云图来源")}
-            <select
-              className="mt-1 block w-full rounded border bg-background p-2"
-              value={search.cloudMode ?? "none"}
-              onChange={(event) => {
-                setSnapshotPage(0)
-                setVersionPage(0)
-                change(
-                  {
-                    cloudMode: event.target
-                      .value as NetflowCorrelationSearch["cloudMode"],
-                    cloudSnapshot: undefined,
-                    cloudLedgerRevision: undefined,
-                    cloudScopeRevision: undefined,
-                    cloudSource: undefined,
-                    revision: undefined,
-                  },
-                  true,
-                )
-              }}
-            >
-              <option value="none">{t("Not provided", "未提供")}</option>
-              <option value="legacy">{t("Legacy snapshot", "旧快照")}</option>
-              <option value="external">
-                {t("Pinned external versions", "固定外部版本")}
-              </option>
-            </select>
-          </Label>
-        </div>
-        {search.cloudMode === "legacy" && (
+        <details open={!search.revision} className="mt-2">
+          <summary className="cursor-pointer text-sm text-muted-foreground">
+            {selectedDataset
+              ? `${selectedDataset.display_filename} · ${selectedContext?.network_namespace ?? t("context not selected", "未选择上下文")}`
+              : t("Choose NetFlow data to begin", "选择 NetFlow 数据以开始")}
+          </summary>
           <div className="mt-3 grid gap-3 md:grid-cols-3">
             <Label>
-              {t("Snapshot", "快照")}
+              {t("Dataset", "Dataset")}
               <select
                 className="mt-1 block w-full rounded border bg-background p-2"
-                value={search.cloudSnapshot ?? ""}
-                onChange={(event) =>
+                value={search.dataset ?? ""}
+                onChange={(event) => {
+                  setContextPage(0)
+                  setAnalysisPage(0)
+                  setCorrelationPage(0)
                   change(
                     {
-                      cloudSnapshot: event.target.value || undefined,
+                      dataset: event.target.value || undefined,
+                      context: undefined,
+                      analysis: undefined,
+                      namespace: undefined,
+                      customerUpload: undefined,
+                      cloudMode: "none",
+                      cloudSnapshot: undefined,
                       cloudLedgerRevision: undefined,
                       cloudScopeRevision: undefined,
-                      revision: undefined,
-                    },
-                    true,
-                  )
-                }
-              >
-                <option value="">{t("Choose explicitly", "明确选择")}</option>
-                {snapshots.data?.map((snapshot) => (
-                  <option key={snapshot.id} value={snapshot.id}>
-                    {snapshot.id} · {snapshot.record_count}
-                  </option>
-                ))}
-              </select>
-            </Label>
-            <Label>
-              {t("Ledger revision", "台账修订")}
-              <Input
-                type="number"
-                min={0}
-                value={search.cloudLedgerRevision ?? ""}
-                onChange={(event) =>
-                  change(
-                    {
-                      cloudLedgerRevision: event.target.value
-                        ? Number(event.target.value)
-                        : undefined,
-                      revision: undefined,
-                    },
-                    true,
-                  )
-                }
-              />
-            </Label>
-            <Label>
-              {t("Scope revision", "范围修订")}
-              <Input
-                type="number"
-                min={0}
-                value={search.cloudScopeRevision ?? ""}
-                onChange={(event) =>
-                  change(
-                    {
-                      cloudScopeRevision: event.target.value
-                        ? Number(event.target.value)
-                        : undefined,
-                      revision: undefined,
-                    },
-                    true,
-                  )
-                }
-              />
-            </Label>
-          </div>
-        )}
-        {search.cloudMode === "external" && (
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            <Label>
-              {t("Assets source", "资产来源")}
-              <select
-                className="mt-1 block w-full rounded border bg-background p-2"
-                value={search.cloudSource ?? ""}
-                onChange={(event) => {
-                  setVersionPage(0)
-                  change(
-                    {
-                      cloudSource: event.target.value || undefined,
-                      cloudIpVersion: undefined,
-                      cloudPortVersion: undefined,
-                      revision: undefined,
+                      cloudSource: undefined,
                     },
                     true,
                   )
                 }}
               >
                 <option value="">{t("Choose explicitly", "明确选择")}</option>
-                {sources.data?.data
-                  .filter((source) => source.capability_profile === "assets-v1")
-                  .map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.space_id} · {source.id} ·{" "}
-                      {source.enabled ? "enabled" : "disabled"}
-                    </option>
-                  ))}
-              </select>
-            </Label>
-            <Label>
-              {t("IP version", "IP 版本")}
-              <select
-                className="mt-1 block w-full rounded border bg-background p-2"
-                value={search.cloudIpVersion ?? ""}
-                onChange={(event) =>
-                  change(
-                    {
-                      cloudIpVersion: event.target.value || undefined,
-                      revision: undefined,
-                    },
-                    true,
-                  )
-                }
-                disabled={!assetSource}
-              >
-                <option value="">{t("Not selected", "未选择")}</option>
-                {externalVersions.data?.ip.data.map((version) => (
-                  <option key={version.id} value={version.id}>
-                    {version.id} · {version.status} · {version.record_count}
+                {datasets.data?.data.map((dataset: NetFlowDatasetPublic) => (
+                  <option key={dataset.id} value={dataset.id}>
+                    {dataset.display_filename} ·{" "}
+                    {formatDate(dataset.created_at)}
                   </option>
                 ))}
               </select>
             </Label>
             <Label>
-              {t("Port version", "端口版本")}
+              {t("Processing context", "处理上下文")}
               <select
                 className="mt-1 block w-full rounded border bg-background p-2"
-                value={search.cloudPortVersion ?? ""}
+                value={search.context ?? ""}
                 onChange={(event) =>
                   change(
                     {
-                      cloudPortVersion: event.target.value || undefined,
+                      context: event.target.value || undefined,
+                      namespace: contexts.data?.data.find(
+                        (item) =>
+                          item.context_revision_id === event.target.value,
+                      )?.network_namespace,
+                      analysis: undefined,
                       revision: undefined,
                     },
                     true,
                   )
                 }
-                disabled={!assetSource}
+                disabled={!search.dataset}
               >
-                <option value="">{t("Not selected", "未选择")}</option>
-                {externalVersions.data?.port.data.map((version) => (
-                  <option key={version.id} value={version.id}>
-                    {version.id} · {version.status} · {version.record_count}
+                <option value="">{t("Choose explicitly", "明确选择")}</option>
+                {contexts.data?.data.map((context: ContextPublic) => (
+                  <option
+                    key={context.context_revision_id}
+                    value={context.context_revision_id}
+                  >
+                    {context.network_namespace} ·{" "}
+                    {netflowText(context.state, t)} · r{context.revision}
+                  </option>
+                ))}
+              </select>
+            </Label>
+            <Label>
+              {t("Analysis", "Analysis")}
+              <select
+                className="mt-1 block w-full rounded border bg-background p-2"
+                value={search.analysis ?? ""}
+                onChange={(event) =>
+                  change(
+                    {
+                      analysis: event.target.value || undefined,
+                      revision: undefined,
+                      feedbackRevision: undefined,
+                    },
+                    true,
+                  )
+                }
+                disabled={!search.dataset}
+              >
+                <option value="">{t("Choose explicitly", "明确选择")}</option>
+                {analyses.data?.data.map((analysis: AnalysisPublic) => (
+                  <option
+                    key={analysis.analysis_id}
+                    value={analysis.analysis_id}
+                  >
+                    {netflowText(analysis.status, t)} ·{" "}
+                    {formatDate(analysis.created_at)}
                   </option>
                 ))}
               </select>
             </Label>
           </div>
-        )}
-        <div className="mt-2 flex flex-wrap gap-2">
-          <SelectorPage
-            label={t("Legacy snapshots", "旧快照")}
-            page={snapshotPage}
-            hasNext={(snapshots.data?.length ?? 0) === PAGE_SIZE}
-            onPage={setSnapshotPage}
-          />
-          <SelectorPage
-            label={t("External versions", "外部版本")}
-            page={versionPage}
-            hasNext={
-              (externalVersions.data?.ip.count ?? 0) >
-                (versionPage + 1) * PAGE_SIZE ||
-              (externalVersions.data?.port.count ?? 0) >
-                (versionPage + 1) * PAGE_SIZE
-            }
-            onPage={setVersionPage}
-          />
-          <SelectorPage
-            label={t("Correlations", "关联")}
-            page={correlationPage}
-            hasNext={
-              (correlations.data?.count ?? 0) >
-              (correlationPage + 1) * PAGE_SIZE
-            }
-            onPage={setCorrelationPage}
-          />
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button
-            onClick={() => void createSelection()}
-            disabled={
-              !canWrite ||
-              Boolean(search.revision) ||
-              creationIdentityInvalid ||
-              !hasSource ||
-              !identityReady ||
-              !cloudSelectionReady ||
-              Boolean(pendingKey)
-            }
-          >
-            {t("Create fixed correlation", "创建固定关联")}
-          </Button>
-          {pendingKey && (
-            <Button variant="outline" onClick={() => void recoverSelection()}>
-              {t("Query original operation", "查询原操作")}
-            </Button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <SelectorPage
+              label={t("Datasets", "数据集")}
+              page={datasetPage}
+              hasNext={
+                (datasets.data?.count ?? 0) > (datasetPage + 1) * PAGE_SIZE
+              }
+              onPage={setDatasetPage}
+            />
+            <SelectorPage
+              label={t("Contexts", "上下文")}
+              page={contextPage}
+              hasNext={
+                (contexts.data?.count ?? 0) > (contextPage + 1) * PAGE_SIZE
+              }
+              onPage={setContextPage}
+            />
+            <SelectorPage
+              label={t("Analyses", "分析")}
+              page={analysisPage}
+              hasNext={
+                (analyses.data?.count ?? 0) > (analysisPage + 1) * PAGE_SIZE
+              }
+              onPage={setAnalysisPage}
+            />
+            <SelectorPage
+              label={t("Customer versions", "客户版本")}
+              page={uploadPage}
+              hasNext={
+                (uploads.data?.count ?? 0) > (uploadPage + 1) * PAGE_SIZE
+              }
+              onPage={setUploadPage}
+            />
+          </div>
+          {selectedDataset && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {selectedDataset.display_filename} ·{" "}
+              {t("Raw records", "原始记录")} {selectedDataset.raw_record_count}{" "}
+              · {t("Valid records", "有效记录")}{" "}
+              {selectedDataset.activity_valid_record_count} ·{" "}
+              {t("Isolated records", "隔离记录")}{" "}
+              {selectedDataset.isolated_record_count}
+            </p>
           )}
-          <span className="text-sm text-muted-foreground">
-            {t(
-              "No source choice falls back to latest; NetFlow is fixed by the selected Analysis.",
-              "来源选择不回退 latest；NetFlow 由所选 Analysis 固定。",
+          {selectedContext && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("Context state", "上下文状态")}:{" "}
+              {netflowText(selectedContext.current_state, t)};{" "}
+              {t("namespace", "namespace")}:{" "}
+              <code>{selectedContext.network_namespace}</code>
+            </p>
+          )}
+          {selectedAnalysis && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("Analysis status", "Analysis 状态")}:{" "}
+              <StateText state={selectedAnalysis.status} />;{" "}
+              {selectedAnalysis.error_code
+                ? netflowText(selectedAnalysis.error_code, t)
+                : ""}
+            </p>
+          )}
+          {selectedUpload && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("Customer version", "客户版本")}:{" "}
+              {selectedUpload.display_filename}
+            </p>
+          )}
+          {search.dataset && (
+            <details
+              className="mt-3 rounded border p-3"
+              open={!selectedContext}
+            >
+              <summary className="cursor-pointer font-semibold">
+                {t(
+                  selectedContext
+                    ? "Correct processing context"
+                    : "Confirm processing context",
+                  selectedContext ? "更正处理上下文" : "确认处理上下文",
+                )}
+              </summary>
+              <NetflowContextForm
+                key={`${actor}:${projectId}:${search.dataset}`}
+                actor={actor}
+                projectId={projectId}
+                datasetId={search.dataset}
+                current={authoritativeCurrentContext}
+                currentResolved={
+                  !contexts.isFetching &&
+                  !currentContext.isFetching &&
+                  (currentContext.isSuccess ||
+                    (contexts.isSuccess && contexts.data.count === 0))
+                }
+                onRefresh={() => {
+                  void contexts.refetch()
+                  void currentContext.refetch()
+                }}
+                isAdmin={user?.is_superuser === true}
+                onCreated={(context) => {
+                  void contexts.refetch()
+                  change(
+                    {
+                      context: context.context_revision_id,
+                      namespace: context.network_namespace,
+                      analysis: undefined,
+                    },
+                    true,
+                  )
+                }}
+              />
+            </details>
+          )}
+          {search.dataset &&
+            selectedContext &&
+            (!search.analysis || selectedAnalysis) && (
+              <NetflowAnalysisActions
+                key={`${scope}/analysis-actions`}
+                actor={actor}
+                projectId={projectId}
+                datasetId={search.dataset}
+                contextId={selectedContext.context_revision_id}
+                analysis={selectedAnalysis}
+                canWrite={
+                  canWrite && selectedContext.current_state === "CONFIRMED"
+                }
+                onAnalysis={(value) => {
+                  void analyses.refetch()
+                  change({ analysis: value.analysis_id, tab: "summary" }, true)
+                }}
+              />
             )}
-          </span>
-        </div>
+        </details>
+      </section>
+      <section
+        className={search.revision ? "text-sm" : "rounded-md border p-4"}
+        aria-label={t("Source selection", "来源选择")}
+      >
+        <h2 className={search.revision ? "sr-only" : "font-semibold"}>
+          {t("Fixed source selection", "固定来源选择")}
+        </h2>
+        <details open={!search.revision} className="mt-2">
+          <summary className="cursor-pointer text-sm text-muted-foreground">
+            {t("Choose or change source versions", "选择或更改来源版本")}
+          </summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <Label>
+              {t("Network namespace", "网络空间")}
+              <Input
+                value={namespace}
+                onChange={(event) => setNamespace(event.target.value)}
+                placeholder="synthetic-edge-a"
+              />
+            </Label>
+            <Label>
+              {t("Customer version", "客户版本")}
+              <select
+                className="mt-1 block w-full rounded border bg-background p-2"
+                value={search.customerUpload ?? ""}
+                onChange={(event) =>
+                  change(
+                    {
+                      customerUpload: event.target.value || undefined,
+                      revision: undefined,
+                    },
+                    true,
+                  )
+                }
+              >
+                <option value="">{t("Not provided", "未提供")}</option>
+                {uploads.data?.data.map((upload) => (
+                  <option key={upload.id} value={upload.id}>
+                    {upload.display_filename} · {upload.id}
+                  </option>
+                ))}
+              </select>
+            </Label>
+            <Label>
+              {t("Cloud source", "云图来源")}
+              <select
+                className="mt-1 block w-full rounded border bg-background p-2"
+                value={search.cloudMode ?? "none"}
+                onChange={(event) => {
+                  setSnapshotPage(0)
+                  setVersionPage(0)
+                  change(
+                    {
+                      cloudMode: event.target
+                        .value as NetflowCorrelationSearch["cloudMode"],
+                      cloudSnapshot: undefined,
+                      cloudLedgerRevision: undefined,
+                      cloudScopeRevision: undefined,
+                      cloudSource: undefined,
+                      revision: undefined,
+                    },
+                    true,
+                  )
+                }}
+              >
+                <option value="none">{t("Not provided", "未提供")}</option>
+                <option value="legacy">{t("Legacy snapshot", "旧快照")}</option>
+                <option value="external">
+                  {t("Pinned external versions", "固定外部版本")}
+                </option>
+              </select>
+            </Label>
+          </div>
+          {search.cloudMode === "legacy" && (
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <Label>
+                {t("Snapshot", "快照")}
+                <select
+                  className="mt-1 block w-full rounded border bg-background p-2"
+                  value={search.cloudSnapshot ?? ""}
+                  onChange={(event) =>
+                    change(
+                      {
+                        cloudSnapshot: event.target.value || undefined,
+                        cloudLedgerRevision: undefined,
+                        cloudScopeRevision: undefined,
+                        revision: undefined,
+                      },
+                      true,
+                    )
+                  }
+                >
+                  <option value="">{t("Choose explicitly", "明确选择")}</option>
+                  {snapshots.data?.map((snapshot) => (
+                    <option key={snapshot.id} value={snapshot.id}>
+                      {snapshot.id} · {snapshot.record_count}
+                    </option>
+                  ))}
+                </select>
+              </Label>
+              <Label>
+                {t("Ledger revision", "台账修订")}
+                <Input
+                  type="number"
+                  min={0}
+                  value={search.cloudLedgerRevision ?? ""}
+                  onChange={(event) =>
+                    change(
+                      {
+                        cloudLedgerRevision: event.target.value
+                          ? Number(event.target.value)
+                          : undefined,
+                        revision: undefined,
+                      },
+                      true,
+                    )
+                  }
+                />
+              </Label>
+              <Label>
+                {t("Scope revision", "范围修订")}
+                <Input
+                  type="number"
+                  min={0}
+                  value={search.cloudScopeRevision ?? ""}
+                  onChange={(event) =>
+                    change(
+                      {
+                        cloudScopeRevision: event.target.value
+                          ? Number(event.target.value)
+                          : undefined,
+                        revision: undefined,
+                      },
+                      true,
+                    )
+                  }
+                />
+              </Label>
+            </div>
+          )}
+          {search.cloudMode === "external" && (
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <Label>
+                {t("Assets source", "资产来源")}
+                <select
+                  className="mt-1 block w-full rounded border bg-background p-2"
+                  value={search.cloudSource ?? ""}
+                  onChange={(event) => {
+                    setVersionPage(0)
+                    change(
+                      {
+                        cloudSource: event.target.value || undefined,
+                        cloudIpVersion: undefined,
+                        cloudPortVersion: undefined,
+                        revision: undefined,
+                      },
+                      true,
+                    )
+                  }}
+                >
+                  <option value="">{t("Choose explicitly", "明确选择")}</option>
+                  {sources.data?.data
+                    .filter(
+                      (source) => source.capability_profile === "assets-v1",
+                    )
+                    .map((source) => (
+                      <option key={source.id} value={source.id}>
+                        {source.space_id} · {source.id} ·{" "}
+                        {source.enabled ? "enabled" : "disabled"}
+                      </option>
+                    ))}
+                </select>
+              </Label>
+              <Label>
+                {t("IP version", "IP 版本")}
+                <select
+                  className="mt-1 block w-full rounded border bg-background p-2"
+                  value={search.cloudIpVersion ?? ""}
+                  onChange={(event) =>
+                    change(
+                      {
+                        cloudIpVersion: event.target.value || undefined,
+                        revision: undefined,
+                      },
+                      true,
+                    )
+                  }
+                  disabled={!assetSource}
+                >
+                  <option value="">{t("Not selected", "未选择")}</option>
+                  {externalVersions.data?.ip.data.map((version) => (
+                    <option key={version.id} value={version.id}>
+                      {version.id} · {version.status} · {version.record_count}
+                    </option>
+                  ))}
+                </select>
+              </Label>
+              <Label>
+                {t("Port version", "端口版本")}
+                <select
+                  className="mt-1 block w-full rounded border bg-background p-2"
+                  value={search.cloudPortVersion ?? ""}
+                  onChange={(event) =>
+                    change(
+                      {
+                        cloudPortVersion: event.target.value || undefined,
+                        revision: undefined,
+                      },
+                      true,
+                    )
+                  }
+                  disabled={!assetSource}
+                >
+                  <option value="">{t("Not selected", "未选择")}</option>
+                  {externalVersions.data?.port.data.map((version) => (
+                    <option key={version.id} value={version.id}>
+                      {version.id} · {version.status} · {version.record_count}
+                    </option>
+                  ))}
+                </select>
+              </Label>
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <SelectorPage
+              label={t("Legacy snapshots", "旧快照")}
+              page={snapshotPage}
+              hasNext={(snapshots.data?.length ?? 0) === PAGE_SIZE}
+              onPage={setSnapshotPage}
+            />
+            <SelectorPage
+              label={t("External versions", "外部版本")}
+              page={versionPage}
+              hasNext={
+                (externalVersions.data?.ip.count ?? 0) >
+                  (versionPage + 1) * PAGE_SIZE ||
+                (externalVersions.data?.port.count ?? 0) >
+                  (versionPage + 1) * PAGE_SIZE
+              }
+              onPage={setVersionPage}
+            />
+            <SelectorPage
+              label={t("Correlations", "关联")}
+              page={correlationPage}
+              hasNext={
+                (correlations.data?.count ?? 0) >
+                (correlationPage + 1) * PAGE_SIZE
+              }
+              onPage={setCorrelationPage}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              onClick={() => void createSelection()}
+              disabled={
+                !canWrite ||
+                Boolean(search.revision) ||
+                creationIdentityInvalid ||
+                !hasSource ||
+                !identityReady ||
+                !cloudSelectionReady ||
+                Boolean(pendingKey)
+              }
+            >
+              {t("Create fixed correlation", "创建固定关联")}
+            </Button>
+            {pendingKey && (
+              <Button variant="outline" onClick={() => void recoverSelection()}>
+                {t("Query original operation", "查询原操作")}
+              </Button>
+            )}
+            <span className="text-sm text-muted-foreground">
+              {t(
+                "No source choice falls back to latest; NetFlow is fixed by the selected Analysis.",
+                "来源选择不回退 latest；NetFlow 由所选 Analysis 固定。",
+              )}
+            </span>
+          </div>
+        </details>
       </section>
       {notice && (
         <p role="alert" className="text-sm text-destructive">
@@ -1985,7 +2090,7 @@ export default function NetflowCorrelation({
                 }
               >
                 {revision.network_namespace} · r{revision.revision} ·{" "}
-                {revision.current_scope_state}
+                {netflowText(revision.current_scope_state, t)}
               </Button>
             ))}
             {correlations.isSuccess && correlations.data.count === 0 && (
@@ -2148,11 +2253,12 @@ export default function NetflowCorrelation({
             )}
           {tab === "tasks" && (
             <TasksView
-              key={`${scope}/${search.feedbackRevision}/${search.addressKey}`}
+              key={`${scope}/${search.feedbackRevision}/${search.taskId ?? "none"}`}
               canWrite={
                 canWrite &&
                 !feedbackIdentityError &&
                 !latestFeedback.isError &&
+                !latestFeedback.isFetching &&
                 latestFeedbackMatches &&
                 latestFeedback.data?.feedback_revision_id ===
                   search.feedbackRevision
@@ -2234,7 +2340,7 @@ function SummaryView({
         />
         <Metric
           label={t("Current scope", "当前范围")}
-          value={summary.current_scope_state}
+          value={netflowText(summary.current_scope_state, t)}
         />
         <Metric
           label={t("Positive intersections", "正向交集")}
@@ -2257,14 +2363,15 @@ function SummaryView({
         <h3 className="font-semibold">{t("Pinned identity", "固定身份")}</h3>
         <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
           <p>
-            Project: <code>{summary.project_id}</code>
+            {t("Network namespace", "网络空间")}: {summary.network_namespace}
           </p>
-          <p>
-            Namespace: <code>{summary.network_namespace}</code>
-          </p>
-          <p>
-            Revision: <code>{revision.correlation_revision_id}</code>
-          </p>
+          <Technical
+            label={t("Fixed identifiers", "固定标识详情")}
+            value={{
+              project_id: summary.project_id,
+              correlation_revision_id: revision.correlation_revision_id,
+            }}
+          />
           <p>
             {t("Created", "创建")}: {formatDate(summary.created_at)}
           </p>
@@ -2283,16 +2390,20 @@ function SummaryView({
 }
 
 function SourceCard({ source }: { source: SourceState }) {
-  const { t } = useI18n()
+  const { t, formatDate } = useI18n()
+  const domains =
+    source.metadata?.domains && typeof source.metadata?.domains === "object"
+      ? Object.entries(source.metadata?.domains)
+      : []
   return (
     <article className="rounded border p-3">
-      <h4 className="font-medium">{source.source}</h4>
+      <h4 className="font-medium">{netflowText(source.source, t)}</h4>
       <p className="mt-1 text-sm">
-        {t("State", "状态")}: <strong>{source.state}</strong>
+        {t("State", "状态")}: <strong>{netflowText(source.state, t)}</strong>
       </p>
       <p className="text-sm">
-        {t("Read", "读取")}: {source.read_state} · {t("Coverage", "覆盖")}:{" "}
-        {source.coverage_state}
+        {t("Read", "读取")}: {netflowText(source.read_state, t)} ·{" "}
+        {t("Coverage", "覆盖")}: {netflowText(source.coverage_state, t)}
       </p>
       <dl className="mt-2 grid grid-cols-2 gap-x-3 text-xs">
         <dt>{t("Records", "记录")}</dt>
@@ -2310,6 +2421,36 @@ function SourceCard({ source }: { source: SourceState }) {
         <dt>{t("Tasks", "任务")}</dt>
         <dd>{count(source.review_task_count)}</dd>
       </dl>
+      {domains.map(([domain, raw]) => {
+        const data = raw as Record<string, unknown>
+        return (
+          <p key={domain} className="mt-2 text-xs">
+            {domain === "ip"
+              ? t("IP assets", "IP 资产")
+              : t("Port material", "端口材料")}{" "}
+            · {t("Fetched", "获取时间")}:{" "}
+            {typeof data.fetched_at === "string"
+              ? formatDate(data.fetched_at)
+              : "—"}{" "}
+            · {t("Retained until", "保留至")}:{" "}
+            {typeof data.retain_until === "string"
+              ? formatDate(data.retain_until)
+              : "—"}
+          </p>
+        )
+      })}
+      <Technical
+        label={t("Source version and time details", "来源版本与时间详情")}
+        value={source.metadata}
+      />
+      <Technical
+        label={t("State codes", "状态原码")}
+        value={{
+          state: source.state,
+          read_state: source.read_state,
+          coverage_state: source.coverage_state,
+        }}
+      />
       {source.limitations?.length ? (
         <NoticeList values={source.limitations} />
       ) : null}
@@ -2318,6 +2459,7 @@ function SourceCard({ source }: { source: SourceState }) {
 }
 
 function Metric({ label, value }: { label: string; value: unknown }) {
+  const { t } = useI18n()
   return (
     <div className="rounded border p-3">
       <dt className="text-sm text-muted-foreground">{label}</dt>
@@ -2329,7 +2471,7 @@ function Metric({ label, value }: { label: string; value: unknown }) {
             : value && typeof value === "object" && !Array.isArray(value)
               ? Object.entries(value).map(([key, item]) => (
                   <span key={key} className="block text-sm">
-                    {key}: {item === null ? "—" : String(item)}
+                    {netflowText(key, t)}: {item === null ? "—" : String(item)}
                   </span>
                 ))
               : JSON.stringify(value)}
@@ -2338,10 +2480,11 @@ function Metric({ label, value }: { label: string; value: unknown }) {
   )
 }
 function NoticeList({ values }: { values: string[] }) {
+  const { t } = useI18n()
   return (
     <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground [overflow-wrap:anywhere]">
       {values.map((value) => (
-        <li key={value}>{value}</li>
+        <li key={value}>{netflowText(value, t)}</li>
       ))}
     </ul>
   )
@@ -2349,10 +2492,20 @@ function NoticeList({ values }: { values: string[] }) {
 function ErrorNotice({ error }: { error: unknown }) {
   const { t } = useI18n()
   return (
-    <p role="alert" className="text-sm text-destructive">
-      {t("Pinned data could not be read", "固定数据不可读取")}{" "}
-      {errorCode(error) ?? ""}
-    </p>
+    <div role="alert" className="text-sm text-destructive">
+      <p>
+        {errorCode(error)
+          ? netflowText(errorCode(error)!, t)
+          : t(
+              "Pinned data could not be read. Retry the read or ask an administrator to investigate.",
+              "固定数据不可读取，请重试读取或联系管理员核查。",
+            )}
+      </p>
+      <Technical
+        label={t("Error details", "错误详情")}
+        value={errorCode(error)}
+      />
+    </div>
   )
 }
 
@@ -2454,12 +2607,15 @@ function AddressesView({
                       >
                         {address.canonical_ip}
                       </Button>
-                      <div className="text-xs text-muted-foreground">
-                        {address.address_key}
-                      </div>
+                      <Technical
+                        label={t("Address identifier", "地址标识")}
+                        value={address.address_key}
+                      />
                     </td>
                     <td className="p-2">
-                      {address.positive_sources.join(", ") || "—"}
+                      {address.positive_sources
+                        .map((source) => netflowText(source, t))
+                        .join(", ") || "—"}
                     </td>
                     <td className="p-2">
                       {count(address.source_record_count)}
@@ -2564,15 +2720,18 @@ function AddressDetail({
             </p>
             <p>
               {t("Positive sources", "正向来源")}:{" "}
-              {detail.positive_sources.join(", ") || "—"}
+              {detail.positive_sources
+                .map((source) => netflowText(source, t))
+                .join(", ") || "—"}
             </p>
             <p>
               {t("Reachability", "可达性")}:{" "}
-              {detail.reachability ?? "NOT_VERIFIED"}
+              {netflowText(detail.reachability ?? "NOT_VERIFIED", t)}
             </p>
-            <p>
-              {t("Resource", "Resource")}: {detail.resource_id ?? "—"}
-            </p>
+            <Technical
+              label={t("Existing resource link", "已有资源链接")}
+              value={detail.resource_id}
+            />
             <p>
               {t("Source records", "源记录")}:{" "}
               {count(detail.source_record_count)}
@@ -2610,20 +2769,29 @@ function AddressDetail({
                   {services?.data.map((service: ServicePublic) => (
                     <tr key={service.object_key} className="border-b">
                       <td className="min-w-72 max-w-sm break-all p-2 font-mono">
-                        {service.object_key}
+                        {netflowText(service.source, t)} ·{" "}
+                        {service.protocol_number ?? "—"}/
+                        {service.local_port ?? "—"}
+                        <Technical
+                          label={t("Object identifier", "对象标识")}
+                          value={service.object_key}
+                        />
                         <Technical
                           label={t("Original material", "原始材料")}
                           value={service.original}
                         />
                         <NoticeList values={service.reasons} />
                       </td>
-                      <td className="p-2">{service.source}</td>
+                      <td className="p-2">{netflowText(service.source, t)}</td>
                       <td className="p-2">{service.protocol_number ?? "—"}</td>
                       <td className="p-2">{service.local_port ?? "—"}</td>
                       <td className="p-2">
-                        {service.assessment ?? "INSUFFICIENT_EVIDENCE"} ·{" "}
-                        {service.role_state ?? "UNKNOWN"} ·{" "}
-                        {service.reachability ?? "NOT_VERIFIED"}
+                        {netflowText(
+                          service.assessment ?? "INSUFFICIENT_EVIDENCE",
+                          t,
+                        )}{" "}
+                        · {netflowText(service.role_state ?? "UNKNOWN", t)} ·{" "}
+                        {netflowText(service.reachability ?? "NOT_VERIFIED", t)}
                       </td>
                       <td className="p-2">
                         {(
@@ -2632,38 +2800,44 @@ function AddressDetail({
                             ["CLOUD", service.cloud_comparisons],
                           ] as const
                         ).map(([source, comparisons]) => (
-                          <div key={source} className="min-w-64 space-y-2">
-                            <p>
-                              {source} ·{" "}
+                          <details key={source} className="min-w-64 space-y-2">
+                            <summary className="cursor-pointer">
+                              {netflowText(source, t)} ·{" "}
                               {t("Current page / total", "当前页 / 总数")}:{" "}
                               {comparisons.data.length} / {comparisons.count}
-                            </p>
+                            </summary>
                             {comparisons.data.map((item) => (
                               <details
                                 key={`${item.domain}:${item.version_id}:${item.record_key}`}
                                 className="rounded border p-2"
                               >
                                 <summary className="cursor-pointer break-all">
-                                  {item.domain} · {item.record_key}
+                                  {t("Source comparison", "来源比较")} ·{" "}
+                                  {netflowText(item.protocol_relation, t)} /{" "}
+                                  {netflowText(item.port_relation, t)}
                                 </summary>
                                 <p className="break-all">
                                   {t("Version", "版本")}: {item.version_id}
                                 </p>
                                 <p>
                                   {t("Protocol", "协议")}:{" "}
-                                  {item.protocol_relation}
+                                  {netflowText(item.protocol_relation, t)}
                                 </p>
                                 <p>
-                                  {t("Port", "端口")}: {item.port_relation}
+                                  {t("Port", "端口")}:{" "}
+                                  {netflowText(item.port_relation, t)}
                                 </p>
                                 <p>
                                   {t("Time", "时间")}:{" "}
-                                  {item.time_relation ?? "UNKNOWN"}
+                                  {netflowText(
+                                    item.time_relation ?? "UNKNOWN",
+                                    t,
+                                  )}
                                 </p>
                                 <NoticeList values={item.reasons} />
                               </details>
                             ))}
-                          </div>
+                          </details>
                         ))}
                       </td>
                     </tr>
@@ -2721,7 +2895,7 @@ function AddressDetail({
                   variant={evidenceSource === source ? "default" : "outline"}
                   onClick={() => onEvidenceSource(source)}
                 >
-                  {source}
+                  {netflowText(source.toUpperCase(), t)}
                 </Button>
               ))}
             </div>
@@ -2729,18 +2903,27 @@ function AddressDetail({
               <>
                 <p className="mt-2 text-sm text-muted-foreground">
                   {t("Current page", "当前页")}: {evidence.data.length} ·{" "}
-                  {t("Filtered count", "筛选总数")}: {evidence.count} · omitted{" "}
-                  {evidence.omitted_count}
+                  {t("Filtered count", "筛选总数")}: {evidence.count} ·{" "}
+                  {t("Omitted", "省略记录")} {evidence.omitted_count}
                 </p>
                 <div className="space-y-2">
-                  {evidence.data.map((row) => (
+                  {evidence.data.map((row, index) => (
                     <details
                       key={`${row.source}:${row.record_key}`}
                       className="rounded border p-2"
                     >
                       <summary className="cursor-pointer font-mono text-sm">
-                        {row.record_key} · {row.version_id} · {row.domain}
+                        {netflowText(row.source.toUpperCase(), t)} ·{" "}
+                        {t("Record", "记录")} {evidence.skip + index + 1}
                       </summary>
+                      <Technical
+                        label={t("Record identifiers", "记录标识")}
+                        value={{
+                          record_key: row.record_key,
+                          version_id: row.version_id,
+                          domain: row.domain,
+                        }}
+                      />
                       <Technical
                         label={t("Original", "原始字段")}
                         value={row.original}
@@ -2804,7 +2987,12 @@ function PeersView({
           <tbody>
             {peers?.data.map((peer) => (
               <tr key={peer.peer_key} className="border-b">
-                <td className="p-2 font-mono">{peer.peer_key}</td>
+                <td className="p-2">
+                  <Technical
+                    label={t("Peer identifier", "对端标识")}
+                    value={peer.peer_key}
+                  />
+                </td>
                 <td className="p-2 font-mono">{peer.canonical_ip}</td>
                 <td className="p-2">{peer.protocol_number}</td>
                 <td className="p-2">{peer.peer_port ?? "—"}</td>
@@ -2830,6 +3018,23 @@ function PeersView({
       </p>
     </section>
   )
+}
+
+function taskName(
+  task: Record<string, unknown>,
+  t: (en: string, zh: string) => string,
+) {
+  const target =
+    task.target && typeof task.target === "object"
+      ? (task.target as Record<string, unknown>)
+      : undefined
+  return [
+    netflowText(String(task.task_kind ?? task.title ?? "Review material"), t),
+    target?.ip,
+    target?.local_port,
+  ]
+    .filter((value) => value !== null && value !== undefined)
+    .join(" · ")
 }
 
 function TasksView({
@@ -2864,13 +3069,24 @@ function TasksView({
   onFeedback: (revision: string) => void
 }) {
   const { t } = useI18n()
-  const [answers, setAnswers] = useState("{}")
+  const cache = useQueryClient()
+  const [answers, setAnswers] = useState<Record<string, unknown>>({})
+  const [answersSupported, setAnswersSupported] = useState(true)
+  const [answersValid, setAnswersValid] = useState(true)
+  const updateAnswers = useCallback(
+    (value: Record<string, unknown>, supported: boolean, valid: boolean) => {
+      setAnswers(value)
+      setAnswersSupported(supported)
+      setAnswersValid(valid)
+    },
+    [],
+  )
   const [providedBy, setProvidedBy] = useState("")
   const [submittedAt, setSubmittedAt] = useState("")
   const [note, setNote] = useState("")
   const [saving, setSaving] = useState(false)
   const [feedbackError, setFeedbackError] = useState<[string, string]>()
-  const feedbackStore = `exposure:netflow-feedback:${actor}:${projectId}:${analysisId ?? "none"}`
+  const feedbackStore = `exposure:netflow-feedback:${actor}:${projectId}:${analysisId ?? "none"}:${feedbackRevision ?? "none"}:${task?.material.task_id ?? "none"}`
   const feedbackScopeRef = useRef(feedbackStore)
   feedbackScopeRef.current = feedbackStore
   useEffect(() => {
@@ -2888,9 +3104,6 @@ function TasksView({
       setPendingFeedbackKey(undefined)
     }
   }, [feedbackStore])
-  const initialAnswers = task
-    ? JSON.stringify(task.material.declared_answers, null, 2)
-    : "{}"
   const initialClaim = task?.material.provider_claim
   const initialProvidedBy =
     typeof initialClaim?.provided_by === "string"
@@ -2901,10 +3114,9 @@ function TasksView({
       ? initialClaim.submitted_at
       : ""
   useEffect(() => {
-    setAnswers(initialAnswers)
     setProvidedBy(initialProvidedBy)
     setSubmittedAt(initialSubmittedAt)
-  }, [initialAnswers, initialProvidedBy, initialSubmittedAt])
+  }, [initialProvidedBy, initialSubmittedAt])
   if (error) return <ErrorNotice error={error} />
   if (!feedback)
     return (
@@ -2924,6 +3136,15 @@ function TasksView({
       if (feedbackScopeRef.current !== capturedFeedbackStore) return
       sessionStorage.removeItem(feedbackStore)
       setPendingFeedbackKey(undefined)
+      cache.setQueriesData(
+        {
+          predicate: (query) =>
+            query.queryKey[0] === "netflow-correlation" &&
+            query.queryKey[2] === "current-feedback" &&
+            query.queryKey[3] === analysisId,
+        },
+        revision,
+      )
       onFeedback(revision.feedback_revision_id)
     } catch {
       if (feedbackScopeRef.current !== capturedFeedbackStore) return
@@ -2945,19 +3166,7 @@ function TasksView({
     )
       return
     const capturedFeedbackStore = feedbackStore
-    let parsed: Record<string, unknown>
-    try {
-      const value: unknown = JSON.parse(answers)
-      if (!value || typeof value !== "object" || Array.isArray(value))
-        throw new Error()
-      parsed = Object.fromEntries(Object.entries(value))
-    } catch {
-      setFeedbackError([
-        "Answers must be a JSON object.",
-        "答案必须是 JSON 对象。",
-      ])
-      return
-    }
+    if (!answersSupported) return
     const operationKey = crypto.randomUUID()
     try {
       sessionStorage.setItem(feedbackStore, operationKey)
@@ -2980,7 +3189,7 @@ function TasksView({
               task_id: task.material.task_id,
               provided_by: providedBy || null,
               submitted_at: submittedAt || null,
-              answers: parsed,
+              answers,
               note_checks: task.material.note_checks,
             },
           ],
@@ -2990,6 +3199,15 @@ function TasksView({
       if (feedbackScopeRef.current !== capturedFeedbackStore) return
       sessionStorage.removeItem(feedbackStore)
       setPendingFeedbackKey(undefined)
+      cache.setQueriesData(
+        {
+          predicate: (query) =>
+            query.queryKey[0] === "netflow-correlation" &&
+            query.queryKey[2] === "current-feedback" &&
+            query.queryKey[3] === analysisId,
+        },
+        revision,
+      )
       onFeedback(revision.feedback_revision_id)
       setNote("")
     } catch (error) {
@@ -3001,7 +3219,7 @@ function TasksView({
       const code = errorCode(error)
       setFeedbackError(
         code
-          ? [code, code]
+          ? [netflowText(code, (en) => en), netflowText(code, (_, zh) => zh)]
           : [
               "Feedback was rejected; the previous version remains.",
               "反馈被拒绝；上一版本保持不变。",
@@ -3037,14 +3255,17 @@ function TasksView({
               "FIELDS_COMPLETE_PENDING_REVIEW",
             ].map((value) => (
               <option key={value} value={value}>
-                {value}
+                {netflowText(value, t)}
               </option>
             ))}
           </select>
         </Label>
         <span className="self-end text-sm text-muted-foreground">
-          {t("Feedback revision", "反馈修订")}:{" "}
-          <code>{feedbackRevision ?? "—"}</code>
+          {t("Feedback revision", "反馈修订")}: {feedback.revision}
+          <Technical
+            label={t("Feedback identifier", "反馈标识")}
+            value={feedbackRevision}
+          />
         </span>
         {pendingFeedbackKey && (
           <Button variant="outline" onClick={() => void recoverFeedback()}>
@@ -3059,7 +3280,7 @@ function TasksView({
         <table className="w-full min-w-[48rem] text-left text-sm">
           <thead>
             <tr className="border-b">
-              <th className="p-2">Task</th>
+              <th className="p-2">{t("Material", "材料")}</th>
               <th className="p-2">{t("Status", "状态")}</th>
               <th className="p-2">{t("Scope", "范围")}</th>
               <th className="p-2">{t("Next action", "下一步")}</th>
@@ -3074,17 +3295,25 @@ function TasksView({
                 <td className="p-2">
                   <Button
                     variant="link"
-                    className="h-auto p-0 font-mono"
+                    className="h-auto p-0"
                     onClick={() => onTask(item.task_id)}
                   >
-                    {item.task_id}
+                    {taskName(item.task, t)}
                   </Button>
                 </td>
-                <td className="p-2">{item.material_status}</td>
+                <td className="p-2">{netflowText(item.material_status, t)}</td>
                 <td className="p-2">
-                  {String(item.task.task_scope ?? item.task.task_kind ?? "—")}
+                  {netflowText(
+                    String(item.task.task_scope ?? item.task.task_kind ?? "—"),
+                    t,
+                  )}
                 </td>
-                <td className="p-2">{item.next_action}</td>
+                <td className="p-2">
+                  <BusinessNextAction
+                    status={item.material_status}
+                    missing={item.missing_fields}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -3104,22 +3333,33 @@ function TasksView({
       </p>
       {task && (
         <section className="space-y-3 rounded-md border p-4">
-          <h2 className="font-semibold">
-            {t("Task detail", "任务详情")} ·{" "}
-            <code>{task.material.task_id}</code>
-          </h2>
+          <h2 className="font-semibold">{t("Task detail", "任务详情")}</h2>
           <p className="text-sm">
-            {t("Status", "状态")}: {task.material.material_status} ·{" "}
-            {t("Schema", "Schema")}: {task.material.schema_version}
+            {t("Status", "状态")}:{" "}
+            {netflowText(task.material.material_status, t)}
           </p>
           <NoticeList
-            values={task.material.missing_fields.concat(
-              task.material.field_errors.map((item) => JSON.stringify(item)),
+            values={task.material.missing_fields.map((field) =>
+              businessField(field, t),
             )}
+          />
+          <NoticeList
+            values={task.material.field_errors.map(
+              (item) =>
+                `${businessField(String(item.field), t)}: ${netflowText(String(item.code), t)}`,
+            )}
+          />
+          <Technical
+            label={t("Task ID", "任务 ID")}
+            value={task.material.task_id}
           />
           <Technical
             label={t("Task material", "任务材料")}
             value={task.material.task}
+          />
+          <Technical
+            label={t("Server next action", "服务端下一步")}
+            value={task.material.next_action}
           />
           <Technical
             label={t("Answer schema", "答案 Schema")}
@@ -3133,7 +3373,14 @@ function TasksView({
             label={t("Actual task author", "实际任务提交者")}
             value={task.material.authenticated_author}
           />
-          <NoticeList values={task.material.blocked_by} />
+          {task.material.blocked_by.length > 0 && (
+            <p>
+              {t(
+                "Complete the shared material listed below first.",
+                "请先补齐下列共享材料。",
+              )}
+            </p>
+          )}
           {task.dependencies.length > 0 && (
             <section className="space-y-2">
               <h3>{t("Shared dependencies", "共享依赖")}</h3>
@@ -3144,9 +3391,9 @@ function TasksView({
                     className="h-auto max-w-full whitespace-normal break-all"
                     onClick={() => onTask(dependency.task_id)}
                   >
-                    {dependency.task_id}
+                    {taskName(dependency.task, t)}
                   </Button>
-                  <p>{dependency.material_status}</p>
+                  <p>{netflowText(dependency.material_status, t)}</p>
                 </div>
               ))}
             </section>
@@ -3171,15 +3418,14 @@ function TasksView({
               onChange={(event) => setSubmittedAt(event.target.value)}
             />
           </Label>
-          <Label>
-            {t("Answers JSON", "答案 JSON")}
-            <textarea
-              className="mt-1 min-h-40 w-full rounded border bg-background p-2 font-mono text-sm"
-              value={answers}
-              onChange={(event) => setAnswers(event.target.value)}
-              disabled={!canWrite || saving || Boolean(pendingFeedbackKey)}
-            />
-          </Label>
+          <NetflowTaskAnswers
+            identity={`${feedbackRevision ?? "none"}:${task.material.task_id}`}
+            schema={task.material.answer_schema}
+            declared={task.material.declared_answers}
+            serverErrors={task.material.field_errors}
+            disabled={!canWrite || saving || Boolean(pendingFeedbackKey)}
+            onChange={updateAnswers}
+          />
           <Label>
             {t("Human note", "人工说明")}
             <Input
@@ -3196,7 +3442,9 @@ function TasksView({
               saving ||
               Boolean(pendingFeedbackKey) ||
               !feedback ||
-              !feedbackRevision
+              !feedbackRevision ||
+              !answersSupported ||
+              !answersValid
             }
           >
             {t("Append correction", "追加更正")}
@@ -3209,15 +3457,15 @@ function TasksView({
           <div className="grid gap-2 text-sm md:grid-cols-3">
             <p>
               {t("Review required", "需要人工复核")}:{" "}
-              {task.material.review_required === true ? "true" : "—"}
+              {task.material.review_required === true ? t("Yes", "是") : "—"}
             </p>
             <p>
               {t("Task closed", "任务关闭")}:{" "}
-              {task.material.task_closed === false ? "false" : "—"}
+              {task.material.task_closed === false ? t("No", "否") : "—"}
             </p>
             <p>
               {t("Facts changed", "事实变化")}:{" "}
-              {task.material.facts_changed === false ? "false" : "—"}
+              {task.material.facts_changed === false ? t("No", "否") : "—"}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -3243,5 +3491,68 @@ function TasksView({
         </section>
       )}
     </section>
+  )
+}
+
+const businessFields: Record<string, [string, string]> = {
+  provided_by: ["declared provider", "声明提供方"],
+  submitted_at: ["declared submission time", "声明提交时间"],
+  depends_on: ["shared material", "共享材料"],
+  mode: ["mode", "方式"],
+  rate: ["rate", "比例"],
+  responsible_unit: ["responsible unit", "责任单位"],
+  supporting_evidence: ["supporting evidence", "材料引用"],
+  additional_dataset: ["additional dataset", "补充数据集"],
+  coverage_notes: ["coverage notes", "覆盖说明"],
+  observation_window: ["observation window", "观测时间窗"],
+  counter_semantics: ["counter semantics", "计数语义"],
+  direction_semantics: ["direction semantics", "方向语义"],
+  export_selection: ["export selection", "导出选择"],
+  input_timezone: ["input timezone", "输入时区"],
+  observation_view: ["observation view", "观测视角"],
+  sampling: ["sampling", "采样情况"],
+  nat_mapping: ["NAT mapping", "NAT 映射"],
+  mapping_time_window: ["mapping time window", "映射时间窗"],
+  actual_service: ["actual service", "实际服务"],
+  business_purpose: ["business purpose", "业务用途"],
+  business_role: ["business role", "业务角色"],
+  external_access_need: ["external access need", "对外访问需求"],
+  access_control: ["access control", "访问控制"],
+  cause_assessment: ["cause assessment", "原因判断"],
+}
+
+function businessField(value: string, t: (en: string, zh: string) => string) {
+  return value
+    .split(".")
+    .map((part) => {
+      const pair = businessFields[part]
+      return pair ? t(...pair) : part
+    })
+    .join(" / ")
+}
+
+function BusinessNextAction({
+  status,
+  missing,
+}: {
+  status: TaskMaterial["material_status"]
+  missing: string[]
+}) {
+  const { t } = useI18n()
+  if (status === "FIELDS_COMPLETE_PENDING_REVIEW")
+    return <>{t("Await human review", "等待人工复核")}</>
+  if (status === "MATERIAL_CONFLICT")
+    return <>{t("Resolve conflicting material", "处理冲突材料")}</>
+  if (status === "INVALID_MATERIAL")
+    return <>{t("Correct invalid material", "更正无效材料")}</>
+  if (status === "AWAITING_DEPENDENCY_MATERIAL")
+    return <>{t("Wait for shared material", "等待共享材料")}</>
+  return missing.length ? (
+    <>
+      {t("Provide: ", "请补充：")}
+      {missing.map((field) => businessField(field, t)).join(", ")}
+    </>
+  ) : (
+    t("Add review material", "补充复核材料")
   )
 }

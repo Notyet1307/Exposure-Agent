@@ -405,11 +405,13 @@ export default function NetFlowDatasets({
   }
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) =>
-      ProjectsService.createNetflowDataset({
+    mutationFn: async (file: File) => ({
+      projectId,
+      dataset: await ProjectsService.createNetflowDataset({
         projectId,
         formData: { file },
       }),
+    }),
     onSuccess: async () => {
       setMessage("NetFlowDataset upload accepted successfully.")
       if (fileInputRef.current) fileInputRef.current.value = ""
@@ -523,6 +525,17 @@ export default function NetFlowDatasets({
         </p>
       </div>
 
+      {uploadMutation.data?.projectId === projectId && (
+        <a
+          className="inline-block text-primary underline"
+          href={`/projects/${projectId}/netflow-correlation?dataset=${uploadMutation.data.dataset.id}`}
+        >
+          {t(
+            "Configure processing context for this upload",
+            "为刚上传的数据配置处理上下文",
+          )}
+        </a>
+      )}
       {currentDataset ? (
         <Card>
           <CardHeader>

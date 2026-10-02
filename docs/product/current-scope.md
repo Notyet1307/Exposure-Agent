@@ -1,6 +1,10 @@
 # 当前产品范围
 
-身份：已批准边界、推荐方案、待验证假设分栏。批准来源 [#223](https://github.com/Notyet1307/Exposure-Agent/issues/223)。行为预期见 [当前 Spec](../specs/asset-governance-release-1.md)，不在此重复。
+身份：产品方向与兼容能力索引，不承载任务状态。当前任务与授权见 [current.md](../work/current.md) 指向的 GitHub Issue；产品收敛与 NetFlow 行为见固定版本的 [exposure-focus-release-1.md](../specs/exposure-focus-release-1.md) 和 [netflow-correlation-api-v1.md](../specs/netflow-correlation-api-v1.md)。
+
+当前方向是外部暴露核查与处置，不是三账 CMDB。客户内部资产仍由客户平台负责，云图是外部能力边界，NetFlow 仅提供活动线索；不从观测或材料齐全推导确认暴露、关闭任务或处置完成。#279 仅补齐固定来源读取、首次上下文入口与材料表单；新的来源对象接入核查是候选，尚未实现新的问题或处置模型。
+
+以下是 [#223](https://github.com/Notyet1307/Exposure-Agent/issues/223) 批准的既有 Run/Finding/报告兼容范围，继续受 [asset-governance-release-1.md](../specs/asset-governance-release-1.md) 约束。其中模型调用例外不授予当前 NetFlow 开发调用模型或真实客户系统的权限。
 
 ## 谁使用
 
