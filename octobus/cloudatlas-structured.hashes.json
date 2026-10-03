@@ -1,6 +1,6 @@
 {
   "service_id": "cloudatlas-structured",
-  "package_sha256": "037c6b10cc533946e625821152861db49440b39890e08ea0c7bfe90ad242b0a0",
+  "package_sha256": "f77dfb022970efae0b18b35b970d7a9470f845028d343b44f55ffae9d57291c7",
   "descriptor_sha256": "8fc1ace9c01e4b2c4d48a8f49ec0affc269714a1d5d0c52c6a1f8aca37409a6a",
   "profiles": {
     "subdomain-v1": {

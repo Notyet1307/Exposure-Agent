@@ -82,7 +82,7 @@ function diagnose(items, schema, omitted) {
 }
 export function normalizePage(text, domain, page, size, spaceId, diagnosticsOnly = false) {
   const contract = contracts[domain];
-  if (!contract) fail();
+  if (!Object.hasOwn(contracts, domain)) fail();
   let payload;
   try {
     payload = JSON.parse(text, (_key, value, context) =>
@@ -119,7 +119,7 @@ export async function listPage(ctx, domain) {
       !Number.isInteger(size) || size < 1 || size > 200 ||
       !Number.isInteger(maxResponseBytes) || maxResponseBytes < 1 || maxResponseBytes > 16777216 ||
       !Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 300 ||
-      typeof diagnosticsOnly !== "boolean" || !contract ||
+      typeof diagnosticsOnly !== "boolean" || !Object.hasOwn(contracts, domain) ||
       (diagnosticsOnly && (page !== 1 || size > 20 || maxResponseBytes > 4194304 || timeoutSeconds > 120))) fail("invalid_request");
   let base;
   try { base = new URL(ctx.config.baseUrl); } catch { fail("invalid_source_config"); }

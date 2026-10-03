@@ -41,7 +41,7 @@ StructuredProfile = Literal[
     "seed-title-v1",
 ]
 SERVICE_ID = "cloudatlas-structured"
-PACKAGE_SHA256 = "037c6b10cc533946e625821152861db49440b39890e08ea0c7bfe90ad242b0a0"
+PACKAGE_SHA256 = "f77dfb022970efae0b18b35b970d7a9470f845028d343b44f55ffae9d57291c7"
 DESCRIPTOR_SHA256 = "8fc1ace9c01e4b2c4d48a8f49ec0affc269714a1d5d0c52c6a1f8aca37409a6a"
 FINGERPRINT_SCHEMA = "exposure-agent.cloudatlas-structured-fingerprint.v1"
 SCHEMA_PATH = Path(__file__).with_name("cloudatlas_structured.schema.json")

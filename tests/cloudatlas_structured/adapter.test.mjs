@@ -66,5 +66,8 @@ test("diagnostic budget and domain guard reject before any network access", asyn
   for (const extra of [{ page: 2 }, { size: 21 }, { maxResponseBytes: 4194305 }, { timeoutSeconds: 121 }, { diagnosticsOnly: "true" }]) {
     await assert.rejects(listPage({ request: { ...request, ...extra } }, "web"), /invalid_request/);
   }
-  await assert.rejects(listPage({ request }, "not-a-domain"), /invalid_request/);
+  for (const domain of ["not-a-domain", "__proto__", "constructor"]) {
+    await assert.rejects(listPage({ request }, domain), /invalid_request/);
+    assert.throws(() => normalizePage("{}", domain, 1, 20, "7"), /contract_failed/);
+  }
 });
