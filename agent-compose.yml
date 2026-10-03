@@ -68,6 +68,48 @@ agents:
       CLOUDATLAS_DNS_CAPSET_TOKEN:
         value: "${CLOUDATLAS_DNS_CAPSET_TOKEN}"
         secret: true
+      CLOUDATLAS_SUBDOMAIN_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_SUBDOMAIN_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_CERT_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_CERT_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_OPENPORT_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_OPENPORT_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_WEB_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_WEB_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_DIR_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_DIR_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_APPFINGER_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_APPFINGER_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_CRAWLER_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_CRAWLER_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_SEED_ENTERPRISE_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_SEED_ENTERPRISE_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_SEED_KEYWORD_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_SEED_KEYWORD_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_SEED_DOMAIN_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_SEED_DOMAIN_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_SEED_EMAIL_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_SEED_EMAIL_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_SEED_CERT_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_SEED_CERT_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_SEED_ICON_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_SEED_ICON_CAPSET_TOKEN}"
+        secret: true
+      CLOUDATLAS_SEED_TITLE_CAPSET_TOKEN:
+        value: "${CLOUDATLAS_SEED_TITLE_CAPSET_TOKEN}"
+        secret: true
       AGENT_COMPOSE_URL: http://agent-compose:7410
       AGENT_COMPOSE_AUTH_TOKEN:
         value: ${AGENT_COMPOSE_AUTH_TOKEN}

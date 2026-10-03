@@ -676,7 +676,7 @@ export type ExpectedGeneration = {
 };
 
 export type ExternalDomainPublic = {
-    domain: 'ip' | 'port' | 'root_domain' | 'dns';
+    domain: ('ip' | 'port' | 'root_domain' | 'dns' | 'subdomain' | 'cert' | 'openport' | 'web' | 'dir' | 'appfinger' | 'crawler' | 'seed_enterprise' | 'seed_keyword' | 'seed_domain' | 'seed_email' | 'seed_cert' | 'seed_icon' | 'seed_title');
     status: 'PENDING' | 'RUNNING' | 'PUBLISHED' | 'FAILED' | 'UNKNOWN';
     version_id: (string | null);
     record_count: number;
@@ -685,8 +685,6 @@ export type ExternalDomainPublic = {
     pages_read: (number | null);
     error_code: (string | null);
 };
-
-export type domain = 'ip' | 'port' | 'root_domain' | 'dns';
 
 export type status3 = 'PENDING' | 'RUNNING' | 'PUBLISHED' | 'FAILED' | 'UNKNOWN';
 
@@ -730,20 +728,18 @@ export type ExternalSelection = {
 };
 
 export type ExternalSourceCreate = {
-    capability_profile?: 'assets-v1' | 'root-domains-v1' | 'dns-v1';
+    capability_profile?: ('assets-v1' | 'root-domains-v1' | 'dns-v1' | 'subdomain-v1' | 'cert-v1' | 'openport-v1' | 'web-v1' | 'dir-v1' | 'appfinger-v1' | 'crawler-v1' | 'seed-enterprise-v1' | 'seed-keyword-v1' | 'seed-domain-v1' | 'seed-email-v1' | 'seed-cert-v1' | 'seed-icon-v1' | 'seed-title-v1');
     instance_id: string;
     capset_id: string;
     space_id: string;
 };
-
-export type capability_profile = 'assets-v1' | 'root-domains-v1' | 'dns-v1';
 
 export type ExternalSourcePublic = {
     id: string;
     instance_id: string;
     capset_id: string;
     space_id: string;
-    capability_profile: 'assets-v1' | 'root-domains-v1' | 'dns-v1';
+    capability_profile: ('assets-v1' | 'root-domains-v1' | 'dns-v1' | 'subdomain-v1' | 'cert-v1' | 'openport-v1' | 'web-v1' | 'dir-v1' | 'appfinger-v1' | 'crawler-v1' | 'seed-enterprise-v1' | 'seed-keyword-v1' | 'seed-domain-v1' | 'seed-email-v1' | 'seed-cert-v1' | 'seed-icon-v1' | 'seed-title-v1');
     enabled: boolean;
     data_access_enabled: boolean;
     validation_status: string;
@@ -796,11 +792,12 @@ export type ExternalSyncsPublic = {
 export type ExternalVersionPublic = {
     id: string;
     source_id: string;
-    domain: 'ip' | 'port' | 'root_domain' | 'dns';
+    domain: ('ip' | 'port' | 'root_domain' | 'dns' | 'subdomain' | 'cert' | 'openport' | 'web' | 'dir' | 'appfinger' | 'crawler' | 'seed_enterprise' | 'seed_keyword' | 'seed_domain' | 'seed_email' | 'seed_cert' | 'seed_icon' | 'seed_title');
     space_id: string;
     status: 'PUBLISHED' | 'EXPIRED';
     record_count: number;
     complete: boolean;
+    omitted_field_count?: (number | null);
     expected_total: (number | null);
     pages_read: (number | null);
     stop_reason: ('source_complete' | 'batch_limit' | null);
@@ -2323,7 +2320,7 @@ export type ExternalAssetsReconcileExternalSyncData = {
 export type ExternalAssetsReconcileExternalSyncResponse = (ExternalSyncPublic);
 
 export type ExternalAssetsReadExternalVersionsData = {
-    domain: 'ip' | 'port' | 'root_domain' | 'dns';
+    domain: ('ip' | 'port' | 'root_domain' | 'dns' | 'subdomain' | 'cert' | 'openport' | 'web' | 'dir' | 'appfinger' | 'crawler' | 'seed_enterprise' | 'seed_keyword' | 'seed_domain' | 'seed_email' | 'seed_cert' | 'seed_icon' | 'seed_title');
     limit?: number;
     projectId: string;
     skip?: number;
@@ -2334,11 +2331,18 @@ export type ExternalAssetsReadExternalVersionsData = {
 export type ExternalAssetsReadExternalVersionsResponse = (ExternalVersionsPublic);
 
 export type ExternalAssetsReadExternalRecordsData = {
-    domain: 'ip' | 'port' | 'root_domain' | 'dns';
+    confidence?: (string | null);
+    domain: ('ip' | 'port' | 'root_domain' | 'dns' | 'subdomain' | 'cert' | 'openport' | 'web' | 'dir' | 'appfinger' | 'crawler' | 'seed_enterprise' | 'seed_keyword' | 'seed_domain' | 'seed_email' | 'seed_cert' | 'seed_icon' | 'seed_title');
     ip?: (string | null);
     limit?: number;
+    md5Value?: (string | null);
+    mmh3Value?: (string | null);
     projectId: string;
+    q?: (string | null);
     rootDomain?: (string | null);
+    seedEnabled?: (boolean | null);
+    seedType?: (string | null);
+    sha256?: (string | null);
     skip?: number;
     sourceId: string;
     status?: (string | null);

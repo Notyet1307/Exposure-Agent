@@ -2171,3 +2171,102 @@ def test_lossless_external_record_guards_preserve_contracts_and_projections(
         assert connection.execute(
             "SELECT fields FROM external_asset_records WHERE id=%s", (record_id,)
         ).fetchone() == ({"nested": r"literal\u0000text"},)
+
+
+def test_structured_upgrade_preserves_nul_history_and_refuses_lossy_downgrade(
+    template_baseline_database: str,
+) -> None:
+    database = template_baseline_database
+    run_migration(database, "a9b8c7d6e5f5")
+    version_id, record_id = uuid.uuid4(), uuid.uuid4()
+    fields = {"status": "valid", "version": "A\x01%_\\\0\0B\x02", "banner": "kept\0raw"}
+    with connect(database) as connection:
+        connection.execute("ALTER TABLE external_asset_versions DISABLE TRIGGER ALL")
+        connection.execute("ALTER TABLE external_asset_records DISABLE TRIGGER ALL")
+        connection.execute(
+            "INSERT INTO external_asset_versions "
+            "(id,sync_id,source_id,domain,space_id,instance_id,capset_id,status,record_count,complete,filter,sort,fingerprint,retain_until) "
+            "VALUES(%s,%s,%s,'port','7','legacy','legacy','PUBLISHED',1,false,'{}'::jsonb,'-id','legacy',CURRENT_TIMESTAMP+interval '1 day')",
+            (version_id, uuid.uuid4(), uuid.uuid4()),
+        )
+        connection.execute(
+            "INSERT INTO external_asset_records(id,version_id,source_id,ip,canonical_ip,fields,status_segments) "
+            "VALUES(%s,%s,'1','192.0.2.1','192.0.2.1',%s::json,ARRAY['valid'])",
+            (record_id, version_id, json.dumps(fields)),
+        )
+        connection.execute("ALTER TABLE external_asset_records ENABLE TRIGGER ALL")
+        connection.execute("ALTER TABLE external_asset_versions ENABLE TRIGGER ALL")
+        connection.execute(
+            "ALTER TABLE external_asset_records ENABLE ALWAYS TRIGGER guard_external_record"
+        )
+        before: dict[str, str] = dict(
+            connection.execute(
+                "SELECT tgname,tgenabled FROM pg_trigger WHERE tgrelid='external_asset_records'::regclass"
+            ).fetchall()
+        )
+        connection.commit()
+    run_migration(database, "ca2810000001")
+    with connect(database) as connection:
+        assert connection.execute(
+            "SELECT fields,search_fields,status_segments FROM external_asset_records WHERE id=%s",
+            (record_id,),
+        ).fetchone() == (fields, {"version": fields["version"].split("\0")}, ["valid"])
+        assert connection.execute(
+            "SELECT status,record_count,omitted_field_count FROM external_asset_versions WHERE id=%s",
+            (version_id,),
+        ).fetchone() == ("PUBLISHED", 1, None)
+        after: dict[str, str] = dict(
+            connection.execute(
+                "SELECT tgname,tgenabled FROM pg_trigger WHERE tgrelid='external_asset_records'::regclass"
+            ).fetchall()
+        )
+        assert all(after[name] == mode for name, mode in before.items())
+        assert connection.execute(
+            "SELECT external_asset_segments_icontains(external_asset_search_segments(search_fields,'version'),%s::text[]) FROM external_asset_records WHERE id=%s",
+            (["%_\\", "", "b"], record_id),
+        ).fetchone() == (True,)
+    environment = os.environ.copy() | {"POSTGRES_DB": database}
+    downgraded = subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "a9b8c7d6e5f5"],
+        cwd=BACKEND_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert downgraded.returncode == 0, downgraded.stderr
+    with connect(database) as connection:
+        assert connection.execute(
+            "SELECT fields,status_segments FROM external_asset_records WHERE id=%s",
+            (record_id,),
+        ).fetchone() == (fields, ["valid"])
+    run_migration(database, "ca2810000001")
+    new_id = uuid.uuid4()
+    with connect(database) as connection:
+        connection.execute("ALTER TABLE external_asset_versions DISABLE TRIGGER ALL")
+        connection.execute(
+            "INSERT INTO external_asset_versions "
+            "(id,sync_id,source_id,domain,space_id,instance_id,capset_id,status,record_count,complete,filter,sort,fingerprint,retain_until) "
+            "VALUES(%s,%s,%s,'seed_keyword','7','new','new','FAILED',0,false,'{}'::jsonb,'-id','new',CURRENT_TIMESTAMP+interval '1 day')",
+            (new_id, uuid.uuid4(), uuid.uuid4()),
+        )
+        connection.execute("ALTER TABLE external_asset_versions ENABLE TRIGGER ALL")
+        connection.commit()
+    refused = subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "a9b8c7d6e5f5"],
+        cwd=BACKEND_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert (
+        refused.returncode != 0
+        and "Cannot downgrade while structured source or version history exists"
+        in refused.stderr
+    )
+    with connect(database) as connection:
+        assert connection.execute(
+            "SELECT domain,status FROM external_asset_versions WHERE id=%s", (new_id,)
+        ).fetchone() == ("seed_keyword", "FAILED")
+        assert connection.execute(
+            "SELECT fields FROM external_asset_records WHERE id=%s", (record_id,)
+        ).fetchone() == (fields,)

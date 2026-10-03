@@ -942,6 +942,13 @@ export class ExternalAssetsService {
      * @param data.rootDomain
      * @param data.subdomain
      * @param data.status
+     * @param data.q
+     * @param data.sha256
+     * @param data.md5Value
+     * @param data.mmh3Value
+     * @param data.seedEnabled
+     * @param data.confidence
+     * @param data.seedType
      * @param data.skip
      * @param data.limit
      * @returns ExternalRecordsPublic Successful Response
@@ -962,6 +969,13 @@ export class ExternalAssetsService {
                 root_domain: data.rootDomain,
                 subdomain: data.subdomain,
                 status: data.status,
+                q: data.q,
+                sha256: data.sha256,
+                md5_value: data.md5Value,
+                mmh3_value: data.mmh3Value,
+                seed_enabled: data.seedEnabled,
+                confidence: data.confidence,
+                seed_type: data.seedType,
                 skip: data.skip,
                 limit: data.limit
             },

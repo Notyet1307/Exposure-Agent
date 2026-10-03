@@ -9,6 +9,7 @@ from typing import Any, NoReturn
 from urllib.parse import urlsplit
 
 from app.domain import cloudatlas_assets_contract as contract
+from app.domain import cloudatlas_structured_contract as structured
 from app.domain.cloudatlas_sources import (
     CloudAtlasBoundaryError,
     CloudAtlasFingerprint,
@@ -131,6 +132,11 @@ def _project(value: Any, schema: Any, *, required: bool = False) -> Any:
 
 def normalize_items(items: Any, domain: str) -> list[dict[str, Any]]:
     """Validate normalized decimal identities and whitelist only the frozen fields."""
+    if domain in structured.DOMAINS:
+        try:
+            return structured.normalize_items(items, domain)
+        except ValueError, TypeError, UnicodeError:
+            _fail()
     if domain not in _FIELDS or not isinstance(items, list):
         _fail()
     result: list[dict[str, Any]] = []
@@ -322,6 +328,15 @@ class OctobusCloudAtlasAssetsClient(OctobusCloudAtlasClient):
             decoded = json.loads(text)
         except ValueError, RecursionError:
             _fail()
+        omitted = (
+            payload.get("omittedFieldCount", 0)
+            if domain in structured.DOMAINS
+            else None
+        )
+        if omitted is not None and (
+            type(omitted) is not int or not 0 <= omitted <= max_response_bytes
+        ):
+            _fail()
         items = normalize_items(decoded, domain)
         if len(items) > size or len(items) > total:
             _fail()
@@ -331,4 +346,5 @@ class OctobusCloudAtlasAssetsClient(OctobusCloudAtlasClient):
             "total": total,
             "space_id": source.space_id,
             "items": items,
+            **({"omitted_field_count": omitted} if omitted is not None else {}),
         }

@@ -29,5 +29,6 @@ COPY octobus/cloudatlas-read /opt/exposure-agent/service-packages/cloudatlas-rea
 COPY octobus/cloudatlas-assets /opt/exposure-agent/service-packages/cloudatlas-assets
 COPY octobus/cloudatlas-root-domains /opt/exposure-agent/service-packages/cloudatlas-root-domains
 COPY octobus/cloudatlas-dns /opt/exposure-agent/service-packages/cloudatlas-dns
+COPY octobus/cloudatlas-structured /opt/exposure-agent/service-packages/cloudatlas-structured
 
 ENTRYPOINT ["octobus"]

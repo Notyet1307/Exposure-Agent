@@ -1,0 +1,19 @@
+{
+  "schema": "chaitin.octobus.service.v1",
+  "name": "cloudatlas-structured",
+  "displayName": "CloudAtlas structured read-only records",
+  "description": "Fourteen fixed domains, one selected method per independent capability profile.",
+  "runtime": {
+    "mode": "on-demand"
+  },
+  "proto": {
+    "roots": [
+      "proto"
+    ],
+    "files": [
+      "proto/cloudatlas_structured.proto"
+    ]
+  },
+  "configSchema": "config.schema.json",
+  "secretSchema": "secret.schema.json"
+}

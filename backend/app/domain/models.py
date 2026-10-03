@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
+from app.domain import cloudatlas_structured_contract as structured
 from app.domain import external_asset_models as external_asset_models
 from app.domain import netflow_models as netflow_models
 
@@ -569,13 +570,20 @@ class SourceInstance(SQLModel, table=True):
     __tablename__: ClassVar[str] = "source_instances"
     __table_args__ = (
         CheckConstraint(
-            "source_type IN ('cloudatlas', 'cloudatlas_root_domains', 'cloudatlas_dns')",
+            "source_type IN ('cloudatlas', 'cloudatlas_root_domains', 'cloudatlas_dns',"
+            + ",".join(repr(value) for value in sorted(structured.SOURCE_TYPES))
+            + ")",
             name="ck_source_instances_type",
         ),
         CheckConstraint(
             "((source_type = 'cloudatlas' AND capability_profile IN ('legacy-ip-v1', 'assets-v1')) OR "
             "(source_type = 'cloudatlas_root_domains' AND capability_profile = 'root-domains-v1') OR "
-            "(source_type = 'cloudatlas_dns' AND capability_profile = 'dns-v1')) AND "
+            "(source_type = 'cloudatlas_dns' AND capability_profile = 'dns-v1') OR "
+            + " OR ".join(
+                f"(source_type = {value['source_type']!r} AND capability_profile = {value['profile']!r})"
+                for value in structured.DOMAINS.values()
+            )
+            + ") AND "
             "(capability_profile = 'legacy-ip-v1' OR space_id IS NOT NULL)",
             name="ck_source_instances_profile",
         ),

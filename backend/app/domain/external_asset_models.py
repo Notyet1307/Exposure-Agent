@@ -8,6 +8,7 @@ from pydantic import AwareDatetime, field_validator
 from pydantic import Field as PydanticField
 from sqlalchemy import (
     JSON,
+    BigInteger,
     CheckConstraint,
     Column,
     DateTime,
@@ -22,8 +23,23 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
+from app.domain import cloudatlas_structured_contract as structured
 
-Domain = Literal["ip", "port", "root_domain", "dns"]
+Domain = Literal["ip", "port", "root_domain", "dns"] | structured.StructuredDomain
+CapabilityProfile = (
+    Literal["assets-v1", "root-domains-v1", "dns-v1"] | structured.StructuredProfile
+)
+CAPABILITY_PROFILES = ("assets-v1", "root-domains-v1", "dns-v1", *structured.PROFILES)
+SOURCE_TYPES = {
+    "assets-v1": "cloudatlas",
+    "root-domains-v1": "cloudatlas_root_domains",
+    "dns-v1": "cloudatlas_dns",
+    **{
+        profile: structured.DOMAINS[domain]["source_type"]
+        for profile, domain in structured.PROFILES.items()
+    },
+}
+DOMAIN_VALUES = ("ip", "port", "root_domain", "dns", *structured.DOMAINS)
 SyncStatus = Literal[
     "PENDING",
     "RUNNING",
@@ -95,9 +111,13 @@ class ExternalAssetVersion(SQLModel, table=True):
             ondelete="RESTRICT",
         ),
         UniqueConstraint("sync_id", "domain", name="uq_external_version_domain"),
+        CheckConstraint(
+            "omitted_field_count IS NULL OR omitted_field_count >= 0",
+            name="ck_external_version_omitted_fields",
+        ),
         UniqueConstraint("id", "source_id", "domain", name="uq_external_version_scope"),
         CheckConstraint(
-            "domain IN ('ip','port','root_domain','dns')",
+            "domain IN (" + ",".join(repr(value) for value in DOMAIN_VALUES) + ")",
             name="ck_external_version_domain",
         ),
         CheckConstraint(
@@ -125,6 +145,9 @@ class ExternalAssetVersion(SQLModel, table=True):
     published_at: datetime | None = Field(default=None, sa_type=_TIME)
     retain_until: datetime = Field(sa_type=_TIME)
     error_code: str | None = Field(default=None, max_length=100)
+    omitted_field_count: int | None = Field(
+        default=None, sa_column=Column(BigInteger, nullable=True)
+    )
 
 
 class ExternalAssetRecord(SQLModel, table=True):
@@ -152,6 +175,8 @@ class ExternalAssetRecord(SQLModel, table=True):
     status_segments: list[str] | None = Field(
         default=None, sa_column=Column(ARRAY(Text), nullable=True)
     )
+    search_fields: dict[str, list[str]] = Field(default_factory=dict, sa_type=JSONB)
+    enable_value: bool | None = Field(default=None)
 
 
 def external_record_projections(fields: dict[str, Any]) -> dict[str, list[str] | None]:
@@ -175,6 +200,16 @@ def _project_external_record_text(
 ) -> None:
     for name, value in external_record_projections(record.fields).items():
         setattr(record, name, value)
+    record.search_fields = {
+        key: record.fields[key].split("\0")
+        for key in structured.SEARCH_FIELDS
+        if isinstance(record.fields.get(key), str)
+    }
+    record.enable_value = (
+        record.fields.get("enable")
+        if type(record.fields.get("enable")) is bool
+        else None
+    )
 
 
 class ExternalAssetHead(SQLModel, table=True):
@@ -197,7 +232,7 @@ class ExternalAssetHead(SQLModel, table=True):
 
 class ExternalSourceCreate(SQLModel):
     model_config = SQLModel.model_config | {"extra": "forbid"}
-    capability_profile: Literal["assets-v1", "root-domains-v1", "dns-v1"] = "assets-v1"
+    capability_profile: CapabilityProfile = "assets-v1"
     instance_id: str = Field(min_length=1, max_length=255)
     capset_id: str = Field(min_length=1, max_length=255)
     space_id: Annotated[
@@ -223,7 +258,7 @@ class ExternalSourcePublic(SQLModel):
     instance_id: str
     capset_id: str
     space_id: str
-    capability_profile: Literal["assets-v1", "root-domains-v1", "dns-v1"]
+    capability_profile: CapabilityProfile
     enabled: bool
     data_access_enabled: bool
     validation_status: str
@@ -286,6 +321,7 @@ class ExternalVersionPublic(SQLModel):
     status: Literal["PUBLISHED", "EXPIRED"]
     record_count: int
     complete: bool
+    omitted_field_count: int | None = None
     expected_total: int | None
     pages_read: int | None
     stop_reason: Literal["source_complete", "batch_limit"] | None

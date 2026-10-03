@@ -59,9 +59,7 @@ def read_external_sources(
         select(SourceInstance)
         .where(
             SourceInstance.project_id == project.id,
-            col(SourceInstance.capability_profile).in_(
-                ("assets-v1", "root-domains-v1", "dns-v1")
-            ),
+            col(SourceInstance.capability_profile).in_(m.CAPABILITY_PROFILES),
         )
         .order_by(col(SourceInstance.created_at).desc(), col(SourceInstance.id))
     ).all()
@@ -84,11 +82,7 @@ def create_external_source(
     source = SourceInstance(
         project_id=project.id,
         tenant_id=project.tenant_id,
-        source_type={
-            "assets-v1": "cloudatlas",
-            "root-domains-v1": "cloudatlas_root_domains",
-            "dns-v1": "cloudatlas_dns",
-        }[request.capability_profile],
+        source_type=m.SOURCE_TYPES[request.capability_profile],
         **request.model_dump(),
     )
     session.add(source)
@@ -330,6 +324,13 @@ def read_external_records(
     root_domain: Annotated[str | None, Query(max_length=1024)] = None,
     subdomain: Annotated[str | None, Query(max_length=1024)] = None,
     status: Annotated[str | None, Query(max_length=100)] = None,
+    q: Annotated[str | None, Query(max_length=1024)] = None,
+    sha256: Annotated[str | None, Query(max_length=256)] = None,
+    md5_value: Annotated[str | None, Query(max_length=256)] = None,
+    mmh3_value: Annotated[str | None, Query(max_length=256)] = None,
+    seed_enabled: bool | None = None,
+    confidence: Annotated[str | None, Query(max_length=100)] = None,
+    seed_type: Annotated[str | None, Query(max_length=100)] = None,
     skip: Skip = 0,
     limit: Limit = 25,
 ) -> m.ExternalRecordsPublic:
@@ -344,6 +345,13 @@ def read_external_records(
         root_domain=root_domain,
         subdomain=subdomain,
         status=status,
+        q=q,
+        sha256=sha256,
+        md5_value=md5_value,
+        mmh3_value=mmh3_value,
+        seed_enabled=seed_enabled,
+        confidence=confidence,
+        seed_type=seed_type,
         skip=skip,
         limit=limit,
     )

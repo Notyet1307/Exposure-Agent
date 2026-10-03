@@ -2768,8 +2768,16 @@ export const ExpectedGenerationSchema = {
 export const ExternalDomainPublicSchema = {
     properties: {
         domain: {
-            type: 'string',
-            enum: ['ip', 'port', 'root_domain', 'dns'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['ip', 'port', 'root_domain', 'dns']
+                },
+                {
+                    type: 'string',
+                    enum: ['subdomain', 'cert', 'openport', 'web', 'dir', 'appfinger', 'crawler', 'seed_enterprise', 'seed_keyword', 'seed_domain', 'seed_email', 'seed_cert', 'seed_icon', 'seed_title']
+                }
+            ],
             title: 'Domain'
         },
         status: {
@@ -3019,8 +3027,16 @@ export const ExternalSelectionSchema = {
 export const ExternalSourceCreateSchema = {
     properties: {
         capability_profile: {
-            type: 'string',
-            enum: ['assets-v1', 'root-domains-v1', 'dns-v1'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['assets-v1', 'root-domains-v1', 'dns-v1']
+                },
+                {
+                    type: 'string',
+                    enum: ['subdomain-v1', 'cert-v1', 'openport-v1', 'web-v1', 'dir-v1', 'appfinger-v1', 'crawler-v1', 'seed-enterprise-v1', 'seed-keyword-v1', 'seed-domain-v1', 'seed-email-v1', 'seed-cert-v1', 'seed-icon-v1', 'seed-title-v1']
+                }
+            ],
             title: 'Capability Profile',
             default: 'assets-v1'
         },
@@ -3070,8 +3086,16 @@ export const ExternalSourcePublicSchema = {
             title: 'Space Id'
         },
         capability_profile: {
-            type: 'string',
-            enum: ['assets-v1', 'root-domains-v1', 'dns-v1'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['assets-v1', 'root-domains-v1', 'dns-v1']
+                },
+                {
+                    type: 'string',
+                    enum: ['subdomain-v1', 'cert-v1', 'openport-v1', 'web-v1', 'dir-v1', 'appfinger-v1', 'crawler-v1', 'seed-enterprise-v1', 'seed-keyword-v1', 'seed-domain-v1', 'seed-email-v1', 'seed-cert-v1', 'seed-icon-v1', 'seed-title-v1']
+                }
+            ],
             title: 'Capability Profile'
         },
         enabled: {
@@ -3339,8 +3363,16 @@ export const ExternalVersionPublicSchema = {
             title: 'Source Id'
         },
         domain: {
-            type: 'string',
-            enum: ['ip', 'port', 'root_domain', 'dns'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['ip', 'port', 'root_domain', 'dns']
+                },
+                {
+                    type: 'string',
+                    enum: ['subdomain', 'cert', 'openport', 'web', 'dir', 'appfinger', 'crawler', 'seed_enterprise', 'seed_keyword', 'seed_domain', 'seed_email', 'seed_cert', 'seed_icon', 'seed_title']
+                }
+            ],
             title: 'Domain'
         },
         space_id: {
@@ -3359,6 +3391,17 @@ export const ExternalVersionPublicSchema = {
         complete: {
             type: 'boolean',
             title: 'Complete'
+        },
+        omitted_field_count: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Omitted Field Count'
         },
         expected_total: {
             anyOf: [

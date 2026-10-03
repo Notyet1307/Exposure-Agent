@@ -1,0 +1,105 @@
+{
+  "service_id": "cloudatlas-structured",
+  "package_sha256": "037c6b10cc533946e625821152861db49440b39890e08ea0c7bfe90ad242b0a0",
+  "descriptor_sha256": "8fc1ace9c01e4b2c4d48a8f49ec0affc269714a1d5d0c52c6a1f8aca37409a6a",
+  "profiles": {
+    "subdomain-v1": {
+      "domain": "subdomain",
+      "source_type": "cloudatlas_subdomain",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListSubdomains"
+      ]
+    },
+    "cert-v1": {
+      "domain": "cert",
+      "source_type": "cloudatlas_cert",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListCertificates"
+      ]
+    },
+    "openport-v1": {
+      "domain": "openport",
+      "source_type": "cloudatlas_openport",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListOpenPorts"
+      ]
+    },
+    "web-v1": {
+      "domain": "web",
+      "source_type": "cloudatlas_web",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListWebsites"
+      ]
+    },
+    "dir-v1": {
+      "domain": "dir",
+      "source_type": "cloudatlas_dir",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListWebPaths"
+      ]
+    },
+    "appfinger-v1": {
+      "domain": "appfinger",
+      "source_type": "cloudatlas_appfinger",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListWebFingerprints"
+      ]
+    },
+    "crawler-v1": {
+      "domain": "crawler",
+      "source_type": "cloudatlas_crawler",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListCrawlerRecords"
+      ]
+    },
+    "seed-enterprise-v1": {
+      "domain": "seed_enterprise",
+      "source_type": "cloudatlas_seed_enterprise",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListEnterpriseSeeds"
+      ]
+    },
+    "seed-keyword-v1": {
+      "domain": "seed_keyword",
+      "source_type": "cloudatlas_seed_keyword",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListKeywordSeeds"
+      ]
+    },
+    "seed-domain-v1": {
+      "domain": "seed_domain",
+      "source_type": "cloudatlas_seed_domain",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListDomainSeeds"
+      ]
+    },
+    "seed-email-v1": {
+      "domain": "seed_email",
+      "source_type": "cloudatlas_seed_email",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListEmailDomainSeeds"
+      ]
+    },
+    "seed-cert-v1": {
+      "domain": "seed_cert",
+      "source_type": "cloudatlas_seed_cert",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListCertificateSeeds"
+      ]
+    },
+    "seed-icon-v1": {
+      "domain": "seed_icon",
+      "source_type": "cloudatlas_seed_icon",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListIconSeeds"
+      ]
+    },
+    "seed-title-v1": {
+      "domain": "seed_title",
+      "source_type": "cloudatlas_seed_title",
+      "selected_methods": [
+        "cloudatlas.structured.v1.CloudAtlasStructuredService/ListWebTitleSeeds"
+      ]
+    }
+  }
+}
