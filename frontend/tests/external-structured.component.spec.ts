@@ -35,7 +35,7 @@ const sample = (shape: any, key = ""): any => {
     Object.entries(shape.properties).map(([k, v]) => [k, sample(v, k)]),
   )
 }
-async function serve(page: Page, domain: string) {
+async function serve(page: Page, domain: string, canManage = false) {
   const definition = contracts[domain],
     calls: URL[] = []
   const version = {
@@ -103,7 +103,7 @@ async function serve(page: Page, domain: string) {
             },
           ],
           count: 1,
-          can_manage: false,
+          can_manage: canManage,
         },
       })
     if (!url.pathname.includes("/external-assets/"))
@@ -167,6 +167,16 @@ for (const domain of Object.keys(contracts))
     )
     const details = page.getByRole("link", { name: /Details for/ }).first()
     await expect(details).toBeVisible()
+    if (domain.startsWith("seed_"))
+      await expect(page.getByText("enable=true", { exact: true })).toBeVisible()
+    if (domain === "openport")
+      await expect(
+        page.getByText("Source-default scope", { exact: true }),
+      ).toBeVisible()
+    if (domain === "dir")
+      await expect(
+        page.getByText(/^(status=valid · flat=1|flat=1 · status=valid)$/),
+      ).toBeVisible()
     await details.focus()
     await page.keyboard.press("Enter")
     const dialog = page.getByRole("dialog")
@@ -255,3 +265,27 @@ test("incompatible deep-link filters are removed before a new profile reads reco
   ).toBe(true)
   expect(new URL(page.url()).searchParams.has("external_sha256")).toBe(false)
 })
+
+for (const domain of ["openport", "seed_enterprise", "dir"])
+  test(`${domain}: manual authorization describes only its fixed type and budget`, async ({
+    page,
+  }) => {
+    await serve(page, domain, true)
+    await page.goto(
+      `${root}&external_domain=${domain}&external_version=${versionId}`,
+    )
+    await page.getByRole("button", { name: "Update data", exact: true }).click()
+    await expect(
+      page.getByText(/reserved for this one type, with at least one page/),
+    ).toBeVisible()
+    await expect(page.getByText(/Both domains start at page 1/)).toHaveCount(0)
+    if (domain.startsWith("seed_"))
+      await expect(page.getByText(/only; enable=true; sort=-id/)).toBeVisible()
+    if (domain === "openport")
+      await expect(
+        page.getByText(/source-default scope; no status filter/),
+      ).toBeVisible()
+    await expect(
+      page.getByLabel("Maximum pages", { exact: true }),
+    ).toHaveAttribute("min", "1")
+  })

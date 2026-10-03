@@ -2918,11 +2918,10 @@ function SourceAssets({
                       {source.instance_id} / {source.space_id}
                     </span>
                     <span>
-                      {domain === "port"
-                        ? t("Source-default scope", "来源默认范围")
-                        : domain === "dns"
-                          ? "flat=1 · status=valid"
-                          : "status=valid"}
+                      {Object.entries(recordData.version.filter)
+                        .map(([key, value]) => `${key}=${String(value)}`)
+                        .join(" · ") ||
+                        t("Source-default scope", "来源默认范围")}
                     </span>
                     <span>
                       {recordData.version.complete
@@ -2953,6 +2952,15 @@ function SourceAssets({
                       {t("More scopes / versions", "更多范围 / 版本")}
                     </Button>
                   </div>
+                  {recordData.version.omitted_field_count != null &&
+                    recordData.version.omitted_field_count > 0 && (
+                      <p className="text-muted-foreground">
+                        {t(
+                          `Fields outside this contract were not saved (occurrences: ${recordData.version.omitted_field_count}). See the fixed version for coverage details.`,
+                          `未保存的合同外字段出现次数：${recordData.version.omitted_field_count}。字段覆盖范围见固定版本详情。`,
+                        )}
+                      </p>
+                    )}
                   <details>
                     <summary className="cursor-pointer text-muted-foreground">
                       {t(
@@ -3404,20 +3412,25 @@ function SourceAssets({
                         {t("Manual synchronization", "手动同步")}
                       </h2>
                       <p className="text-sm text-muted-foreground">
-                        {dnsRecords
+                        {structuredFields[domain]
                           ? t(
-                              "Explicit authorization required: DNS records only, flat=1, status=valid, sort=-id. Read serially from page 1; capacity = min(maximum pages, floor(maximum records / page size)), with at least one page. Normal quota completion publishes a partial batch. Anomalies stop calls; no retries, continuation, parsing, asset linking, or other-domain reads. Retention applies only to this new read.",
-                              "需显式授权：仅 DNS 记录，flat=1、status=valid、sort=-id。从第 1 页串行读取；容量 = min(最大页数, floor(最大记录数 / 每页条数))，至少一页。正常到额发布部分批次；异常停止，不重试、不续拉、不解析、不关联资产、不读取其他域。保留截止仅适用于本次新增读取。",
+                              `Explicit authorization required: ${domainTitle(domain, t)} only; ${domain.startsWith("seed_") ? "enable=true" : domain === "openport" ? "source-default scope; no status filter" : domain === "dir" ? "flat=1, status=valid" : "status=valid"}; sort=-id. Read serially from page 1. Capacity = min(maximum pages, floor(maximum records / page size)), reserved for this one type, with at least one page. Normal quota completion publishes a partial batch. Anomalies stop calls; no retries, continuation or other-type reads. Retention applies only to this new read.`,
+                              `需显式授权：仅${domainTitle(domain, t)}；${domain.startsWith("seed_") ? "enable=true" : domain === "openport" ? "来源默认范围，不添加状态过滤" : domain === "dir" ? "flat=1、status=valid" : "status=valid"}；sort=-id。从第 1 页串行读取。容量 = min(最大页数, floor(最大记录数 / 每页条数))，全部留给该类型，至少一页。正常到额发布部分批次；异常停止，不重试、不续拉、不读取其他类型。保留截止仅适用于本次新增读取。`,
                             )
-                          : rootDomains
+                          : dnsRecords
                             ? t(
-                                "Explicit authorization required: root domains only, status=valid, sort=-id. Start at page 1 and read serially. Capacity = min(maximum pages, floor(maximum records / page size)), entirely reserved for root domains, with at least one page. Normal quota completion publishes a clearly partial batch; a complete version requires the entire requested range. Any anomaly stops source calls; no retries, continuation, cross-batch merging, or IP/port reads. Retention applies only to this new read.",
-                                "需显式授权：仅主域名，过滤 status=valid，排序 -id。从第 1 页串行读取。容量 = min(最大页数, floor(最大记录数 / 每页条数))，全部属于主域名且至少一页。正常到额可发布明确标识的部分批次；读完请求范围才是完整版本。异常停止来源调用，不重试、不续拉、不跨批次合并、不读取 IP 或端口；保留截止仅适用于本次新增读取。",
+                                "Explicit authorization required: DNS records only, flat=1, status=valid, sort=-id. Read serially from page 1; capacity = min(maximum pages, floor(maximum records / page size)), with at least one page. Normal quota completion publishes a partial batch. Anomalies stop calls; no retries, continuation, parsing, asset linking, or other-domain reads. Retention applies only to this new read.",
+                                "需显式授权：仅 DNS 记录，flat=1、status=valid、sort=-id。从第 1 页串行读取；容量 = min(最大页数, floor(最大记录数 / 每页条数))，至少一页。正常到额发布部分批次；异常停止，不重试、不续拉、不解析、不关联资产、不读取其他域。保留截止仅适用于本次新增读取。",
                               )
-                            : t(
-                                "Explicit authorization required: IP status=valid; ports use source-default filtering; sort=-id. Both domains start at page 1, alternate serially, and reserve at least one page each. Capacity = min(maximum pages, floor(maximum records / page size)); IP gets the rounded-up half and ports the rounded-down half, with no borrowing. Normal quota completion publishes a clearly partial batch. Any anomaly stops further source calls; no automatic retries or cross-batch merging. Retention applies only to this new read.",
-                                "需显式授权：IP 过滤 status=valid；端口采用来源默认过滤；排序 -id。两域均从第 1 页串行轮转，各预留至少一页。容量 = min(最大页数, floor(最大记录数 / 每页条数))；IP 取上半数、端口取下半数，余量不借用。正常达到配额可发布明确标识的部分批次。异常立即停止后续来源调用，不自动重试、不跨批次合并；保留截止仅适用于本次新增读取。",
-                              )}
+                            : rootDomains
+                              ? t(
+                                  "Explicit authorization required: root domains only, status=valid, sort=-id. Start at page 1 and read serially. Capacity = min(maximum pages, floor(maximum records / page size)), entirely reserved for root domains, with at least one page. Normal quota completion publishes a clearly partial batch; a complete version requires the entire requested range. Any anomaly stops source calls; no retries, continuation, cross-batch merging, or IP/port reads. Retention applies only to this new read.",
+                                  "需显式授权：仅主域名，过滤 status=valid，排序 -id。从第 1 页串行读取。容量 = min(最大页数, floor(最大记录数 / 每页条数))，全部属于主域名且至少一页。正常到额可发布明确标识的部分批次；读完请求范围才是完整版本。异常停止来源调用，不重试、不续拉、不跨批次合并、不读取 IP 或端口；保留截止仅适用于本次新增读取。",
+                                )
+                              : t(
+                                  "Explicit authorization required: IP status=valid; ports use source-default filtering; sort=-id. Both domains start at page 1, alternate serially, and reserve at least one page each. Capacity = min(maximum pages, floor(maximum records / page size)); IP gets the rounded-up half and ports the rounded-down half, with no borrowing. Normal quota completion publishes a clearly partial batch. Any anomaly stops further source calls; no automatic retries or cross-batch merging. Retention applies only to this new read.",
+                                  "需显式授权：IP 过滤 status=valid；端口采用来源默认过滤；排序 -id。两域均从第 1 页串行轮转，各预留至少一页。容量 = min(最大页数, floor(最大记录数 / 每页条数))；IP 取上半数、端口取下半数，余量不借用。正常达到配额可发布明确标识的部分批次。异常立即停止后续来源调用，不自动重试、不跨批次合并；保留截止仅适用于本次新增读取。",
+                                )}
                       </p>
                       {!canManage && (
                         <p>
