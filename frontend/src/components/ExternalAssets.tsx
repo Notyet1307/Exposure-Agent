@@ -338,6 +338,120 @@ const names = (value: unknown) =>
     ? value.map((item) => property(item, "name"))
     : property(value, "name")
 
+const structuredFields: Record<string, string[]> = {
+  subdomain: ["subdomain", "source_name", "reason", "status"],
+  cert: [
+    "cn_name",
+    "o_name",
+    "ou_name",
+    "email_name",
+    "subject",
+    "issuer",
+    "serial_number",
+    "sha256",
+    "sha1",
+    "md5",
+    "start_date",
+    "end_date",
+    "trusted",
+    "sources",
+    "status",
+  ],
+  openport: ["ip", "port", "protocol"],
+  web: [
+    "url",
+    "scheme",
+    "hostname",
+    "netloc",
+    "port",
+    "ip",
+    "entity",
+    "bu",
+    "tags",
+    "status",
+  ],
+  dir: [
+    "url",
+    "path",
+    "scheme",
+    "hostname",
+    "netloc",
+    "port",
+    "ip",
+    "ip_info",
+    "bu",
+    "tags",
+    "apps",
+    "level",
+    "status",
+    "status_code",
+    "title",
+    "render_title",
+    "server",
+    "x_powered_by",
+    "location",
+    "content_type",
+    "content_lines",
+    "content_words",
+    "content_length",
+    "body_md5_hash",
+    "icon_url",
+    "icon_mmh3_hash",
+    "icon_md5_hash",
+    "isadmin",
+    "screenshot_link",
+  ],
+  appfinger: [
+    "url",
+    "scheme",
+    "hostname",
+    "netloc",
+    "path",
+    "port",
+    "product_name",
+    "product_uuid",
+    "vendor",
+    "vendor_uuid",
+    "version",
+    "cpe",
+    "bu",
+    "tags",
+    "status",
+  ],
+  crawler: [
+    "target",
+    "hostname",
+    "uri",
+    "path",
+    "method",
+    "request_type",
+    "source",
+    "status",
+  ],
+  seed_enterprise: [
+    "name",
+    "credit_code",
+    "legal_person",
+    "reg_capital",
+    "reg_date",
+    "address",
+    "industry",
+    "scope",
+    "status",
+    "enable",
+    "confidence",
+    "equity",
+    "investment_path",
+    "is_history",
+  ],
+  seed_keyword: ["name", "type", "enable", "confidence"],
+  seed_domain: ["name", "type", "enable", "confidence"],
+  seed_email: ["name", "enable", "confidence"],
+  seed_cert: ["name", "type", "enable", "confidence"],
+  seed_icon: ["icon_url", "md5_value", "mmh3_value", "enable", "confidence"],
+  seed_title: ["name", "type", "enable", "confidence"],
+}
+
 function RecordFields({
   record,
   domain,
@@ -346,8 +460,14 @@ function RecordFields({
   domain: string
 }) {
   const { t } = useI18n()
-  const groups: [string, string[]][] =
-    domain === "dns"
+  const groups: [string, string[]][] = structuredFields[domain]
+    ? [
+        [
+          t("Structured source fields", "结构化来源字段"),
+          structuredFields[domain],
+        ],
+      ]
+    : domain === "dns"
       ? [
           [
             t("DNS record", "解析记录"),
@@ -484,7 +604,7 @@ function RecordFields({
                 key={field}
               >
                 <dt className="mb-1 text-sm text-muted-foreground">
-                  {labels[field]}
+                  {labels[field] ?? field}
                 </dt>
                 <dd className="min-w-0 text-sm">
                   {field === "sources" &&
