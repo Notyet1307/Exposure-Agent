@@ -35,9 +35,9 @@
 | 子域名情报 | `/v1/asset/subdomain` | `status=valid` | 与 DNS 独立；source_name/reason 是来源声明，不建立推测关系 |
 | 证书 | `/v1/asset/cert` | `status=valid` | 保留源 trusted 与指纹；不把它解释为本地信任验证，不获取证书本体 |
 | 开放端口 | `/v1/attack/openport` | 不添加不存在的 status | 与端口服务独立；IP、端口、协议分列，不宣称公网可达 |
-| 网站实体 | `/v1/attack/web` | `status=valid` | URL 只读文本；entity 不作为已证实的跨域外键；bu 类型须核验 |
+| 网站实体 | `/v1/attack/web` | `status=valid` | URL 只读文本；entity 不作为已证实的跨域外键；bu 按 E15 固定为 id/name 对象 |
 | 网站路径 | `/v1/attack/dir` | `status=valid, flat="1"` | 不启用有声明冲突的日期过滤；ip_info 的缺失子项保留；附件另见下节 |
-| 网站指纹 | `/v1/attack/appfinger` | `status=valid` | 产品 UUID、CPE 与网站记录身份分开；bu 类型须核验 |
+| 网站指纹 | `/v1/attack/appfinger` | `status=valid` | 产品 UUID、CPE 与网站记录身份分开；bu 按 E15 固定为 id/name 对象 |
 | 爬虫数据 | `/v1/attack/crawler` | `status=valid` | id 为最低记录身份要求；其余缺失字段不补造；headers/data 单独决策 |
 | 企业主体种子 | `/v1/seed/enterprise` | `enable=true` | equity/investment_path/is_history 为源声明；不推导公司控制关系或资产归属 |
 | 关键词种子 | `/v1/seed/keyword` | `enable=true` | name/type/confidence 是发现输入，不执行发现任务 |
@@ -72,10 +72,10 @@
 1. 记录身份固定为项目、来源、空间、能力合同、域、版本及源 ID。源整数 ID 无损转为十进制字符串；不经 JavaScript 浮点数舍入。源 ID 只表示版本内身份，不承诺跨批次稳定性。`space` 在 openport/dir/seed 的公开声明为 integer，在其他新增类型为 string；本地始终固定十进制字符串，并原字面值编码为 HTTP query，禁止经 JavaScript Number 转换。即使来源把 space 标为可选，Exposure 也必须显式传入被批准的空间。
 2. 有明确 required/nullable 的字段，按上述固定 schema 校验；本片排除的 crawler headers/data 在边界适配后即丢弃，不形成未知字段错误。crawler 和关键词／域名 WHOIS／邮箱域名／证书信息／图标／网站标题六种 seed 列表未声明 required：要求 id 必填以支撑分页去重，其余缺失保持 missing；字段存在时仍须符合声明类型。enterprise 列表有 required，不纳入这条例外。未经明确 nullable 的 null 不自动接受。以上是本地消费者规则，不是来源对字段必填的承诺。
 3. 空字符串、空数组、null、missing、false、0 分别保存和展示。不得通过默认值、删坏行、字符串／对象任意联合或整包响应落库掩盖合同错误。
-4. 未知额外字段仅保留脱敏数量／结构差额，不保存未知值或未知字段名。类型冲突停止未封存版本，只输出固定脱敏错误码、已批准字段名／类型类别及差额数量，不能将真实值写入 Git、Issue、模型或普通日志。
-5. `web/dir/appfinger` 的公开 bu 声明与已知其他域现场形状可能不同。新合同不得沿用“字符串也行、对象也行”的宽松回退。先按下述仅输出结构的有界诊断核对，不把取值带入模型；在真实 shape 与精确校验器写入同版矩阵和合成 fixture 前，这三个类型不得发布本地业务版本。其他合同完整的类型不被它们阻塞。
+4. 未知额外字段仅保留脱敏数量／结构差额，不保存未知值或未知字段名。每个新版本累积 `omitted_field_count`（未知字段出现次数，不是去重字段数）；旧版本未采集时为 null。页面同时显示字段覆盖限制，不把分页完整当所有源字段都已保存。类型冲突停止未封存版本，只输出固定脱敏错误码、已批准字段名／类型类别及差额数量，不能将真实值写入 Git、Issue、模型或普通日志。
+5. `web/dir/appfinger` 的 bu 按 E15 单页类型诊断修正为必填对象，恰消费 `id`（源 integer 无损转十进制字符串）和 `name`（string），二者必填；不接受 string/object 联合或用空字符串回退。诊断各 20 条均呈该结构，未知子字段仍只计数。该结构与对应合成 fixture 一起固定后，才允许业务版本发布；任何后续形状漂移停止对应域。
 6. 时间保留源原文及未知时区标记，不自行换算、不增加日期范围查询。链接作为转义文本展示，不自动访问客户网站、不执行 HTML、脚本或实时 DNS。
-7. 精确空值例外：dir 的 `icon_md5_hash / icon_mmh3_hash / icon_url / screenshot_link` 可 null；icon seed 的 `icon_url / md5_value / mmh3_value` 可 null。dir 的 ip_info 子项没有 required 声明，缺项保持 missing。cert 的 sources 子项必须有 source/reason/factor；web/dir/appfinger 的 tags 子项必须有 pk/name；dir 的 apps 子项必须有 product_uuid/vendor_uuid/product_name/vendor_name/cpe/version/created_at/updated_at/lastseen_at。其他嵌套类型仍按同版矩阵与固定 schema，不以此清单放宽字段类型。
+7. 精确空值例外：dir 的 `icon_md5_hash / icon_mmh3_hash / icon_url / screenshot_link` 可 null；E15 明确增加 `render_title / server / x_powered_by` 三个 string-or-null 字段（均仍必填），各在 20 条样本中实见 1 个 null，其他字符串不得类推放宽；icon seed 的 `icon_url / md5_value / mmh3_value` 可 null。dir 的 ip_info 子项没有 required 声明，缺项保持 missing。cert 的 sources 子项必须有 source/reason/factor；web/dir/appfinger 的 tags 子项必须有 pk/name；dir 的 apps 子项必须有 product_uuid/vendor_uuid/product_name/vendor_name/cpe/version/created_at/updated_at/lastseen_at。其他嵌套类型仍按同版矩阵与固定 schema，不以此清单放宽字段类型。
 8. 同版矩阵中的响应包裹规则同样必须校验：`code / message / data.current / data.size / data.total / data.items`，不能只验证单条字段。版本身份还必须固定实际 `status / enable / flat / sort`、读取范围和预算；请求总量与记录身份不得因缺省参数而漂移。
 
 ## 能力身份和调用边界
