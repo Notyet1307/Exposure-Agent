@@ -337,6 +337,11 @@ class Run(_base.Run):
                     assert rows["version"]["filter"] == definition["filters"]
                     if mode == "complete":
                         complete_version = version
+                        first = self.records(source, domain, version, limit=1, skip=0)
+                        second = self.records(source, domain, version, limit=1, skip=1)
+                        assert first["count"] == second["count"] == 2
+                        assert len(first["data"]) == len(second["data"]) == 1
+                        assert first["data"][0]["id"] != second["data"][0]["id"]
                         ids = {row["source_id"] for row in rows["data"]}
                         assert ids == {"900719925474099312345", "900719925474099312346"}
                         for row in rows["data"]:
@@ -345,11 +350,7 @@ class Run(_base.Run):
                                 & row["fields"].keys()
                             )
                             detail = self.api(
-                                path
-                                + "/records/"
-                                + row["id"]
-                                + "?"
-                                + urllib.parse.urlencode({"version_id": version})
+                                path + "/versions/" + version + "/records/" + row["id"]
                             )
                             assert detail["record"]["fields"] == row["fields"]
                         if definition["text_fields"]:
