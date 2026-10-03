@@ -74,6 +74,7 @@ class Run(_base.Run):
             OCTOBUS_URL=f"http://host.docker.internal:{v['OCTOBUS_PORT']}",
             AGENT_COMPOSE_PROJECT_NAME="nf-usability",
             RUNNER_BUILD_VERSION=self.sha,
+            NETFLOW_MAX_BYTES=self.v["NETFLOW_MAX_BYTES"],
         )
         protected = {
             key: {"value": value, "secret": True}
@@ -287,16 +288,16 @@ class Run(_base.Run):
                     )
                 deadline = time.monotonic() + 120
                 while (
-                    task["status"]
-                    in (
-                        ("PENDING", "RUNNING", "UNKNOWN")
-                        if mode == "unknown_recovery"
-                        else ("PENDING", "RUNNING")
-                    )
+                    task["status"] in ("PENDING", "RUNNING", "UNKNOWN")
                     and time.monotonic() < deadline
                 ):
-                    time.sleep(0.3)
+                    time.sleep(0.5)
                     task = self.api(path + "/syncs/" + task["id"])
+                    if task["status"] == "UNKNOWN":
+                        # Inspect only the original session; this never retries an upstream page.
+                        task = self.api(
+                            path + "/syncs/" + task["id"] + "/reconcile", "POST"
+                        )
                 if task["status"] in ("PENDING", "RUNNING", "UNKNOWN"):
                     raise RuntimeError(
                         f"{domain}/{mode}: unresolved original task {task['id']}; no retry"
@@ -457,7 +458,15 @@ def main():
         raise SystemExit(
             "Commit the candidate first; this acceptance requires a clean checkout"
         )
-    return Run(args.repo, args.evidence, args.keep, args.skip_build).execute()
+    result = Run(args.repo, args.evidence, args.keep, args.skip_build).execute()
+    if result == 0 and args.keep:
+        print(
+            "STACK_READY: isolated API/UI retained for browser acceptance; interrupt after verification.",
+            flush=True,
+        )
+        while True:
+            time.sleep(30)
+    return result
 
 
 if __name__ == "__main__":
