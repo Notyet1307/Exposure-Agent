@@ -28,6 +28,31 @@ const syncedKeys = [
   "external_task",
 ] as const
 const text = (value: unknown) => (typeof value === "string" ? value : undefined)
+export const externalDomains = [
+  "ip",
+  "port",
+  "root_domain",
+  "dns",
+  "subdomain",
+  "cert",
+  "openport",
+  "web",
+  "dir",
+  "appfinger",
+  "crawler",
+  "seed_enterprise",
+  "seed_keyword",
+  "seed_domain",
+  "seed_email",
+  "seed_cert",
+  "seed_icon",
+  "seed_title",
+] as const
+export type ExternalDomain = (typeof externalDomains)[number]
+const externalDomain = (value: unknown): ExternalDomain =>
+  externalDomains.includes(value as ExternalDomain)
+    ? (value as ExternalDomain)
+    : "ip"
 const number = (value: unknown) =>
   value !== undefined &&
   value !== "" &&
@@ -57,14 +82,7 @@ export function syncedAssetSearch(s: Record<string, unknown>) {
   return {
     asset_view: "synced" as const,
     external_source: text(s.external_source) || undefined,
-    external_domain:
-      s.external_domain === "dns"
-        ? ("dns" as const)
-        : s.external_domain === "root_domain"
-          ? ("root_domain" as const)
-          : s.external_domain === "port"
-            ? ("port" as const)
-            : ("ip" as const),
+    external_domain: externalDomain(s.external_domain),
     external_version: text(s.external_version) || undefined,
     external_record: text(s.external_record) || undefined,
     external_record_version: text(s.external_record_version) || undefined,
@@ -92,7 +110,7 @@ export type AssetSearch = {
   customer_page?: number
   profile_cloud_page?: number
   external_source?: string
-  external_domain?: "ip" | "port" | "root_domain" | "dns"
+  external_domain?: ExternalDomain
   external_version?: string
   external_record?: string
   external_record_version?: string

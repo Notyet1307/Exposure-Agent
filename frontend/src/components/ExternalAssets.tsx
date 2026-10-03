@@ -34,7 +34,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import useAuth from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
-import { syncedAssetSearch } from "@/lib/assetSearch"
+import { externalDomains, syncedAssetSearch } from "@/lib/assetSearch"
 import { useI18n } from "@/lib/i18n"
 
 const SIZE = 25
@@ -43,16 +43,33 @@ const selectClass =
 const panelClass =
   "left-auto right-0 top-0 h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:rounded-none motion-reduce:animate-none [&>div:first-child]:px-4 [&>div:first-child]:pt-3 [&>div:first-child]:pr-12"
 type Domain = ExternalVersionPublic["domain"]
-const domains: Domain[] = ["ip", "port", "root_domain", "dns"]
+const domains: readonly Domain[] = externalDomains
 
+const profileDomains: Record<
+  ExternalSourcePublic["capability_profile"],
+  Domain
+> = {
+  "assets-v1": "ip",
+  "root-domains-v1": "root_domain",
+  "dns-v1": "dns",
+  "subdomain-v1": "subdomain",
+  "cert-v1": "cert",
+  "openport-v1": "openport",
+  "web-v1": "web",
+  "dir-v1": "dir",
+  "appfinger-v1": "appfinger",
+  "crawler-v1": "crawler",
+  "seed-enterprise-v1": "seed_enterprise",
+  "seed-keyword-v1": "seed_keyword",
+  "seed-domain-v1": "seed_domain",
+  "seed-email-v1": "seed_email",
+  "seed-cert-v1": "seed_cert",
+  "seed-icon-v1": "seed_icon",
+  "seed-title-v1": "seed_title",
+}
 const sourceDomain = (
   profile: ExternalSourcePublic["capability_profile"] | undefined,
-) =>
-  profile === "dns-v1"
-    ? "dns"
-    : profile === "root-domains-v1"
-      ? "root_domain"
-      : "ip"
+): Domain => (profile ? profileDomains[profile] : "ip")
 
 const supportsDomain = (source: ExternalSourcePublic, domain: Domain) =>
   sourceDomain(source.capability_profile) === domain ||
@@ -96,13 +113,13 @@ const categories = [
     en: "Discovery seeds (read only)",
     zh: "发现种子（只读）",
     items: [
-      ["seed-enterprise", "Enterprises", "企业主体"],
-      ["seed-keyword", "Keywords", "关键词"],
-      ["seed-domain", "Domain WHOIS", "域名 WHOIS"],
-      ["seed-email", "Email domains", "邮箱域名"],
-      ["seed-cert", "Certificate information", "证书信息"],
-      ["seed-icon", "Website icons", "网站图标"],
-      ["seed-title", "Website titles", "网站标题"],
+      ["seed_enterprise", "Enterprises", "企业主体"],
+      ["seed_keyword", "Keywords", "关键词"],
+      ["seed_domain", "Domain WHOIS", "域名 WHOIS"],
+      ["seed_email", "Email domains", "邮箱域名"],
+      ["seed_cert", "Certificate information", "证书信息"],
+      ["seed_icon", "Website icons", "网站图标"],
+      ["seed_title", "Website titles", "网站标题"],
     ],
   },
 ] as const
@@ -619,6 +636,14 @@ function VersionInfo({ version }: { version: ExternalVersionPublic }) {
             ? t("Full requested range", "请求范围完整")
             : t("Partial batch", "部分批次")}
           {" · "}
+          {version.omitted_field_count && version.omitted_field_count > 0 && (
+            <p className="text-sm text-muted-foreground">
+              {t(
+                "Contract-external fields were not saved.",
+                "合同外字段未保存。",
+              )}
+            </p>
+          )}
           {version.record_count} /{" "}
           {version.expected_total ?? t("unknown", "未知")}{" "}
           {t(
