@@ -23,6 +23,13 @@ const syncedKeys = [
   "external_root_domain",
   "external_subdomain",
   "external_status",
+  "external_q",
+  "external_sha256",
+  "external_md5_value",
+  "external_mmh3_value",
+  "external_seed_enabled",
+  "external_confidence",
+  "external_seed_type",
   "external_page",
   "external_match_page",
   "external_task",
@@ -49,10 +56,10 @@ export const externalDomains = [
   "seed_title",
 ] as const
 export type ExternalDomain = (typeof externalDomains)[number]
-const externalDomain = (value: unknown): ExternalDomain =>
+const externalDomain = (value: unknown): ExternalDomain | undefined =>
   externalDomains.includes(value as ExternalDomain)
     ? (value as ExternalDomain)
-    : "ip"
+    : undefined
 const number = (value: unknown) =>
   value !== undefined &&
   value !== "" &&
@@ -82,7 +89,7 @@ export function syncedAssetSearch(s: Record<string, unknown>) {
   return {
     asset_view: "synced" as const,
     external_source: text(s.external_source) || undefined,
-    external_domain: externalDomain(s.external_domain),
+    external_domain: externalDomain(s.external_domain) ?? "ip",
     external_version: text(s.external_version) || undefined,
     external_record: text(s.external_record) || undefined,
     external_record_version: text(s.external_record_version) || undefined,
@@ -96,9 +103,10 @@ export function syncedAssetSearch(s: Record<string, unknown>) {
     external_md5_value: text(s.external_md5_value) || undefined,
     external_mmh3_value: text(s.external_mmh3_value) || undefined,
     external_seed_enabled:
-      s.external_seed_enabled === "true"
+      s.external_seed_enabled === true || s.external_seed_enabled === "true"
         ? true
-        : s.external_seed_enabled === "false"
+        : s.external_seed_enabled === false ||
+            s.external_seed_enabled === "false"
           ? false
           : undefined,
     external_confidence: text(s.external_confidence) || undefined,
@@ -148,6 +156,15 @@ export type AssetSearch = {
 export function validateAssetSearch(s: Record<string, unknown>): AssetSearch {
   const history = historyKeys.some((key) => s[key] !== undefined)
   const synced = syncedKeys.some((key) => s[key] !== undefined)
+  if (s.external_domain !== undefined && !externalDomain(s.external_domain))
+    return { asset_error: "invalid" }
+  if (
+    s.external_seed_enabled !== undefined &&
+    ![true, false, "true", "false"].includes(
+      s.external_seed_enabled as boolean | string,
+    )
+  )
+    return { asset_error: "invalid" }
   if (
     s.asset_view !== undefined &&
     s.asset_view !== "synced" &&

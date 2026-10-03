@@ -1532,7 +1532,7 @@ function SourceAssets({
     (rootDomains || !search.external_root_domain) &&
     (dnsRecords || !search.external_subdomain) &&
     (!singleDomain ||
-      (!search.external_ip &&
+      ((addressDomain || !search.external_ip) &&
         !search.external_port_version &&
         search.external_match_page === 0))
   const navigate = Route.useNavigate()
