@@ -52,6 +52,8 @@
 
 确定性事实由 Python、SQL 和 PostgreSQL 约束生成。agent-compose 的运行结果不等于 GovernanceRun 完成；业务状态始终以 PostgreSQL 为准。
 
+CloudAtlas 已批准字段使用 PostgreSQL JSON 无损保存，包括合法字符串中的 NUL。现有域名、子域名和状态检索使用从同一原文派生的 NUL 分段投影；数据库核对投影与原文一致，权限、版本、字段校验和发布约束不变。原文不在 SQL 中转换为 JSONB，因此不因其他字段含 NUL 而破坏检索。已有记录通过新增迁移回填；存在真实 NUL 时拒绝降回 JSONB，不删字符或记录来强行回退。
+
 ## 当前安全与失败边界
 
 - CustomerUpload 先执行有界 ZIP/OOXML 预检，再使用固定 parser 只读解析；公式、主动内容、异常 worksheet 和资源越界均拒绝。

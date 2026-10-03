@@ -2011,3 +2011,163 @@ def test_dns_bu_guard_upgrade_and_empty_database_downgrade(
     assert accepts(legacy) and not accepts(row)
     run_migration(database, "ce56f7081923")
     assert accepts(row) and not accepts(legacy)
+
+
+def test_lossless_external_record_guards_preserve_contracts_and_projections(
+    template_baseline_database: str,
+) -> None:
+    """NUL-safe validation keeps the old root/DNS contracts intact."""
+    from tests.integrations.test_cloudatlas_dns import dns_row
+    from tests.integrations.test_cloudatlas_root_domains import _row as root_row
+
+    database = template_baseline_database
+    run_migration(database, "df67a8192a34")
+    version_id = uuid.uuid4()
+    with connect(database) as connection:
+        connection.execute("ALTER TABLE external_asset_versions DISABLE TRIGGER ALL")
+        connection.execute("ALTER TABLE external_asset_records DISABLE TRIGGER ALL")
+        connection.execute(
+            "INSERT INTO external_asset_versions "
+            "(id, sync_id, source_id, domain, space_id, instance_id, capset_id, status, "
+            "record_count, complete, filter, sort, fingerprint, retain_until) "
+            "VALUES (%s, %s, %s, 'ip', '7', 'legacy', 'legacy', 'PUBLISHED', 1, false, "
+            "'{}'::jsonb, '-id', 'legacy', CURRENT_TIMESTAMP + interval '1 day')",
+            (version_id, uuid.uuid4(), uuid.uuid4()),
+        )
+        connection.execute(
+            "INSERT INTO external_asset_records (id, version_id, source_id, ip, canonical_ip, fields) "
+            "VALUES (%s, %s, 'legacy', '192.0.2.1', '192.0.2.1', %s::jsonb)",
+            (uuid.uuid4(), version_id, json.dumps({"status": "legacy"})),
+        )
+        connection.execute("ALTER TABLE external_asset_records ENABLE TRIGGER ALL")
+        connection.execute("ALTER TABLE external_asset_versions ENABLE TRIGGER ALL")
+        connection.commit()
+    run_migration(database, "a9b8c7d6e5f5")
+
+    with connect(database) as connection:
+        assert connection.execute(
+            "SELECT fields, status_segments FROM external_asset_records WHERE version_id=%s",
+            (version_id,),
+        ).fetchone() == ({"status": "legacy"}, ["legacy"])
+        assert connection.execute(
+            "SELECT status, record_count FROM external_asset_versions WHERE id=%s",
+            (version_id,),
+        ).fetchone() == ("PUBLISHED", 1)
+
+    root = root_row()
+    root["id"] = "1"
+    root["root_domain"] = "root\x01edge\0example\x02.test"
+    root["status"] = "valid\0status"
+    dns = dns_row(1, "api\0example.test")
+    dns["status"] = "valid\0status"
+
+    with connect(database) as connection:
+
+        def root_valid(
+            fields: dict[str, Any],
+            root_segments: list[str] | None,
+            status_segments: list[str] | None,
+        ) -> bool:
+            row = connection.execute(
+                "SELECT valid_lossless_external_root_record(%s::json, %s, %s, %s)",
+                (json.dumps(fields), fields["id"], root_segments, status_segments),
+            ).fetchone()
+            assert row is not None
+            return bool(row[0])
+
+        def dns_valid(
+            fields: dict[str, Any],
+            subdomain_segments: list[str] | None,
+            status_segments: list[str] | None,
+        ) -> bool:
+            row = connection.execute(
+                "SELECT valid_lossless_external_dns_record(%s::json, %s, %s, %s)",
+                (json.dumps(fields), fields["id"], subdomain_segments, status_segments),
+            ).fetchone()
+            assert row is not None
+            return bool(row[0])
+
+        assert root_valid(
+            root, ["root\x01edge", "example\x02.test"], ["valid", "status"]
+        )
+        assert not root_valid(
+            {**root, "sources": [{}]}, ["root", "example.test"], ["valid", "status"]
+        )
+        assert not root_valid(root, ["root\x01edge", "wrong.test"], ["valid", "status"])
+        assert not root_valid(
+            root, ["root\x01edge", "example\x02.test"], ["validstatus"]
+        )
+
+        assert dns_valid(dns, ["api", "example.test"], ["valid", "status"])
+        assert not dns_valid(
+            {**dns, "tags": [{}]}, ["api", "example.test"], ["valid", "status"]
+        )
+        assert not dns_valid(dns, ["api", "wrong.test"], ["valid", "status"])
+        assert not dns_valid(dns, ["api", "example.test"], ["validstatus"])
+
+        literal = {
+            **root,
+            "root_domain": r"literal\\u0000.example.test",
+            "status": "valid",
+        }
+        assert root_valid(literal, [literal["root_domain"]], ["valid"])
+        assert not root_valid(literal, ["forged"], ["valid"])
+        has_nul = connection.execute(
+            "SELECT external_asset_json_has_nul(%s::json)", (json.dumps(literal),)
+        ).fetchone()
+        assert has_nul == (False,)
+        adjacent = {"x": "\0\0", "escaped": r"\\\0"}
+        copied = connection.execute(
+            "SELECT external_asset_json_has_nul(%s::json), "
+            "external_asset_json_nul_copy(%s::json, 1)->>'x', "
+            "external_asset_json_nul_copy(%s::json, 1)->>'escaped'",
+            (json.dumps(adjacent), json.dumps(adjacent), json.dumps(adjacent)),
+        ).fetchone()
+        assert copied == (True, "\x01\x01", r"\\\0")
+
+    environment = os.environ.copy()
+    environment["POSTGRES_DB"] = database
+    record_id = uuid.uuid4()
+    with connect(database) as connection:
+        connection.execute("ALTER TABLE external_asset_records DISABLE TRIGGER ALL")
+        connection.execute(
+            "INSERT INTO external_asset_records (id, version_id, source_id, fields) "
+            "VALUES (%s, %s, %s, %s::json)",
+            (record_id, uuid.uuid4(), "1", json.dumps({"nested": "has\0nul"})),
+        )
+        connection.commit()
+    refused = subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "df67a8192a34"],
+        cwd=BACKEND_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert refused.returncode != 0
+    assert (
+        "Cannot convert lossless external asset JSON containing NUL" in refused.stderr
+    )
+    with connect(database) as connection:
+        assert connection.execute(
+            "SELECT fields FROM external_asset_records WHERE id=%s", (record_id,)
+        ).fetchone() == ({"nested": "has\0nul"},)
+        # A separate supported-state case on this disposable fixture verifies
+        # that a literal escape remains unchanged by a successful downgrade.
+        connection.execute(
+            "UPDATE external_asset_records SET fields=%s::json WHERE id=%s",
+            (json.dumps({"nested": r"literal\u0000text"}), record_id),
+        )
+        connection.execute("ALTER TABLE external_asset_records ENABLE TRIGGER ALL")
+        connection.commit()
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "df67a8192a34"],
+        cwd=BACKEND_DIR,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    with connect(database) as connection:
+        assert connection.execute(
+            "SELECT fields FROM external_asset_records WHERE id=%s", (record_id,)
+        ).fetchone() == ({"nested": r"literal\u0000text"},)

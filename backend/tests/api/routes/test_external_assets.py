@@ -282,6 +282,21 @@ def test_immutable_domain_versions_identity_and_local_matching(
     assert listing(assets)["version"]["id"] == second["version"]["id"]
 
 
+def test_port_banner_nul_round_trips_without_breaking_published_reads(
+    assets: SimpleNamespace,
+) -> None:
+    assets.pages["port"][0][0]["banner"] = "synthetic\0banner"
+
+    assert execute(assets, submit(assets, "nul-banner"))["status"] == "SUCCEEDED"
+    rows = listing(assets, "port")["data"]
+    assert next(row for row in rows if row["source_id"] == "3")["fields"] == {
+        "id": "3",
+        "ip": "2001:db8::1",
+        "port": 443,
+        "banner": "synthetic\0banner",
+    }
+
+
 @pytest.mark.parametrize(
     "fault",
     ["late_page", "duplicate", "total_changed", "early_empty", "fingerprint"],
@@ -2057,3 +2072,115 @@ def test_dns_database_guards_freeze_flat_scope_and_refuse_false_seals(
             state.db.flush()
     state.db.rollback()
     assert execute(state, sync)["status"] == "PARTIAL_SUCCEEDED"
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "domain", "name_field"),
+    [
+        ("assets", "ip", None),
+        ("assets", "port", None),
+        ("roots", "root_domain", "root_domain"),
+        ("dns_assets", "dns", "subdomain"),
+    ],
+)
+def test_lossless_projection_guards_cover_all_writers_and_domains(
+    request: pytest.FixtureRequest,
+    fixture_name: str,
+    domain: str,
+    name_field: str | None,
+) -> None:
+    state = request.getfixturevalue(fixture_name)
+    sync = submit(state)
+    version = state.db.exec(
+        select(ExternalAssetVersion).where(
+            ExternalAssetVersion.sync_id == uuid.UUID(sync["id"]),
+            ExternalAssetVersion.domain == domain,
+        )
+    ).one()
+    fields = json.loads(json.dumps(state.pages[domain][0][0]))
+    version.status = "RUNNING"
+    state.db.add(version)
+    state.db.flush()
+    fields["id"] = "701"
+    fields["status"] = "valid"
+    if domain == "port":
+        fields["banner"] = "synthetic\0\0banner"
+    elif name_field:
+        fields[name_field] = "a\x01%_\\\0\0B\x02.test"
+    else:
+        fields["bu"] = {"id": "1", "name": "synthetic\0tag"}
+    ip = fields.get("ip")
+    canonical = "2001:db8::1" if ip else None
+    record = ExternalAssetRecord(
+        version_id=version.id,
+        source_id=fields["id"],
+        ip=ip,
+        canonical_ip=canonical,
+        fields=fields,
+    )
+    state.db.add(record)
+    state.db.flush()
+    state.db.refresh(record)
+    assert record.fields == fields
+    assert record.status_segments == ["valid"]
+    if name_field:
+        assert getattr(record, f"{name_field}_segments") == fields[name_field].split(
+            "\0"
+        )
+        for term, expected in [
+            ("%_\\\0\0b", True),
+            ("\0\0", True),
+            ("\\u0000", False),
+            ("aB", False),
+        ]:
+            result = state.db.execute(
+                text(
+                    f"SELECT external_asset_segments_icontains({name_field}_segments, "
+                    "CAST(:query AS text[])) FROM external_asset_records WHERE id=:id"
+                ),
+                {"id": record.id, "query": term.split("\0")},
+            ).scalar_one()
+            assert result is expected
+
+    # Raw legacy SQL callers also receive canonical single-segment projections.
+    plain = json.loads(json.dumps(fields))
+    plain["id"] = "702"
+    if name_field:
+        plain[name_field] = "plain.example"
+    new_id = uuid.uuid4()
+    statement = text(
+        "INSERT INTO external_asset_records "
+        "(id, version_id, source_id, ip, canonical_ip, fields, status_segments) "
+        "VALUES (:id, :version, :source, :ip, :canonical, CAST(:fields AS json), "
+        "CAST(:segments AS text[]))"
+    )
+    params = {
+        "id": new_id,
+        "version": version.id,
+        "source": plain["id"],
+        "ip": ip,
+        "canonical": canonical,
+        "fields": json.dumps(plain),
+        "segments": None,
+    }
+    state.db.execute(statement, params)
+    loaded = state.db.get(ExternalAssetRecord, new_id)
+    assert loaded is not None and loaded.status_segments == ["valid"]
+    if name_field:
+        assert getattr(loaded, f"{name_field}_segments") == ["plain.example"]
+    for false_projection in (["forged"], [], [None]):
+        with (
+            pytest.raises(SQLAlchemyError, match="projection mismatch"),
+            state.db.begin_nested(),
+        ):
+            state.db.execute(
+                statement,
+                params
+                | {
+                    "id": uuid.uuid4(),
+                    "source": "703",
+                    "fields": json.dumps(plain | {"id": "703"}),
+                    "segments": false_projection,
+                },
+            )
+    state.db.rollback()

@@ -13,7 +13,9 @@ from datetime import timedelta
 from typing import Any, NoReturn, cast
 
 from fastapi import HTTPException
-from sqlalchemy import delete
+from sqlalchemy import Text, delete
+from sqlalchemy import cast as sql_cast
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlmodel import Session, col, func, select
 
 from app.api.project_authorization import get_authorized_project
@@ -299,24 +301,27 @@ def records(
         query = query.where(ExternalAssetRecord.canonical_ip == canonical_ip)
     if root_domain is not None:
         query = query.where(
-            ExternalAssetRecord.fields["root_domain"].astext.icontains(
-                root_domain, autoescape=True
+            func.external_asset_segments_icontains(
+                ExternalAssetRecord.root_domain_segments, root_domain.split("\0")
             )
         )
     if subdomain is not None:
         query = query.where(
-            ExternalAssetRecord.fields["subdomain"].astext.icontains(
-                subdomain, autoescape=True
+            func.external_asset_segments_icontains(
+                ExternalAssetRecord.subdomain_segments, subdomain.split("\0")
             )
         )
     if status is not None:
-        query = query.where(ExternalAssetRecord.fields["status"].astext == status)
+        query = query.where(
+            ExternalAssetRecord.status_segments
+            == sql_cast(status.split("\0"), ARRAY(Text))
+        )
     count = session.exec(select(func.count()).select_from(query.subquery())).one()
     rows = session.exec(
         query.order_by(
-            ExternalAssetRecord.fields["subdomain"].astext
+            cast(Any, ExternalAssetRecord.subdomain_segments)
             if domain == "dns"
-            else ExternalAssetRecord.fields["root_domain"].astext
+            else cast(Any, ExternalAssetRecord.root_domain_segments)
             if domain == "root_domain"
             else ExternalAssetRecord.canonical_ip,
             ExternalAssetRecord.source_id,
@@ -733,6 +738,12 @@ def validate_page(
     for item in items:
         if not isinstance(item, dict):
             raise SyncError("external_record_invalid")
+        try:
+            # This accepts a real NUL (encoded in JSON as \\u0000) but rejects
+            # unpaired surrogates before a driver/database exception can escape.
+            json.dumps(item, ensure_ascii=False).encode("utf-8")
+        except TypeError, UnicodeEncodeError:
+            raise SyncError("external_record_invalid") from None
         source_id, ip = item.get("id"), item.get("ip")
         if (
             not isinstance(source_id, str)

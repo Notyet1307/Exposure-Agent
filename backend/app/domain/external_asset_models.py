@@ -7,14 +7,18 @@ from typing import Annotated, Any, ClassVar, Literal
 from pydantic import AwareDatetime, field_validator
 from pydantic import Field as PydanticField
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
+    Column,
     DateTime,
     ForeignKeyConstraint,
     Index,
+    Text,
     UniqueConstraint,
+    event,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlmodel import Field, SQLModel
 
 from app.core.time import get_datetime_utc
@@ -135,7 +139,42 @@ class ExternalAssetRecord(SQLModel, table=True):
     source_id: str = Field(max_length=100)
     ip: str | None = Field(default=None, max_length=45)
     canonical_ip: str | None = Field(default=None, max_length=45, index=True)
-    fields: dict[str, Any] = Field(sa_type=JSONB)
+    # JSONB rejects a valid JSON ``\\u0000`` escape when PostgreSQL materializes
+    # it. Keep the upstream-whitelisted document in JSON and never dereference it
+    # in SQL; searchable strings have lossless, NUL-split projections below.
+    fields: dict[str, Any] = Field(sa_type=JSON)
+    root_domain_segments: list[str] | None = Field(
+        default=None, sa_column=Column(ARRAY(Text), nullable=True)
+    )
+    subdomain_segments: list[str] | None = Field(
+        default=None, sa_column=Column(ARRAY(Text), nullable=True)
+    )
+    status_segments: list[str] | None = Field(
+        default=None, sa_column=Column(ARRAY(Text), nullable=True)
+    )
+
+
+def external_record_projections(fields: dict[str, Any]) -> dict[str, list[str] | None]:
+    """Return SQL-safe projections without changing the public fields document."""
+
+    def segments(name: str) -> list[str] | None:
+        value = fields.get(name)
+        return value.split("\0") if isinstance(value, str) else None
+
+    return {
+        "root_domain_segments": segments("root_domain"),
+        "subdomain_segments": segments("subdomain"),
+        "status_segments": segments("status"),
+    }
+
+
+@event.listens_for(ExternalAssetRecord, "before_insert")
+@event.listens_for(ExternalAssetRecord, "before_update")
+def _project_external_record_text(
+    _mapper: Any, _connection: Any, record: ExternalAssetRecord
+) -> None:
+    for name, value in external_record_projections(record.fields).items():
+        setattr(record, name, value)
 
 
 class ExternalAssetHead(SQLModel, table=True):
