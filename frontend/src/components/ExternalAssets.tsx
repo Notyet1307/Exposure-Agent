@@ -2088,6 +2088,118 @@ function SourceAssets({
         {t("Details", "详情")}
       </Link>
     )
+    const structured = structuredFields[domain]
+    if (structured) {
+      const primary =
+        structured.find((field) =>
+          [
+            "name",
+            "subdomain",
+            "cn_name",
+            "ip",
+            "url",
+            "target",
+            "icon_url",
+          ].includes(field),
+        ) ?? "id"
+      const details = structured
+        .filter(
+          (field) =>
+            ![
+              primary,
+              "status",
+              "created_at",
+              "updated_at",
+              "lastseen_at",
+              "enable",
+              "confidence",
+            ].includes(field),
+        )
+        .slice(0, 4)
+      const hasStatus = structured.includes("status")
+      const hasTimes = structured.some((field) =>
+        ["created_at", "updated_at", "lastseen_at"].includes(field),
+      )
+      const title = (field: string) =>
+        t(
+          {
+            id: "Source ID",
+            name: "Name",
+            ip: "IP",
+            port: "Port",
+            protocol: "Protocol",
+            url: "URL",
+            subdomain: "Subdomain",
+            cn_name: "Certificate name",
+            target: "Target",
+            icon_url: "Icon link",
+            status: "Source status",
+            created_at: "Source created time",
+            updated_at: "Source updated time",
+            lastseen_at: "Source last-seen time",
+          }[field] ?? field,
+          {
+            id: "来源 ID",
+            name: "名称",
+            ip: "IP",
+            port: "端口",
+            protocol: "协议",
+            url: "URL",
+            subdomain: "子域名",
+            cn_name: "证书名称",
+            target: "目标",
+            icon_url: "图标链接",
+            status: "源状态",
+            created_at: "源创建时间",
+            updated_at: "源更新时间",
+            lastseen_at: "源最近发现时间",
+          }[field] ?? field,
+        )
+      return (
+        <Table className="min-w-[760px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{title(primary)}</TableHead>
+              {details.map((field) => (
+                <TableHead key={field}>{title(field)}</TableHead>
+              ))}
+              {hasStatus && <TableHead>{title("status")}</TableHead>}
+              {hasTimes && <TableHead>{t("Source times", "源时间")}</TableHead>}
+              <TableHead>{t("Details", "详情")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((record) => (
+              <TableRow key={record.id}>
+                <TableCell className="font-mono">
+                  {cell(record.fields[primary] ?? record.source_id)}
+                </TableCell>
+                {details.map((field) => (
+                  <TableCell key={field}>
+                    {cell(record.fields[field])}
+                  </TableCell>
+                ))}
+                {hasStatus && (
+                  <TableCell>{cell(record.fields.status)}</TableCell>
+                )}
+                {hasTimes && (
+                  <TableCell>
+                    {cell(
+                      [
+                        record.fields.created_at,
+                        record.fields.updated_at,
+                        record.fields.lastseen_at,
+                      ].filter((value) => value !== undefined),
+                    )}
+                  </TableCell>
+                )}
+                <TableCell>{detailLink(record)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )
+    }
     if (domain === "port")
       return (
         <Table className="min-w-[1080px]">
