@@ -1498,6 +1498,35 @@ function SourceAssets({
     : search.external_domain === "port"
       ? "port"
       : "ip"
+  const textDomains = new Set([
+    "subdomain",
+    "cert",
+    "web",
+    "dir",
+    "appfinger",
+    "crawler",
+    "seed_enterprise",
+    "seed_keyword",
+    "seed_domain",
+    "seed_email",
+    "seed_cert",
+    "seed_title",
+  ])
+  const nameSeed = new Set([
+    "seed_enterprise",
+    "seed_keyword",
+    "seed_domain",
+    "seed_email",
+    "seed_cert",
+    "seed_title",
+  ])
+  const typedSeed = new Set([
+    "seed_keyword",
+    "seed_domain",
+    "seed_cert",
+    "seed_title",
+  ])
+  const hasSourceStatus = domain !== "openport" && !domain.startsWith("seed_")
   const scopeReady =
     search.external_domain === domain &&
     (rootDomains || !search.external_root_domain) &&
@@ -2499,72 +2528,198 @@ function SourceAssets({
               )}
             </details>
             <form
-              key={`${domain}:${search.external_ip}:${search.external_root_domain}:${search.external_subdomain}:${search.external_status}`}
+              key={`${domain}:${search.external_ip}:${search.external_root_domain}:${search.external_subdomain}:${search.external_status}:${search.external_q}:${search.external_sha256}:${search.external_md5_value}:${search.external_mmh3_value}:${search.external_seed_enabled}:${search.external_confidence}:${search.external_seed_type}`}
               className="flex flex-wrap items-end gap-3"
               onSubmit={(event) => {
                 event.preventDefault()
                 const form = new FormData(event.currentTarget)
+                const enabled = String(form.get("seed_enabled") ?? "")
                 void move({
-                  external_ip: singleDomain
-                    ? undefined
-                    : String(form.get("ip") ?? "").trim() || undefined,
+                  external_ip: addressDomain
+                    ? String(form.get("ip") ?? "").trim() || undefined
+                    : undefined,
                   external_root_domain: rootDomains
                     ? String(form.get("root_domain") ?? "") || undefined
                     : undefined,
                   external_subdomain: dnsRecords
                     ? String(form.get("subdomain") ?? "") || undefined
                     : undefined,
-                  external_status:
-                    String(form.get("status") ?? "").trim() || undefined,
+                  external_status: hasSourceStatus
+                    ? String(form.get("status") ?? "").trim() || undefined
+                    : undefined,
+                  external_q: textDomains.has(domain)
+                    ? String(form.get("q") ?? "") || undefined
+                    : undefined,
+                  external_sha256:
+                    domain === "cert"
+                      ? String(form.get("sha256") ?? "") || undefined
+                      : undefined,
+                  external_md5_value:
+                    domain === "seed_icon"
+                      ? String(form.get("md5_value") ?? "") || undefined
+                      : undefined,
+                  external_mmh3_value:
+                    domain === "seed_icon"
+                      ? String(form.get("mmh3_value") ?? "") || undefined
+                      : undefined,
+                  external_seed_enabled: nameSeed.has(domain)
+                    ? enabled === "true"
+                      ? true
+                      : enabled === "false"
+                        ? false
+                        : undefined
+                    : undefined,
+                  external_confidence: nameSeed.has(domain)
+                    ? String(form.get("confidence") ?? "") || undefined
+                    : undefined,
+                  external_seed_type: typedSeed.has(domain)
+                    ? String(form.get("seed_type") ?? "") || undefined
+                    : undefined,
                   external_page: 0,
                 })
                 heading.current?.focus()
               }}
             >
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="filter-name">
-                  {dnsRecords
-                    ? t(
-                        "Subdomain contains (local text)",
-                        "子域名包含（本地文本）",
-                      )
-                    : rootDomains
-                      ? t(
-                          "Root domain contains (local text)",
-                          "主域名包含（本地文本）",
-                        )
-                      : t("Exact IP (IPv4 or IPv6)", "精确 IP（IPv4 或 IPv6）")}
-                </Label>
-                <Input
-                  id="filter-name"
-                  name={
-                    dnsRecords
-                      ? "subdomain"
-                      : rootDomains
-                        ? "root_domain"
-                        : "ip"
-                  }
-                  maxLength={singleDomain ? 1024 : undefined}
-                  defaultValue={
-                    (dnsRecords
-                      ? search.external_subdomain
-                      : rootDomains
-                        ? search.external_root_domain
-                        : search.external_ip) ?? ""
-                  }
-                  aria-invalid={invalidIpFilter ? true : undefined}
-                />
-              </div>
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="filter-status">
-                  {t("Local source-status filter", "本地源状态筛选")}
-                </Label>
-                <Input
-                  id="filter-status"
-                  name="status"
-                  defaultValue={search.external_status ?? ""}
-                />
-              </div>
+              {(addressDomain ||
+                rootDomains ||
+                dnsRecords ||
+                textDomains.has(domain)) && (
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="filter-name">
+                    {textDomains.has(domain)
+                      ? t("Text contains (local text)", "文本包含（本地文本）")
+                      : dnsRecords
+                        ? t(
+                            "Subdomain contains (local text)",
+                            "子域名包含（本地文本）",
+                          )
+                        : rootDomains
+                          ? t(
+                              "Root domain contains (local text)",
+                              "主域名包含（本地文本）",
+                            )
+                          : t(
+                              "Exact IP (IPv4 or IPv6)",
+                              "精确 IP（IPv4 或 IPv6）",
+                            )}
+                  </Label>
+                  <Input
+                    id="filter-name"
+                    name={
+                      textDomains.has(domain)
+                        ? "q"
+                        : dnsRecords
+                          ? "subdomain"
+                          : rootDomains
+                            ? "root_domain"
+                            : "ip"
+                    }
+                    defaultValue={
+                      (textDomains.has(domain)
+                        ? search.external_q
+                        : dnsRecords
+                          ? search.external_subdomain
+                          : rootDomains
+                            ? search.external_root_domain
+                            : search.external_ip) ?? ""
+                    }
+                    aria-invalid={invalidIpFilter ? true : undefined}
+                  />
+                </div>
+              )}
+              {domain === "cert" && (
+                <div className="space-y-1">
+                  <Label htmlFor="filter-sha">
+                    {t("SHA-256 exact", "SHA-256 精确匹配")}
+                  </Label>
+                  <Input
+                    id="filter-sha"
+                    name="sha256"
+                    defaultValue={search.external_sha256 ?? ""}
+                  />
+                </div>
+              )}
+              {domain === "seed_icon" && (
+                <>
+                  <div className="space-y-1">
+                    <Label htmlFor="filter-md5">
+                      {t("MD5 exact", "MD5 精确匹配")}
+                    </Label>
+                    <Input
+                      id="filter-md5"
+                      name="md5_value"
+                      defaultValue={search.external_md5_value ?? ""}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="filter-mmh3">
+                      {t("MMH3 exact", "MMH3 精确匹配")}
+                    </Label>
+                    <Input
+                      id="filter-mmh3"
+                      name="mmh3_value"
+                      defaultValue={search.external_mmh3_value ?? ""}
+                    />
+                  </div>
+                </>
+              )}
+              {nameSeed.has(domain) && (
+                <>
+                  <div className="space-y-1">
+                    <Label htmlFor="filter-enabled">
+                      {t("Source enabled", "来源启用")}
+                    </Label>
+                    <select
+                      id="filter-enabled"
+                      name="seed_enabled"
+                      className={selectClass}
+                      defaultValue={
+                        search.external_seed_enabled === undefined
+                          ? ""
+                          : String(search.external_seed_enabled)
+                      }
+                    >
+                      <option value="">{t("Any", "不限")}</option>
+                      <option value="true">{t("True", "是")}</option>
+                      <option value="false">{t("False", "否")}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="filter-confidence">
+                      {t("Source confidence", "来源置信度")}
+                    </Label>
+                    <Input
+                      id="filter-confidence"
+                      name="confidence"
+                      defaultValue={search.external_confidence ?? ""}
+                    />
+                  </div>
+                  {typedSeed.has(domain) && (
+                    <div className="space-y-1">
+                      <Label htmlFor="filter-type">
+                        {t("Source type", "来源类型")}
+                      </Label>
+                      <Input
+                        id="filter-type"
+                        name="seed_type"
+                        defaultValue={search.external_seed_type ?? ""}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+              {hasSourceStatus && (
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="filter-status">
+                    {t("Local source-status filter", "本地源状态筛选")}
+                  </Label>
+                  <Input
+                    id="filter-status"
+                    name="status"
+                    defaultValue={search.external_status ?? ""}
+                  />
+                </div>
+              )}
               <Button type="submit">
                 {t("Filter local records", "筛选本地记录")}
               </Button>
@@ -2577,6 +2732,13 @@ function SourceAssets({
                     external_root_domain: undefined,
                     external_subdomain: undefined,
                     external_status: undefined,
+                    external_q: undefined,
+                    external_sha256: undefined,
+                    external_md5_value: undefined,
+                    external_mmh3_value: undefined,
+                    external_seed_enabled: undefined,
+                    external_confidence: undefined,
+                    external_seed_type: undefined,
                     external_page: 0,
                   })
                 }
