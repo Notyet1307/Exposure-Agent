@@ -1490,9 +1490,11 @@ function SourceAssets({
   const search = Route.useSearch({ select: syncedAssetSearch })
   const rootDomains = source.capability_profile === "root-domains-v1"
   const dnsRecords = source.capability_profile === "dns-v1"
-  const singleDomain = rootDomains || dnsRecords
+  const selectedDomain = sourceDomain(source.capability_profile)
+  const singleDomain = source.capability_profile !== "assets-v1"
+  const addressDomain = selectedDomain === "openport" || !singleDomain
   const domain = singleDomain
-    ? sourceDomain(source.capability_profile)
+    ? selectedDomain
     : search.external_domain === "port"
       ? "port"
       : "ip"
@@ -1540,7 +1542,7 @@ function SourceAssets({
       void move(
         {
           external_domain: domain,
-          external_ip: singleDomain ? undefined : search.external_ip,
+          external_ip: addressDomain ? search.external_ip : undefined,
           external_root_domain: rootDomains
             ? search.external_root_domain
             : undefined,
@@ -1555,6 +1557,7 @@ function SourceAssets({
         true,
       )
   }, [
+    addressDomain,
     domain,
     move,
     rootDomains,
@@ -1660,6 +1663,13 @@ function SourceAssets({
       search.external_root_domain,
       search.external_subdomain,
       search.external_status,
+      search.external_q,
+      search.external_sha256,
+      search.external_md5_value,
+      search.external_mmh3_value,
+      search.external_seed_enabled,
+      search.external_confidence,
+      search.external_seed_type,
       search.external_page,
     ],
     enabled: allowed && scopeReady && !expired,
@@ -1670,10 +1680,17 @@ function SourceAssets({
           sourceId: source.id,
           domain,
           versionId: search.external_version,
-          ip: singleDomain ? undefined : search.external_ip,
+          ip: addressDomain ? search.external_ip : undefined,
           rootDomain: rootDomains ? search.external_root_domain : undefined,
           subdomain: dnsRecords ? search.external_subdomain : undefined,
           status: search.external_status,
+          q: search.external_q,
+          sha256: search.external_sha256,
+          md5Value: search.external_md5_value,
+          mmh3Value: search.external_mmh3_value,
+          seedEnabled: search.external_seed_enabled,
+          confidence: search.external_confidence,
+          seedType: search.external_seed_type,
           skip: search.external_page * SIZE,
           limit: SIZE,
         }),

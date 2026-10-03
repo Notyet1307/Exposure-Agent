@@ -91,6 +91,18 @@ export function syncedAssetSearch(s: Record<string, unknown>) {
     external_root_domain: text(s.external_root_domain) || undefined,
     external_subdomain: text(s.external_subdomain) || undefined,
     external_status: text(s.external_status) || undefined,
+    external_q: text(s.external_q) || undefined,
+    external_sha256: text(s.external_sha256) || undefined,
+    external_md5_value: text(s.external_md5_value) || undefined,
+    external_mmh3_value: text(s.external_mmh3_value) || undefined,
+    external_seed_enabled:
+      s.external_seed_enabled === "true"
+        ? true
+        : s.external_seed_enabled === "false"
+          ? false
+          : undefined,
+    external_confidence: text(s.external_confidence) || undefined,
+    external_seed_type: text(s.external_seed_type) || undefined,
     external_page: number(s.external_page) ?? 0,
     external_match_page: number(s.external_match_page) ?? 0,
     external_task: text(s.external_task) || undefined,
@@ -119,6 +131,13 @@ export type AssetSearch = {
   external_root_domain?: string
   external_subdomain?: string
   external_status?: string
+  external_q?: string
+  external_sha256?: string
+  external_md5_value?: string
+  external_mmh3_value?: string
+  external_seed_enabled?: boolean
+  external_confidence?: string
+  external_seed_type?: string
   external_page?: number
   external_match_page?: number
   external_task?: string
