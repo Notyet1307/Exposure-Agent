@@ -1,10 +1,10 @@
-# 云图 18 类只读接入候选合同
+# 云图 18 类结构化只读接入合同
 
-日期：2026-10-03。状态：**已按维护者“先接入全部结构化数据”的答复收敛，待审阅／发布；没有对应的新 GitHub Issue。**
+日期：2026-10-03。状态：**维护者已批准规格、文档分支推送、文档 PR、专属 Issue 与后续本地实现；发布回执记录实际 SHA 和 Issue。** 文件名保留 candidate 以维持既有链接，但本版消费规则已获批准。
 
-正式行为落点为 [RESULT-STRUCTURED 子合同候选](../specs/exposure-focus-release-1.md#result-structured18类结构化数据接入候选)；本稿作为对应方法、字段消费和预算的规范性附录候选。现有 18 类分类范围不包含风险／漏洞读取。
+正式行为落点为 [RESULT-STRUCTURED 子合同](../specs/exposure-focus-release-1.md#result-structured18类结构化数据接入)；本稿作为对应方法、字段消费和预算的规范性附录。现有 18 类分类范围不包含风险／漏洞读取。
 
-用户已明确要求接入侧栏其他类型，并选择“覆盖全部类型，先同步有效／监控中的记录”。现有页面缺陷按 #272 修正；新增类型不能借用 #279 的 NetFlow 实施范围。可以复用用户已经提供的连接配置，但本次“接入全部结构化数据”明确了新增类别目标；首次新增调用前仍按 R3 固定精确方法、过滤、预算和私有保留范围，按 R4 发布规格并建立专属 Issue。
+用户已明确要求接入侧栏其他类型，并选择“覆盖全部类型，先同步有效／监控中的记录”。现有页面缺陷按 #272 修正；新增类型不能借用 #279 的 NetFlow 实施范围。可以复用用户已经提供的连接配置，但本次已明确新增类别目标、字段消费、过滤、预算和私有保留范围；首次新增调用仍需满足 R3 的精确能力／字段准入，按 R4 发布规格并建立专属 Issue，不由本文件自动部署新能力或改写旧授权。
 
 ## 已确认范围与待定项
 
@@ -67,10 +67,10 @@
 
 有 status 的类型只过滤所选版本内的源原值；没有该字段的开放端口不显示假状态控件。不从当前 valid 版本反查 ignored/invalid，也不把筛选结果数当来源总量。
 
-## 身份、字段与错误合同候选
+## 身份、字段与错误合同
 
 1. 记录身份固定为项目、来源、空间、能力合同、域、版本及源 ID。源整数 ID 无损转为十进制字符串；不经 JavaScript 浮点数舍入。源 ID 只表示版本内身份，不承诺跨批次稳定性。`space` 在 openport/dir/seed 的公开声明为 integer，在其他新增类型为 string；本地始终固定十进制字符串，并原字面值编码为 HTTP query，禁止经 JavaScript Number 转换。即使来源把 space 标为可选，Exposure 也必须显式传入被批准的空间。
-2. 有明确 required/nullable 的字段，按上述固定 schema 校验；本片排除的 crawler headers/data 在边界适配后即丢弃，不形成未知字段错误。crawler 和关键词／域名 WHOIS／邮箱域名／证书信息／图标／网站标题六种 seed 列表未声明 required：要求 id 必填以支撑分页去重，其余缺失保持 missing；字段存在时仍须符合声明类型。enterprise 列表有 required，不纳入这条例外。未经明确 nullable 的 null 不自动接受。以上是本地消费者规则候选，不是来源对字段必填的承诺。
+2. 有明确 required/nullable 的字段，按上述固定 schema 校验；本片排除的 crawler headers/data 在边界适配后即丢弃，不形成未知字段错误。crawler 和关键词／域名 WHOIS／邮箱域名／证书信息／图标／网站标题六种 seed 列表未声明 required：要求 id 必填以支撑分页去重，其余缺失保持 missing；字段存在时仍须符合声明类型。enterprise 列表有 required，不纳入这条例外。未经明确 nullable 的 null 不自动接受。以上是本地消费者规则，不是来源对字段必填的承诺。
 3. 空字符串、空数组、null、missing、false、0 分别保存和展示。不得通过默认值、删坏行、字符串／对象任意联合或整包响应落库掩盖合同错误。
 4. 未知额外字段仅保留脱敏数量／结构差额，不保存未知值或未知字段名。类型冲突停止未封存版本，只输出固定脱敏错误码、已批准字段名／类型类别及差额数量，不能将真实值写入 Git、Issue、模型或普通日志。
 5. `web/dir/appfinger` 的公开 bu 声明与已知其他域现场形状可能不同。新合同不得沿用“字符串也行、对象也行”的宽松回退。先按下述仅输出结构的有界诊断核对，不把取值带入模型；在真实 shape 与精确校验器写入同版矩阵和合成 fixture 前，这三个类型不得发布本地业务版本。其他合同完整的类型不被它们阻塞。
@@ -78,14 +78,14 @@
 7. 精确空值例外：dir 的 `icon_md5_hash / icon_mmh3_hash / icon_url / screenshot_link` 可 null；icon seed 的 `icon_url / md5_value / mmh3_value` 可 null。dir 的 ip_info 子项没有 required 声明，缺项保持 missing。cert 的 sources 子项必须有 source/reason/factor；web/dir/appfinger 的 tags 子项必须有 pk/name；dir 的 apps 子项必须有 product_uuid/vendor_uuid/product_name/vendor_name/cpe/version/created_at/updated_at/lastseen_at。其他嵌套类型仍按同版矩阵与固定 schema，不以此清单放宽字段类型。
 8. 同版矩阵中的响应包裹规则同样必须校验：`code / message / data.current / data.size / data.total / data.items`，不能只验证单条字段。版本身份还必须固定实际 `status / enable / flat / sort`、读取范围和预算；请求总量与记录身份不得因缺省参数而漂移。
 
-## 能力身份和调用边界候选
+## 能力身份和调用边界
 
 - 每个新增类型使用一个静态能力档案和一个白名单列表方法；来源实例固定类型、HTTPS 地址、空间及配置指纹。对应 Capset 设 `include_all_methods=false`，不选择写方法、单条详情或其他域。
 - 新包和 descriptor 在实现时按固定工具链构建，验收前必须将准确 Hash 写入受版本控制的 pin manifest；配置、上游 Secret 和 Capset token 绑定进入规范化指纹，不把秘密明文放进应用数据库或日志。当前尚未生成这些新包，所以没有可用于真实调用的已批准 Hash，不以通配 Hash 或旧四域包代替。
 - 来源验证核对包、descriptor、实例、配置、方法集合和 token 绑定。发生漂移必须重新验证，不能悄悄扩大既有能力。
 - 仅 HTTPS 且验证证书链和主机名；不跟随重定向，不访问链接字段中的目标。401 归认证失败、403 归授权失败；其他非 200、重定向、异常压缩、坏 JSON/字段归相应固定来源错误；字节超限与 DNS/TLS/连接/总时长超时明确失败。所有错误沿现有脱敏边界，不保存上游错误正文，不自动重试，异常后停止该任务后续来源调用。
 
-## 分页、发布与保留合同候选
+## 分页、发布与保留合同
 
 - 预算硬边界明确为：page_size 1–200、max_pages 1–10000、max_records 1–1000000、max_response_bytes 1–16777216、timeout_seconds 1–300。retain_until 必须是未来的绝对时间。没有无限循环、自动续拉、定时同步或自动重试。
 - 每个新增档案只同步其单个域，从第 1 页串行读取；容量为 `min(max_pages, floor(max_records / page_size))`，至少一页。复用已有 ROOT/DNS 单域规则，不引入新的多域配额分配，也不改旧 IP／端口双域合同。
@@ -124,7 +124,7 @@
 
 ## 当前停止线
 
-本稿可以评审，但不能被当作“14 类已接入”。新增业务实现的下一步是批准并发布固定子合同、建立实际 Issue。当前用户已明确结构化数据实施目标；文档发布和建单需补齐远端操作授权。业务代码 push/PR/merge、进一步迁移／部署和 Issue 关闭仍单独验收，不能由文档发布推导。
+本合同已批准，但不能被当作“14 类已接入”。本轮已获准推送文档分支、创建文档 PR、建立实际 Issue 后继续本地实现。文档 PR merge、业务代码 push/PR/merge、进一步迁移／部署和 Issue 关闭仍单独验收，不能由文档发布推导。
 
 ## 已解决的共享存储前置
 
