@@ -101,8 +101,9 @@ const sourceDomain = (
 ): Domain => (profile ? profileDomains[profile] : "ip")
 
 const supportsDomain = (source: ExternalSourcePublic, domain: Domain) =>
-  sourceDomain(source.capability_profile) === domain ||
-  (source.capability_profile === "assets-v1" && domain === "port")
+  Object.keys(profileDomains).includes(source.capability_profile) &&
+  (sourceDomain(source.capability_profile) === domain ||
+    (source.capability_profile === "assets-v1" && domain === "port"))
 
 const hasErrorCode = (error: unknown, code: string) =>
   error instanceof ApiError &&
@@ -160,53 +161,103 @@ const domainTitle = (domain: string, t: (en: string, zh: string) => string) => {
   return item ? t(item[1], item[2]) : t("Unsupported type", "不支持的类型")
 }
 
+type DirectoryMetadata = {
+  status: "ready" | "empty" | "error"
+  version?: ExternalVersionPublic
+}
+
+const categorySource = (
+  sources: ExternalSourcePublic[],
+  selected: ExternalSourcePublic | undefined,
+  domain: Domain,
+  activeDomain: Domain,
+) =>
+  selected &&
+  supportsDomain(selected, domain) &&
+  (domain === activeDomain || selected.data_access_enabled)
+    ? selected
+    : (sources.find(
+        (source) =>
+          source.data_access_enabled && supportsDomain(source, domain),
+      ) ?? sources.find((source) => supportsDomain(source, domain)))
+
 function AssetDirectory({
   selected,
+  activeDomain,
   source,
+  sources,
   versionId,
   counts,
+  metadata,
+  blocked,
+  now,
   onSelect,
 }: {
   selected: string
+  activeDomain: Domain
   source: ExternalSourcePublic | undefined
+  sources: ExternalSourcePublic[]
   versionId: string | undefined
   counts: Record<string, ExternalVersionPublic>
+  metadata: Record<string, DirectoryMetadata>
+  blocked: Set<string>
+  now: number
   onSelect: (category: string) => void
 }) {
   const { t } = useI18n()
+  const entryFor = (id: string) => {
+    const domain = domains.find((value) => value === id)
+    const target = domain
+      ? categorySource(sources, source, domain, activeDomain)
+      : undefined
+    const key = `${target?.id}:${domain}`
+    const current = domain === activeDomain && target?.id === source?.id
+    return {
+      target,
+      current,
+      entry: metadata[key],
+      version: current ? counts[key] : metadata[key]?.version,
+    }
+  }
   const countFor = (id: string) => {
-    const domain = domains.find((item) => item === id)
-    if (!domain) return t("Not integrated", "未接入")
-    if (!source) return t("Not configured", "未配置")
-    if (!source.data_access_enabled) return t("Unavailable", "不可用")
-    if (!supportsDomain(source, domain)) return t("Not set", "未配置")
-    const version = counts[`${source.id}:${domain}`]
-    if (
-      !version ||
-      (domain === selected && versionId && version.id !== versionId)
-    )
+    const { target, current, entry, version } = entryFor(id)
+    if (!target) return t("Not configured", "未配置")
+    if (!target.data_access_enabled || blocked.has(target.id))
+      return t("Unavailable", "不可用")
+    if (current && versionId && version?.id !== versionId)
       return t("Not read", "未读取")
-    return version.complete
-      ? String(version.record_count)
-      : t(
-          `${version.record_count} (partial)`,
-          `${version.record_count}（部分）`,
-        )
+    if (version) {
+      if (
+        version.status !== "PUBLISHED" ||
+        Date.parse(version.retain_until) <= now
+      )
+        return t("Expired", "已到期")
+      return version.complete
+        ? String(version.record_count)
+        : t(
+            `${version.record_count} (partial)`,
+            `${version.record_count}（部分）`,
+          )
+    }
+    if (current || entry?.status === "empty") return t("Not read", "未读取")
+    if (entry?.status === "error") return t("Unavailable", "不可用")
+    return t("Loading…", "加载中…")
   }
   const countTitle = (id: string) => {
-    const domain = domains.find((item) => item === id)
-    if (
-      domain &&
-      source?.data_access_enabled &&
-      !supportsDomain(source, domain)
-    )
+    const { target, version } = entryFor(id)
+    if (!target)
       return t(
-        "Not configured for the current source.",
-        "当前来源未配置此类型。",
+        "No source is configured for this category.",
+        "此分类尚未配置来源。",
+      )
+    if (!target.data_access_enabled || blocked.has(target.id))
+      return t(
+        "Access to this category's source is unavailable.",
+        "此分类的来源不可读取。",
       )
     return t(
-      "Counts belong to the selected source and fixed version only; they do not change with local filters.",
-      "计数仅属于选定来源和固定版本，不随本地筛选变化。",
+      `This category uses source ${target.instance_id}, space ${target.space_id}${version ? `, fixed version ${version.id}` : ""}. Counts are local version records, independent of page filters; sources are not added together.`,
+      `此分类对应来源 ${target.instance_id}，空间 ${target.space_id}${version ? `，固定版本 ${version.id}` : ""}。数量为本地版本记录数，不受页面筛选影响，不跨来源相加。`,
     )
   }
   const items = (group: (typeof categories)[number]) => (
@@ -244,7 +295,7 @@ function AssetDirectory({
             <optgroup key={group.en} label={t(group.en, group.zh)}>
               {group.items.map(([id, en, zh]) => (
                 <option key={id} value={id}>
-                  {t(en, zh)}
+                  {t(en, zh)} · {countFor(id)}
                 </option>
               ))}
             </optgroup>
@@ -1067,6 +1118,11 @@ function AssetsPage({
   const [directoryCounts, setDirectoryCounts] = useState<
     Record<string, ExternalVersionPublic>
   >({})
+  const [directoryMetadata, setDirectoryMetadata] = useState<
+    Record<string, DirectoryMetadata>
+  >({})
+  const blockedDirectorySources = useRef(new Set<string>())
+  const [directoryNow, setDirectoryNow] = useState(Date.now())
   const reportVersion = useCallback(
     (sourceId: string, version: ExternalVersionPublic) =>
       setDirectoryCounts((previous) => {
@@ -1079,14 +1135,34 @@ function AssetsPage({
       }),
     [],
   )
-  const clearVersions = useCallback((sourceId: string) => {
-    setDirectoryCounts((previous) => {
-      const next = { ...previous }
-      for (const key of Object.keys(next))
-        if (key.startsWith(`${sourceId}:`)) delete next[key]
-      return next
-    })
-  }, [])
+  const clearVersions = useCallback(
+    (sourceId: string, expiredDomain?: Domain) => {
+      if (expiredDomain) {
+        setDirectoryCounts((previous) => {
+          const next = { ...previous }
+          delete next[`${sourceId}:${expiredDomain}`]
+          return next
+        })
+        setDirectoryNow(Date.now())
+        return
+      }
+      blockedDirectorySources.current.add(sourceId)
+      setDirectoryMetadata((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).filter(
+            ([key]) => !key.startsWith(`${sourceId}:`),
+          ),
+        ),
+      )
+      setDirectoryCounts((previous) => {
+        const next = { ...previous }
+        for (const key of Object.keys(next))
+          if (key.startsWith(`${sourceId}:`)) delete next[key]
+        return next
+      })
+    },
+    [],
+  )
   const [notice, setNotice] = useState("")
   const [busy, setBusy] = useState(false)
   const sources = useQuery({
@@ -1100,6 +1176,111 @@ function AssetsPage({
   const selected = data?.data.find(
     (source) => source.id === search.external_source,
   )
+  useEffect(() => {
+    if (bare || !data || !sources.dataUpdatedAt) return
+    let active = true
+    const pending = new Set<ReturnType<typeof API.readExternalVersions>>()
+    blockedDirectorySources.current.clear()
+    setDirectoryMetadata({})
+    const pairs = data.data.flatMap((source) =>
+      source.data_access_enabled
+        ? domains
+            .filter((domain) => supportsDomain(source, domain))
+            .map((domain) => ({ source, domain }))
+        : [],
+    )
+    let next = 0
+    const read = async (source: ExternalSourcePublic, domain: Domain) => {
+      let expired: ExternalVersionPublic | undefined
+      for (
+        let skip = 0;
+        active && !blockedDirectorySources.current.has(source.id);
+        skip += SIZE
+      ) {
+        const request = API.readExternalVersions({
+          projectId,
+          sourceId: source.id,
+          domain,
+          skip,
+          limit: SIZE,
+        })
+        pending.add(request)
+        let page: Awaited<typeof request>
+        try {
+          page = await request
+        } finally {
+          pending.delete(request)
+        }
+        if (!active || blockedDirectorySources.current.has(source.id)) return
+        for (const version of page.data) {
+          if (
+            version.source_id !== source.id ||
+            version.domain !== domain ||
+            !Number.isFinite(Date.parse(version.retain_until))
+          )
+            throw new Error("Invalid directory version identity")
+          if (
+            version.status === "PUBLISHED" &&
+            Date.parse(version.retain_until) > Date.now()
+          )
+            return version
+          if (
+            !expired &&
+            (version.status === "EXPIRED" ||
+              Date.parse(version.retain_until) <= Date.now())
+          )
+            expired = version
+        }
+        if (skip + page.data.length >= page.count) return expired
+        if (!page.data.length) throw new Error("Incomplete directory metadata")
+      }
+    }
+    const worker = async () => {
+      while (active && next < pairs.length) {
+        const { source, domain } = pairs[next++]
+        const key = `${source.id}:${domain}`
+        try {
+          const version = await read(source, domain)
+          if (active && !blockedDirectorySources.current.has(source.id))
+            setDirectoryMetadata((previous) => ({
+              ...previous,
+              [key]: { status: version ? "ready" : "empty", version },
+            }))
+        } catch {
+          if (active && !blockedDirectorySources.current.has(source.id))
+            setDirectoryMetadata((previous) => ({
+              ...previous,
+              [key]: { status: "error" },
+            }))
+        }
+      }
+    }
+    // Bounded local metadata pages, with at most four independent requests in flight.
+    void Promise.all(Array.from({ length: Math.min(4, pairs.length) }, worker))
+    return () => {
+      active = false
+      for (const request of pending) request.cancel()
+    }
+  }, [bare, data, projectId, sources.dataUpdatedAt])
+  useEffect(() => {
+    const future = [
+      ...Object.values(directoryCounts),
+      ...Object.values(directoryMetadata).flatMap((entry) =>
+        entry.version ? [entry.version] : [],
+      ),
+    ]
+      .map((version) => Date.parse(version.retain_until))
+      .filter((deadline) => deadline > directoryNow)
+    if (!future.length) return
+    const timer = window.setTimeout(
+      () => setDirectoryNow(Date.now()),
+      Math.min(
+        Math.max(1, Math.min(...future) - Date.now() + 1),
+        2_147_483_647,
+      ),
+    )
+    return () => window.clearTimeout(timer)
+  }, [directoryCounts, directoryMetadata, directoryNow])
   useEffect(() => {
     if (!bare) {
       defaultAttempt.current = false
@@ -1231,12 +1412,12 @@ function AssetsPage({
     setCategory(value)
     const domain = domains.find((item) => item === value)
     if (!domain) return
-    const target =
-      selected && supportsDomain(selected, domain)
-        ? selected
-        : (data?.data.find(
-            (item) => item.data_access_enabled && supportsDomain(item, domain),
-          ) ?? data?.data.find((item) => supportsDomain(item, domain)))
+    const target = categorySource(
+      data?.data ?? [],
+      selected,
+      domain,
+      search.external_domain,
+    )
     if (
       !target ||
       (target.id === selected?.id && domain === search.external_domain)
@@ -1247,6 +1428,8 @@ function AssetsPage({
         asset_view: "synced",
         external_source: target.id,
         external_domain: domain,
+        external_version:
+          directoryMetadata[`${target.id}:${domain}`]?.version?.id,
       },
       hash: true,
     })
@@ -1504,7 +1687,12 @@ function AssetsPage({
           <div className="grid min-w-0 gap-4 md:grid-cols-[177px_minmax(0,1fr)]">
             <AssetDirectory
               selected={category}
+              activeDomain={search.external_domain}
               source={selected}
+              sources={data.data}
+              metadata={directoryMetadata}
+              blocked={blockedDirectorySources.current}
+              now={Math.max(directoryNow, Date.now())}
               versionId={search.external_version}
               counts={directoryCounts}
               onSelect={chooseCategory}
@@ -1645,7 +1833,7 @@ function SourceAssets({
   management: string | null
   setManagement: (tab: string | null) => void
   reportVersion: (sourceId: string, version: ExternalVersionPublic) => void
-  clearVersions: (sourceId: string) => void
+  clearVersions: (sourceId: string, expiredDomain?: Domain) => void
 }) {
   const { showSuccessToast } = useCustomToast()
   const { t, formatDate } = useI18n()
@@ -1780,7 +1968,7 @@ function SourceAssets({
         setDenied(true)
         setManagement(null)
       }
-      clearVersions(source.id)
+      clearVersions(source.id, expiryOnly ? domain : undefined)
       const filters = {
         queryKey: ["external-assets", actor, projectId],
         predicate: (query: { queryKey: readonly unknown[] }) =>
@@ -1802,6 +1990,7 @@ function SourceAssets({
       actor,
       cache,
       clearVersions,
+      domain,
       navigate,
       projectId,
       setManagement,
