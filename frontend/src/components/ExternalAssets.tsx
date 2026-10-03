@@ -58,6 +58,16 @@ const supportsDomain = (source: ExternalSourcePublic, domain: Domain) =>
   sourceDomain(source.capability_profile) === domain ||
   (source.capability_profile === "assets-v1" && domain === "port")
 
+const hasErrorCode = (error: unknown, code: string) =>
+  error instanceof ApiError &&
+  typeof error.body === "object" &&
+  error.body !== null &&
+  "detail" in error.body &&
+  typeof error.body.detail === "object" &&
+  error.body.detail !== null &&
+  "code" in error.body.detail &&
+  error.body.detail.code === code
+
 const categories = [
   {
     en: "Assets",
@@ -99,12 +109,53 @@ const categories = [
 
 function AssetDirectory({
   selected,
+  source,
+  versionId,
+  counts,
   onSelect,
 }: {
   selected: string
+  source: ExternalSourcePublic | undefined
+  versionId: string | undefined
+  counts: Record<string, ExternalVersionPublic>
   onSelect: (category: string) => void
 }) {
   const { t } = useI18n()
+  const countFor = (id: string) => {
+    const domain = domains.find((item) => item === id)
+    if (!domain) return t("Not integrated", "未接入")
+    if (!source) return t("Not configured", "未配置")
+    if (!source.data_access_enabled) return t("Unavailable", "不可用")
+    if (!supportsDomain(source, domain)) return t("Not set", "未配置")
+    const version = counts[`${source.id}:${domain}`]
+    if (
+      !version ||
+      (domain === selected && versionId && version.id !== versionId)
+    )
+      return t("Not read", "未读取")
+    return version.complete
+      ? String(version.record_count)
+      : t(
+          `${version.record_count} (partial)`,
+          `${version.record_count}（部分）`,
+        )
+  }
+  const countTitle = (id: string) => {
+    const domain = domains.find((item) => item === id)
+    if (
+      domain &&
+      source?.data_access_enabled &&
+      !supportsDomain(source, domain)
+    )
+      return t(
+        "Not configured for the current source.",
+        "当前来源未配置此类型。",
+      )
+    return t(
+      "Counts belong to the selected source and fixed version only; they do not change with local filters.",
+      "计数仅属于选定来源和固定版本，不随本地筛选变化。",
+    )
+  }
   const items = (group: (typeof categories)[number]) => (
     <div className="mt-2 space-y-1">
       {group.items.map(([id, en, zh]) => (
@@ -118,12 +169,9 @@ function AssetDirectory({
           <span>{t(en, zh)}</span>
           <span
             className="text-xs text-muted-foreground"
-            title={t(
-              "Counts belong to the selected source and version only.",
-              "计数仅属于选定来源和版本。",
-            )}
+            title={countTitle(id)}
           >
-            —
+            {countFor(id)}
           </span>
         </button>
       ))}
@@ -704,6 +752,29 @@ function AssetsPage({
     }
   }, [])
   const [generation, setGeneration] = useState(0)
+  const [directoryCounts, setDirectoryCounts] = useState<
+    Record<string, ExternalVersionPublic>
+  >({})
+  const reportVersion = useCallback(
+    (sourceId: string, version: ExternalVersionPublic) =>
+      setDirectoryCounts((previous) => {
+        const key = `${sourceId}:${version.domain}`
+        return previous[key]?.id === version.id &&
+          previous[key]?.record_count === version.record_count &&
+          previous[key]?.complete === version.complete
+          ? previous
+          : { ...previous, [key]: version }
+      }),
+    [],
+  )
+  const clearVersions = useCallback((sourceId: string) => {
+    setDirectoryCounts((previous) => {
+      const next = { ...previous }
+      for (const key of Object.keys(next))
+        if (key.startsWith(`${sourceId}:`)) delete next[key]
+      return next
+    })
+  }, [])
   const [notice, setNotice] = useState("")
   const [busy, setBusy] = useState(false)
   const sources = useQuery({
@@ -1127,7 +1198,7 @@ function AssetsPage({
           )}
         </p>
       )}
-      {data && !sources.isFetching && (
+      {data && (
         <>
           {!data.can_manage && (
             <p className="text-sm text-muted-foreground">
@@ -1138,7 +1209,13 @@ function AssetsPage({
             </p>
           )}
           <div className="grid min-w-0 gap-4 md:grid-cols-[177px_minmax(0,1fr)]">
-            <AssetDirectory selected={category} onSelect={chooseCategory} />
+            <AssetDirectory
+              selected={category}
+              source={selected}
+              versionId={search.external_version}
+              counts={directoryCounts}
+              onSelect={chooseCategory}
+            />
             <div className="min-w-0">
               {selected && (
                 <div hidden={category !== search.external_domain}>
@@ -1153,6 +1230,8 @@ function AssetsPage({
                     sourceControls={sourceControls}
                     management={management}
                     setManagement={setManagement}
+                    reportVersion={reportVersion}
+                    clearVersions={clearVersions}
                   />
                 </div>
               )}
@@ -1246,6 +1325,8 @@ function SourceAssets({
   sourceControls,
   management,
   setManagement,
+  reportVersion,
+  clearVersions,
 }: {
   actor: string
   projectId: string
@@ -1256,6 +1337,8 @@ function SourceAssets({
   sourceControls: ReactNode
   management: string | null
   setManagement: (tab: string | null) => void
+  reportVersion: (sourceId: string, version: ExternalVersionPublic) => void
+  clearVersions: (sourceId: string) => void
 }) {
   const { showSuccessToast } = useCustomToast()
   const { t, formatDate } = useI18n()
@@ -1363,6 +1446,7 @@ function SourceAssets({
         setDenied(true)
         setManagement(null)
       }
+      clearVersions(source.id)
       const filters = {
         queryKey: ["external-assets", actor, projectId],
         predicate: (query: { queryKey: readonly unknown[] }) =>
@@ -1380,7 +1464,15 @@ function SourceAssets({
         replace: true,
       })
     },
-    [actor, cache, navigate, projectId, setManagement],
+    [
+      actor,
+      cache,
+      clearVersions,
+      navigate,
+      projectId,
+      setManagement,
+      source.id,
+    ],
   )
   const guarded = async <T,>(request: Promise<T>): Promise<T> => {
     try {
@@ -1443,6 +1535,8 @@ function SourceAssets({
       ),
     retry: false,
   })
+  const invalidIpFilter =
+    !singleDomain && hasErrorCode(records.error, "external_ip_filter_invalid")
   const tasks = useQuery({
     queryKey: [...prefix, "tasks", taskPage],
     enabled: allowed,
@@ -1546,6 +1640,10 @@ function SourceAssets({
     )
       void move({ external_version: recordData.version.id }, true)
   }, [recordData, search.external_version, records.isFetching, move])
+  useEffect(() => {
+    if (recordData?.state === "PUBLISHED" && recordData.version)
+      reportVersion(source.id, recordData.version)
+  }, [recordData, reportVersion, source.id])
   useEffect(() => {
     if (!source.data_access_enabled) revoke()
   }, [source.data_access_enabled, revoke])
@@ -1820,138 +1918,178 @@ function SourceAssets({
     items: ExternalRecordPublic[],
     domain: string,
     versionId: string,
-  ) => (
-    <Table className="min-w-[760px]">
-      <TableHeader>
-        <TableRow>
-          <TableHead>
-            {domain === "dns"
-              ? t("Subdomain", "子域名")
-              : domain === "root_domain"
-                ? t("Root domain", "主域名")
-                : domain === "port"
-                  ? t("IP / port / protocol", "IP / 端口 / 协议")
-                  : t("IP / version", "IP / 版本")}
-          </TableHead>
-          <TableHead>
-            {domain === "dns"
-              ? t("Record type / value", "解析类型 / 值")
-              : domain === "root_domain"
-                ? t(
-                    "Source-claimed ICP organization / number",
-                    "源声明备案主体 / 号",
-                  )
-                : domain === "port"
-                  ? t("Service / product / version", "服务 / 产品 / 版本")
-                  : t("Group / tags", "分组 / 标签")}
-          </TableHead>
-          <TableHead>
-            {domain === "ip"
-              ? t("Network ownership", "网络归属")
-              : domain === "root_domain"
-                ? t("Source-reported valid subdomains", "来源报告有效子域名数")
-                : t("Group / tags", "分组 / 标签")}
-          </TableHead>
-          <TableHead>{t("Source status", "源状态")}</TableHead>
-          <TableHead>{t("Source last-seen time", "源最近发现时间")}</TableHead>
-          <TableHead>{t("Details", "详情")}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.map((record) => (
-          <TableRow key={record.id}>
-            <TableCell className="font-mono">
-              {cell(
-                domain === "dns"
-                  ? record.fields.subdomain
-                  : domain === "root_domain"
-                    ? record.fields.root_domain
-                    : record.fields.ip,
-              )}
-              {domain === "port" && (
-                <div className="text-xs text-muted-foreground">
-                  <FieldValue value={record.fields.port} /> /{" "}
-                  <FieldValue value={record.fields.protocol} />
-                </div>
-              )}
-              {domain === "ip" && (
-                <div className="text-xs text-muted-foreground">
-                  {t("Version", "版本")}:{" "}
-                  <FieldValue value={record.fields.version} />
-                </div>
-              )}
-            </TableCell>
-            <TableCell>
-              {domain === "ip" ? (
-                <>
-                  {cell(names(record.fields.bu))}
-                  {cell(names(record.fields.tags))}
-                </>
-              ) : domain === "port" ? (
-                <>
+  ) => {
+    const detailLink = (record: ExternalRecordPublic) => (
+      <Link
+        className="underline underline-offset-4"
+        to="/projects/$projectId/cloudatlas-ledger"
+        params={{ projectId }}
+        search={{
+          ...search,
+          asset_view: "synced",
+          external_record: record.id,
+          external_record_version: versionId,
+          external_port_version: undefined,
+          external_match_page: 0,
+        }}
+        onClick={(event) => {
+          detailTrigger.current = event.currentTarget
+        }}
+        aria-label={t(
+          `Details for ${domain === "dns" ? record.fields.subdomain : domain === "root_domain" ? record.fields.root_domain : record.ip}, source ID ${record.source_id}`,
+          `${domain === "dns" ? record.fields.subdomain : domain === "root_domain" ? record.fields.root_domain : record.ip} 的详情，源 ID ${record.source_id}`,
+        )}
+      >
+        {t("Details", "详情")}
+      </Link>
+    )
+    if (domain === "port")
+      return (
+        <Table className="min-w-[1080px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("IP", "IP")}</TableHead>
+              <TableHead>{t("Port", "端口")}</TableHead>
+              <TableHead>{t("Protocol", "协议")}</TableHead>
+              <TableHead>
+                {t("Service / product / version", "服务 / 产品 / 版本")}
+              </TableHead>
+              <TableHead>{t("Group / tags", "分组 / 标签")}</TableHead>
+              <TableHead>{t("Source status", "源状态")}</TableHead>
+              <TableHead>
+                {t("Source last-seen time", "源最近发现时间")}
+              </TableHead>
+              <TableHead>{t("Details", "详情")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((record) => (
+              <TableRow key={record.id}>
+                <TableCell className="font-mono">
+                  {cell(record.fields.ip)}
+                </TableCell>
+                <TableCell className="font-mono">
+                  {cell(record.fields.port)}
+                </TableCell>
+                <TableCell>{cell(record.fields.protocol)}</TableCell>
+                <TableCell>
                   {cell(record.fields.service)}
                   {cell(record.fields.product)}
                   {cell(record.fields.version)}
-                </>
-              ) : domain === "root_domain" ? (
-                <>
-                  {cell(record.fields.icp_official_name)}
-                  {cell(record.fields.icp_num)}
-                </>
-              ) : (
-                <>
-                  {cell(record.fields.rdtype)}
-                  {cell(record.fields.record)}
-                </>
-              )}
-            </TableCell>
-            <TableCell>
-              {domain === "ip" ? (
-                <>
-                  {cell(record.fields.provider)}
-                  {cell(record.fields.as_name)}
-                  {cell(record.fields.as_num)}
-                </>
-              ) : domain === "root_domain" ? (
-                cell(record.fields.valid_subdomain)
-              ) : (
-                <>
+                </TableCell>
+                <TableCell>
                   {cell(names(record.fields.bu))}
                   {cell(names(record.fields.tags))}
-                </>
-              )}
-            </TableCell>
-            <TableCell>{cell(record.fields.status)}</TableCell>
-            <TableCell>{cell(record.fields.lastseen_at)}</TableCell>
-            <TableCell>
-              <Link
-                className="underline underline-offset-4"
-                to="/projects/$projectId/cloudatlas-ledger"
-                params={{ projectId }}
-                search={{
-                  ...search,
-                  asset_view: "synced",
-                  external_record: record.id,
-                  external_record_version: versionId,
-                  external_port_version: undefined,
-                  external_match_page: 0,
-                }}
-                onClick={(event) => {
-                  detailTrigger.current = event.currentTarget
-                }}
-                aria-label={t(
-                  `Details for ${domain === "dns" ? record.fields.subdomain : domain === "root_domain" ? record.fields.root_domain : record.ip}, source ID ${record.source_id}`,
-                  `${domain === "dns" ? record.fields.subdomain : domain === "root_domain" ? record.fields.root_domain : record.ip} 的详情，源 ID ${record.source_id}`,
-                )}
-              >
-                {t("Details", "详情")}
-              </Link>
-            </TableCell>
+                </TableCell>
+                <TableCell>{cell(record.fields.status)}</TableCell>
+                <TableCell>{cell(record.fields.lastseen_at)}</TableCell>
+                <TableCell>{detailLink(record)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )
+    return (
+      <Table className="min-w-[760px]">
+        <TableHeader>
+          <TableRow>
+            <TableHead>
+              {domain === "dns"
+                ? t("Subdomain", "子域名")
+                : domain === "root_domain"
+                  ? t("Root domain", "主域名")
+                  : t("IP / version", "IP / 版本")}
+            </TableHead>
+            <TableHead>
+              {domain === "dns"
+                ? t("Record type / value", "解析类型 / 值")
+                : domain === "root_domain"
+                  ? t(
+                      "Source-claimed ICP organization / number",
+                      "源声明备案主体 / 号",
+                    )
+                  : domain === "port"
+                    ? t("Service / product / version", "服务 / 产品 / 版本")
+                    : t("Group / tags", "分组 / 标签")}
+            </TableHead>
+            <TableHead>
+              {domain === "ip"
+                ? t("Network ownership", "网络归属")
+                : domain === "root_domain"
+                  ? t(
+                      "Source-reported valid subdomains",
+                      "来源报告有效子域名数",
+                    )
+                  : t("Group / tags", "分组 / 标签")}
+            </TableHead>
+            <TableHead>{t("Source status", "源状态")}</TableHead>
+            <TableHead>
+              {t("Source last-seen time", "源最近发现时间")}
+            </TableHead>
+            <TableHead>{t("Details", "详情")}</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  )
+        </TableHeader>
+        <TableBody>
+          {items.map((record) => (
+            <TableRow key={record.id}>
+              <TableCell className="font-mono">
+                {cell(
+                  domain === "dns"
+                    ? record.fields.subdomain
+                    : domain === "root_domain"
+                      ? record.fields.root_domain
+                      : record.fields.ip,
+                )}
+                {domain === "ip" && (
+                  <div className="text-xs text-muted-foreground">
+                    {t("Version", "版本")}:{" "}
+                    <FieldValue value={record.fields.version} />
+                  </div>
+                )}
+              </TableCell>
+              <TableCell>
+                {domain === "ip" ? (
+                  <>
+                    {cell(names(record.fields.bu))}
+                    {cell(names(record.fields.tags))}
+                  </>
+                ) : domain === "root_domain" ? (
+                  <>
+                    {cell(record.fields.icp_official_name)}
+                    {cell(record.fields.icp_num)}
+                  </>
+                ) : (
+                  <>
+                    {cell(record.fields.rdtype)}
+                    {cell(record.fields.record)}
+                  </>
+                )}
+              </TableCell>
+              <TableCell>
+                {domain === "ip" ? (
+                  <>
+                    {cell(record.fields.provider)}
+                    {cell(record.fields.as_name)}
+                    {cell(record.fields.as_num)}
+                  </>
+                ) : domain === "root_domain" ? (
+                  cell(record.fields.valid_subdomain)
+                ) : (
+                  <>
+                    {cell(names(record.fields.bu))}
+                    {cell(names(record.fields.tags))}
+                  </>
+                )}
+              </TableCell>
+              <TableCell>{cell(record.fields.status)}</TableCell>
+              <TableCell>{cell(record.fields.lastseen_at)}</TableCell>
+              <TableCell>{detailLink(record)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    )
+  }
   return (
     <div className="min-w-0 space-y-6">
       {notice && (
@@ -2061,6 +2199,14 @@ function SourceAssets({
                   "部分批次仅包含已抓取页面，本地条数不是来源总量。完整版本也仅覆盖固定请求范围，不代表上游全部状态或一致性快照。源 ID 仅标识版本内记录，不是跨版本稳定实体。",
                 )}
               </p>
+              {!singleDomain && (
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "IP lookup sends one exact IPv4 or IPv6 value to the selected local fixed version. It does not search CIDR ranges, prefixes, or upstream data.",
+                    "IP 检索只将一个精确 IPv4 或 IPv6 值发送到选定的本地固定版本；不检索 CIDR、前缀或上游数据。",
+                  )}
+                </p>
+              )}
               {rootDomains && (
                 <p className="text-sm text-muted-foreground">
                   {t(
@@ -2132,6 +2278,7 @@ function SourceAssets({
                         ? search.external_root_domain
                         : search.external_ip) ?? ""
                   }
+                  aria-invalid={invalidIpFilter ? true : undefined}
                 />
               </div>
               <div className="min-w-0 space-y-1">
@@ -2178,10 +2325,15 @@ function SourceAssets({
             )}
             {!expired && records.isError && (
               <p role="alert">
-                {t(
-                  "Local records could not be read. Cached results are not used.",
-                  "无法读取本地记录，不使用缓存结果。",
-                )}
+                {invalidIpFilter
+                  ? t(
+                      "The IP format is invalid. Enter one exact IPv4 or IPv6 address; CIDR ranges and partial values are not accepted.",
+                      "IP 格式无效。请输入一个精确 IPv4 或 IPv6 地址；不接受 CIDR 范围或部分值。",
+                    )
+                  : t(
+                      "Local records could not be read. Cached results are not used.",
+                      "无法读取本地记录，不使用缓存结果。",
+                    )}
               </p>
             )}
             {recordData?.state === "NOT_SYNCED" && (
@@ -2254,10 +2406,15 @@ function SourceAssets({
                           "Published complete empty version for the requested range.",
                           "此请求范围已发布完整空版本。",
                         )
-                      : t(
-                          "No records match these local filters or page.",
-                          "当前本地筛选或页码无匹配记录。",
-                        )}
+                      : !recordData.version.complete
+                        ? t(
+                            "No records match this partial local batch or page. This does not show that the upstream source has no record.",
+                            "当前部分本地批次或页码没有匹配记录；这不表示上游来源没有该记录。",
+                          )
+                        : t(
+                            "No records match these local filters or page.",
+                            "当前本地筛选或页码无匹配记录。",
+                          )}
                   </p>
                 )}
                 <ResultPagination
