@@ -2,9 +2,9 @@
 
 Seed：`EXP-3SRC-UX-01`。
 
-批准依据：维护者于 2026-10-04 确认客户清单作为本次登记基准、IP 级结论优先、结果总览/差异清单/逐条依据与下一步；要求独立查询云图与处理后的 NetFlow，客户清单持续维护当前版本；确认整份清单替换、旧版留档、默认保留 90 天可配置；最终选择 A 并要求在原有产品前端基础上优化。本文将这些产品决定整理为可审阅的实施合同，具体条款、验收与任务拆分待维护者确认后由 GitHub Issue 固定实际 commit。
+批准依据：维护者于 2026-10-04 确认客户清单作为本次登记基准、IP 级结论优先、结果总览/差异清单/逐条依据与下一步；要求独立查询云图与处理后的 NetFlow，客户清单持续维护当前版本；确认整份清单替换、旧版留档、默认保留 90 天可配置；最终选择 A 并要求在原有产品前端基础上优化。维护者随后明确确认本文、同版 ADR-0023、四项任务拆分及文档/建单发布；本文为已批准实施合同，由新 GitHub Issue 固定实际 commit。
 
-继承 ADR-0016、ADR-0018、ADR-0020/0021/0022 的现有已接受边界。原 NetFlow 行为沿 [聚焦 Spec N1–N8](exposure-focus-release-1.md#exp-nf-int-01固定输入的-netflow-关联与人工复核材料) 和 [API 合同](netflow-correlation-api-v1.md)；18 类云图字段范围仍由该 Spec/附录/矩阵的已批准 `5729d4dd2fc40cd23eb748a575ba9bc7e2d5ccab` 解释。新增保留边界见同版 [ADR-0023 提案](../adr/0023-versioned-result-retention.md)。不从本文件更新旧任务状态。
+继承 ADR-0016、ADR-0018、ADR-0020/0021/0022 的现有已接受边界。原 NetFlow 行为沿 [聚焦 Spec N1–N8](exposure-focus-release-1.md#exp-nf-int-01固定输入的-netflow-关联与人工复核材料) 和 [API 合同](netflow-correlation-api-v1.md)；18 类云图字段范围仍由该 Spec/附录/矩阵的已批准 `5729d4dd2fc40cd23eb748a575ba9bc7e2d5ccab` 解释。新增保留边界见同版 [ADR-0023](../adr/0023-versioned-result-retention.md)。不从本文件更新旧任务状态。
 
 ## Problem Statement
 
