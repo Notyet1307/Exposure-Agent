@@ -464,7 +464,7 @@ test("fresh project to real worker, three sources, review history and local-only
   )
   await expect(
     page.getByLabel("Source difference count", { exact: true }),
-  ).toHaveText("—")
+  ).toHaveText("Unavailable")
   await page.goto(
     `${root}/netflow-correlation?revision=${revision}&tab=summary`,
   )
