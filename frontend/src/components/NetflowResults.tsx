@@ -17,6 +17,7 @@ import { netflowErrorCode } from "@/lib/netflow-errors"
 import { netflowProtocol, netflowText } from "@/lib/netflow-labels"
 
 const SIZE = 25
+const EVIDENCE_SIZE = 10
 export type NetflowResultsSearch = {
   analysis?: string
   dataset?: string
@@ -236,8 +237,8 @@ export default function NetflowResults({
           analysisId: search.analysis!,
           objectKey: tab === "observations" ? search.object : undefined,
           peerKey: tab === "peers" ? search.peer : undefined,
-          skip: (search.evidencePage ?? 0) * SIZE,
-          limit: SIZE,
+          skip: (search.evidencePage ?? 0) * EVIDENCE_SIZE,
+          limit: EVIDENCE_SIZE,
         }),
       ),
   })
@@ -939,7 +940,7 @@ export default function NetflowResults({
                       label={t("Evidence", "证据")}
                       count={evidence.data.count}
                       page={search.evidencePage ?? 0}
-                      pageSize={SIZE}
+                      pageSize={EVIDENCE_SIZE}
                       onPageChange={(page) => change({ evidencePage: page })}
                     />
                     <details className="text-sm">

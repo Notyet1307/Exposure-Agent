@@ -109,7 +109,7 @@ async function setup(page: Page) {
           retained_count: 27,
           omitted_count: 3,
           skip,
-          limit: 25,
+          limit: 10,
         },
       })
     }
@@ -167,9 +167,9 @@ test("independent processed observations keep batch, full pages, counts and evid
     .getByRole("navigation", { name: "Evidence pagination" })
     .getByRole("button", { name: "Next", exact: true })
     .click()
-  await expect(page.getByText("row:26", { exact: true })).toBeVisible()
+  await expect(page.getByText("row:11", { exact: true })).toBeVisible()
   await page.reload()
-  await expect(page.getByText("row:26", { exact: true })).toBeVisible()
+  await expect(page.getByText("row:11", { exact: true })).toBeVisible()
   expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
   expect(requests.every((request) => request.startsWith("GET "))).toBe(true)
   expect(

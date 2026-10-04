@@ -171,6 +171,12 @@ test("fresh project to real worker, three sources, review history and local-only
   await page
     .getByRole("button", { name: "View input evidence", exact: true })
     .click()
+  await expect(
+    page.getByRole("region", { name: "Input evidence", exact: true }),
+  ).toContainText("Retained references: 20")
+  await expect(
+    page.getByRole("region", { name: "Input evidence", exact: true }),
+  ).toContainText("Omitted references: 7")
   await page
     .getByRole("navigation", { name: "Evidence pagination" })
     .getByRole("button", { name: "Next", exact: true })
