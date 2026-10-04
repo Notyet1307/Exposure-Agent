@@ -2,7 +2,7 @@
 
 以下拆分已于 2026-10-04 获维护者明确确认，不是另一份任务状态表。发布后状态、依赖和授权仅在 GitHub；每张 Issue 引用 [同版 Spec](../specs/three-source-workbench-v1.md) 的准确 commit。按仓库规则不添加历史 `ready-for-agent` 标签。
 
-## 1. EXP-3SRC-UX-01A：现有前端的结论优先比对结果
+## 1. [#284](https://github.com/Notyet1307/Exposure-Agent/issues/284) EXP-3SRC-UX-01A：现有前端的结论优先比对结果
 
 **Blocked by：无，可首先实施。**
 
@@ -10,7 +10,7 @@
 
 验收：AC-3S-01/02/03/09/12/13；当前页不能代替全集，未提供/失败/范围不足不能变成零。前后端/API/client/浏览器同一切片交付。
 
-## 2. EXP-3SRC-UX-01B：当前客户清单更新到新版结果
+## 2. [#285](https://github.com/Notyet1307/Exposure-Agent/issues/285) EXP-3SRC-UX-01B：当前客户清单更新到新版结果
 
 **Blocked by：任务 1。** 需要任务 1 的正式结果入口和固定结果语义，才能完成更新提示与新旧结果闭环。
 
@@ -18,7 +18,7 @@
 
 验收：AC-3S-04/05/09/12/13；同 IP 多条不合并，失败/冲突/重放不覆盖旧基准，不把“最新文件”自动当成已生效清单。
 
-## 3. EXP-3SRC-UX-01C：独立查询处理后的 NetFlow 数据
+## 3. [#286](https://github.com/Notyet1307/Exposure-Agent/issues/286) EXP-3SRC-UX-01C：独立查询处理后的 NetFlow 数据
 
 **Blocked by：无，可与任务 1 独立准备。** 依赖已有成功 Analysis 合同，不依赖新结果页是否完成。
 
@@ -26,7 +26,7 @@
 
 验收：AC-3S-06/09/12/13；不必先建来源关联，不把旧 NetFlow 活动账冒称处理结果，不创建任务或调用来源。
 
-## 4. EXP-3SRC-UX-01D：新处理批次的 90 天默认留存
+## 4. [#287](https://github.com/Notyet1307/Exposure-Agent/issues/287) EXP-3SRC-UX-01D：新处理批次的 90 天默认留存
 
 **Blocked by：任务 1 和任务 3，以及 ADR-0023/同版 Spec 获准。** 要在实际比对页和独立查询面验证同一到期边界，不能只增加配置字段。
 
