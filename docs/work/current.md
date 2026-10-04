@@ -6,5 +6,6 @@
 - 本地代码基线为已验收的 `ef1b774d6f91d1cf342b30f469d588b94b2ef0b9`，含尚未全部远端发布的先行修复；本次文档分支从 `origin/main=f246b361d92fa298a1f9ac35b7a11db085b69c2c` 分出。不得借文档发布推送整条业务分支；后续源码发布前复核提交范围和依赖。
 - 已有任务 [#279](https://github.com/Notyet1307/Exposure-Agent/issues/279)、[#281](https://github.com/Notyet1307/Exposure-Agent/issues/281) 保留自己的固定规格、验收和授权，不由本轮改写或关闭。已发布旧 Run/报告、原始 Dataset、客户历史和既有真实数据期限保持原合同。
 - 当前真实项目仍缺客户清单，原型与隔离合成验收不能冒称真实三源业务验收。A 原型仅是已选的信息层次参考，正式功能需由本轮真实接口和用户主线证明。
-- #284 本地候选的 1435 项后端、244 项前端组件、正式构建、独立 Standards/Spec 审阅及隔离真实 API/worker/浏览器主线已通过，见 [本地验证记录](exp-3src-ux-01a-validation.md)。#286 独立处理数据查询正在本地实施；未据此发布源码、部署或关闭 Issue。
+- #284 结论优先工作台与 #286 独立 NetFlow 查询已在本地实现、验证并提交。最终业务候选 `623af133c1b362a596faf35e80bd0b395288b557` 的 1439 项后端、255 项前端组件、正式构建、两轴独立审阅及隔离真实 API/worker/浏览器主线通过，分别见 [#284 验证记录](exp-3src-ux-01a-validation.md) 和 [#286 验证记录](exp-3src-ux-01c-validation.md)。
+- 当前停止于源码远端授权边界。GitHub #284/#286 仍 OPEN，#285/#287 按原生开放阻塞依赖未开始；不以本地通过代替 merge、所需部署验收或关闭。相对 `origin/main=f246b36` 的源码候选还含未发布云图前置改动，后续发布须明确整条提交范围；本轮只发布了文档 PR #283，未推送源码、merge 或部署，8081 仍为原候选。
 - 前序云图接入继续固定 [RESULT-STRUCTURED / ACS-1–5 @5729d4d](https://github.com/Notyet1307/Exposure-Agent/blob/5729d4dd2fc40cd23eb748a575ba9bc7e2d5ccab/docs/specs/exposure-focus-release-1.md#result-structured18类结构化数据接入)，同版接入附录/字段矩阵与 ADR-0021/0022 仍适用；历史 18 类数据能力不在此入口切换中改变。
