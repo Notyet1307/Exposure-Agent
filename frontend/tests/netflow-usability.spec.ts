@@ -219,7 +219,35 @@ test("fresh project to real worker, three sources, review history and local-only
         "Exact synthetic input versions describe the same fixture network",
     },
   )
-  const revision = confirmed.correlation_revision_id as string
+  const limitedRevision = confirmed.correlation_revision_id as string
+  const limitedSummary = await get(
+    `${root}/source-correlations/${limitedRevision}`,
+  )
+  // The real IP sync is fixed to status=valid; successful pagination does not
+  // erase that approved coverage restriction.
+  expect(limitedSummary.comparison).toMatchObject({
+    state: "INSUFFICIENT_COVERAGE",
+    common_addresses: null,
+    different_addresses: null,
+  })
+  expect(limitedSummary.positive_intersections).toBeNull()
+  const completeCorrelation = await post(`${root}/source-correlations`, {
+    network_namespace: "synthetic-usability",
+    netflow: { analysis_id: analysis },
+    customer: { upload_id: upload.id, revision_id: null },
+    cloud: { ...cloud(published), ip_version_id: null },
+    history_run_id: null,
+  })
+  const completeConfirmed = await post(
+    `${root}/source-correlations/${completeCorrelation.correlation_revision_id}/scope-revisions`,
+    {
+      expected_parent_id: completeCorrelation.correlation_revision_id,
+      scope_state: "CONFIRMED",
+      evidence:
+        "Customer, NetFlow and the complete unfiltered port batch describe the same synthetic network; no IP inventory is selected",
+    },
+  )
+  const revision = completeConfirmed.correlation_revision_id as string
   const summary = await get(`${root}/source-correlations/${revision}`)
   expect(summary.total_addresses).toBe(38)
   expect(summary.comparison).toEqual({
@@ -431,6 +459,12 @@ test("fresh project to real worker, three sources, review history and local-only
     if (!["GET", "HEAD", "OPTIONS"].includes(item.method()))
       writes.push(`${item.method()} ${new URL(item.url()).pathname}`)
   })
+  await page.goto(
+    `${root}/netflow-correlation?revision=${limitedRevision}&tab=summary`,
+  )
+  await expect(
+    page.getByLabel("Source difference count", { exact: true }),
+  ).toHaveText("—")
   await page.goto(
     `${root}/netflow-correlation?revision=${revision}&tab=summary`,
   )
