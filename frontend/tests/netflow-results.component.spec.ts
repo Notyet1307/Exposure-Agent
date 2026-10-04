@@ -130,6 +130,9 @@ test("independent processed observations keep batch, full pages, counts and evid
   await expect(
     page.getByRole("heading", { name: "Processed NetFlow data", exact: true }),
   ).toBeVisible()
+  await expect(
+    page.getByRole("combobox", { name: "Published run", exact: true }),
+  ).toHaveCount(0)
   await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
     "780",
   )
@@ -394,4 +397,72 @@ test("ordinary entry waits for explicit upload and readable batch selection", as
     "780",
   )
   expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
+})
+
+test("project switch stays in processed data and rejects the old late response", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.route(
+    (url) => url.pathname === "/api/v1/projects/",
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [
+            { id: project, name: "First project" },
+            { id: context, name: "Second project" },
+          ],
+          count: 2,
+        },
+      }),
+  )
+  let release: () => void = () => {}
+  let requested: () => void = () => {}
+  const waiting = new Promise<void>((resolve) => {
+    requested = resolve
+  })
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(
+    `**${root}/netflow-analyses/${analysis}/observations?*`,
+    async (route) => {
+      requested()
+      await released
+      await route.fulfill({
+        json: {
+          ...identity,
+          ...timing,
+          data: [observation(26)],
+          count: 1,
+          skip: 0,
+          limit: 25,
+          raw_record_count: 780,
+          total_source_records: 780,
+          total_observations: 26,
+          total_addresses: 26,
+        },
+      })
+    },
+  )
+  await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
+  await waiting
+  await page
+    .getByRole("combobox", { name: "Project", exact: true })
+    .selectOption(context)
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/${context}/netflow-results`),
+  )
+  release()
+  await expect(
+    page.getByRole("heading", {
+      name: "Choose uploaded data, then a readable batch",
+      exact: true,
+    }),
+  ).toBeVisible()
+  expect(new URL(page.url()).searchParams.has("analysis")).toBe(false)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveCount(0)
+  await expect(
+    page.getByRole("button", { name: "192.0.2.26", exact: true }),
+  ).toHaveCount(0)
 })

@@ -152,6 +152,9 @@ test("fresh project to real worker, three sources, review history and local-only
   await expect(
     page.getByLabel("Distinct source IPs", { exact: true }),
   ).toHaveText("30")
+  await expect(
+    page.getByRole("combobox", { name: "Published run", exact: true }),
+  ).toHaveCount(0)
   await page
     .getByRole("navigation", { name: "Observations pagination" })
     .getByRole("button", { name: "Next", exact: true })

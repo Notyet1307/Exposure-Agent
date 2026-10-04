@@ -51,7 +51,7 @@ export default function NetflowResults({
   search: NetflowResultsSearch
   navigate: Navigate
 }) {
-  const { t } = useI18n()
+  const { t, formatDate } = useI18n()
   const cache = useQueryClient()
   const scope = useMemo(
     () => [
@@ -299,7 +299,7 @@ export default function NetflowResults({
       evidenceTarget.current?.focus()
   }, [search.evidence, evidence.isSuccess, evidence.isError])
   const date = (value: string | null | undefined) =>
-    value ? new Date(value).toLocaleString() : t("Unknown", "未知")
+    value ? formatDate(value) : t("Unknown", "未知")
   const pageData = tab === "observations" ? observations.data : peers.data
   const rows =
     tab === "observations"
@@ -318,7 +318,7 @@ export default function NetflowResults({
           records: row.source_record_count,
         }))
   return (
-    <main className="min-w-0 space-y-6 p-4 md:p-6">
+    <main className="min-w-0 space-y-6">
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">
           {t("Processed NetFlow data", "NetFlow 处理数据")}
