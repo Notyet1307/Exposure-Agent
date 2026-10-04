@@ -19,4 +19,6 @@
 
 main 不接受 Issue 专属 probe、临时 Evidence 或固定 Run 验收快照。
 
+待确认的产品实施规格：[三源比对工作台 V1（A 方案）](specs/three-source-workbench-v1.md)、[结果留存 ADR-0023 提案](adr/0023-versioned-result-retention.md)及[拟发布任务拆分](plans/three-source-workbench-tickets-20261004.md)。它们不替代当前 Issue 的固定行为或任务状态；获准发布后由新 Issue 固定实际版本。
+
 静态交接：[NetFlow 首次使用 #279](work/netflow-usability-handoff.md) 记录本轮提交和合成验收；[历史接管回执](handoff-receipt.md) 仅对应其旧 SHA。它们均不替代 GitHub Issue 的当前状态与授权。
