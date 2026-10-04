@@ -2507,7 +2507,7 @@ function SummaryView({
             >
               <output
                 aria-label={countLabel}
-                className="text-2xl font-semibold tabular-nums"
+                className="block text-2xl font-semibold tabular-nums"
               >
                 {value == null ? t("Unavailable", "不可用") : value}
               </output>
