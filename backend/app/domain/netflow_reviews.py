@@ -25,6 +25,7 @@ from app.domain.netflow_models import NetFlowAnalysis, NetFlowFeedbackRevision
 from app.domain.netflow_processing import (
     analysis_material,
     context_for,
+    dataset_for,
     validate_context,
 )
 from app.integrations import netflow_processor as processor
@@ -155,6 +156,41 @@ class PeerPage(Identity):
     limit: int
     total_peers: int
     total_peer_records: int
+
+
+class Observation(BaseModel):
+    object_key: str
+    canonical_ip: str
+    family: Literal[4, 6]
+    protocol_number: int
+    source_port: int | None
+    source_record_count: int
+    retained_count: int
+    omitted_count: int
+    original: dict[str, Any]
+
+
+class ObservationPage(Identity):
+    data: list[Observation]
+    count: int
+    skip: int
+    limit: int
+    raw_record_count: int
+    total_observations: int
+    total_source_records: int
+    total_addresses: int
+    batch_created_at: datetime
+    batch_completed_at: datetime | None
+    original_time_basis: str
+    business_time_qualification: Literal["UNKNOWN"]
+
+
+class ObservationDetail(Observation, Identity):
+    batch_created_at: datetime
+    batch_completed_at: datetime | None
+    original_time_basis: str
+    business_time_qualification: Literal["UNKNOWN"]
+    context: dict[str, Any]
 
 
 class EvidenceRef(BaseModel):
@@ -557,6 +593,117 @@ def read_peers(
             )
             for item in selected[skip : skip + limit]
         ],
+    )
+
+
+def _observation_material(
+    session: Session, project: Project, analysis_id: uuid.UUID
+) -> tuple[NetFlowAnalysis, processor.ProcessorBundle, dict[str, Any]]:
+    analysis, bundle = analysis_material(session, project, analysis_id)
+    dataset = dataset_for(session, project, analysis.dataset_id)
+    quality = analysis.quality
+    counts = (
+        quality.get("raw_record_count"),
+        quality.get("activity_valid_record_count"),
+        quality.get("isolated_record_count"),
+    )
+    if counts != (
+        dataset.raw_record_count,
+        dataset.activity_valid_record_count,
+        dataset.isolated_record_count,
+    ):
+        deny("netflow_artifact_integrity_failed")
+    if dataset.raw_record_count and not dataset.activity_valid_record_count:
+        deny("netflow_analysis_not_readable")
+    context = context_for(
+        session, project, analysis.dataset_id, analysis.context_revision_id
+    )
+    return analysis, bundle, context.payload
+
+
+def _observation(item: dict[str, Any]) -> Observation:
+    canonical = normalize_ip(item["ip"])
+    return Observation(
+        object_key=item["object_key"],
+        canonical_ip=canonical,
+        family=ipaddress.ip_address(canonical).version,
+        protocol_number=item["protocol"],
+        source_port=item["local_port"],
+        source_record_count=item["features"]["record_count"],
+        retained_count=len(item["source_refs"]),
+        omitted_count=item["source_refs_omitted"],
+        original=item,
+    )
+
+
+def read_observations(
+    session: Session,
+    project: Project,
+    analysis_id: uuid.UUID,
+    *,
+    ip: str | None,
+    protocol: int | None,
+    source_port: int | None,
+    sort: Literal["ip_asc", "ip_desc"],
+    skip: int,
+    limit: int,
+) -> ObservationPage:
+    analysis, bundle, context = _observation_material(session, project, analysis_id)
+    canonical = normalize_ip(ip) if ip is not None else None
+    selected = [
+        item
+        for item in bundle.observations
+        if (canonical is None or normalize_ip(item["ip"]) == canonical)
+        and (protocol is None or item["protocol"] == protocol)
+        and (source_port is None or item["local_port"] == source_port)
+    ]
+    selected.sort(
+        key=lambda item: (
+            ipaddress.ip_address(normalize_ip(item["ip"])).version,
+            int(ipaddress.ip_address(normalize_ip(item["ip"]))),
+            item["object_key"],
+        ),
+        reverse=sort == "ip_desc",
+    )
+    return ObservationPage(
+        **_identity(analysis, bundle),
+        data=[_observation(item) for item in selected[skip : skip + limit]],
+        count=len(selected),
+        skip=skip,
+        limit=limit,
+        raw_record_count=analysis.quality["raw_record_count"],
+        total_observations=len(bundle.observations),
+        total_source_records=sum(
+            item["features"]["record_count"] for item in bundle.observations
+        ),
+        total_addresses=len({normalize_ip(item["ip"]) for item in bundle.observations}),
+        batch_created_at=analysis.created_at,
+        batch_completed_at=analysis.completed_at,
+        original_time_basis=context["original_time_basis"],
+        business_time_qualification=context["business_time_qualification"],
+    )
+
+
+def read_observation(
+    session: Session,
+    project: Project,
+    analysis_id: uuid.UUID,
+    object_key: str,
+) -> ObservationDetail:
+    analysis, bundle, context = _observation_material(session, project, analysis_id)
+    item = next(
+        (row for row in bundle.observations if row["object_key"] == object_key), None
+    )
+    if item is None:
+        deny("netflow_input_not_found", 404)
+    return ObservationDetail(
+        **_identity(analysis, bundle),
+        **_observation(item).model_dump(),
+        batch_created_at=analysis.created_at,
+        batch_completed_at=analysis.completed_at,
+        original_time_basis=context["original_time_basis"],
+        business_time_qualification=context["business_time_qualification"],
+        context=context,
     )
 
 

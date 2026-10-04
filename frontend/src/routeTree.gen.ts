@@ -15,6 +15,7 @@ import { Route as LayoutIndexRouteImport } from './routes/_layout/index'
 import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutAiSettingsRouteImport } from './routes/_layout/ai-settings'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutProjectsProjectIdNetflowResultsRouteImport } from './routes/_layout/projects.$projectId.netflow-results'
 import { Route as LayoutProjectsProjectIdNetflowLedgerRouteImport } from './routes/_layout/projects.$projectId.netflow-ledger'
 import { Route as LayoutProjectsProjectIdNetflowCorrelationRouteImport } from './routes/_layout/projects.$projectId.netflow-correlation'
 import { Route as LayoutProjectsProjectIdExternalAssetsRouteImport } from './routes/_layout/projects.$projectId.external-assets'
@@ -52,6 +53,12 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutProjectsProjectIdNetflowResultsRoute =
+  LayoutProjectsProjectIdNetflowResultsRouteImport.update({
+    id: '/projects/$projectId/netflow-results',
+    path: '/projects/$projectId/netflow-results',
+    getParentRoute: () => LayoutRoute,
+  } as any)
 const LayoutProjectsProjectIdNetflowLedgerRoute =
   LayoutProjectsProjectIdNetflowLedgerRouteImport.update({
     id: '/projects/$projectId/netflow-ledger',
@@ -106,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectId/external-assets': typeof LayoutProjectsProjectIdExternalAssetsRoute
   '/projects/$projectId/netflow-correlation': typeof LayoutProjectsProjectIdNetflowCorrelationRoute
   '/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
+  '/projects/$projectId/netflow-results': typeof LayoutProjectsProjectIdNetflowResultsRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -120,6 +128,7 @@ export interface FileRoutesByTo {
   '/projects/$projectId/external-assets': typeof LayoutProjectsProjectIdExternalAssetsRoute
   '/projects/$projectId/netflow-correlation': typeof LayoutProjectsProjectIdNetflowCorrelationRoute
   '/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
+  '/projects/$projectId/netflow-results': typeof LayoutProjectsProjectIdNetflowResultsRoute
   '/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -136,6 +145,7 @@ export interface FileRoutesById {
   '/_layout/projects/$projectId/external-assets': typeof LayoutProjectsProjectIdExternalAssetsRoute
   '/_layout/projects/$projectId/netflow-correlation': typeof LayoutProjectsProjectIdNetflowCorrelationRoute
   '/_layout/projects/$projectId/netflow-ledger': typeof LayoutProjectsProjectIdNetflowLedgerRoute
+  '/_layout/projects/$projectId/netflow-results': typeof LayoutProjectsProjectIdNetflowResultsRoute
   '/_layout/projects/$projectId/runs/$runId/comparison': typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   '/_layout/projects/$projectId/runs/$runId/lineage': typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId/external-assets'
     | '/projects/$projectId/netflow-correlation'
     | '/projects/$projectId/netflow-ledger'
+    | '/projects/$projectId/netflow-results'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
   fileRoutesByTo: FileRoutesByTo
@@ -166,6 +177,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId/external-assets'
     | '/projects/$projectId/netflow-correlation'
     | '/projects/$projectId/netflow-ledger'
+    | '/projects/$projectId/netflow-results'
     | '/projects/$projectId/runs/$runId/comparison'
     | '/projects/$projectId/runs/$runId/lineage'
   id:
@@ -181,6 +193,7 @@ export interface FileRouteTypes {
     | '/_layout/projects/$projectId/external-assets'
     | '/_layout/projects/$projectId/netflow-correlation'
     | '/_layout/projects/$projectId/netflow-ledger'
+    | '/_layout/projects/$projectId/netflow-results'
     | '/_layout/projects/$projectId/runs/$runId/comparison'
     | '/_layout/projects/$projectId/runs/$runId/lineage'
   fileRoutesById: FileRoutesById
@@ -232,6 +245,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof LayoutAdminRouteImport
+      parentRoute: typeof LayoutRoute
+    }
+    '/_layout/projects/$projectId/netflow-results': {
+      id: '/_layout/projects/$projectId/netflow-results'
+      path: '/projects/$projectId/netflow-results'
+      fullPath: '/projects/$projectId/netflow-results'
+      preLoaderRoute: typeof LayoutProjectsProjectIdNetflowResultsRouteImport
       parentRoute: typeof LayoutRoute
     }
     '/_layout/projects/$projectId/netflow-ledger': {
@@ -296,6 +316,7 @@ interface LayoutRouteChildren {
   LayoutProjectsProjectIdExternalAssetsRoute: typeof LayoutProjectsProjectIdExternalAssetsRoute
   LayoutProjectsProjectIdNetflowCorrelationRoute: typeof LayoutProjectsProjectIdNetflowCorrelationRoute
   LayoutProjectsProjectIdNetflowLedgerRoute: typeof LayoutProjectsProjectIdNetflowLedgerRoute
+  LayoutProjectsProjectIdNetflowResultsRoute: typeof LayoutProjectsProjectIdNetflowResultsRoute
   LayoutProjectsProjectIdRunsRunIdComparisonRoute: typeof LayoutProjectsProjectIdRunsRunIdComparisonRoute
   LayoutProjectsProjectIdRunsRunIdLineageRoute: typeof LayoutProjectsProjectIdRunsRunIdLineageRoute
 }
@@ -315,6 +336,8 @@ const LayoutRouteChildren: LayoutRouteChildren = {
     LayoutProjectsProjectIdNetflowCorrelationRoute,
   LayoutProjectsProjectIdNetflowLedgerRoute:
     LayoutProjectsProjectIdNetflowLedgerRoute,
+  LayoutProjectsProjectIdNetflowResultsRoute:
+    LayoutProjectsProjectIdNetflowResultsRoute,
   LayoutProjectsProjectIdRunsRunIdComparisonRoute:
     LayoutProjectsProjectIdRunsRunIdComparisonRoute,
   LayoutProjectsProjectIdRunsRunIdLineageRoute:

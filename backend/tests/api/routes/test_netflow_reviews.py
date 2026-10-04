@@ -9,11 +9,17 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app.core.config import settings
 from app.core.time import get_datetime_utc
 from app.domain.models import ProjectMembership
-from app.domain.netflow_models import NetFlowContextRevision
+from app.domain.netflow_models import NetFlowAnalysis, NetFlowContextRevision
 from tests.api.routes.test_netflow_datasets import _member, _project
-from tests.utils.netflow_processing import published_analysis
+from tests.utils.netflow_processing import (
+    execute,
+    prepared_dataset,
+    published_analysis,
+    reserve,
+)
 
 
 @pytest.fixture
@@ -273,6 +279,13 @@ def test_feedback_idempotency_parent_scope_and_patch_validation(
         ).status_code
         == 404
     )
+    assert (
+        client.get(
+            f"/api/v1/projects/{other['id']}/netflow-analyses/{f['analysis_id']}/observations",
+            headers=f["headers"],
+        ).status_code
+        == 404
+    )
     viewer = _member(client, f["headers"], f["project_id"], ["viewer"])
     assert (
         client.get(
@@ -347,6 +360,125 @@ def test_peers_evidence_exact_filters_counts_and_source_separation(
     )
 
 
+def test_observations_are_paged_filtered_and_link_to_fixed_evidence(
+    client: TestClient,
+    review_analysis: dict[str, Any],
+) -> None:
+    f = review_analysis
+    page = _get(client, f, "/observations", limit=1)
+    assert page["count"] == page["total_observations"] == 31
+    assert page["total_source_records"] == page["raw_record_count"] == 86
+    assert page["total_addresses"] == 30 and len(page["data"]) == 1
+    first = _get(client, f, "/observations", limit=25)
+    second = _get(client, f, "/observations", skip=25, limit=25)
+    assert len(first["data"]) == 25 and len(second["data"]) == 6
+    assert len({item["object_key"] for item in first["data"] + second["data"]}) == 31
+    descending = _get(client, f, "/observations", sort="ip_desc", limit=1)
+    assert descending["data"][0]["canonical_ip"] == "192.0.2.30"
+    exact = _get(
+        client,
+        f,
+        "/observations",
+        ip="::ffff:192.0.2.1",
+        protocol=6,
+        source_port=443,
+    )
+    assert exact["count"] == 1
+    observation = exact["data"][0]
+    assert (
+        observation["canonical_ip"] == "192.0.2.1"
+        and observation["protocol_number"] == 6
+        and observation["source_port"] == 443
+        and observation["source_record_count"] == 27
+    )
+    assert _get(client, f, "/observations", ip="192.0.2.1", protocol=17)["count"] == 1
+    assert (
+        _get(client, f, "/observations", ip="192.0.2.1", source_port=53)["count"] == 1
+    )
+    assert _get(client, f, "/observations", ip="192.0.2.1", source_port=1)["count"] == 0
+    detail = _get(client, f, "/observations/" + observation["object_key"])
+    assert detail["object_key"] == observation["object_key"]
+    assert detail["business_time_qualification"] == "UNKNOWN"
+    assert detail["original_time_basis"] == "netflow-dataset-v1:UTC+08:00"
+    evidence = _get(client, f, "/evidence", object_key=observation["object_key"])
+    assert evidence["source_record_count"] == detail["source_record_count"]
+    assert evidence["retained_count"] + evidence["omitted_count"] == 27
+    assert (
+        client.get(
+            f["root"] + "/observations/missing", headers=f["headers"]
+        ).status_code
+        == 404
+    )
+
+
+def test_observation_reads_reject_unready_and_all_isolated_analyses(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = prepared_dataset(client, db, superuser_token_headers, tmp_path, monkeypatch)
+    queued = reserve(client, setup)
+    root = f"{setup['root']}/netflow-analyses/{queued['analysis_id']}"
+    response = client.get(root + "/observations", headers=setup["headers"])
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "netflow_analysis_not_ready"
+    isolated = prepared_dataset(
+        client,
+        db,
+        superuser_token_headers,
+        tmp_path,
+        monkeypatch,
+        raw_text="IP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT\ninvalid,also-invalid,6,1,2\n",
+    )
+    failed = reserve(client, isolated)
+    failed_row = execute(db, isolated, failed["analysis_id"])
+    assert (
+        failed_row.status == "FAILED"
+        and failed_row.quality["raw_record_count"] == 1
+        and failed_row.quality["activity_valid_record_count"] == 0
+        and failed_row.quality["isolated_record_count"] == 1
+    )
+    response = client.get(
+        f"{isolated['root']}/netflow-analyses/{failed['analysis_id']}/observations",
+        headers=isolated["headers"],
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "netflow_analysis_not_ready"
+
+
+def test_legitimate_empty_observations_keep_zero_counts(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = published_analysis(
+        client,
+        db,
+        superuser_token_headers,
+        tmp_path,
+        monkeypatch,
+        raw_text="IP_SRC_ADDR,IP_DST_ADDR,PROTOCOL,L4_SRC_PORT,L4_DST_PORT\n",
+    )
+    response = client.get(
+        f"{setup['root']}/netflow-analyses/{setup['analysis_id']}/observations",
+        headers=superuser_token_headers,
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["data"] == []
+    assert result["count"] == result["raw_record_count"] == 0
+    assert (
+        result["total_observations"]
+        == result["total_source_records"]
+        == result["total_addresses"]
+        == 0
+    )
+
+
 def test_roles_archive_and_current_context_revocation(
     client: TestClient,
     db: Session,
@@ -369,7 +501,7 @@ def test_roles_archive_and_current_context_revocation(
     membership.revoked_at = get_datetime_utc()
     db.add(membership)
     db.commit()
-    for suffix in ("/feedback", "/review-tasks", "/peers"):
+    for suffix in ("/feedback", "/review-tasks", "/peers", "/observations"):
         assert client.get(f["root"] + suffix, headers=operator).status_code == 404
     project = f["project"]
     project.archived_at = get_datetime_utc()
@@ -403,7 +535,27 @@ def test_roles_archive_and_current_context_revocation(
     )
     db.add(revoked)
     db.commit()
-    for suffix in ("/feedback", "/review-tasks", "/peers"):
+    for suffix in ("/feedback", "/review-tasks", "/peers", "/observations"):
         response = client.get(f["root"] + suffix, headers=f["headers"])
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "netflow_context_revoked"
+
+
+def test_observation_reads_fail_closed_on_artifact_damage(
+    client: TestClient,
+    db: Session,
+    review_analysis: dict[str, Any],
+) -> None:
+    f = review_analysis
+    analysis = db.get(NetFlowAnalysis, uuid.UUID(f["analysis_id"]))
+    assert analysis is not None and analysis.result is not None
+    path = (
+        settings.ARTIFACT_ROOT
+        / analysis.result["artifacts"]["root"]
+        / "analysis/observations.jsonl"
+    )
+    path.chmod(0o600)
+    path.write_bytes(path.read_bytes() + b"{}\n")
+    response = client.get(f["root"] + "/observations", headers=f["headers"])
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "netflow_artifact_integrity_failed"

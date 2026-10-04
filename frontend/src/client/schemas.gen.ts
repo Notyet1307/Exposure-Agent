@@ -7427,6 +7427,290 @@ export const NetFlowSelectionSchema = {
     title: 'NetFlowSelection'
 } as const;
 
+export const ObservationSchema = {
+    properties: {
+        object_key: {
+            type: 'string',
+            title: 'Object Key'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        family: {
+            type: 'integer',
+            enum: [4, 6],
+            title: 'Family'
+        },
+        protocol_number: {
+            type: 'integer',
+            title: 'Protocol Number'
+        },
+        source_port: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Port'
+        },
+        source_record_count: {
+            type: 'integer',
+            title: 'Source Record Count'
+        },
+        retained_count: {
+            type: 'integer',
+            title: 'Retained Count'
+        },
+        omitted_count: {
+            type: 'integer',
+            title: 'Omitted Count'
+        },
+        original: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Original'
+        }
+    },
+    type: 'object',
+    required: ['object_key', 'canonical_ip', 'family', 'protocol_number', 'source_port', 'source_record_count', 'retained_count', 'omitted_count', 'original'],
+    title: 'Observation'
+} as const;
+
+export const ObservationDetailSchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'netflow-correlation-v1',
+            title: 'Contract Version',
+            default: 'netflow-correlation-v1'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        analysis_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Analysis Id'
+        },
+        dataset_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Dataset Id'
+        },
+        context_revision_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Context Revision Id'
+        },
+        network_namespace: {
+            type: 'string',
+            title: 'Network Namespace'
+        },
+        test_fixture: {
+            type: 'boolean',
+            title: 'Test Fixture'
+        },
+        provenance: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Provenance'
+        },
+        object_key: {
+            type: 'string',
+            title: 'Object Key'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        family: {
+            type: 'integer',
+            enum: [4, 6],
+            title: 'Family'
+        },
+        protocol_number: {
+            type: 'integer',
+            title: 'Protocol Number'
+        },
+        source_port: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Port'
+        },
+        source_record_count: {
+            type: 'integer',
+            title: 'Source Record Count'
+        },
+        retained_count: {
+            type: 'integer',
+            title: 'Retained Count'
+        },
+        omitted_count: {
+            type: 'integer',
+            title: 'Omitted Count'
+        },
+        original: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Original'
+        },
+        batch_created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Batch Created At'
+        },
+        batch_completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Batch Completed At'
+        },
+        original_time_basis: {
+            type: 'string',
+            title: 'Original Time Basis'
+        },
+        business_time_qualification: {
+            type: 'string',
+            const: 'UNKNOWN',
+            title: 'Business Time Qualification'
+        },
+        context: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Context'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'analysis_id', 'dataset_id', 'context_revision_id', 'network_namespace', 'test_fixture', 'provenance', 'object_key', 'canonical_ip', 'family', 'protocol_number', 'source_port', 'source_record_count', 'retained_count', 'omitted_count', 'original', 'batch_created_at', 'batch_completed_at', 'original_time_basis', 'business_time_qualification', 'context'],
+    title: 'ObservationDetail'
+} as const;
+
+export const ObservationPageSchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'netflow-correlation-v1',
+            title: 'Contract Version',
+            default: 'netflow-correlation-v1'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        analysis_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Analysis Id'
+        },
+        dataset_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Dataset Id'
+        },
+        context_revision_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Context Revision Id'
+        },
+        network_namespace: {
+            type: 'string',
+            title: 'Network Namespace'
+        },
+        test_fixture: {
+            type: 'boolean',
+            title: 'Test Fixture'
+        },
+        provenance: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Provenance'
+        },
+        data: {
+            items: {
+                '$ref': '#/components/schemas/Observation'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        skip: {
+            type: 'integer',
+            title: 'Skip'
+        },
+        limit: {
+            type: 'integer',
+            title: 'Limit'
+        },
+        raw_record_count: {
+            type: 'integer',
+            title: 'Raw Record Count'
+        },
+        total_observations: {
+            type: 'integer',
+            title: 'Total Observations'
+        },
+        total_source_records: {
+            type: 'integer',
+            title: 'Total Source Records'
+        },
+        total_addresses: {
+            type: 'integer',
+            title: 'Total Addresses'
+        },
+        batch_created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Batch Created At'
+        },
+        batch_completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Batch Completed At'
+        },
+        original_time_basis: {
+            type: 'string',
+            title: 'Original Time Basis'
+        },
+        business_time_qualification: {
+            type: 'string',
+            const: 'UNKNOWN',
+            title: 'Business Time Qualification'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'analysis_id', 'dataset_id', 'context_revision_id', 'network_namespace', 'test_fixture', 'provenance', 'data', 'count', 'skip', 'limit', 'raw_record_count', 'total_observations', 'total_source_records', 'total_addresses', 'batch_created_at', 'batch_completed_at', 'original_time_basis', 'business_time_qualification'],
+    title: 'ObservationPage'
+} as const;
+
 export const ObservationPointSchema = {
     properties: {
         id: {

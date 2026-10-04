@@ -279,3 +279,14 @@ Analysis 作业状态沿现有独立 worker 模式固定为：`PENDING / RUNNING
 - 地址列表新增 `comparison=all|differences|common`，默认 `all`。与 IP、精确正向来源组合及现有筛选共同作用，按同一全集计算 count 后分页。不可比较时明确请求 common/differences 返回 422 `netflow_context_invalid`，不替换成全部地址或零条。
 - 每条地址新增 `conclusion=COMMON_RECORD|SOURCE_DIFFERENCE|RECORDED_IP`，由服务端分类；最后一种只确认来源中有记录，跨源比较不可用。原 `presence`、`reasons`、证据身份和省略数保留。
 - 旧 `positive_intersections` 保持可比较时的七组合结构，不可比较时为 null；精确 `positive_sources` 读取保留兼容。新工作台必须先检查 `comparison.state`，不能把七组合中的零当成缺失资料的结论。协议 6/17 显示 TCP/UDP，其他有效数值保留编号；应用名称或缺失协议不推测为编号。
+
+## 10. EXP-3SRC-UX-01C 独立处理结果查询
+
+依据三源工作台固定 Spec `c15be890eac8bf5044b891c9feccfa3ce7da6f68` 的 U4/U6；本节描述实现接口，不替换批准行为。
+
+- `GET /projects/{project_id}/netflow-analyses/{analysis_id}/observations`：规范 IP `ip`、`protocol=0..255`、`source_port=0..65535`、`sort=ip_asc|ip_desc`，`skip/limit` 有界分页。`count` 为筛选观测数；`raw_record_count`、`total_source_records`、`total_observations`、`total_addresses` 各自保留全批口径，外侧 peers 不进入源侧计数。
+- `GET .../observations/{object_key}`：固定对象详情、协议原编号、源侧端口、记录数、保留/省略引用数、原对象和输入上下文。现有 `GET .../evidence?object_key=...` 分页读取同一 Analysis 的输入引用；对端沿现有 `peers` 与 `evidence?peer_key=...`。
+- 响应继承 Analysis/Project/Dataset/Context/namespace 身份与来源 Hash。时间包含批次创建/完成时间和原始时间基准，业务时间资格保留 UNKNOWN；批次时间不当作观测时间，不推断连接角色。
+- 读取复用 `analysis_material` 的当前权限、上下文、封存收据与完整性校验；增加 Dataset 与 Analysis 质量计数一致性核验。成功合法空集为 0，未完成/失败/全隔离拒读，不调用来源、模型或新处理。
+- 正式页面 `/projects/{project_id}/netflow-results` 从原侧栏进入；普通入口先选择上传数据及可读批次。显式 `analysis` 不存在、冲突、撤权或收到 410 时无 latest 兜底；列表、详情、证据在同一固定身份中分页，受限缓存清除。保留旧活动账入口。
+- 本任务不增加保留期限或清理协议；新生命周期由 #287 独立实现。页面可消费现有拒读状态，不能将组件中的合成 410 测试宣称为已实现新 Analysis 期限。

@@ -293,6 +293,10 @@ const labels: Record<string, readonly [string, string]> = Object.setPrototypeOf(
       "The fixed input is unavailable in this project.",
       "此项目中无法读取该固定输入。",
     ],
+    netflow_analysis_not_readable: [
+      "This batch has no verified readable result.",
+      "该批次没有经过验证的可读结果。",
+    ],
     netflow_analysis_not_found: [
       "The fixed analysis is unavailable in this project.",
       "此项目中无法读取该固定分析。",

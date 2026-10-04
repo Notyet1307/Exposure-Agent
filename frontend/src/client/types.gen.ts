@@ -1612,6 +1612,76 @@ export type NetFlowSelection = {
     analysis_id: string;
 };
 
+export type Observation = {
+    object_key: string;
+    canonical_ip: string;
+    family: 4 | 6;
+    protocol_number: number;
+    source_port: (number | null);
+    source_record_count: number;
+    retained_count: number;
+    omitted_count: number;
+    original: {
+        [key: string]: unknown;
+    };
+};
+
+export type ObservationDetail = {
+    contract_version?: "netflow-correlation-v1";
+    project_id: string;
+    analysis_id: string;
+    dataset_id: string;
+    context_revision_id: string;
+    network_namespace: string;
+    test_fixture: boolean;
+    provenance: {
+        [key: string]: unknown;
+    };
+    object_key: string;
+    canonical_ip: string;
+    family: 4 | 6;
+    protocol_number: number;
+    source_port: (number | null);
+    source_record_count: number;
+    retained_count: number;
+    omitted_count: number;
+    original: {
+        [key: string]: unknown;
+    };
+    batch_created_at: string;
+    batch_completed_at: (string | null);
+    original_time_basis: string;
+    business_time_qualification: "UNKNOWN";
+    context: {
+        [key: string]: unknown;
+    };
+};
+
+export type ObservationPage = {
+    contract_version?: "netflow-correlation-v1";
+    project_id: string;
+    analysis_id: string;
+    dataset_id: string;
+    context_revision_id: string;
+    network_namespace: string;
+    test_fixture: boolean;
+    provenance: {
+        [key: string]: unknown;
+    };
+    data: Array<Observation>;
+    count: number;
+    skip: number;
+    limit: number;
+    raw_record_count: number;
+    total_observations: number;
+    total_source_records: number;
+    total_addresses: number;
+    batch_created_at: string;
+    batch_completed_at: (string | null);
+    original_time_basis: string;
+    business_time_qualification: "UNKNOWN";
+};
+
 export type ObservationPoint = {
     id: string;
     view: 'PUBLIC_EDGE' | 'INTERNAL' | 'UNKNOWN';
@@ -2735,6 +2805,27 @@ export type NetflowReviewsReadPeersData = {
 };
 
 export type NetflowReviewsReadPeersResponse = (PeerPage);
+
+export type NetflowReviewsReadObservationsData = {
+    analysisId: string;
+    ip?: (string | null);
+    limit?: number;
+    projectId: string;
+    protocol?: (number | null);
+    skip?: number;
+    sort?: 'ip_asc' | 'ip_desc';
+    sourcePort?: (number | null);
+};
+
+export type NetflowReviewsReadObservationsResponse = (ObservationPage);
+
+export type NetflowReviewsReadObservationData = {
+    analysisId: string;
+    objectKey: string;
+    projectId: string;
+};
+
+export type NetflowReviewsReadObservationResponse = (ObservationDetail);
 
 export type NetflowReviewsReadTasksData = {
     analysisId: string;
