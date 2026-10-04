@@ -111,6 +111,12 @@ export const AddressPublicSchema = {
             type: 'array',
             title: 'Positive Sources'
         },
+        conclusion: {
+            type: 'string',
+            enum: ['COMMON_RECORD', 'SOURCE_DIFFERENCE', 'RECORDED_IP'],
+            title: 'Conclusion',
+            default: 'RECORDED_IP'
+        },
         unmatched_netflow: {
             type: 'boolean',
             title: 'Unmatched Netflow'
@@ -1776,6 +1782,49 @@ export const ComparisonSchema = {
     type: 'object',
     required: ['record_key', 'version_id', 'domain', 'protocol_relation', 'port_relation', 'reasons'],
     title: 'Comparison'
+} as const;
+
+export const ComparisonOverviewSchema = {
+    properties: {
+        state: {
+            type: 'string',
+            enum: ['AVAILABLE', 'SCOPE_UNCONFIRMED', 'SOURCES_UNAVAILABLE', 'INSUFFICIENT_COVERAGE', 'INSUFFICIENT_SOURCES'],
+            title: 'State'
+        },
+        sources: {
+            items: {
+                type: 'string',
+                enum: ['CUSTOMER', 'CLOUD', 'NETFLOW']
+            },
+            type: 'array',
+            title: 'Sources'
+        },
+        common_addresses: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Common Addresses'
+        },
+        different_addresses: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Different Addresses'
+        }
+    },
+    type: 'object',
+    required: ['state', 'sources'],
+    title: 'ComparisonOverview'
 } as const;
 
 export const ComparisonPageSchema = {
@@ -8742,6 +8791,9 @@ export const SummarySchema = {
             ],
             title: 'Positive Intersections'
         },
+        comparison: {
+            '$ref': '#/components/schemas/ComparisonOverview'
+        },
         test_fixture: {
             type: 'boolean',
             title: 'Test Fixture'
@@ -8755,7 +8807,7 @@ export const SummarySchema = {
         }
     },
     type: 'object',
-    required: ['project_id', 'correlation_revision_id', 'network_namespace', 'root_id', 'parent_id', 'revision', 'historical_scope_state', 'current_scope_state', 'selection', 'pins', 'evidence', 'created_at', 'created_by', 'sources', 'total_addresses', 'positive_intersections', 'test_fixture', 'limitations'],
+    required: ['project_id', 'correlation_revision_id', 'network_namespace', 'root_id', 'parent_id', 'revision', 'historical_scope_state', 'current_scope_state', 'selection', 'pins', 'evidence', 'created_at', 'created_by', 'sources', 'total_addresses', 'positive_intersections', 'comparison', 'test_fixture', 'limitations'],
     title: 'Summary'
 } as const;
 

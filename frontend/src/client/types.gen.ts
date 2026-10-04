@@ -24,6 +24,7 @@ export type AddressPublic = {
     canonical_ip: string;
     family: 4 | 6;
     positive_sources: Array<('CUSTOMER' | 'CLOUD' | 'NETFLOW')>;
+    conclusion?: 'COMMON_RECORD' | 'SOURCE_DIFFERENCE' | 'RECORDED_IP';
     unmatched_netflow: boolean;
     source_record_count: (number | null);
     service_object_count: (number | null);
@@ -42,6 +43,8 @@ export type AddressPublic = {
 };
 
 export type family = 4 | 6;
+
+export type conclusion = 'COMMON_RECORD' | 'SOURCE_DIFFERENCE' | 'RECORDED_IP';
 
 export type AiGovernanceDraftPublic = {
     id: string;
@@ -469,6 +472,15 @@ export type port_relation = 'IN_RANGE' | 'OUT_OF_RANGE' | 'EQUAL' | 'DIFFERENT' 
 
 export type time_relation = 'OVERLAP' | 'DISJOINT' | 'UNKNOWN';
 
+export type ComparisonOverview = {
+    state: 'AVAILABLE' | 'SCOPE_UNCONFIRMED' | 'SOURCES_UNAVAILABLE' | 'INSUFFICIENT_COVERAGE' | 'INSUFFICIENT_SOURCES';
+    sources: Array<('CUSTOMER' | 'CLOUD' | 'NETFLOW')>;
+    common_addresses?: (number | null);
+    different_addresses?: (number | null);
+};
+
+export type state = 'AVAILABLE' | 'SCOPE_UNCONFIRMED' | 'SOURCES_UNAVAILABLE' | 'INSUFFICIENT_COVERAGE' | 'INSUFFICIENT_SOURCES';
+
 export type ComparisonPage = {
     data: Array<Comparison>;
     count: number;
@@ -520,7 +532,7 @@ export type ConnectionStatus = {
     reason?: (string | null);
 };
 
-export type state = 'legacy' | 'unconfigured' | 'active' | 'disabled' | 'unavailable';
+export type state2 = 'legacy' | 'unconfigured' | 'active' | 'disabled' | 'unavailable';
 
 export type ContextCreate = {
     expected_parent_id: (string | null);
@@ -534,7 +546,7 @@ export type ContextCreate = {
     sampling: Sampling;
 };
 
-export type state2 = 'CONFIRMED' | 'UNKNOWN' | 'CONFLICT' | 'REVOKED';
+export type state3 = 'CONFIRMED' | 'UNKNOWN' | 'CONFLICT' | 'REVOKED';
 
 export type nat_context = 'none' | 'mapped' | 'unknown';
 
@@ -718,7 +730,7 @@ export type ExternalRecordsPublic = {
     state: 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
 };
 
-export type state3 = 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
+export type state4 = 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
 
 export type ExternalSelection = {
     kind: "external_versions";
@@ -1091,7 +1103,7 @@ export type GovernanceRunSourcePublic = {
 
 export type source_type = 'CUSTOMER_UPLOAD' | 'CLOUDATLAS' | 'NETFLOW';
 
-export type state4 = 'ABSENT' | 'PRESENT';
+export type state5 = 'ABSENT' | 'PRESENT';
 
 export type GovernanceRunSourcesPublic = {
     project_id: string;
@@ -1859,7 +1871,7 @@ export type SourceState = {
     };
 };
 
-export type state5 = 'VALID_NONEMPTY' | 'VALID_EMPTY' | 'NOT_PROVIDED' | 'READ_FAILED' | 'INSUFFICIENT_COVERAGE';
+export type state6 = 'VALID_NONEMPTY' | 'VALID_EMPTY' | 'NOT_PROVIDED' | 'READ_FAILED' | 'INSUFFICIENT_COVERAGE';
 
 export type read_state = 'VALID_NONEMPTY' | 'VALID_EMPTY' | 'NOT_PROVIDED' | 'READ_FAILED';
 
@@ -1887,6 +1899,7 @@ export type Summary = {
     positive_intersections: ({
     [key: string]: (number);
 } | null);
+    comparison: ComparisonOverview;
     test_fixture: boolean;
     limitations: Array<(string)>;
 };
@@ -2978,6 +2991,7 @@ export type SourceCorrelationsSummaryData = {
 export type SourceCorrelationsSummaryResponse = (Summary);
 
 export type SourceCorrelationsListAddressesData = {
+    comparison?: 'all' | 'differences' | 'common';
     hasReviewTask?: (boolean | null);
     ip?: (string | null);
     limit?: number;

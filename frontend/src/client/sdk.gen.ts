@@ -3205,6 +3205,7 @@ export class SourceCorrelationsService {
      * @param data.revisionId
      * @param data.ip
      * @param data.positiveSources
+     * @param data.comparison
      * @param data.unmatchedNetflow
      * @param data.hasReviewTask
      * @param data.sort
@@ -3224,6 +3225,7 @@ export class SourceCorrelationsService {
             query: {
                 ip: data.ip,
                 positive_sources: data.positiveSources,
+                comparison: data.comparison,
                 unmatched_netflow: data.unmatchedNetflow,
                 has_review_task: data.hasReviewTask,
                 sort: data.sort,

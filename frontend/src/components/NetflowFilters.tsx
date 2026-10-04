@@ -1,3 +1,4 @@
+import type { ComparisonOverview } from "@/client"
 import type { NetflowCorrelationSearch } from "@/components/NetflowCorrelation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -7,9 +8,11 @@ import { netflowText } from "@/lib/netflow-labels"
 
 export function NetflowFilters({
   search,
+  comparison,
   onApply,
 }: {
   search: NetflowCorrelationSearch
+  comparison?: ComparisonOverview
   onApply: (patch: Partial<NetflowCorrelationSearch>) => void
 }) {
   const { t } = useI18n()
@@ -21,6 +24,7 @@ export function NetflowFilters({
       key={JSON.stringify([
         tab,
         search.positiveSources,
+        search.comparison,
         search.unmatchedNetflow,
         search.hasReviewTask,
         search.sort,
@@ -45,6 +49,9 @@ export function NetflowFilters({
           ...(tab === "addresses"
             ? {
                 positiveSources: text("positiveSources"),
+                comparison: text(
+                  "comparison",
+                ) as NetflowCorrelationSearch["comparison"],
                 unmatchedNetflow: boolean("unmatchedNetflow"),
                 hasReviewTask: boolean("hasReviewTask"),
               }
@@ -79,11 +86,34 @@ export function NetflowFilters({
       {tab === "addresses" && (
         <>
           <Label>
-            {t("Exact positive sources", "精确正向来源集合")}
+            {t("Result filter", "结果筛选")}
+            <select
+              name="comparison"
+              defaultValue={search.comparison ?? "all"}
+              className={selectClass}
+            >
+              <option value="all">{t("All addresses", "全部地址")}</option>
+              <option
+                value="differences"
+                disabled={comparison?.state !== "AVAILABLE"}
+              >
+                {t("Source differences", "来源差异")}
+              </option>
+              <option
+                value="common"
+                disabled={comparison?.state !== "AVAILABLE"}
+              >
+                {t("All selected sources present", "全部已选来源均有记录")}
+              </option>
+            </select>
+          </Label>
+          <Label>
+            {t("Source combination", "来源组合")}
             <select
               name="positiveSources"
               defaultValue={search.positiveSources ?? ""}
               className={selectClass}
+              disabled={comparison?.state !== "AVAILABLE"}
             >
               <option value="">{t("All", "全部")}</option>
               {[
@@ -94,14 +124,24 @@ export function NetflowFilters({
                 "CUSTOMER,NETFLOW",
                 "CLOUD,NETFLOW",
                 "CUSTOMER,CLOUD,NETFLOW",
-              ].map((value) => (
-                <option key={value} value={value}>
-                  {value
+              ]
+                .filter((value) =>
+                  value
                     .split(",")
-                    .map((source) => netflowText(source, t))
-                    .join(" + ")}
-                </option>
-              ))}
+                    .every((source) =>
+                      comparison?.sources.some(
+                        (selected) => selected === source,
+                      ),
+                    ),
+                )
+                .map((value) => (
+                  <option key={value} value={value}>
+                    {value
+                      .split(",")
+                      .map((source) => netflowText(source, t))
+                      .join(" + ")}
+                  </option>
+                ))}
             </select>
           </Label>
           <Label>

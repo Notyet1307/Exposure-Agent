@@ -85,6 +85,352 @@ async function setup(page: Page) {
     route.fulfill({ json: summary }),
   )
 }
+
+const workbenchSummary = {
+  ...summary,
+  selection: {
+    ...summary.selection,
+    customer: {
+      upload_id: "50000000-0000-4000-8000-000000000274",
+      revision_id: null,
+    },
+    cloud: {
+      kind: "external_versions",
+      source_instance_id: "60000000-0000-4000-8000-000000000274",
+      ip_version_id: "70000000-0000-4000-8000-000000000274",
+      port_version_id: null,
+    },
+  },
+  current_scope_state: "CONFIRMED",
+  historical_scope_state: "CONFIRMED",
+  sources: ["CUSTOMER", "CLOUD", "NETFLOW"].map((source) => ({
+    source,
+    state: source === "NETFLOW" ? "INSUFFICIENT_COVERAGE" : "VALID_NONEMPTY",
+    read_state: "VALID_NONEMPTY",
+    coverage_state: source === "NETFLOW" ? "UNKNOWN" : "SUFFICIENT",
+    source_records: 30,
+    source_addresses: 20,
+    source_objects: 22,
+    limitations: [],
+    metadata: {},
+  })),
+  total_addresses: 27,
+  comparison: {
+    state: "AVAILABLE",
+    sources: ["CUSTOMER", "CLOUD", "NETFLOW"],
+    common_addresses: 1,
+    different_addresses: 26,
+  },
+}
+
+test("workbench leads with fixed IP facts and paginates all source differences", async ({
+  page,
+}) => {
+  await setup(page)
+  const reads: string[] = []
+  const writes: string[] = []
+  page.on("request", (request) => {
+    if (request.url().includes("/api/") && request.method() !== "GET")
+      writes.push(request.method())
+  })
+  await page.route(`**${root}/source-correlations/${revision}`, (route) =>
+    route.fulfill({ json: workbenchSummary }),
+  )
+  await page.route(
+    `**${root}/source-correlations/${revision}/addresses?*`,
+    (route) => {
+      const query = new URL(route.request().url()).searchParams
+      reads.push(query.toString())
+      const skip = Number(query.get("skip") ?? 0)
+      return route.fulfill({
+        json: {
+          data: Array.from({ length: skip === 0 ? 25 : 1 }, (_, i) =>
+            address(`192.0.2.${skip + i + 1}`),
+          ),
+          count: 26,
+          total_addresses: 27,
+          skip,
+          limit: 25,
+        },
+      })
+    },
+  )
+  await page.goto(
+    `/projects/${project}/netflow-correlation?revision=${revision}&namespace=synthetic`,
+  )
+  await expect(
+    page.getByRole("heading", { name: "Comparison results", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByLabel("Source difference count", { exact: true }),
+  ).toHaveText("26")
+  await expect(
+    page.getByText("3 selected sources", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText("Coverage is unknown; no match does not prove absence.", {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await page
+    .getByRole("button", { name: "Source differences", exact: true })
+    .click()
+  await expect(page).toHaveURL(/comparison=differences/)
+  await expect(
+    page.getByRole("button", { name: "192.0.2.25", exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole("navigation", { name: "Addresses pagination" })
+    .getByRole("button", { name: "Next", exact: true })
+    .click()
+  await expect(
+    page.getByRole("button", { name: "192.0.2.26", exact: true }),
+  ).toBeVisible()
+  expect(
+    reads.every(
+      (query) => new URLSearchParams(query).get("comparison") === "differences",
+    ),
+  ).toBe(true)
+  expect(
+    reads.some((query) => new URLSearchParams(query).get("skip") === "25"),
+  ).toBe(true)
+  expect(writes).toEqual([])
+})
+
+test("workbench keeps port material below the IP conclusion and opens evidence and existing tasks", async ({
+  page,
+}) => {
+  await setup(page)
+  const key = "addr:192.0.2.7"
+  const detail = {
+    ...address("192.0.2.7"),
+    conclusion: "COMMON_RECORD",
+    positive_sources: ["CUSTOMER", "CLOUD", "NETFLOW"],
+    family: 4,
+    presence: { CUSTOMER: "MATCHED", CLOUD: "MATCHED", NETFLOW: "MATCHED" },
+    source_counts: { CUSTOMER: 1, CLOUD: 1, NETFLOW: 2 },
+    reasons: [],
+  }
+  await page.route(`**${root}/source-correlations/${revision}`, (route) =>
+    route.fulfill({ json: workbenchSummary }),
+  )
+  await page.route(
+    `**${root}/source-correlations/${revision}/addresses?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [detail],
+          count: 1,
+          total_addresses: 27,
+          skip: 0,
+          limit: 25,
+        },
+      }),
+  )
+  await page.route(
+    `**${root}/source-correlations/${revision}/addresses/${key}`,
+    (route) => route.fulfill({ json: detail }),
+  )
+  const material = (
+    source: string,
+    protocol: number | null,
+    port: number | null,
+    original = {},
+  ) => ({
+    object_key: `${source}:${protocol}`,
+    source,
+    protocol_number: protocol,
+    local_port: port,
+    original,
+    customer_comparisons: { data: [], count: 0 },
+    cloud_comparisons: { data: [], count: 0 },
+    reasons: [],
+  })
+  await page.route(
+    `**${root}/source-correlations/${revision}/addresses/${key}/services?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [
+            material("CUSTOMER", null, null, {
+              fields: { start_port: 443, end_port: 443 },
+            }),
+            material("CLOUD", 6, 443),
+            material("NETFLOW", 6, 22932),
+            material("NETFLOW", 1, null),
+          ],
+          count: 4,
+          skip: 0,
+          limit: 25,
+        },
+      }),
+  )
+  await page.route(
+    `**${root}/source-correlations/${revision}/addresses/${key}/evidence?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [],
+          count: 0,
+          omitted_count: 12,
+          retained_count: 0,
+          skip: 0,
+          limit: 25,
+        },
+      }),
+  )
+  await page.goto(
+    `/projects/${project}/netflow-correlation?revision=${revision}&namespace=synthetic&tab=addresses&addressKey=${encodeURIComponent(key)}`,
+  )
+  await expect(
+    page
+      .getByText("This IP has records in every selected readable source.", {
+        exact: true,
+      })
+      .last(),
+  ).toBeVisible()
+  await expect(
+    page.getByText("Customer declared range: 443–443", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText("Flow source-side port: 22932", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText("CloudAtlas recorded port: 443", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText("Other protocol (1)", { exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole("button", {
+      name: "View evidence · Flow observations",
+      exact: true,
+    })
+    .click()
+  await expect(page).toHaveURL(/evidenceSource=netflow/)
+  await expect(page.locator("#address-source-evidence")).toBeFocused()
+  await expect(page.getByText("Omitted 12", { exact: false })).toBeVisible()
+  await page
+    .getByRole("button", { name: "Open existing review tasks", exact: true })
+    .click()
+  await expect(page).toHaveURL(/tab=tasks/)
+  await expect(page).not.toHaveURL(/addressKey=/)
+})
+
+for (const state of [
+  "AVAILABLE",
+  "SCOPE_UNCONFIRMED",
+  "SOURCES_UNAVAILABLE",
+  "INSUFFICIENT_COVERAGE",
+  "INSUFFICIENT_SOURCES",
+]) {
+  test(`workbench preserves missing and restricted sources: ${state}`, async ({
+    page,
+  }) => {
+    await setup(page)
+    const twoSource = state === "AVAILABLE"
+    const singleSource = state === "INSUFFICIENT_SOURCES"
+    const payload = {
+      ...workbenchSummary,
+      current_scope_state:
+        state === "SCOPE_UNCONFIRMED" ? "UNKNOWN" : "CONFIRMED",
+      selection: {
+        ...workbenchSummary.selection,
+        customer:
+          twoSource || singleSource
+            ? null
+            : workbenchSummary.selection.customer,
+        cloud: singleSource ? null : workbenchSummary.selection.cloud,
+      },
+      comparison: {
+        state,
+        sources: singleSource
+          ? ["NETFLOW"]
+          : twoSource
+            ? ["CLOUD", "NETFLOW"]
+            : ["CUSTOMER", "CLOUD", "NETFLOW"],
+        common_addresses: twoSource ? 5 : null,
+        different_addresses: twoSource ? 22 : null,
+      },
+      sources: workbenchSummary.sources.map((source) => {
+        if (
+          ((twoSource || singleSource) && source.source === "CUSTOMER") ||
+          (singleSource && source.source === "CLOUD")
+        )
+          return {
+            ...source,
+            state: "NOT_PROVIDED",
+            read_state: "NOT_PROVIDED",
+            coverage_state: "NOT_APPLICABLE",
+            source_records: null,
+            source_addresses: null,
+          }
+        if (source.source === "NETFLOW" && state === "SOURCES_UNAVAILABLE")
+          return {
+            ...source,
+            state: "READ_FAILED",
+            read_state: "READ_FAILED",
+            coverage_state: "UNKNOWN",
+            source_records: null,
+            source_addresses: null,
+          }
+        if (source.source === "NETFLOW" && state === "INSUFFICIENT_COVERAGE")
+          return {
+            ...source,
+            state: "INSUFFICIENT_COVERAGE",
+            coverage_state: "INSUFFICIENT",
+          }
+        return source
+      }),
+    }
+    await page.route(`**${root}/source-correlations/${revision}`, (route) =>
+      route.fulfill({ json: payload }),
+    )
+    await page.goto(
+      `/projects/${project}/netflow-correlation?revision=${revision}&namespace=synthetic`,
+    )
+    const difference = page.getByRole("button", {
+      name: "Source differences",
+      exact: true,
+    })
+    if (twoSource) {
+      await expect(difference).toBeEnabled()
+      await expect(
+        page.getByText(
+          "This is a two-source comparison; the customer ledger has not been checked.",
+          { exact: true },
+        ),
+      ).toBeVisible()
+      await expect(
+        page.getByLabel("Source difference count", { exact: true }),
+      ).toHaveText("22")
+    } else {
+      await expect(difference).toBeDisabled()
+      await expect(
+        page.getByLabel("Source difference count", { exact: true }),
+      ).toHaveText("Unavailable")
+      await expect(
+        page.getByLabel("Common address count", { exact: true }),
+      ).toHaveText("Unavailable")
+    }
+    if (twoSource || singleSource)
+      await expect(
+        page.getByText("No input supplied", { exact: true }).first(),
+      ).toBeVisible()
+    if (state === "SOURCES_UNAVAILABLE")
+      await expect(
+        page.getByText("Reading failed; count is unavailable", { exact: true }),
+      ).toBeVisible()
+    if (state === "INSUFFICIENT_COVERAGE")
+      await expect(
+        page.getByText(
+          "Coverage is insufficient; comparison counts are unavailable.",
+          { exact: true },
+        ),
+      ).toBeVisible()
+  })
+}
+
 test("task selection never becomes an address selection", async ({ page }) => {
   await setup(page)
   await page.goto(

@@ -1,9 +1,41 @@
 // Labels for the bounded NetFlow contract. Raw values remain in technical details.
 const labels: Record<string, readonly [string, string]> = Object.setPrototypeOf(
   {
-    CUSTOMER: ["Customer material", "客户材料"],
-    CLOUD: ["CloudAtlas material", "云图材料"],
-    NETFLOW: ["NetFlow observations", "NetFlow 观测"],
+    COMPARISON_AVAILABLE: [
+      "Counts compare records within these fixed batches. A shared IP does not establish matching fields, open services or absence of risk.",
+      "以下数字比较本次固定资料中的记录。共同 IP 不代表字段完全一致、服务已开放或没有风险。",
+    ],
+    COMPARISON_SCOPE_UNCONFIRMED: [
+      "Network scope is unconfirmed. Addresses remain separate by source; common and difference counts are unavailable.",
+      "网络空间尚未确认，地址仍按来源分别展示；共同记录与差异数量不可用。",
+    ],
+    COMPARISON_INSUFFICIENT_COVERAGE: [
+      "A selected input has incomplete coverage. Common and difference counts are unavailable; inspect its coverage limits first.",
+      "已选资料存在覆盖不足。共同记录与差异数量不可用，请先核对覆盖范围。",
+    ],
+    COMPARISON_SOURCES_UNAVAILABLE: [
+      "A selected input could not be read. Common and difference counts are unavailable; restore that input before comparing.",
+      "已选资料读取失败。共同记录与差异数量不可用，请先恢复该资料。",
+    ],
+    COMPARISON_INSUFFICIENT_SOURCES: [
+      "At least two readable sources and a confirmed network scope are needed to compare records.",
+      "至少需要两个可读来源，并确认同一网络空间，才能比较记录。",
+    ],
+    CUSTOMER: ["Customer ledger", "客户清单"],
+    CLOUD: ["CloudAtlas data", "云图数据"],
+    NETFLOW: ["Flow observations", "流量观测"],
+    COMMON_RECORD: [
+      "This IP has records in every selected readable source.",
+      "此 IP 在全部已选可读来源中均有记录。",
+    ],
+    SOURCE_DIFFERENCE: [
+      "This IP has records in only some selected sources.",
+      "此 IP 仅在部分已选来源中有记录。",
+    ],
+    RECORDED_IP: [
+      "This IP has a record; cross-source comparison is unavailable.",
+      "此 IP 有记录；暂不可作跨来源比对。",
+    ],
     UNKNOWN: ["Unknown; more evidence is needed", "未知，仍需补充依据"],
     CONFIRMED: ["Confirmed", "已确认"],
     CONFIRMED_LEGACY: ["Confirmed legacy scope", "已确认的旧版范围"],
@@ -56,7 +88,7 @@ const labels: Record<string, readonly [string, string]> = Object.setPrototypeOf(
     OUT_OF_RANGE: ["Outside the declared range", "不在声明范围内"],
     OVERLAP: ["Time windows overlap", "时间窗重叠"],
     DISJOINT: ["Time windows do not overlap", "时间窗不重叠"],
-    MATCHED: ["Observed in the selected input", "已在所选输入中观测到"],
+    MATCHED: ["Recorded in this batch", "本批有记录"],
     MISSING: ["Not supplied", "未填写"],
     NULL: ["Explicit null", "明确空值"],
     EMPTY: ["Empty value", "空值"],
@@ -82,12 +114,12 @@ const labels: Record<string, readonly [string, string]> = Object.setPrototypeOf(
       "观测覆盖不足",
     ],
     NO_MATCH_COVERAGE_UNKNOWN: [
-      "No match; coverage is unknown, so absence cannot be inferred",
-      "未命中且覆盖未知，不能据此认定不存在",
+      "No match in this batch; coverage is unknown, so absence cannot be inferred",
+      "本批未匹配；覆盖未知，不能据此判断是否不存在",
     ],
     NO_MATCH_IN_PINNED_INPUT: [
-      "No match in this fixed input; this does not prove absence",
-      "此固定输入未命中，不代表不存在",
+      "No match in this fixed batch; this does not prove absence",
+      "本批未匹配，不代表不存在",
     ],
     PORT_EVIDENCE_NOT_RETAINED: [
       "Port evidence was not retained",
@@ -293,4 +325,14 @@ export function netflowText(
       .map((part) => netflowText(part, t))
       .join(" + ")
   return value
+}
+
+export function netflowProtocol(
+  value: number | null | undefined,
+  t: (en: string, zh: string) => string,
+) {
+  if (value == null) return t("Protocol not supplied", "未提供协议")
+  if (value === 6) return "TCP"
+  if (value === 17) return "UDP"
+  return t(`Other protocol (${value})`, `其他协议（${value}）`)
 }

@@ -169,6 +169,9 @@ class AddressPublic(Envelope):
     canonical_ip: str
     family: Literal[4, 6]
     positive_sources: list[Source]
+    conclusion: Literal["COMMON_RECORD", "SOURCE_DIFFERENCE", "RECORDED_IP"] = (
+        "RECORDED_IP"
+    )
     unmatched_netflow: bool
     source_record_count: int | None
     service_object_count: int | None
@@ -191,10 +194,24 @@ class AddressPage(Envelope):
     source_totals: dict[Source, int | None]
 
 
+class ComparisonOverview(BaseModel):
+    state: Literal[
+        "AVAILABLE",
+        "SCOPE_UNCONFIRMED",
+        "SOURCES_UNAVAILABLE",
+        "INSUFFICIENT_COVERAGE",
+        "INSUFFICIENT_SOURCES",
+    ]
+    sources: list[Source]
+    common_addresses: int | None = None
+    different_addresses: int | None = None
+
+
 class Summary(RevisionPublic):
     sources: list[SourceState]
     total_addresses: int
     positive_intersections: dict[str, int] | None
+    comparison: ComparisonOverview
     test_fixture: bool
     limitations: list[str]
 
@@ -935,6 +952,14 @@ def addresses(
                 test_fixture=loaded["NETFLOW"].test_fixture,
             )
         )
+    comparison = comparison_overview(row, loaded, result)
+    if comparison.state == "AVAILABLE":
+        for address in result:
+            address.conclusion = (
+                "COMMON_RECORD"
+                if address.positive_sources == comparison.sources
+                else "SOURCE_DIFFERENCE"
+            )
     return sorted(
         result,
         key=lambda a: (
@@ -943,6 +968,29 @@ def addresses(
             a.address_key,
         ),
     )
+
+
+def comparison_overview(
+    row: SourceCorrelationRevision,
+    loaded: dict[Source, Material],
+    rows: list[AddressPublic],
+) -> ComparisonOverview:
+    selected = [s for s in SOURCES if loaded[s].state.read_state != "NOT_PROVIDED"]
+    result = ComparisonOverview(state="AVAILABLE", sources=selected)
+    if row.scope_state != "CONFIRMED":
+        result.state = "SCOPE_UNCONFIRMED"
+    elif any(loaded[s].state.read_state == "READ_FAILED" for s in selected):
+        result.state = "SOURCES_UNAVAILABLE"
+    elif any(loaded[s].state.coverage_state == "INSUFFICIENT" for s in selected):
+        result.state = "INSUFFICIENT_COVERAGE"
+    elif len(selected) < 2:
+        result.state = "INSUFFICIENT_SOURCES"
+    else:
+        # Counts concern complete, pinned batches, not network coverage. NetFlow
+        # UNKNOWN coverage cannot prove absence but does not erase recorded IPs.
+        result.common_addresses = sum(a.positive_sources == selected for a in rows)
+        result.different_addresses = len(rows) - result.common_addresses
+    return result
 
 
 def selected_address(
@@ -1008,8 +1056,12 @@ def evidence(
 
 def _protocol(value: Any) -> int | None:
     if isinstance(value, str):
-        return {"tcp": 6, "udp": 17, "6": 6, "17": 17}.get(value.strip().lower())
-    return value if type(value) is int and value in (6, 17) else None
+        value = value.strip().lower()
+        if value in {"tcp", "udp"}:
+            return 6 if value == "tcp" else 17
+        if len(value) <= 3 and value.isascii() and value.isdigit():
+            value = int(value)
+    return value if type(value) is int and 0 <= value <= 255 else None
 
 
 def _port(value: Any) -> int | None:

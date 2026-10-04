@@ -269,3 +269,13 @@ Analysis 作业状态沿现有独立 worker 模式固定为：`PENDING / RUNNING
 - 选择器统一使用既有 skip/limit 信封；固定历史可增加受现有相同授权和保留约束的 Dataset/Context 最小按 ID 元信息读取。既有 Analysis/客户/云图固定读取优先复用，不扩数据模型。
 - 显式错误身份一律拒绝；URL 真正遗漏才可由权威固定修订补全。客户 revision_id 的 null 为上传原版，不可替换为当前管理版。反馈 UUID 必须属于固定 Analysis。
 - Context 表单直接消费现有 ContextCreate/expected_parent_id/operations 恢复合同，不用关联 scope-revision 冒充处理 context。答案表单直接消费任务 answer_schema，不改变 Feedback POST 的任务替换与部分任务保留语义。
+
+## 9. EXP-3SRC-UX-01A 固定批次结果投影
+
+依据 [三源工作台 U1/U2/U6 @c15be89](https://github.com/Notyet1307/Exposure-Agent/blob/c15be890eac8bf5044b891c9feccfa3ce7da6f68/docs/specs/three-source-workbench-v1.md)，由 #284 实现；不改变原输入身份、读取授权或旧 Run/报告。
+
+- 固定摘要新增 `comparison`：`state`、本次明确选择的 `sources`、`common_addresses`、`different_addresses`。只有同空间已确认、至少两份已选资料均可读且没有 `INSUFFICIENT` 覆盖时为 `AVAILABLE`。完整封存批次的网络覆盖 `UNKNOWN` 仍可比较本批记录，但不证明不存在或无活动。
+- 不可用原因分别为 `SCOPE_UNCONFIRMED`、`SOURCES_UNAVAILABLE`、`INSUFFICIENT_COVERAGE`、`INSUFFICIENT_SOURCES`；共同/差异数量均为 null。失败或受限的已选资料不从 `sources` 移除。只有 `NOT_PROVIDED` 不属于所选集合，合法空集仍参与比较。
+- 地址列表新增 `comparison=all|differences|common`，默认 `all`。与 IP、精确正向来源组合及现有筛选共同作用，按同一全集计算 count 后分页。不可比较时明确请求 common/differences 返回 422 `netflow_context_invalid`，不替换成全部地址或零条。
+- 每条地址新增 `conclusion=COMMON_RECORD|SOURCE_DIFFERENCE|RECORDED_IP`，由服务端分类；最后一种只确认来源中有记录，跨源比较不可用。原 `presence`、`reasons`、证据身份和省略数保留。
+- 旧 `positive_intersections` 保持可比较时的七组合结构，不可比较时为 null；精确 `positive_sources` 读取保留兼容。新工作台必须先检查 `comparison.state`，不能把七组合中的零当成缺失资料的结论。协议 6/17 显示 TCP/UDP，其他有效数值保留编号；应用名称或缺失协议不推测为编号。

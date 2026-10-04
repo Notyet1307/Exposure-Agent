@@ -419,7 +419,7 @@ agents:
             self.run(
                 [str(py), str(self.repo / "backend/app" / script)], self.host_cwd, h
             )
-        fixture = "from openpyxl import Workbook; import sys; from app.domain.customer_upload_profiles import REQUIRED_HEADERS, WARNING_HEADERS, OPTIONAL_HEADERS; w=Workbook(); s=w.active; s.append(list(REQUIRED_HEADERS + WARNING_HEADERS + OPTIONAL_HEADERS)); [s.append([f'192.0.2.{i}',443,443,'是','https://synthetic.example','HTTPS','Synthetic owner','Synthetic department','Synthetic owner','Synthetic department',i]) for i in range(1,39)]; [s.append(['192.0.2.1',443,443,'是','https://synthetic.example','HTTPS','Synthetic owner','Synthetic department','Synthetic owner','Synthetic department',100]) for _ in range(30)]; w.save(sys.argv[1])"
+        fixture = "from openpyxl import Workbook; import sys; from app.domain.customer_upload_profiles import REQUIRED_HEADERS, WARNING_HEADERS, OPTIONAL_HEADERS; w=Workbook(); s=w.active; s.append(list(REQUIRED_HEADERS + WARNING_HEADERS + OPTIONAL_HEADERS)); [s.append([f'192.0.2.{i}',443,443,'是','https://synthetic.example','HTTPS','Synthetic owner','Synthetic department','Synthetic owner','Synthetic department',i]) for i in range(1,2)]; [s.append(['192.0.2.1',443,443,'是','https://synthetic.example','HTTPS','Synthetic owner','Synthetic department','Synthetic owner','Synthetic department',100]) for _ in range(30)]; w.save(sys.argv[1])"
         self.run(
             [str(py), "-c", fixture, str(self.evidence / "customer.xlsx")],
             self.host_cwd,

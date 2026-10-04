@@ -222,7 +222,12 @@ test("fresh project to real worker, three sources, review history and local-only
   const revision = confirmed.correlation_revision_id as string
   const summary = await get(`${root}/source-correlations/${revision}`)
   expect(summary.total_addresses).toBe(38)
-  expect(summary.positive_intersections["CUSTOMER+CLOUD+NETFLOW"]).toBe(30)
+  expect(summary.comparison).toEqual({
+    state: "AVAILABLE",
+    sources: ["CUSTOMER", "CLOUD", "NETFLOW"],
+    common_addresses: 1,
+    different_addresses: 37,
+  })
   const brief = await sync(70_000)
   const expiring = await post(`${root}/source-correlations`, {
     network_namespace: "synthetic-usability",
@@ -423,8 +428,89 @@ test("fresh project to real worker, three sources, review history and local-only
   execFileSync("docker", ["stop", upstream], { stdio: "ignore" })
   const writes: string[] = []
   page.on("request", (item) => {
-    if (item.method() === "POST") writes.push(new URL(item.url()).pathname)
+    if (!["GET", "HEAD", "OPTIONS"].includes(item.method()))
+      writes.push(`${item.method()} ${new URL(item.url()).pathname}`)
   })
+  await page.goto(
+    `${root}/netflow-correlation?revision=${revision}&tab=summary`,
+  )
+  await expect(
+    page.getByLabel("Source difference count", { exact: true }),
+  ).toHaveText("37")
+  for (const [width, language, theme] of [
+    [1366, "en", "light"],
+    [390, "en", "dark"],
+    [1366, "zh-CN", "dark"],
+    [390, "zh-CN", "light"],
+  ] as const) {
+    await page.setViewportSize({ width: 1366, height: 950 })
+    await page
+      .getByRole("combobox", { name: "Language / 语言" })
+      .selectOption(language)
+    await page.getByTestId("theme-button").click()
+    await page.getByTestId(`${theme}-mode`).click()
+    await expect(page.locator("html")).toHaveClass(new RegExp(theme))
+    await expect(page.locator("html")).toHaveAttribute("lang", language)
+    await page.setViewportSize({ width, height: 950 })
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false)
+    await page.screenshot({
+      path: path.join(evidence, `workbench-${width}-${language}-${theme}.png`),
+    })
+  }
+  await page.setViewportSize({ width: 1366, height: 950 })
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("en")
+  await page
+    .getByRole("button", { name: "Source differences", exact: true })
+    .click()
+  await expect(page).toHaveURL(/comparison=differences/)
+  await expect(
+    page.getByRole("button", { name: "192.0.2.26", exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole("navigation", { name: "Addresses pagination" })
+    .getByRole("button", { name: "Next", exact: true })
+    .click()
+  await expect(
+    page.getByRole("button", { name: "192.0.2.38", exact: true }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "192.0.2.38", exact: true }).click()
+  await expect(
+    page
+      .getByText("This IP has records in only some selected sources.", {
+        exact: true,
+      })
+      .last(),
+  ).toBeVisible()
+  await page
+    .getByRole("button", {
+      name: "View evidence · CloudAtlas data",
+      exact: true,
+    })
+    .click()
+  await expect(page).toHaveURL(/evidenceSource=cloud/)
+  await expect(
+    page.getByRole("heading", { name: "Source evidence", exact: true }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Summary", exact: true }).click()
+  await page
+    .getByRole("button", { name: "All selected sources present", exact: true })
+    .click()
+  await expect(
+    page.getByRole("button", { name: "192.0.2.1", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole("region", { name: "Address table", exact: true })
+      .getByRole("row"),
+  ).toHaveCount(2)
+  await page.getByRole("button", { name: "Summary", exact: true }).click()
+  await page.getByRole("button", { name: "All addresses", exact: true }).click()
   await page.goto(
     `${root}/netflow-correlation?revision=${revision}&tab=addresses`,
   )
@@ -443,7 +529,7 @@ test("fresh project to real worker, three sources, review history and local-only
     .getByRole("button", { name: "Next", exact: true })
     .click()
   await page
-    .getByRole("button", { name: "Customer material", exact: true })
+    .getByRole("button", { name: "Customer ledger", exact: true })
     .click()
   await page
     .getByRole("navigation", { name: "Evidence pagination" })
@@ -606,7 +692,8 @@ test("fresh project to real worker, three sources, review history and local-only
         shared_parent: sharedParent,
         latest_feedback: latest,
         fixed_page_hashes: hashes(sharedPages),
-        browsing_posts: writes,
+        browsing_writes: writes,
+        comparison: summary.comparison,
         no_models: true,
       },
       null,

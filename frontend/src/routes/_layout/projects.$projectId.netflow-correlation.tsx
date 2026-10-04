@@ -153,6 +153,10 @@ export const Route = createFileRoute(
       evidencePage: integer("evidencePage", search.evidencePage, []),
       evidenceSource: evidenceSource(search.evidenceSource),
       comparisonPage: integer("comparisonPage", search.comparisonPage, []),
+      comparison:
+        search.comparison === "differences" || search.comparison === "common"
+          ? search.comparison
+          : "all",
       positiveSources:
         typeof search.positiveSources === "string"
           ? search.positiveSources

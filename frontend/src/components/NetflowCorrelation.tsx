@@ -34,7 +34,7 @@ import {
   netflowErrorCode as errorCode,
   netflowRequestRejected as isClientError,
 } from "@/lib/netflow-errors"
-import { netflowText } from "@/lib/netflow-labels"
+import { netflowProtocol, netflowText } from "@/lib/netflow-labels"
 
 function pinnedString(pin: unknown, key: string) {
   if (!pin || typeof pin !== "object" || !(key in pin)) return undefined
@@ -119,6 +119,7 @@ export type NetflowCorrelationSearch = {
   evidencePage?: number
   evidenceSource?: "customer" | "cloud" | "netflow"
   comparisonPage?: number
+  comparison?: "all" | "differences" | "common"
   positiveSources?: string
   unmatchedNetflow?: boolean
   hasReviewTask?: boolean
@@ -139,6 +140,25 @@ type Navigate = (options: {
 
 const count = (value: number | null | undefined) =>
   value === null || value === undefined ? "—" : String(value)
+
+function servicePortText(
+  service: ServicePublic,
+  t: (en: string, zh: string) => string,
+) {
+  if (service.source === "CUSTOMER") {
+    const fields = service.original.fields
+    const start =
+      fields && typeof fields === "object" && "start_port" in fields
+        ? fields.start_port
+        : undefined
+    const end =
+      fields && typeof fields === "object" && "end_port" in fields
+        ? fields.end_port
+        : undefined
+    return `${t("Customer declared range", "客户声明端口区间")}: ${count(typeof start === "number" ? start : null)}–${count(typeof end === "number" ? end : null)}`
+  }
+  return `${service.source === "NETFLOW" ? t("Flow source-side port", "流量源侧观测端口") : t("CloudAtlas recorded port", "云图端口记录")}: ${count(service.local_port)}`
+}
 
 const COMBINED_READS = [
   "summary",
@@ -868,6 +888,7 @@ export default function NetflowCorrelation({
       search.addressIp,
       search.addressPage,
       search.positiveSources,
+      search.comparison,
       search.unmatchedNetflow,
       search.hasReviewTask,
       search.sort,
@@ -880,6 +901,7 @@ export default function NetflowCorrelation({
         revisionId: revisionId!,
         ip: search.addressIp,
         positiveSources: search.positiveSources,
+        comparison: search.comparison ?? "all",
         unmatchedNetflow: search.unmatchedNetflow,
         hasReviewTask: search.hasReviewTask,
         skip: (search.addressPage ?? 0) * PAGE_SIZE,
@@ -1453,6 +1475,10 @@ export default function NetflowCorrelation({
               comparisonPage: 0,
               evidencePage: 0,
               evidenceSource: undefined,
+              comparison: undefined,
+              positiveSources: undefined,
+              unmatchedNetflow: undefined,
+              hasReviewTask: undefined,
               feedbackRevision: undefined,
               taskPage: 0,
             }
@@ -1467,15 +1493,27 @@ export default function NetflowCorrelation({
       ))}
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">
-          {t("NetFlow source correlation", "NetFlow 来源关联")}
+          {t("Source comparison", "来源比对")}
         </h1>
         <p className="text-sm text-muted-foreground">
           {t(
-            "Review observed addresses and source evidence, then supply missing material. Observations do not prove public reachability.",
-            "查看观测地址与来源依据，再补充复核材料。观测记录不代表公网可达。",
+            "Compare records in your fixed inputs, then inspect differences and evidence.",
+            "先看本次固定资料的 IP 记录，再核对来源差异与依据。",
           )}
         </p>
         <div className="flex flex-wrap gap-3 text-sm">
+          <a
+            className="underline"
+            href={`/projects/${projectId}/customer-ledger`}
+          >
+            {t("Customer ledger", "客户清单")}
+          </a>
+          <a
+            className="underline"
+            href={`/projects/${projectId}/external-assets`}
+          >
+            {t("CloudAtlas data", "云图数据")}
+          </a>
           <a
             className="underline"
             href={`/projects/${projectId}/netflow-ledger`}
@@ -1497,6 +1535,263 @@ export default function NetflowCorrelation({
           />
         </div>
       </header>
+      {(revisionIdentity || independentAnalysis) && (
+        <>
+          <nav
+            className="flex flex-wrap gap-2"
+            aria-label={t("Correlation views", "关联视图")}
+          >
+            {TABS.filter(
+              (item) =>
+                revisionIdentity || item === "peers" || item === "tasks",
+            ).map((item) => (
+              <Button
+                key={item}
+                variant={tab === item ? "default" : "outline"}
+                onClick={() =>
+                  change({
+                    tab: item,
+                    addressKey:
+                      item === "addresses" ? search.addressKey : undefined,
+                    taskId: item === "tasks" ? search.taskId : undefined,
+                  })
+                }
+                aria-current={tab === item ? "page" : undefined}
+              >
+                {item === "summary"
+                  ? t("Summary", "汇总")
+                  : item === "addresses"
+                    ? t("Addresses", "地址")
+                    : item === "peers"
+                      ? t("Peers", "对端")
+                      : t("Review tasks", "复核任务")}
+              </Button>
+            ))}
+          </nav>
+          {tab === "addresses" && summary.data && revisionIdentity && (
+            <section
+              className="space-y-2 rounded border p-3 text-sm"
+              aria-label={t("Comparison status", "本次比对状态")}
+            >
+              <p>
+                {netflowText(
+                  `COMPARISON_${summary.data.comparison?.state ?? "INSUFFICIENT_SOURCES"}`,
+                  t,
+                )}
+              </p>
+              <div className="flex flex-wrap gap-x-5 gap-y-2">
+                {summary.data.sources.map((source) => (
+                  <p key={source.source}>
+                    {netflowText(source.source, t)}:{" "}
+                    {netflowText(source.read_state, t)}
+                    {source.coverage_state === "INSUFFICIENT"
+                      ? ` · ${netflowText("INSUFFICIENT", t)}`
+                      : source.coverage_state === "UNKNOWN"
+                        ? ` · ${t("Coverage unknown", "覆盖未知")}`
+                        : ""}
+                  </p>
+                ))}
+              </div>
+            </section>
+          )}
+          <NetflowFilters
+            search={search}
+            comparison={summary.data?.comparison}
+            onApply={change}
+          />
+          {tab === "summary" && revisionIdentity && (
+            <SummaryView
+              summary={summary.data}
+              revision={revisionIdentity}
+              error={summary.error}
+              onView={(comparison) =>
+                change({
+                  tab: "addresses",
+                  comparison,
+                  positiveSources: undefined,
+                  unmatchedNetflow: undefined,
+                  hasReviewTask: undefined,
+                  addressIp: undefined,
+                  addressPage: 0,
+                  addressKey: undefined,
+                  servicePage: 0,
+                  comparisonPage: 0,
+                  evidencePage: 0,
+                  evidenceSource: undefined,
+                })
+              }
+            />
+          )}
+          {tab === "summary" && revisionId && user.is_superuser && canWrite && (
+            <NetflowScopeControl
+              key={`${scope}/${revisionId}`}
+              actor={actor}
+              projectId={projectId}
+              revisionId={revisionId!}
+              onRevision={(revision) =>
+                change({
+                  revision,
+                  addressKey: undefined,
+                  addressPage: 0,
+                  servicePage: 0,
+                  comparisonPage: 0,
+                  evidencePage: 0,
+                })
+              }
+            />
+          )}
+          {tab === "addresses" && (
+            <AddressesView
+              addresses={addresses.data}
+              error={addresses.error}
+              addressQuery={addressQuery}
+              setAddressQuery={setAddressQuery}
+              onSearch={() =>
+                change({
+                  addressIp: addressQuery || undefined,
+                  addressPage: 0,
+                  servicePage: 0,
+                  comparisonPage: 0,
+                  evidencePage: 0,
+                  evidenceSource: undefined,
+                  addressKey: undefined,
+                })
+              }
+              onPage={(page) =>
+                change({
+                  addressPage: page,
+                  addressKey: undefined,
+                  servicePage: 0,
+                  comparisonPage: 0,
+                  evidencePage: 0,
+                  evidenceSource: undefined,
+                })
+              }
+              selectedAddress={selectedAddress}
+              services={services.data}
+              evidence={evidence.data}
+              evidenceSource={search.evidenceSource}
+              onEvidenceSource={(source) =>
+                change({ evidenceSource: source, evidencePage: 0 })
+              }
+              evidencePage={search.evidencePage ?? 0}
+              onEvidencePage={(page) => change({ evidencePage: page })}
+              servicePage={search.servicePage ?? 0}
+              onServicePage={(page) =>
+                change({ servicePage: page, comparisonPage: 0 })
+              }
+              comparisonPage={search.comparisonPage ?? 0}
+              onComparisonPage={(page) => change({ comparisonPage: page })}
+              onAddress={(address) =>
+                change({
+                  addressKey: address.address_key,
+                  servicePage: 0,
+                  comparisonPage: 0,
+                  evidencePage: 0,
+                  evidenceSource: undefined,
+                })
+              }
+              detailError={addressDetail.error}
+              onOpenReviewTasks={() =>
+                change({
+                  tab: "tasks",
+                  taskId: undefined,
+                  addressKey: undefined,
+                })
+              }
+            />
+          )}
+          {tab === "peers" && (
+            <PeersView
+              peers={peers.data}
+              error={peers.error}
+              onPage={(page) => change({ peerPage: page })}
+            />
+          )}
+          {tab === "tasks" &&
+            latestFeedback.data &&
+            latestFeedbackMatches &&
+            latestFeedback.data.feedback_revision_id !==
+              search.feedbackRevision && (
+              <div className="flex flex-wrap items-center gap-3">
+                <p>
+                  {t(
+                    "Historical feedback is read-only; pages stay pinned until you switch.",
+                    "历史反馈只读；明确切换前分页保持固定。",
+                  )}
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    change({
+                      feedbackRevision:
+                        latestFeedback.data.feedback_revision_id,
+                      taskPage: 0,
+                      addressKey: undefined,
+                    })
+                  }
+                >
+                  {t("Read current feedback revision", "读取当前反馈修订")}
+                </Button>
+              </div>
+            )}
+          {tab === "tasks" && (
+            <TasksView
+              key={`${scope}/${search.feedbackRevision}/${search.taskId ?? "none"}`}
+              canWrite={
+                canWrite &&
+                !feedbackIdentityError &&
+                !latestFeedback.isError &&
+                !latestFeedback.isFetching &&
+                latestFeedbackMatches &&
+                latestFeedback.data?.feedback_revision_id ===
+                  search.feedbackRevision
+              }
+              tasks={tasksMatch ? tasks.data : undefined}
+              task={taskMatches ? task.data : undefined}
+              feedback={feedbackMatches ? feedback.data : undefined}
+              error={
+                feedbackIdentityError ??
+                tasks.error ??
+                feedback.error ??
+                task.error
+              }
+              status={search.taskStatus}
+              onStatus={(status) =>
+                change({
+                  taskStatus: status,
+                  taskPage: 0,
+                  addressKey: undefined,
+                })
+              }
+              onPage={(page) =>
+                change({ taskPage: page, addressKey: undefined })
+              }
+              onTask={(taskId) => change({ taskId, addressKey: undefined })}
+              projectId={projectId}
+              actor={actor}
+              analysisId={selectedAnalysisId}
+              feedbackRevision={search.feedbackRevision}
+              onFeedback={(revision) =>
+                change({
+                  feedbackRevision: revision,
+                  taskPage: 0,
+                  addressKey: undefined,
+                })
+              }
+            />
+          )}
+        </>
+      )}
+      {summary.error && <ErrorNotice error={summary.error} />}
+      {search.revision && summary.isSuccess && !identityMatches && (
+        <p role="alert" className="text-sm text-destructive">
+          {t(
+            "The explicit correlation revision is unavailable; no latest fallback was used.",
+            "明确关联修订不可读；未回退到 latest。",
+          )}
+        </p>
+      )}
       <section
         className={search.revision ? "text-sm" : "rounded-md border p-4"}
         aria-label={t("Fixed inputs", "固定输入")}
@@ -1506,9 +1801,14 @@ export default function NetflowCorrelation({
         </h2>
         <details open={!search.revision} className="mt-2">
           <summary className="cursor-pointer text-sm text-muted-foreground">
-            {selectedDataset
-              ? `${selectedDataset.display_filename} · ${selectedContext?.network_namespace ?? t("context not selected", "未选择上下文")}`
-              : t("Choose NetFlow data to begin", "选择 NetFlow 数据以开始")}
+            {search.revision
+              ? t(
+                  "Change inputs or inspect processing",
+                  "更换资料或查看处理过程",
+                )
+              : selectedDataset
+                ? `${selectedDataset.display_filename} · ${selectedContext?.network_namespace ?? t("context not selected", "未选择上下文")}`
+                : t("Choose NetFlow data to begin", "选择 NetFlow 数据以开始")}
           </summary>
           <div className="mt-3 grid gap-3 md:grid-cols-3">
             <Label>
@@ -2104,210 +2404,6 @@ export default function NetflowCorrelation({
           </div>
         </section>
       )}
-      {(revisionIdentity || independentAnalysis) && (
-        <>
-          <nav
-            className="flex flex-wrap gap-2"
-            aria-label={t("Correlation views", "关联视图")}
-          >
-            {TABS.filter(
-              (item) =>
-                revisionIdentity || item === "peers" || item === "tasks",
-            ).map((item) => (
-              <Button
-                key={item}
-                variant={tab === item ? "default" : "outline"}
-                onClick={() =>
-                  change({
-                    tab: item,
-                    addressKey:
-                      item === "addresses" ? search.addressKey : undefined,
-                    taskId: item === "tasks" ? search.taskId : undefined,
-                  })
-                }
-                aria-current={tab === item ? "page" : undefined}
-              >
-                {item === "summary"
-                  ? t("Summary", "汇总")
-                  : item === "addresses"
-                    ? t("Addresses", "地址")
-                    : item === "peers"
-                      ? t("Peers", "对端")
-                      : t("Review tasks", "复核任务")}
-              </Button>
-            ))}
-          </nav>
-          <NetflowFilters search={search} onApply={change} />
-          {tab === "summary" && revisionIdentity && (
-            <SummaryView
-              summary={summary.data}
-              revision={revisionIdentity}
-              error={summary.error}
-            />
-          )}
-          {tab === "summary" && revisionId && user.is_superuser && canWrite && (
-            <NetflowScopeControl
-              key={`${scope}/${revisionId}`}
-              actor={actor}
-              projectId={projectId}
-              revisionId={revisionId!}
-              onRevision={(revision) =>
-                change({
-                  revision,
-                  addressKey: undefined,
-                  addressPage: 0,
-                  servicePage: 0,
-                  comparisonPage: 0,
-                  evidencePage: 0,
-                })
-              }
-            />
-          )}
-          {tab === "addresses" && (
-            <AddressesView
-              addresses={addresses.data}
-              error={addresses.error}
-              addressQuery={addressQuery}
-              setAddressQuery={setAddressQuery}
-              onSearch={() =>
-                change({
-                  addressIp: addressQuery || undefined,
-                  addressPage: 0,
-                  servicePage: 0,
-                  comparisonPage: 0,
-                  evidencePage: 0,
-                  evidenceSource: undefined,
-                  addressKey: undefined,
-                })
-              }
-              onPage={(page) =>
-                change({
-                  addressPage: page,
-                  addressKey: undefined,
-                  servicePage: 0,
-                  comparisonPage: 0,
-                  evidencePage: 0,
-                  evidenceSource: undefined,
-                })
-              }
-              selectedAddress={selectedAddress}
-              services={services.data}
-              evidence={evidence.data}
-              evidenceSource={search.evidenceSource}
-              onEvidenceSource={(source) =>
-                change({ evidenceSource: source, evidencePage: 0 })
-              }
-              evidencePage={search.evidencePage ?? 0}
-              onEvidencePage={(page) => change({ evidencePage: page })}
-              servicePage={search.servicePage ?? 0}
-              onServicePage={(page) =>
-                change({ servicePage: page, comparisonPage: 0 })
-              }
-              comparisonPage={search.comparisonPage ?? 0}
-              onComparisonPage={(page) => change({ comparisonPage: page })}
-              onAddress={(address) =>
-                change({
-                  addressKey: address.address_key,
-                  servicePage: 0,
-                  comparisonPage: 0,
-                  evidencePage: 0,
-                  evidenceSource: undefined,
-                })
-              }
-              detailError={addressDetail.error}
-            />
-          )}
-          {tab === "peers" && (
-            <PeersView
-              peers={peers.data}
-              error={peers.error}
-              onPage={(page) => change({ peerPage: page })}
-            />
-          )}
-          {tab === "tasks" &&
-            latestFeedback.data &&
-            latestFeedbackMatches &&
-            latestFeedback.data.feedback_revision_id !==
-              search.feedbackRevision && (
-              <div className="flex flex-wrap items-center gap-3">
-                <p>
-                  {t(
-                    "Historical feedback is read-only; pages stay pinned until you switch.",
-                    "历史反馈只读；明确切换前分页保持固定。",
-                  )}
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    change({
-                      feedbackRevision:
-                        latestFeedback.data.feedback_revision_id,
-                      taskPage: 0,
-                      addressKey: undefined,
-                    })
-                  }
-                >
-                  {t("Read current feedback revision", "读取当前反馈修订")}
-                </Button>
-              </div>
-            )}
-          {tab === "tasks" && (
-            <TasksView
-              key={`${scope}/${search.feedbackRevision}/${search.taskId ?? "none"}`}
-              canWrite={
-                canWrite &&
-                !feedbackIdentityError &&
-                !latestFeedback.isError &&
-                !latestFeedback.isFetching &&
-                latestFeedbackMatches &&
-                latestFeedback.data?.feedback_revision_id ===
-                  search.feedbackRevision
-              }
-              tasks={tasksMatch ? tasks.data : undefined}
-              task={taskMatches ? task.data : undefined}
-              feedback={feedbackMatches ? feedback.data : undefined}
-              error={
-                feedbackIdentityError ??
-                tasks.error ??
-                feedback.error ??
-                task.error
-              }
-              status={search.taskStatus}
-              onStatus={(status) =>
-                change({
-                  taskStatus: status,
-                  taskPage: 0,
-                  addressKey: undefined,
-                })
-              }
-              onPage={(page) =>
-                change({ taskPage: page, addressKey: undefined })
-              }
-              onTask={(taskId) => change({ taskId, addressKey: undefined })}
-              projectId={projectId}
-              actor={actor}
-              analysisId={selectedAnalysisId}
-              feedbackRevision={search.feedbackRevision}
-              onFeedback={(revision) =>
-                change({
-                  feedbackRevision: revision,
-                  taskPage: 0,
-                  addressKey: undefined,
-                })
-              }
-            />
-          )}
-        </>
-      )}
-      {summary.error && <ErrorNotice error={summary.error} />}
-      {search.revision && summary.isSuccess && !identityMatches && (
-        <p role="alert" className="text-sm text-destructive">
-          {t(
-            "The explicit correlation revision is unavailable; no latest fallback was used.",
-            "明确关联修订不可读；未回退到 latest。",
-          )}
-        </p>
-      )}
     </main>
   )
 }
@@ -2316,76 +2412,156 @@ function SummaryView({
   summary,
   revision,
   error,
+  onView,
 }: {
   summary:
     | Awaited<ReturnType<typeof SourceCorrelationsService.summary>>
     | undefined
   revision: { correlation_revision_id: string }
   error: unknown
+  onView: (view: "all" | "differences" | "common") => void
 }) {
   const { t, formatDate } = useI18n()
   if (error) return <ErrorNotice error={error} />
   if (!summary)
-    return (
-      <p className="text-sm text-muted-foreground">
-        {t("Reading pinned summary…", "正在读取固定汇总…")}
-      </p>
-    )
+    return <p>{t("Reading pinned summary…", "正在读取固定汇总…")}</p>
+  const comparison = summary.comparison
+  const available = comparison?.state === "AVAILABLE"
   return (
-    <div className="space-y-4">
-      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric
-          label={t("Addresses", "地址")}
-          value={summary.total_addresses}
-        />
-        <Metric
-          label={t("Current scope", "当前范围")}
-          value={netflowText(summary.current_scope_state, t)}
-        />
-        <Metric
-          label={t("Positive intersections", "正向交集")}
-          value={summary.positive_intersections}
-        />
-        <Metric
-          label={t("Limitations", "限制")}
-          value={summary.limitations.length}
-        />
-      </dl>
-      <section className="rounded-md border p-4">
-        <h3 className="font-semibold">{t("Source states", "来源状态")}</h3>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
-          {summary.sources.map((source: SourceState) => (
+    <section
+      className="space-y-5"
+      aria-label={t("Comparison results", "比对结果")}
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-xl font-semibold">
+          {t("Comparison results", "比对结果")}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {summary.network_namespace} · {formatDate(summary.created_at)}
+        </p>
+      </div>
+      <section aria-label={t("Input status", "本次资料")}>
+        <div className="grid gap-3 md:grid-cols-3">
+          {summary.sources.map((source) => (
             <SourceCard key={source.source} source={source} />
           ))}
         </div>
       </section>
-      <section className="rounded-md border p-4">
-        <h3 className="font-semibold">{t("Pinned identity", "固定身份")}</h3>
-        <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
-          <p>
-            {t("Network namespace", "网络空间")}: {summary.network_namespace}
-          </p>
-          <Technical
-            label={t("Fixed identifiers", "固定标识详情")}
-            value={{
-              project_id: summary.project_id,
-              correlation_revision_id: revision.correlation_revision_id,
-            }}
-          />
-          <p>
-            {t("Created", "创建")}: {formatDate(summary.created_at)}
-          </p>
+      <div className="space-y-3 rounded-md border border-primary/25 bg-primary/5 p-4 sm:p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="font-semibold">
+            {t("Confirmed IP facts", "确定的 IP 事实")}
+          </h3>
+          <span className="text-sm">
+            {t(
+              `${comparison?.sources.length ?? 0} selected sources`,
+              `已选 ${comparison?.sources.length ?? 0} 个来源`,
+            )}
+          </span>
         </div>
+        <p className="text-sm">
+          {netflowText(
+            `COMPARISON_${comparison?.state ?? "INSUFFICIENT_SOURCES"}`,
+            t,
+          )}
+        </p>
+        {available && comparison.sources.length === 2 && (
+          <p className="text-sm font-medium">
+            {!comparison.sources.includes("CUSTOMER")
+              ? t(
+                  "This is a two-source comparison; the customer ledger has not been checked.",
+                  "当前为两源比对，尚不能核对客户登记清单。",
+                )
+              : t(
+                  "This is a two-source comparison. The missing third input is not counted as an empty batch.",
+                  "当前为两源比对；未提供的第三份资料不计作空批次。",
+                )}
+          </p>
+        )}
+        <div className="grid gap-3 sm:grid-cols-3">
+          {(
+            [
+              [
+                "all",
+                t("All addresses", "全部地址"),
+                t("All addresses count", "全量地址数"),
+                summary.total_addresses,
+              ],
+              [
+                "differences",
+                t("Source differences", "来源差异"),
+                t("Source difference count", "来源差异数"),
+                comparison?.different_addresses,
+              ],
+              [
+                "common",
+                t("All selected sources present", "全部已选来源均有记录"),
+                t("Common address count", "共同记录地址数"),
+                comparison?.common_addresses,
+              ],
+            ] as const
+          ).map(([view, label, countLabel, value]) => (
+            <div
+              key={view}
+              className="space-y-2 rounded border bg-background p-3"
+            >
+              <output
+                aria-label={countLabel}
+                className="text-2xl font-semibold tabular-nums"
+              >
+                {value == null ? t("Unavailable", "不可用") : value}
+              </output>
+              <Button
+                className="h-auto whitespace-normal p-0 text-left"
+                variant="link"
+                aria-label={label}
+                disabled={view !== "all" && !available}
+                onClick={() => onView(view)}
+              >
+                {label}
+              </Button>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "The customer ledger is the registration baseline for this comparison; it does not establish ownership or reachability.",
+            "客户清单是本次登记基准；登记记录本身不证明资产所有权或可达性。",
+          )}
+        </p>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {t(
+          "Next: open a difference, check the three source states and original evidence, then supply material to an existing review task if needed.",
+          "下一步：打开一条差异，核对三源状态和原始依据；如有已有复核任务，再补充相应材料。",
+        )}
+      </p>
+      <details className="rounded-md border p-4">
+        <summary className="cursor-pointer text-sm">
+          {t(
+            "Comparison scope and technical details",
+            "本次比对范围与技术详情",
+          )}
+        </summary>
+        <p className="mt-3 text-sm">
+          {t("Current scope", "当前范围")}:{" "}
+          {netflowText(summary.current_scope_state, t)}
+        </p>
+        <Technical
+          label={t("Fixed identifiers", "固定标识详情")}
+          value={{
+            project_id: summary.project_id,
+            correlation_revision_id: revision.correlation_revision_id,
+          }}
+        />
         <Technical
           label={t("Selection", "来源选择")}
           value={summary.selection}
         />
         <Technical label={t("Pins", "固定指纹")} value={summary.pins} />
-      </section>
-      {summary.limitations.length > 0 && (
         <NoticeList values={summary.limitations} />
-      )}
-    </div>
+      </details>
+    </section>
   )
 }
 
@@ -2399,86 +2575,86 @@ function SourceCard({ source }: { source: SourceState }) {
     <article className="rounded border p-3">
       <h4 className="font-medium">{netflowText(source.source, t)}</h4>
       <p className="mt-1 text-sm">
-        {t("State", "状态")}: <strong>{netflowText(source.state, t)}</strong>
+        <strong>{netflowText(source.read_state, t)}</strong>
       </p>
-      <p className="text-sm">
-        {t("Read", "读取")}: {netflowText(source.read_state, t)} ·{" "}
-        {t("Coverage", "覆盖")}: {netflowText(source.coverage_state, t)}
+      <p className="mt-2 text-sm">
+        {count(source.source_addresses)} IP · {count(source.source_records)}{" "}
+        {t("records", "条记录")}
       </p>
-      <dl className="mt-2 grid grid-cols-2 gap-x-3 text-xs">
-        <dt>{t("Records", "记录")}</dt>
-        <dd>{count(source.source_records)}</dd>
-        <dt>{t("Addresses", "地址")}</dt>
-        <dd>{count(source.source_addresses)}</dd>
-        <dt>{t("Objects", "对象")}</dt>
-        <dd>{count(source.source_objects)}</dd>
-        <dt>{t("Raw records", "原始记录")}</dt>
-        <dd>{count(source.raw_records)}</dd>
-        <dt>{t("Valid records", "有效记录")}</dt>
-        <dd>{count(source.valid_records)}</dd>
-        <dt>{t("Candidates", "候选数")}</dt>
-        <dd>{count(source.candidate_count)}</dd>
-        <dt>{t("Tasks", "任务")}</dt>
-        <dd>{count(source.review_task_count)}</dd>
-      </dl>
-      {domains.map(([domain, raw]) => {
-        const data = raw as Record<string, unknown>
-        return (
-          <p key={domain} className="mt-2 text-xs">
-            {domain === "ip"
-              ? t("IP assets", "IP 资产")
-              : t("Port material", "端口材料")}{" "}
-            · {t("Fetched", "获取时间")}:{" "}
-            {typeof data.fetched_at === "string"
-              ? formatDate(data.fetched_at)
-              : "—"}{" "}
-            · {t("Retained until", "保留至")}:{" "}
-            {typeof data.retain_until === "string"
-              ? formatDate(data.retain_until)
-              : "—"}
-          </p>
-        )
-      })}
-      <Technical
-        label={t("Source version and time details", "来源版本与时间详情")}
-        value={source.metadata}
-      />
-      <Technical
-        label={t("State codes", "状态原码")}
-        value={{
-          state: source.state,
-          read_state: source.read_state,
-          coverage_state: source.coverage_state,
-        }}
-      />
-      {source.limitations?.length ? (
-        <NoticeList values={source.limitations} />
-      ) : null}
+      {source.coverage_state === "UNKNOWN" && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {t(
+            "Coverage is unknown; no match does not prove absence.",
+            "覆盖未知；本批未匹配不能据此判断是否不存在。",
+          )}
+        </p>
+      )}
+      {source.coverage_state === "INSUFFICIENT" && (
+        <p className="mt-2 text-sm text-destructive">
+          {t(
+            "Coverage is insufficient; comparison counts are unavailable.",
+            "覆盖不足；比对数量不可用。",
+          )}
+        </p>
+      )}
+      <details className="mt-3">
+        <summary className="cursor-pointer text-xs text-muted-foreground">
+          {t("Counts, time and evidence limits", "计数、时间与依据限制")}
+        </summary>
+        <dl className="mt-2 grid grid-cols-2 gap-x-3 text-xs">
+          <dt>{t("Records", "记录")}</dt>
+          <dd>{count(source.source_records)}</dd>
+          <dt>{t("Addresses", "地址")}</dt>
+          <dd>{count(source.source_addresses)}</dd>
+          <dt>{t("Objects", "对象")}</dt>
+          <dd>{count(source.source_objects)}</dd>
+          <dt>{t("Raw records", "原始记录")}</dt>
+          <dd>{count(source.raw_records)}</dd>
+          <dt>{t("Valid records", "有效记录")}</dt>
+          <dd>{count(source.valid_records)}</dd>
+          <dt>{t("Candidates", "候选数")}</dt>
+          <dd>{count(source.candidate_count)}</dd>
+          <dt>{t("Tasks", "任务")}</dt>
+          <dd>{count(source.review_task_count)}</dd>
+        </dl>
+        {domains.map(([domain, raw]) => {
+          const data = raw as Record<string, unknown>
+          return (
+            <p key={domain} className="mt-2 text-xs">
+              {domain === "ip"
+                ? t("IP assets", "IP 资产")
+                : t("Port material", "端口材料")}{" "}
+              · {t("Fetched", "获取时间")}:{" "}
+              {typeof data.fetched_at === "string"
+                ? formatDate(data.fetched_at)
+                : "—"}{" "}
+              · {t("Retained until", "保留至")}:{" "}
+              {typeof data.retain_until === "string"
+                ? formatDate(data.retain_until)
+                : "—"}
+            </p>
+          )
+        })}
+        <Technical
+          label={t("Source version and time details", "来源版本与时间详情")}
+          value={source.metadata}
+        />
+        <Technical
+          label={t("State codes", "状态原码")}
+          value={{
+            state: source.state,
+            read_state: source.read_state,
+            coverage_state: source.coverage_state,
+          }}
+        />
+        {source.limitations?.length ? (
+          <NoticeList values={source.limitations} />
+        ) : null}
+      </details>
     </article>
   )
 }
 
-function Metric({ label, value }: { label: string; value: unknown }) {
-  const { t } = useI18n()
-  return (
-    <div className="rounded border p-3">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="mt-1 break-words text-lg font-semibold">
-        {typeof value === "string"
-          ? value
-          : value === null || value === undefined
-            ? "—"
-            : value && typeof value === "object" && !Array.isArray(value)
-              ? Object.entries(value).map(([key, item]) => (
-                  <span key={key} className="block text-sm">
-                    {netflowText(key, t)}: {item === null ? "—" : String(item)}
-                  </span>
-                ))
-              : JSON.stringify(value)}
-      </dd>
-    </div>
-  )
-}
 function NoticeList({ values }: { values: string[] }) {
   const { t } = useI18n()
   return (
@@ -2529,6 +2705,7 @@ function AddressesView({
   onComparisonPage,
   onAddress,
   detailError,
+  onOpenReviewTasks,
 }: {
   addresses:
     | Awaited<ReturnType<typeof SourceCorrelationsService.listAddresses>>
@@ -2557,6 +2734,7 @@ function AddressesView({
   onServicePage: (page: number) => void
   onAddress: (address: AddressPublic) => void
   detailError: unknown
+  onOpenReviewTasks: () => void
 }) {
   const { t } = useI18n()
   return (
@@ -2588,7 +2766,9 @@ function AddressesView({
                 <tr className="border-b">
                   <th className="p-2">IP</th>
                   <th className="p-2">{t("Sources", "来源")}</th>
-                  <th className="p-2">{t("Records", "记录")}</th>
+                  <th className="p-2">
+                    {t("Flow source records", "流量源记录")}
+                  </th>
                   <th className="p-2">{t("Tasks", "任务")}</th>
                   <th className="p-2">{t("Meaning", "含义")}</th>
                 </tr>
@@ -2622,12 +2802,7 @@ function AddressesView({
                     </td>
                     <td className="p-2">{address.task_refs.length}</td>
                     <td className="max-w-xs p-2 text-xs">
-                      {address.unmatched_netflow
-                        ? t(
-                            "NetFlow-only clue; no Resource/Run is created.",
-                            "仅 NetFlow 线索；不创建 Resource/Run。",
-                          )
-                        : t("Pinned source intersection", "固定来源交集")}
+                      {netflowText(address.conclusion ?? "RECORDED_IP", t)}
                     </td>
                   </tr>
                 ))}
@@ -2655,6 +2830,7 @@ function AddressesView({
         <AddressDetail
           detail={selectedAddress}
           detailError={detailError}
+          onOpenReviewTasks={onOpenReviewTasks}
           services={services}
           evidence={evidence}
           evidenceSource={evidenceSource}
@@ -2684,6 +2860,7 @@ function AddressDetail({
   onComparisonPage,
   evidencePage,
   onEvidencePage,
+  onOpenReviewTasks,
 }: {
   detail: AddressPublic
   detailError: unknown
@@ -2703,6 +2880,7 @@ function AddressDetail({
   onComparisonPage: (page: number) => void
   evidencePage: number
   onEvidencePage: (page: number) => void
+  onOpenReviewTasks: () => void
 }) {
   const { t } = useI18n()
   return (
@@ -2714,6 +2892,60 @@ function AddressDetail({
         <ErrorNotice error={detailError} />
       ) : (
         <>
+          <p className="text-base font-medium">
+            {netflowText(detail.conclusion ?? "RECORDED_IP", t)}
+          </p>
+          <div className="grid gap-3 md:grid-cols-3">
+            {(["CUSTOMER", "CLOUD", "NETFLOW"] as const).map((source) => (
+              <div key={source} className="rounded border p-3 text-sm">
+                <p className="font-medium">{netflowText(source, t)}</p>
+                <p className="mt-1">
+                  {netflowText(detail.presence?.[source] ?? "UNKNOWN", t)}
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  {t("Source records", "来源记录")}:{" "}
+                  {count(detail.source_counts?.[source])}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2 text-sm">
+            <h3 className="font-medium">{t("Next step", "下一步")}</h3>
+            <p>
+              {t(
+                "Check the original records and collection scope. No flow match does not mean activity stopped; a flow-only record does not establish risk or missing governance.",
+                "核对原始记录与采集范围。没有流量记录不等于停止活动；仅流量有记录不代表风险或漏管。",
+              )}
+            </p>
+            {detail.task_refs.length > 0 && (
+              <div className="space-y-2">
+                <p>
+                  {t(
+                    "Existing review tasks are linked below the comparison. Batch tasks are shared across addresses.",
+                    "本次比对的复核任务可从“复核任务”入口查看；批次任务由多个地址共享。",
+                  )}
+                </p>
+                <Button variant="outline" onClick={onOpenReviewTasks}>
+                  {t("Open existing review tasks", "查看已有复核任务")}
+                </Button>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {(["customer", "cloud", "netflow"] as const).map((source) => (
+                <Button
+                  key={source}
+                  variant="outline"
+                  onClick={() => {
+                    onEvidenceSource(source)
+                    document.getElementById("address-source-evidence")?.focus()
+                  }}
+                >
+                  {t("View evidence", "查看依据")} ·{" "}
+                  {netflowText(source.toUpperCase(), t)}
+                </Button>
+              ))}
+            </div>
+          </div>
           <div className="grid gap-2 text-sm md:grid-cols-3">
             <p>
               {t("Family", "地址族")}: {detail.family}
@@ -2741,15 +2973,32 @@ function AddressDetail({
               {count(detail.service_object_count)}
             </p>
           </div>
-          <NoticeList values={detail.reasons} />
+          <details>
+            <summary className="cursor-pointer text-sm">
+              {t("Matching reasons and limitations", "匹配依据与限制")}
+            </summary>
+            <NoticeList values={detail.reasons} />
+          </details>
           <Technical
             label={t("History link", "历史链接")}
             value={detail.history_link}
           />
           <section>
             <h3 className="font-medium">
-              {t("Source-side service material", "源侧服务材料")}
+              {t("Port and protocol material", "端口与协议材料")}
             </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t(
+                "Customer port declarations, CloudAtlas port records and flow source-side ports are different material. A port difference alone does not establish a service change or risk. Role and time may remain unknown.",
+                "客户声明端口区间、云图端口记录、流量源侧观测端口分别保留。端口不同本身不构成服务变化或风险；角色和时间关系仍可能未知。",
+              )}
+            </p>
+            <p className="mt-2 text-sm">
+              {t(
+                "Time relationship is unconfirmed. Source-side position does not establish a listening service or connection initiator.",
+                "时间关系未确认。源侧位置不能证明服务监听或连接发起方。",
+              )}
+            </p>
             <section
               className="mt-2 overflow-x-auto"
               aria-label={t("Service material table", "服务材料表格")}
@@ -2770,7 +3019,7 @@ function AddressDetail({
                     <tr key={service.object_key} className="border-b">
                       <td className="min-w-72 max-w-sm break-all p-2 font-mono">
                         {netflowText(service.source, t)} ·{" "}
-                        {service.protocol_number ?? "—"}/
+                        {netflowProtocol(service.protocol_number, t)}/
                         {service.local_port ?? "—"}
                         <Technical
                           label={t("Object identifier", "对象标识")}
@@ -2783,8 +3032,10 @@ function AddressDetail({
                         <NoticeList values={service.reasons} />
                       </td>
                       <td className="p-2">{netflowText(service.source, t)}</td>
-                      <td className="p-2">{service.protocol_number ?? "—"}</td>
-                      <td className="p-2">{service.local_port ?? "—"}</td>
+                      <td className="p-2">
+                        {netflowProtocol(service.protocol_number, t)}
+                      </td>
+                      <td className="p-2">{servicePortText(service, t)}</td>
                       <td className="p-2">
                         {netflowText(
                           service.assessment ?? "INSUFFICIENT_EVIDENCE",
@@ -2886,7 +3137,11 @@ function AddressDetail({
               </Button>
             </div>
           </section>
-          <section>
+          <section
+            id="address-source-evidence"
+            tabIndex={-1}
+            className="scroll-mt-6"
+          >
             <h3 className="font-medium">{t("Source evidence", "来源证据")}</h3>
             <div className="mt-2 flex flex-wrap gap-2">
               {(["customer", "cloud", "netflow"] as const).map((source) => (
