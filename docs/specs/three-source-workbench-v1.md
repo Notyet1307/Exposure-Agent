@@ -70,6 +70,31 @@ Seed：`EXP-3SRC-UX-01`。
 - 固定关联依赖任一到期/撤权输入时沿原失败封闭合同拒读，不降级为不存在或零差异。云图拒读不妨碍仍有效的独立 NetFlow 查询；NetFlow 到期也不阻止仍有效的独立云图/客户查询。
 - 不新增自动清理调度器。保留现有云图窄 purge；提供 Admin 明确清理已到期、终态、可验证归属的新 Analysis 处理产物的入口，保留修订/身份/审计墓碑。原始 Dataset、旧 Run/报告、备份及其他任务文件不在清理对象中；受保护外部引用或无法证明文件归属时拒绝清理，不先删文件再补状态。同期限的本 Analysis 反馈或新关联元信息不构成永久保留内容的理由；跨批次、旧治理事实或仍有效对象的引用必须保护。清理不是延长或恢复访问。
 
+#### U5a 到期、墓碑和物理清理的精确边界
+
+保留状态与处理状态为两个维度。内容仍物化时，是否到期由可信绝对截止判断，GET 不更新数据库；清理持久状态为 `PURGE_PENDING / PURGE_PARTIAL / PURGED`，不得把执行状态 `SUCCEEDED` 改成 `FAILED`。所有内容消费者先鉴权，再检查期限/清理状态，最后才验证、打开结果文件；确定到期或已进入清理状态一律返回同一到期拒读，不因文件已删变成完整性损坏，也不在未知期限/未知归属时伪造墓碑。
+
+| 对象 | 保留 | 清理时处理 |
+|---|---|---|
+| Analysis 主行 | id、tenant/Project、Dataset/Context 引用、处理身份/hash、Run/Session身份、原执行状态、开始/完成时间、初始反馈 id、固定期限、清理审计引用 | 主行与初始反馈外键不删除，成功态必要身份不置空 |
+| Analysis `result` | 原 result/manifest/review summary/产物集合的摘要 Hash、白名单计数、受控限制码 | 以显式 tombstone envelope 替换完整结果 JSON；仍非 null，不伪造一份可读的空分析。除白名单外的内嵌上下文、自由文本、结果记录或文件读取凭据不保留在此 envelope |
+| Analysis `identity/request/quality` | 任务去重与来源身份所必需的既有元数据、质量计数 | 不改处理身份、不让清理改变去重；公开墓碑只输出白名单，不下发原请求/配置/路径或原始行引用样本。输入上下文仍按其独立资料合同保护，不能作为过期结果的替代 reader |
+| FeedbackRevision | id、父链、revision、真实 created_by/created_at、system_generated、原收据 Hash；经过白名单校验的系统 response_authors（task hash、actor id、提交时间、feedback id）可保留作审计 | `human_note` 清空；`provider_claim` 只保留上述系统作者元数据，其余声明/自由内容清空；`artifact_manifest` 替换为非 null 的 tombstone envelope，不当成正常收据调用验证器；答案、原提供方自由声明、progress/model hints 等结果正文文件进入清理集合 |
+| 处理/反馈文件 | 删除前的相对存储身份、大小、Hash 和每项清理结果进入受控清理记录 | 仅清理原受信收据枚举、确切归属于目标 Analysis 的常规文件。未登记文件、越界、符号链接、共享硬链接、Hash/归属不符均拒绝；不得递归删除未知目录 |
+| 通用 Artifact、原始 Dataset、Context、旧 Run/报告 | 保留原字节、元信息和约束 | 不删除/覆盖通用 Artifact 行、raw/normalized 文件、输入 Context、旧治理事实或备份；公开结果墓碑不能转发这些对象的内容来绕过到期 |
+| SourceCorrelationRevision | 原 selection/pins/root/parent/范围确认历史及 Hash | 不删除或改写 JSON 软引用。其 `selection.netflow.analysis_id` 指向已到期/清理结果时，摘要、地址、服务、反馈和依据读取在装载 bundle 前稳定拒读；目录按原合同排除已知不可读修订 |
+
+墓碑是新的明确存储变体，必须有版本标记。迁移/验证器同时约束其非 null 内容、保留身份与清理标记；不能仅放松“成功需要 result/初始反馈”等现有约束。正常成功结果仍完整校验；只有已验证的到期/清理状态走墓碑路径。对外元数据只允许身份、原执行状态、时间、固定期限、清理状态、Hash及不含真实行/自由材料的计数，不直接序列化上述内部列。
+
+保护引用集合须显式判定，不只依赖 FK：
+
+1. 目标 Analysis 非终态、原 Session 活跃/UNKNOWN或终态无法证明、同一 Analysis 正在发布/写反馈/清理时，拒绝或串行等待，不删除。
+2. 目标处理文件若被任意通用 `Artifact.storage_key` 注册，或与 Dataset raw/normalized 所指 Artifact 的解析路径、其他 Analysis 的 `result` 收据、其他 Analysis 的反馈 `artifact_manifest` 发生所有权/路径重叠，拒绝清理。由 Artifact 承载的旧 GovernanceRun/SourceSnapshot/报告及其他治理事实一并受到保护。
+3. 同 Dataset 仍是 Project current、或旧 Run 固定了这个 Dataset，并不自动阻止清理独立的新 Analysis 输出，因为本操作不删 Dataset/原始文件；若实际文件共享则按上一条阻断。
+4. 本 Analysis 自身的反馈父链/初始反馈 FK，和 `SourceCorrelationRevision.selection/pins` 中指向它的身份引用，是同生命周期的内部/元引用，不永久阻止过期内容清理；它们必须保留可解释墓碑和稳定拒读。
+
+清理协议：锁定 Project/Analysis，并与发布/反馈写入使用相同的串行边界；重新鉴权、核验期限/终态/引用/文件归属；保存原 Hash、候选集合及幂等清理意图，原子提交 `PURGE_PENDING` 和 SQL 内容墓碑后，才逐项删除已核实文件。完成记 `PURGED`，局部失败记 `PURGE_PARTIAL` 并保留逐项回执，所有明细仍拒读；恢复只能继续同一意图的剩余已核实目标，不能换 key 扩大删除集合。任何写反馈/发布操作在提交前重新检查期限与父版本，避免跨到期发布新正文。清理不恢复原字段、重算分析、解锁过期访问或改变备份内容。
+
 ### U6 权限、稳定性和兼容
 
 - 全部读取继续复核 tenant/Project/namespace、当前角色、来源 data access、批次保留和内容完整性。Viewer 只读，Operator/管理权限与原接口保持；归档禁新写。
@@ -122,7 +147,7 @@ Seed：`EXP-3SRC-UX-01`。
 | AC-3S-07 | 默认 90、配置正整数边界、并发设置、归档/Viewer 禁写；新批次固定策略，旧截止/旧无期限规则不被回填 |
 | AC-3S-08 | 新 Analysis 首次发布固定截止；反馈/GET/重放/设置修改不续期；长周期计时不提前到期；自然到期、挂起恢复/切屏在所有消费者一致拒读并清缓存 |
 | AC-3S-09 | 受限组合不泄露来源；仍有效独立来源可读；无固定身份 latest 兜底，反馈加载不误报跨身份 |
-| AC-3S-10 | 管理员清理仅作用于获准过期结果，受保护引用/活跃操作/未知文件归属拒绝；原始输入/旧报告/其他数据保留 |
+| AC-3S-10 | 按 U5a 验证 SQL/文件逐项处置、成功身份及反馈父链保持、JSON 软引用稳定拒读；保护引用/活跃操作/路径重叠/符号或硬链接/Hash错误拒清理；部分失败仅恢复同一意图，原始输入/旧报告/其他数据保留 |
 | AC-3S-11 | 迁移前后旧结构化行/Hash/期限、当前选择、历史报告与引用不变；共享迁移不重写；新生命周期不允许有损降级 |
 | AC-3S-12 | 中文/英文、明暗、桌面/390px、键盘、刷新/后退/切屏和账户/项目切换通过；浏览产生零模型/上游/写请求 |
 | AC-3S-13 | 正式 lint/typecheck/build、相关后端测试、独立 Standards/Spec 审阅与业务验收分账；未运行项目如实记录 |
