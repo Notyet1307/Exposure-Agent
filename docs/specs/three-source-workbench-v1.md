@@ -81,7 +81,8 @@ Seed：`EXP-3SRC-UX-01`。
 | Analysis `identity/request/quality` | 任务去重与来源身份所必需的既有元数据、质量计数 | 不改处理身份、不让清理改变去重；公开墓碑只输出白名单，不下发原请求/配置/路径或原始行引用样本。输入上下文仍按其独立资料合同保护，不能作为过期结果的替代 reader |
 | FeedbackRevision | id、父链、revision、真实 created_by/created_at、system_generated、原收据 Hash；经过白名单校验的系统 response_authors（task hash、actor id、提交时间、feedback id）可保留作审计 | `human_note` 清空；`provider_claim` 只保留上述系统作者元数据，其余声明/自由内容清空；`artifact_manifest` 替换为非 null 的 tombstone envelope，不当成正常收据调用验证器；答案、原提供方自由声明、progress/model hints 等结果正文文件进入清理集合 |
 | 处理/反馈文件 | 删除前的相对存储身份、大小、Hash 和每项清理结果进入受控清理记录 | 仅清理原受信收据枚举、确切归属于目标 Analysis 的常规文件。未登记文件、越界、符号链接、共享硬链接、Hash/归属不符均拒绝；不得递归删除未知目录 |
-| 通用 Artifact、原始 Dataset、Context、旧 Run/报告 | 保留原字节、元信息和约束 | 不删除/覆盖通用 Artifact 行、raw/normalized 文件、输入 Context、旧治理事实或备份；公开结果墓碑不能转发这些对象的内容来绕过到期 |
+| 目标 Analysis 自有的 Artifact 登记 | 原 Artifact id、相对存储身份、大小、Hash及清理回执留在受控清理记录 | 仅由目标 Analysis 的 result/feedback 受信收据登记、没有任何其他正式引用或路径共享的 Artifact，是本次清理集合；墓碑门禁提交后可删除其文件，并在记录每项结果的事务中删除对应 Artifact 行。文件删除或行删除失败保持 PARTIAL，可幂等恢复 |
+| 其他 Artifact、原始 Dataset、Context、旧 Run/报告 | 保留原字节、元信息和约束 | raw/normalized、旧治理事实、其他 Analysis/反馈或任何其他正式使用方所引用的 Artifact 不属于可清理自有集合；不删除/覆盖这些行或文件、输入 Context、旧治理事实或备份；公开结果墓碑不能转发其内容来绕过到期 |
 | SourceCorrelationRevision | 原 selection/pins/root/parent/范围确认历史及 Hash | 不删除或改写 JSON 软引用。其 `selection.netflow.analysis_id` 指向已到期/清理结果时，摘要、地址、服务、反馈和依据读取在装载 bundle 前稳定拒读；目录按原合同排除已知不可读修订 |
 
 墓碑是新的明确存储变体，必须有版本标记。迁移/验证器同时约束其非 null 内容、保留身份与清理标记；不能仅放松“成功需要 result/初始反馈”等现有约束。正常成功结果仍完整校验；只有已验证的到期/清理状态走墓碑路径。对外元数据只允许身份、原执行状态、时间、固定期限、清理状态、Hash及不含真实行/自由材料的计数，不直接序列化上述内部列。
@@ -89,7 +90,7 @@ Seed：`EXP-3SRC-UX-01`。
 保护引用集合须显式判定，不只依赖 FK：
 
 1. 目标 Analysis 非终态、原 Session 活跃/UNKNOWN或终态无法证明、同一 Analysis 正在发布/写反馈/清理时，拒绝或串行等待，不删除。
-2. 目标处理文件若被任意通用 `Artifact.storage_key` 注册，或与 Dataset raw/normalized 所指 Artifact 的解析路径、其他 Analysis 的 `result` 收据、其他 Analysis 的反馈 `artifact_manifest` 发生所有权/路径重叠，拒绝清理。由 Artifact 承载的旧 GovernanceRun/SourceSnapshot/报告及其他治理事实一并受到保护。
+2. 处理/反馈文件本来就由通用 Artifact 登记，登记本身不构成阻断。只允许目标 Analysis 的 result/feedback 受信收据明确列出的自有 Artifact id；必须检查全部现有正式业务 FK 使用方，以及其他 Analysis 的 result 收据、反馈 artifact_manifest 等 JSON 正式引用。被 Dataset raw/normalized、旧 GovernanceRun/SourceSnapshot/报告、其他处理批次或其他正式使用方引用，或者与这些对象发生解析路径/文件身份共享时，拒绝清理。不能靠猜测目录名认定所有权；新增正式 Artifact 消费方必须纳入相同保护检查。
 3. 同 Dataset 仍是 Project current、或旧 Run 固定了这个 Dataset，并不自动阻止清理独立的新 Analysis 输出，因为本操作不删 Dataset/原始文件；若实际文件共享则按上一条阻断。
 4. 本 Analysis 自身的反馈父链/初始反馈 FK，和 `SourceCorrelationRevision.selection/pins` 中指向它的身份引用，是同生命周期的内部/元引用，不永久阻止过期内容清理；它们必须保留可解释墓碑和稳定拒读。
 
