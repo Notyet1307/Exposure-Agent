@@ -82,6 +82,53 @@ def read_peers(
         )
 
 
+@router.get("/observations", response_model=service.ObservationPage)
+def read_observations(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    analysis_id: uuid.UUID,
+    response: Response,
+    ip: Annotated[str | None, Query(max_length=45)] = None,
+    protocol: Annotated[int | None, Query(ge=0, le=255)] = None,
+    source_port: Annotated[int | None, Query(ge=0, le=65535)] = None,
+    sort: Literal["ip_asc", "ip_desc"] = "ip_asc",
+    skip: Skip = 0,
+    limit: Limit = 25,
+) -> service.ObservationPage:
+    _private(response)
+    project = project_for(session, current_user, project_id)
+    with _errors():
+        return service.read_observations(
+            session,
+            project,
+            analysis_id,
+            ip=ip,
+            protocol=protocol,
+            source_port=source_port,
+            sort=sort,
+            skip=skip,
+            limit=limit,
+        )
+
+
+@router.get("/observations/{object_key}", response_model=service.ObservationDetail)
+def read_observation(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    analysis_id: uuid.UUID,
+    object_key: str,
+    response: Response,
+) -> service.ObservationDetail:
+    _private(response)
+    project = project_for(session, current_user, project_id)
+    with _errors():
+        return service.read_observation(session, project, analysis_id, object_key)
+
+
 @router.get("/review-tasks", response_model=service.TaskPage)
 def read_tasks(
     *,

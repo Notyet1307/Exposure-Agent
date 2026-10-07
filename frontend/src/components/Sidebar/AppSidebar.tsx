@@ -96,6 +96,13 @@ export function AppSidebar() {
     },
     {
       icon: Network,
+      title: t("Processed NetFlow data", "NetFlow 处理数据"),
+      path: project ? `/projects/${project}/netflow-results` : "/",
+      search: project ? undefined : { view: "inputs" },
+      active: pathname.endsWith("/netflow-results"),
+    },
+    {
+      icon: Network,
       title: t("NetFlow correlation", "NetFlow 来源关联"),
       path: project ? `/projects/${project}/netflow-correlation` : "/",
       search: project ? undefined : { view: "inputs" },

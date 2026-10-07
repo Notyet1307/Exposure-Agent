@@ -1,0 +1,34 @@
+syntax = "proto3";
+package cloudatlas.structured.v1;
+service CloudAtlasStructuredService {
+  rpc ListSubdomains(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListCertificates(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListOpenPorts(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListWebsites(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListWebPaths(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListWebFingerprints(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListCrawlerRecords(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListEnterpriseSeeds(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListKeywordSeeds(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListDomainSeeds(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListEmailDomainSeeds(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListCertificateSeeds(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListIconSeeds(ListStructuredRequest) returns (ListStructuredResponse);
+  rpc ListWebTitleSeeds(ListStructuredRequest) returns (ListStructuredResponse);
+}
+message ListStructuredRequest {
+  int32 page = 1;
+  int32 size = 2;
+  int32 max_response_bytes = 3;
+  int32 timeout_seconds = 4;
+  bool diagnostics_only = 5;
+}
+message ListStructuredResponse {
+  int32 page = 1;
+  int32 size = 2;
+  int32 total = 3;
+  string space_id = 4;
+  string items_json = 5;
+  string diagnostics_json = 6;
+  int32 omitted_field_count = 7;
+}

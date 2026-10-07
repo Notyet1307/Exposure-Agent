@@ -13,14 +13,18 @@ from datetime import timedelta
 from typing import Any, NoReturn, cast
 
 from fastapi import HTTPException
-from sqlalchemy import delete
+from sqlalchemy import Text, delete, or_
+from sqlalchemy import cast as sql_cast
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlmodel import Session, col, func, select
 
 from app.api.project_authorization import get_authorized_project
 from app.core.config import settings
 from app.core.time import get_datetime_utc
+from app.domain import cloudatlas_structured_contract as structured
 from app.domain.cloudatlas_sources import CloudAtlasBoundaryError
 from app.domain.external_asset_models import (
+    CAPABILITY_PROFILES,
     Domain,
     DomainStatus,
     ExternalAssetHead,
@@ -48,6 +52,7 @@ from app.integrations.cloudatlas_assets import (
 )
 from app.integrations.cloudatlas_dns import OctobusCloudAtlasDNSClient
 from app.integrations.cloudatlas_root_domains import OctobusCloudAtlasRootDomainsClient
+from app.integrations.cloudatlas_structured import OctobusCloudAtlasStructuredClient
 from app.models import User
 
 UNFINISHED = ("PENDING", "RUNNING", "UNKNOWN")
@@ -76,9 +81,7 @@ def source_for(
         SourceInstance.id == source_id,
         SourceInstance.project_id == project.id,
         SourceInstance.tenant_id == project.tenant_id,
-        col(SourceInstance.capability_profile).in_(
-            ("assets-v1", "root-domains-v1", "dns-v1")
-        ),
+        col(SourceInstance.capability_profile).in_(CAPABILITY_PROFILES),
     )
     if lock:
         query = query.with_for_update()
@@ -142,6 +145,8 @@ def source_public(source: SourceInstance) -> ExternalSourcePublic:
 
 
 def source_domains(source: SourceInstance) -> tuple[Domain, ...]:
+    if source.capability_profile in structured.PROFILES:
+        return (cast(Domain, structured.PROFILES[source.capability_profile]),)
     if source.capability_profile == "dns-v1":
         return ("dns",)
     if source.capability_profile == "root-domains-v1":
@@ -157,6 +162,14 @@ def require_domain(source: SourceInstance, domain: str) -> None:
 def source_client(
     source: SourceInstance,
 ) -> tuple[OctobusCloudAtlasAssetsClient, str]:
+    if source.capability_profile in structured.PROFILES:
+        domain = structured.PROFILES[source.capability_profile]
+        return (
+            OctobusCloudAtlasStructuredClient(source.capability_profile),
+            getattr(
+                settings, f"CLOUDATLAS_{domain.upper()}_CAPSET_TOKEN"
+            ).get_secret_value(),
+        )
     if source.capability_profile == "dns-v1":
         return (
             OctobusCloudAtlasDNSClient(),
@@ -275,11 +288,48 @@ def records(
     limit: int,
     root_domain: str | None = None,
     subdomain: str | None = None,
+    q: str | None = None,
+    sha256: str | None = None,
+    md5_value: str | None = None,
+    mmh3_value: str | None = None,
+    seed_enabled: bool | None = None,
+    confidence: str | None = None,
+    seed_type: str | None = None,
 ) -> ExternalRecordsPublic:
     if (
-        (domain not in ("ip", "port") and ip is not None)
+        (domain not in ("ip", "port", "openport") and ip is not None)
         or (domain != "root_domain" and root_domain is not None)
         or (domain != "dns" and subdomain is not None)
+    ):
+        deny("external_domain_filter_invalid", 422)
+    definition = structured.DOMAINS.get(domain)
+    exact_filters = {
+        "sha256": sha256,
+        "md5_value": md5_value,
+        "mmh3_value": mmh3_value,
+        "confidence": confidence,
+        "type": seed_type,
+    }
+    seed_fields = (
+        definition["schema"]["properties"]
+        if definition and domain.startswith("seed_") and domain != "seed_icon"
+        else {}
+    )
+    if (
+        (q is not None and (not definition or not definition["text_fields"]))
+        or (
+            status is not None
+            and definition
+            and "status" not in definition["schema"]["properties"]
+        )
+        or (seed_enabled is not None and "enable" not in seed_fields)
+        or any(
+            value is not None
+            and not (
+                definition and (key in definition["exact_fields"] or key in seed_fields)
+            )
+            for key, value in exact_filters.items()
+        )
     ):
         deny("external_domain_filter_invalid", 422)
     version = selected_version(session, source, domain, version_id)
@@ -299,24 +349,51 @@ def records(
         query = query.where(ExternalAssetRecord.canonical_ip == canonical_ip)
     if root_domain is not None:
         query = query.where(
-            ExternalAssetRecord.fields["root_domain"].astext.icontains(
-                root_domain, autoescape=True
+            func.external_asset_segments_icontains(
+                ExternalAssetRecord.root_domain_segments, root_domain.split("\0")
             )
         )
     if subdomain is not None:
         query = query.where(
-            ExternalAssetRecord.fields["subdomain"].astext.icontains(
-                subdomain, autoescape=True
+            func.external_asset_segments_icontains(
+                ExternalAssetRecord.subdomain_segments, subdomain.split("\0")
             )
         )
     if status is not None:
-        query = query.where(ExternalAssetRecord.fields["status"].astext == status)
+        query = query.where(
+            ExternalAssetRecord.status_segments
+            == sql_cast(status.split("\0"), ARRAY(Text))
+        )
+    if q is not None and definition:
+        query = query.where(
+            or_(
+                *[
+                    func.external_asset_segments_icontains(
+                        func.external_asset_search_segments(
+                            ExternalAssetRecord.search_fields, key
+                        ),
+                        sql_cast(q.split("\0"), ARRAY(Text)),
+                    )
+                    for key in definition["text_fields"]
+                ]
+            )
+        )
+    for key, value in exact_filters.items():
+        if value is not None:
+            query = query.where(
+                func.external_asset_search_segments(
+                    ExternalAssetRecord.search_fields, key
+                )
+                == sql_cast(value.split("\0"), ARRAY(Text))
+            )
+    if seed_enabled is not None:
+        query = query.where(col(ExternalAssetRecord.enable_value).is_(seed_enabled))
     count = session.exec(select(func.count()).select_from(query.subquery())).one()
     rows = session.exec(
         query.order_by(
-            ExternalAssetRecord.fields["subdomain"].astext
+            cast(Any, ExternalAssetRecord.subdomain_segments)
             if domain == "dns"
-            else ExternalAssetRecord.fields["root_domain"].astext
+            else cast(Any, ExternalAssetRecord.root_domain_segments)
             if domain == "root_domain"
             else ExternalAssetRecord.canonical_ip,
             ExternalAssetRecord.source_id,
@@ -388,6 +465,15 @@ def reserve_sync(
     if not key.strip() or len(key) > 128 or any(ord(c) < 32 for c in key):
         deny("external_idempotency_key_invalid", 422)
     payload = request.model_dump(mode="json")
+    if source.capability_profile in structured.PROFILES:
+        selected_domain = structured.PROFILES[source.capability_profile]
+        payload |= {
+            "publication_mode": "structured-bounded-v1",
+            "domain": selected_domain,
+            "capability_profile": source.capability_profile,
+            "filters": structured.DOMAINS[selected_domain]["filters"],
+            "sort": "-id",
+        }
     if source.capability_profile == "dns-v1":
         payload |= {
             "publication_mode": "dns-bounded-v1",
@@ -446,7 +532,9 @@ def reserve_sync(
         request=payload
         | {
             "publication_mode": (
-                "dns-bounded-v1"
+                "structured-bounded-v1"
+                if source.capability_profile in structured.PROFILES
+                else "dns-bounded-v1"
                 if domains == ("dns",)
                 else "root-domain-bounded-v1"
                 if domains == ("root_domain",)
@@ -471,7 +559,9 @@ def reserve_sync(
                 instance_id=source.instance_id,
                 capset_id=source.capset_id,
                 filter=(
-                    {"flat": "1", "status": "valid"}
+                    structured.DOMAINS[domain]["filters"]
+                    if domain in structured.DOMAINS
+                    else {"flat": "1", "status": "valid"}
                     if domain == "dns"
                     else {"status": "valid"}
                     if domain != "port"
@@ -480,6 +570,7 @@ def reserve_sync(
                 fingerprint=fingerprint,
                 retain_until=request.retain_until,
                 pages_read=0,
+                omitted_field_count=0 if domain in structured.DOMAINS else None,
             )
         )
     audit(session, source, actor.id, "external_sync.reserved", sync.id)
@@ -577,6 +668,21 @@ def execution_source(
         )
     ):
         raise SyncError("external_publication_mode_invalid")
+    structured_mode = sync.request.get("publication_mode") == "structured-bounded-v1"
+    if structured_mode != (source.capability_profile in structured.PROFILES):
+        raise SyncError("external_publication_mode_invalid")
+    if structured_mode:
+        selected_domain = structured.PROFILES[source.capability_profile]
+        if any(
+            sync.request.get(key) != value
+            for key, value in {
+                "domain": selected_domain,
+                "capability_profile": source.capability_profile,
+                "filters": structured.DOMAINS[selected_domain]["filters"],
+                "sort": "-id",
+            }.items()
+        ):
+            raise SyncError("external_publication_mode_invalid")
     fingerprint, token_hash = ready(source)
     if fingerprint != sync.fingerprint or token_hash != sync.token_sha256:
         raise SyncError("external_material_changed")
@@ -590,12 +696,26 @@ def _page_limits(sync: ExternalSync) -> dict[str, int] | None:
         return (
             None  # Existing reservations retain their full-only publication contract.
         )
-    if mode not in ("bounded-v1", "root-domain-bounded-v1", "dns-bounded-v1"):
+    if mode not in (
+        "bounded-v1",
+        "root-domain-bounded-v1",
+        "dns-bounded-v1",
+        "structured-bounded-v1",
+    ):
         raise SyncError("external_publication_mode_invalid")
     capacity = min(
         sync.request["max_pages"],
         sync.request["max_records"] // sync.request["page_size"],
     )
+    if mode == "structured-bounded-v1":
+        selected_domain = structured.PROFILES.get(
+            sync.request.get("capability_profile")
+        )
+        if selected_domain is None or sync.request.get("domain") != selected_domain:
+            raise SyncError("external_publication_mode_invalid")
+        if capacity < 1:
+            raise SyncError("external_single_domain_budget_required")
+        return {selected_domain: capacity}
     if mode in ("root-domain-bounded-v1", "dns-bounded-v1"):
         if capacity < 1:
             raise SyncError("external_single_domain_budget_required")
@@ -727,12 +847,18 @@ def validate_page(
         raise SyncError("external_page_invalid")
     if not items and len(seen) < total:
         raise SyncError("external_early_empty_page")
-    if domain in ("root_domain", "dns"):
+    if domain in ("root_domain", "dns") or domain in structured.DOMAINS:
         items = normalize_items(items, domain)
     rows: list[tuple[str, str | None, str | None, dict[str, Any]]] = []
     for item in items:
         if not isinstance(item, dict):
             raise SyncError("external_record_invalid")
+        try:
+            # This accepts a real NUL (encoded in JSON as \\u0000) but rejects
+            # unpaired surrogates before a driver/database exception can escape.
+            json.dumps(item, ensure_ascii=False).encode("utf-8")
+        except TypeError, UnicodeEncodeError:
+            raise SyncError("external_record_invalid") from None
         source_id, ip = item.get("id"), item.get("ip")
         if (
             not isinstance(source_id, str)
@@ -743,13 +869,15 @@ def validate_page(
         if source_id in seen:
             raise SyncError("external_duplicate_id")
         canonical = None
-        if domain in ("ip", "port"):
+        if domain in ("ip", "port", "openport"):
             if not isinstance(ip, str) or "%" in ip:
                 raise SyncError("external_record_invalid")
             try:
                 canonical = str(ipaddress.ip_address(ip))
             except ValueError:
                 raise SyncError("external_record_invalid") from None
+        if domain not in ("ip", "port", "openport"):
+            ip = None
         seen.add(source_id)
         rows.append((source_id, ip, canonical, item))
     return total, rows
@@ -859,6 +987,16 @@ def execute_sync(
                 )
             sync.records_read += len(rows)
             version.record_count += len(rows)
+            if version.domain in structured.DOMAINS:
+                omitted = page.get("omitted_field_count")
+                if (
+                    type(omitted) is not int
+                    or not 0 <= omitted <= sync.request["max_response_bytes"]
+                ):
+                    raise SyncError("external_page_invalid")
+                version.omitted_field_count = (
+                    version.omitted_field_count or 0
+                ) + omitted
             version.expected_total = total
             version.pages_read = number
             version.complete = len(seen) == total
@@ -941,7 +1079,7 @@ def reconcile(session: Session, sync: ExternalSync) -> ExternalSync:
 
 
 def purge_expired(session: Session, source: SourceInstance, actor: User | None) -> int:
-    if source.capability_profile not in ("assets-v1", "root-domains-v1", "dns-v1"):
+    if source.capability_profile not in CAPABILITY_PROFILES:
         deny("external_source_not_found", 404)
     expired = select(ExternalAssetVersion.id).where(
         ExternalAssetVersion.source_id == source.id,

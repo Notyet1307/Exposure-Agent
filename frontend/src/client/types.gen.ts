@@ -24,6 +24,7 @@ export type AddressPublic = {
     canonical_ip: string;
     family: 4 | 6;
     positive_sources: Array<('CUSTOMER' | 'CLOUD' | 'NETFLOW')>;
+    conclusion?: 'COMMON_RECORD' | 'SOURCE_DIFFERENCE' | 'RECORDED_IP';
     unmatched_netflow: boolean;
     source_record_count: (number | null);
     service_object_count: (number | null);
@@ -42,6 +43,8 @@ export type AddressPublic = {
 };
 
 export type family = 4 | 6;
+
+export type conclusion = 'COMMON_RECORD' | 'SOURCE_DIFFERENCE' | 'RECORDED_IP';
 
 export type AiGovernanceDraftPublic = {
     id: string;
@@ -469,6 +472,15 @@ export type port_relation = 'IN_RANGE' | 'OUT_OF_RANGE' | 'EQUAL' | 'DIFFERENT' 
 
 export type time_relation = 'OVERLAP' | 'DISJOINT' | 'UNKNOWN';
 
+export type ComparisonOverview = {
+    state: 'AVAILABLE' | 'SCOPE_UNCONFIRMED' | 'SOURCES_UNAVAILABLE' | 'INSUFFICIENT_COVERAGE' | 'INSUFFICIENT_SOURCES';
+    sources: Array<('CUSTOMER' | 'CLOUD' | 'NETFLOW')>;
+    common_addresses?: (number | null);
+    different_addresses?: (number | null);
+};
+
+export type state = 'AVAILABLE' | 'SCOPE_UNCONFIRMED' | 'SOURCES_UNAVAILABLE' | 'INSUFFICIENT_COVERAGE' | 'INSUFFICIENT_SOURCES';
+
 export type ComparisonPage = {
     data: Array<Comparison>;
     count: number;
@@ -520,7 +532,7 @@ export type ConnectionStatus = {
     reason?: (string | null);
 };
 
-export type state = 'legacy' | 'unconfigured' | 'active' | 'disabled' | 'unavailable';
+export type state2 = 'legacy' | 'unconfigured' | 'active' | 'disabled' | 'unavailable';
 
 export type ContextCreate = {
     expected_parent_id: (string | null);
@@ -534,7 +546,7 @@ export type ContextCreate = {
     sampling: Sampling;
 };
 
-export type state2 = 'CONFIRMED' | 'UNKNOWN' | 'CONFLICT' | 'REVOKED';
+export type state3 = 'CONFIRMED' | 'UNKNOWN' | 'CONFLICT' | 'REVOKED';
 
 export type nat_context = 'none' | 'mapped' | 'unknown';
 
@@ -676,7 +688,7 @@ export type ExpectedGeneration = {
 };
 
 export type ExternalDomainPublic = {
-    domain: 'ip' | 'port' | 'root_domain' | 'dns';
+    domain: ('ip' | 'port' | 'root_domain' | 'dns' | 'subdomain' | 'cert' | 'openport' | 'web' | 'dir' | 'appfinger' | 'crawler' | 'seed_enterprise' | 'seed_keyword' | 'seed_domain' | 'seed_email' | 'seed_cert' | 'seed_icon' | 'seed_title');
     status: 'PENDING' | 'RUNNING' | 'PUBLISHED' | 'FAILED' | 'UNKNOWN';
     version_id: (string | null);
     record_count: number;
@@ -685,8 +697,6 @@ export type ExternalDomainPublic = {
     pages_read: (number | null);
     error_code: (string | null);
 };
-
-export type domain = 'ip' | 'port' | 'root_domain' | 'dns';
 
 export type status3 = 'PENDING' | 'RUNNING' | 'PUBLISHED' | 'FAILED' | 'UNKNOWN';
 
@@ -720,7 +730,7 @@ export type ExternalRecordsPublic = {
     state: 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
 };
 
-export type state3 = 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
+export type state4 = 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
 
 export type ExternalSelection = {
     kind: "external_versions";
@@ -730,20 +740,18 @@ export type ExternalSelection = {
 };
 
 export type ExternalSourceCreate = {
-    capability_profile?: 'assets-v1' | 'root-domains-v1' | 'dns-v1';
+    capability_profile?: ('assets-v1' | 'root-domains-v1' | 'dns-v1' | 'subdomain-v1' | 'cert-v1' | 'openport-v1' | 'web-v1' | 'dir-v1' | 'appfinger-v1' | 'crawler-v1' | 'seed-enterprise-v1' | 'seed-keyword-v1' | 'seed-domain-v1' | 'seed-email-v1' | 'seed-cert-v1' | 'seed-icon-v1' | 'seed-title-v1');
     instance_id: string;
     capset_id: string;
     space_id: string;
 };
-
-export type capability_profile = 'assets-v1' | 'root-domains-v1' | 'dns-v1';
 
 export type ExternalSourcePublic = {
     id: string;
     instance_id: string;
     capset_id: string;
     space_id: string;
-    capability_profile: 'assets-v1' | 'root-domains-v1' | 'dns-v1';
+    capability_profile: ('assets-v1' | 'root-domains-v1' | 'dns-v1' | 'subdomain-v1' | 'cert-v1' | 'openport-v1' | 'web-v1' | 'dir-v1' | 'appfinger-v1' | 'crawler-v1' | 'seed-enterprise-v1' | 'seed-keyword-v1' | 'seed-domain-v1' | 'seed-email-v1' | 'seed-cert-v1' | 'seed-icon-v1' | 'seed-title-v1');
     enabled: boolean;
     data_access_enabled: boolean;
     validation_status: string;
@@ -796,11 +804,12 @@ export type ExternalSyncsPublic = {
 export type ExternalVersionPublic = {
     id: string;
     source_id: string;
-    domain: 'ip' | 'port' | 'root_domain' | 'dns';
+    domain: ('ip' | 'port' | 'root_domain' | 'dns' | 'subdomain' | 'cert' | 'openport' | 'web' | 'dir' | 'appfinger' | 'crawler' | 'seed_enterprise' | 'seed_keyword' | 'seed_domain' | 'seed_email' | 'seed_cert' | 'seed_icon' | 'seed_title');
     space_id: string;
     status: 'PUBLISHED' | 'EXPIRED';
     record_count: number;
     complete: boolean;
+    omitted_field_count?: (number | null);
     expected_total: (number | null);
     pages_read: (number | null);
     stop_reason: ('source_complete' | 'batch_limit' | null);
@@ -1094,7 +1103,7 @@ export type GovernanceRunSourcePublic = {
 
 export type source_type = 'CUSTOMER_UPLOAD' | 'CLOUDATLAS' | 'NETFLOW';
 
-export type state4 = 'ABSENT' | 'PRESENT';
+export type state5 = 'ABSENT' | 'PRESENT';
 
 export type GovernanceRunSourcesPublic = {
     project_id: string;
@@ -1603,6 +1612,76 @@ export type NetFlowSelection = {
     analysis_id: string;
 };
 
+export type Observation = {
+    object_key: string;
+    canonical_ip: string;
+    family: 4 | 6;
+    protocol_number: number;
+    source_port: (number | null);
+    source_record_count: number;
+    retained_count: number;
+    omitted_count: number;
+    original: {
+        [key: string]: unknown;
+    };
+};
+
+export type ObservationDetail = {
+    contract_version?: "netflow-correlation-v1";
+    project_id: string;
+    analysis_id: string;
+    dataset_id: string;
+    context_revision_id: string;
+    network_namespace: string;
+    test_fixture: boolean;
+    provenance: {
+        [key: string]: unknown;
+    };
+    object_key: string;
+    canonical_ip: string;
+    family: 4 | 6;
+    protocol_number: number;
+    source_port: (number | null);
+    source_record_count: number;
+    retained_count: number;
+    omitted_count: number;
+    original: {
+        [key: string]: unknown;
+    };
+    batch_created_at: string;
+    batch_completed_at: (string | null);
+    original_time_basis: string;
+    business_time_qualification: "UNKNOWN";
+    context: {
+        [key: string]: unknown;
+    };
+};
+
+export type ObservationPage = {
+    contract_version?: "netflow-correlation-v1";
+    project_id: string;
+    analysis_id: string;
+    dataset_id: string;
+    context_revision_id: string;
+    network_namespace: string;
+    test_fixture: boolean;
+    provenance: {
+        [key: string]: unknown;
+    };
+    data: Array<Observation>;
+    count: number;
+    skip: number;
+    limit: number;
+    raw_record_count: number;
+    total_observations: number;
+    total_source_records: number;
+    total_addresses: number;
+    batch_created_at: string;
+    batch_completed_at: (string | null);
+    original_time_basis: string;
+    business_time_qualification: "UNKNOWN";
+};
+
 export type ObservationPoint = {
     id: string;
     view: 'PUBLIC_EDGE' | 'INTERNAL' | 'UNKNOWN';
@@ -1862,7 +1941,7 @@ export type SourceState = {
     };
 };
 
-export type state5 = 'VALID_NONEMPTY' | 'VALID_EMPTY' | 'NOT_PROVIDED' | 'READ_FAILED' | 'INSUFFICIENT_COVERAGE';
+export type state6 = 'VALID_NONEMPTY' | 'VALID_EMPTY' | 'NOT_PROVIDED' | 'READ_FAILED' | 'INSUFFICIENT_COVERAGE';
 
 export type read_state = 'VALID_NONEMPTY' | 'VALID_EMPTY' | 'NOT_PROVIDED' | 'READ_FAILED';
 
@@ -1890,6 +1969,7 @@ export type Summary = {
     positive_intersections: ({
     [key: string]: (number);
 } | null);
+    comparison: ComparisonOverview;
     test_fixture: boolean;
     limitations: Array<(string)>;
 };
@@ -2323,7 +2403,7 @@ export type ExternalAssetsReconcileExternalSyncData = {
 export type ExternalAssetsReconcileExternalSyncResponse = (ExternalSyncPublic);
 
 export type ExternalAssetsReadExternalVersionsData = {
-    domain: 'ip' | 'port' | 'root_domain' | 'dns';
+    domain: ('ip' | 'port' | 'root_domain' | 'dns' | 'subdomain' | 'cert' | 'openport' | 'web' | 'dir' | 'appfinger' | 'crawler' | 'seed_enterprise' | 'seed_keyword' | 'seed_domain' | 'seed_email' | 'seed_cert' | 'seed_icon' | 'seed_title');
     limit?: number;
     projectId: string;
     skip?: number;
@@ -2334,11 +2414,18 @@ export type ExternalAssetsReadExternalVersionsData = {
 export type ExternalAssetsReadExternalVersionsResponse = (ExternalVersionsPublic);
 
 export type ExternalAssetsReadExternalRecordsData = {
-    domain: 'ip' | 'port' | 'root_domain' | 'dns';
+    confidence?: (string | null);
+    domain: ('ip' | 'port' | 'root_domain' | 'dns' | 'subdomain' | 'cert' | 'openport' | 'web' | 'dir' | 'appfinger' | 'crawler' | 'seed_enterprise' | 'seed_keyword' | 'seed_domain' | 'seed_email' | 'seed_cert' | 'seed_icon' | 'seed_title');
     ip?: (string | null);
     limit?: number;
+    md5Value?: (string | null);
+    mmh3Value?: (string | null);
     projectId: string;
+    q?: (string | null);
     rootDomain?: (string | null);
+    seedEnabled?: (boolean | null);
+    seedType?: (string | null);
+    sha256?: (string | null);
     skip?: number;
     sourceId: string;
     status?: (string | null);
@@ -2719,6 +2806,27 @@ export type NetflowReviewsReadPeersData = {
 
 export type NetflowReviewsReadPeersResponse = (PeerPage);
 
+export type NetflowReviewsReadObservationsData = {
+    analysisId: string;
+    ip?: (string | null);
+    limit?: number;
+    projectId: string;
+    protocol?: (number | null);
+    skip?: number;
+    sort?: 'ip_asc' | 'ip_desc';
+    sourcePort?: (number | null);
+};
+
+export type NetflowReviewsReadObservationsResponse = (ObservationPage);
+
+export type NetflowReviewsReadObservationData = {
+    analysisId: string;
+    objectKey: string;
+    projectId: string;
+};
+
+export type NetflowReviewsReadObservationResponse = (ObservationDetail);
+
 export type NetflowReviewsReadTasksData = {
     analysisId: string;
     feedbackRevisionId?: (string | null);
@@ -2974,6 +3082,7 @@ export type SourceCorrelationsSummaryData = {
 export type SourceCorrelationsSummaryResponse = (Summary);
 
 export type SourceCorrelationsListAddressesData = {
+    comparison?: 'all' | 'differences' | 'common';
     hasReviewTask?: (boolean | null);
     ip?: (string | null);
     limit?: number;

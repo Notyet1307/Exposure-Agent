@@ -23,11 +23,43 @@ const syncedKeys = [
   "external_root_domain",
   "external_subdomain",
   "external_status",
+  "external_q",
+  "external_sha256",
+  "external_md5_value",
+  "external_mmh3_value",
+  "external_seed_enabled",
+  "external_confidence",
+  "external_seed_type",
   "external_page",
   "external_match_page",
   "external_task",
 ] as const
 const text = (value: unknown) => (typeof value === "string" ? value : undefined)
+export const externalDomains = [
+  "ip",
+  "port",
+  "root_domain",
+  "dns",
+  "subdomain",
+  "cert",
+  "openport",
+  "web",
+  "dir",
+  "appfinger",
+  "crawler",
+  "seed_enterprise",
+  "seed_keyword",
+  "seed_domain",
+  "seed_email",
+  "seed_cert",
+  "seed_icon",
+  "seed_title",
+] as const
+export type ExternalDomain = (typeof externalDomains)[number]
+const externalDomain = (value: unknown): ExternalDomain | undefined =>
+  externalDomains.includes(value as ExternalDomain)
+    ? (value as ExternalDomain)
+    : undefined
 const number = (value: unknown) =>
   value !== undefined &&
   value !== "" &&
@@ -57,14 +89,7 @@ export function syncedAssetSearch(s: Record<string, unknown>) {
   return {
     asset_view: "synced" as const,
     external_source: text(s.external_source) || undefined,
-    external_domain:
-      s.external_domain === "dns"
-        ? ("dns" as const)
-        : s.external_domain === "root_domain"
-          ? ("root_domain" as const)
-          : s.external_domain === "port"
-            ? ("port" as const)
-            : ("ip" as const),
+    external_domain: externalDomain(s.external_domain) ?? "ip",
     external_version: text(s.external_version) || undefined,
     external_record: text(s.external_record) || undefined,
     external_record_version: text(s.external_record_version) || undefined,
@@ -73,6 +98,19 @@ export function syncedAssetSearch(s: Record<string, unknown>) {
     external_root_domain: text(s.external_root_domain) || undefined,
     external_subdomain: text(s.external_subdomain) || undefined,
     external_status: text(s.external_status) || undefined,
+    external_q: text(s.external_q) || undefined,
+    external_sha256: text(s.external_sha256) || undefined,
+    external_md5_value: text(s.external_md5_value) || undefined,
+    external_mmh3_value: text(s.external_mmh3_value) || undefined,
+    external_seed_enabled:
+      s.external_seed_enabled === true || s.external_seed_enabled === "true"
+        ? true
+        : s.external_seed_enabled === false ||
+            s.external_seed_enabled === "false"
+          ? false
+          : undefined,
+    external_confidence: text(s.external_confidence) || undefined,
+    external_seed_type: text(s.external_seed_type) || undefined,
     external_page: number(s.external_page) ?? 0,
     external_match_page: number(s.external_match_page) ?? 0,
     external_task: text(s.external_task) || undefined,
@@ -92,7 +130,7 @@ export type AssetSearch = {
   customer_page?: number
   profile_cloud_page?: number
   external_source?: string
-  external_domain?: "ip" | "port" | "root_domain" | "dns"
+  external_domain?: ExternalDomain
   external_version?: string
   external_record?: string
   external_record_version?: string
@@ -101,6 +139,13 @@ export type AssetSearch = {
   external_root_domain?: string
   external_subdomain?: string
   external_status?: string
+  external_q?: string
+  external_sha256?: string
+  external_md5_value?: string
+  external_mmh3_value?: string
+  external_seed_enabled?: boolean
+  external_confidence?: string
+  external_seed_type?: string
   external_page?: number
   external_match_page?: number
   external_task?: string
@@ -111,6 +156,15 @@ export type AssetSearch = {
 export function validateAssetSearch(s: Record<string, unknown>): AssetSearch {
   const history = historyKeys.some((key) => s[key] !== undefined)
   const synced = syncedKeys.some((key) => s[key] !== undefined)
+  if (s.external_domain !== undefined && !externalDomain(s.external_domain))
+    return { asset_error: "invalid" }
+  if (
+    s.external_seed_enabled !== undefined &&
+    ![true, false, "true", "false"].includes(
+      s.external_seed_enabled as boolean | string,
+    )
+  )
+    return { asset_error: "invalid" }
   if (
     s.asset_view !== undefined &&
     s.asset_view !== "synced" &&

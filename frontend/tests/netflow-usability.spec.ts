@@ -126,6 +126,87 @@ test("fresh project to real worker, three sources, review history and local-only
   expect(
     (await get(`${root}/netflow-datasets/${dataset}/analyses`)).count,
   ).toBe(1)
+  const processingUrl = page.url()
+  const independentWrites: string[] = []
+  const trackIndependentWrite = (item: {
+    method: () => string
+    url: () => string
+  }) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(item.method()))
+      independentWrites.push(`${item.method()} ${new URL(item.url()).pathname}`)
+  }
+  page.on("request", trackIndependentWrite)
+  // No correlation exists yet: select and read the sealed processing result.
+  expect((await get(`${root}/source-correlations`)).count).toBe(0)
+  await page
+    .getByRole("link", { name: "Processed NetFlow data", exact: true })
+    .click()
+  await page.getByRole("button", { name: "synthetic.csv", exact: true }).click()
+  await page.getByRole("button", { name: "Open batch", exact: true }).click()
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "85",
+  )
+  await expect(
+    page.getByLabel("Observation objects", { exact: true }),
+  ).toHaveText("30")
+  await expect(
+    page.getByLabel("Distinct source IPs", { exact: true }),
+  ).toHaveText("30")
+  await expect(
+    page.getByRole("combobox", { name: "Published run", exact: true }),
+  ).toHaveCount(0)
+  await page
+    .getByRole("navigation", { name: "Observations pagination" })
+    .getByRole("button", { name: "Next", exact: true })
+    .click()
+  await page.getByRole("button", { name: "192.0.2.30", exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: "Observation details", exact: true }),
+  ).toBeVisible()
+  await page.getByLabel("Exact IP", { exact: true }).fill("::ffff:192.0.2.1")
+  await page.getByLabel("Protocol number", { exact: true }).fill("6")
+  await page.getByLabel("Source-side port", { exact: true }).fill("443")
+  await page.getByRole("button", { name: "Filter", exact: true }).click()
+  await page.getByRole("button", { name: "192.0.2.1", exact: true }).click()
+  await expect(
+    page.getByText("Source-side observed port: 443", { exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole("button", { name: "View input evidence", exact: true })
+    .click()
+  await expect(
+    page.getByRole("region", { name: "Input evidence", exact: true }),
+  ).toContainText("Retained references: 20")
+  await expect(
+    page.getByRole("region", { name: "Input evidence", exact: true }),
+  ).toContainText("Omitted references: 7")
+  await page
+    .getByRole("navigation", { name: "Evidence pagination" })
+    .getByRole("button", { name: "Next", exact: true })
+    .click()
+  await page.reload()
+  await expect(
+    page.getByRole("heading", { name: "Input evidence", exact: true }),
+  ).toBeVisible()
+  expect(new URL(page.url()).searchParams.get("evidencePage")).toBe("1")
+  expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
+  await page
+    .getByRole("button", { name: "External peers", exact: true })
+    .click()
+  await expect(
+    page.getByRole("button", { name: "198.51.100.1", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "192.0.2.1", exact: true }),
+  ).toHaveCount(0)
+  await page.getByRole("button", { name: "198.51.100.1", exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: "Input evidence", exact: true }),
+  ).toBeVisible()
+  await page.goto(processingUrl)
+  page.off("request", trackIndependentWrite)
+  expect(independentWrites).toEqual([])
+  expect((await get(`${root}/source-correlations`)).count).toBe(0)
   // The first usable correlation is created by the page, with NetFlow alone.
   await page.getByRole("button", { name: "Create fixed correlation" }).click()
   await page.waitForURL((url) => url.searchParams.has("revision"))
@@ -219,10 +300,43 @@ test("fresh project to real worker, three sources, review history and local-only
         "Exact synthetic input versions describe the same fixture network",
     },
   )
-  const revision = confirmed.correlation_revision_id as string
+  const limitedRevision = confirmed.correlation_revision_id as string
+  const limitedSummary = await get(
+    `${root}/source-correlations/${limitedRevision}`,
+  )
+  // The real IP sync is fixed to status=valid; successful pagination does not
+  // erase that approved coverage restriction.
+  expect(limitedSummary.comparison).toMatchObject({
+    state: "INSUFFICIENT_COVERAGE",
+    common_addresses: null,
+    different_addresses: null,
+  })
+  expect(limitedSummary.positive_intersections).toBeNull()
+  const completeCorrelation = await post(`${root}/source-correlations`, {
+    network_namespace: "synthetic-usability",
+    netflow: { analysis_id: analysis },
+    customer: { upload_id: upload.id, revision_id: null },
+    cloud: { ...cloud(published), ip_version_id: null },
+    history_run_id: null,
+  })
+  const completeConfirmed = await post(
+    `${root}/source-correlations/${completeCorrelation.correlation_revision_id}/scope-revisions`,
+    {
+      expected_parent_id: completeCorrelation.correlation_revision_id,
+      scope_state: "CONFIRMED",
+      evidence:
+        "Customer, NetFlow and the complete unfiltered port batch describe the same synthetic network; no IP inventory is selected",
+    },
+  )
+  const revision = completeConfirmed.correlation_revision_id as string
   const summary = await get(`${root}/source-correlations/${revision}`)
   expect(summary.total_addresses).toBe(38)
-  expect(summary.positive_intersections["CUSTOMER+CLOUD+NETFLOW"]).toBe(30)
+  expect(summary.comparison).toEqual({
+    state: "AVAILABLE",
+    sources: ["CUSTOMER", "CLOUD", "NETFLOW"],
+    common_addresses: 1,
+    different_addresses: 37,
+  })
   const brief = await sync(70_000)
   const expiring = await post(`${root}/source-correlations`, {
     network_namespace: "synthetic-usability",
@@ -423,8 +537,118 @@ test("fresh project to real worker, three sources, review history and local-only
   execFileSync("docker", ["stop", upstream], { stdio: "ignore" })
   const writes: string[] = []
   page.on("request", (item) => {
-    if (item.method() === "POST") writes.push(new URL(item.url()).pathname)
+    if (!["GET", "HEAD", "OPTIONS"].includes(item.method()))
+      writes.push(`${item.method()} ${new URL(item.url()).pathname}`)
   })
+  await page.goto(
+    `${root}/netflow-correlation?revision=${limitedRevision}&tab=summary`,
+  )
+  await expect(
+    page.getByLabel("Source difference count", { exact: true }),
+  ).toHaveText("Unavailable")
+  await page.goto(
+    `${root}/netflow-correlation?revision=${revision}&tab=summary`,
+  )
+  await expect(
+    page.getByLabel("Source difference count", { exact: true }),
+  ).toHaveText("37")
+  for (const view of [
+    {
+      path: `${root}/netflow-results?analysis=${analysis}`,
+      prefix: "processed",
+    },
+    {
+      path: `${root}/netflow-correlation?revision=${revision}&tab=summary`,
+      prefix: "workbench",
+    },
+  ]) {
+    await page.goto(view.path)
+    if (view.prefix === "processed")
+      await expect(
+        page.getByLabel("Observation objects", { exact: true }),
+      ).toHaveText("30")
+    else
+      await expect(
+        page.getByLabel("Source difference count", { exact: true }),
+      ).toHaveText("37")
+    for (const [width, language, theme] of [
+      [1366, "en", "light"],
+      [390, "en", "dark"],
+      [1366, "zh-CN", "dark"],
+      [390, "zh-CN", "light"],
+    ] as const) {
+      await page.setViewportSize({ width: 1366, height: 950 })
+      await page
+        .getByRole("combobox", { name: "Language / 语言" })
+        .selectOption(language)
+      await page.getByTestId("theme-button").click()
+      await page.getByTestId(`${theme}-mode`).click()
+      await expect(page.locator("html")).toHaveClass(new RegExp(theme))
+      await expect(page.locator("html")).toHaveAttribute("lang", language)
+      await page.setViewportSize({ width, height: 950 })
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth > innerWidth,
+        ),
+      ).toBe(false)
+      await page.screenshot({
+        path: path.join(
+          evidence,
+          `${view.prefix}-${width}-${language}-${theme}.png`,
+        ),
+      })
+    }
+  }
+  await page.setViewportSize({ width: 1366, height: 950 })
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("en")
+  await page
+    .getByRole("button", { name: "Source differences", exact: true })
+    .click()
+  await expect(page).toHaveURL(/comparison=differences/)
+  await expect(
+    page.getByRole("button", { name: "192.0.2.26", exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole("navigation", { name: "Addresses pagination" })
+    .getByRole("button", { name: "Next", exact: true })
+    .click()
+  await expect(
+    page.getByRole("button", { name: "192.0.2.38", exact: true }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "192.0.2.38", exact: true }).click()
+  await expect(
+    page
+      .getByText("This IP has records in only some selected sources.", {
+        exact: true,
+      })
+      .last(),
+  ).toBeVisible()
+  await page
+    .getByRole("button", {
+      name: "View evidence · CloudAtlas data",
+      exact: true,
+    })
+    .click()
+  await expect(page).toHaveURL(/evidenceSource=cloud/)
+  await expect(
+    page.getByRole("heading", { name: "Source evidence", exact: true }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Summary", exact: true }).click()
+  await page
+    .getByRole("button", { name: "All selected sources present", exact: true })
+    .click()
+  await expect(
+    page.getByRole("button", { name: "192.0.2.1", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole("region", { name: "Address table", exact: true })
+      .getByRole("row"),
+  ).toHaveCount(2)
+  await page.getByRole("button", { name: "Summary", exact: true }).click()
+  await page.getByRole("button", { name: "All addresses", exact: true }).click()
   await page.goto(
     `${root}/netflow-correlation?revision=${revision}&tab=addresses`,
   )
@@ -443,7 +667,7 @@ test("fresh project to real worker, three sources, review history and local-only
     .getByRole("button", { name: "Next", exact: true })
     .click()
   await page
-    .getByRole("button", { name: "Customer material", exact: true })
+    .getByRole("button", { name: "Customer ledger", exact: true })
     .click()
   await page
     .getByRole("navigation", { name: "Evidence pagination" })
@@ -492,6 +716,15 @@ test("fresh project to real worker, three sources, review history and local-only
       localStorage.setItem("exposure:language", "en")
     }, roleToken)
     const rolePage = await roleContext.newPage()
+    await rolePage.goto(`${root}/netflow-results?analysis=${analysis}`)
+    await expect(
+      rolePage.getByLabel("Observation objects", { exact: true }),
+    ).toHaveText("30")
+    await expect(
+      rolePage.getByRole("button", {
+        name: /Start .*analysis|Append correction|Reprocess/,
+      }),
+    ).toHaveCount(0)
     await rolePage.goto(taskUrl(exportTask.task_id, latest))
     if (role === "viewer")
       await expect(
@@ -587,6 +820,11 @@ test("fresh project to real worker, three sources, review history and local-only
     0,
   )
   expect((await get(`${root}/source-correlations`)).count).toBe(1)
+  await page.goto(`${root}/netflow-results?analysis=${analysis}`)
+  await expect(
+    page.getByLabel("Observation objects", { exact: true }),
+  ).toHaveText("30")
+  expect(writes).toEqual([])
   const hashes = (values: unknown[]) =>
     values.map((value) =>
       createHash("sha256").update(JSON.stringify(value)).digest("hex"),
@@ -606,7 +844,9 @@ test("fresh project to real worker, three sources, review history and local-only
         shared_parent: sharedParent,
         latest_feedback: latest,
         fixed_page_hashes: hashes(sharedPages),
-        browsing_posts: writes,
+        browsing_writes: writes,
+        comparison: summary.comparison,
+        independent_browsing_writes: independentWrites,
         no_models: true,
       },
       null,

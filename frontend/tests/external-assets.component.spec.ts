@@ -24,6 +24,7 @@ async function serve(
     expired: false,
     canManage: true,
     enabled: true,
+    dataAccessEnabled: true,
     lostSubmission: false,
     purged: false,
     submissions: [] as { key: string; body: unknown }[],
@@ -114,6 +115,23 @@ async function serve(
             ],
           },
   }
+  const portRow = {
+    ...row,
+    id: "44444444-4444-4444-8444-444444444445",
+    version_id: portVersion,
+    fields: {
+      ip: "2001:db8::7",
+      port: 443,
+      protocol: "tcp",
+      service: "https",
+      product: "synthetic-server",
+      version: "1.2.3",
+      bu: { id: "9007199254740995", name: "Synthetic private group" },
+      tags: [],
+      status: "valid",
+      lastseen_at: "2026-09-01 12:34:56",
+    },
+  }
   await page.addInitScript(() =>
     localStorage.setItem("access_token", "synthetic-component-token"),
   )
@@ -141,7 +159,7 @@ async function serve(
               space_id: "7",
               capability_profile: profile,
               enabled: state.enabled,
-              data_access_enabled: true,
+              data_access_enabled: state.dataAccessEnabled,
               validation_status: "validated",
               validated_fingerprint: "a".repeat(64),
               created_at: stamp,
@@ -260,24 +278,45 @@ async function serve(
         },
       })
     if (url.pathname.endsWith("/records")) {
+      const portRecords = url.searchParams.get("domain") === "port"
+      const ip = url.searchParams.get("ip")
+      if (ip === "bad/cidr")
+        return route.fulfill({
+          status: 422,
+          json: { detail: { code: "external_ip_filter_invalid" } },
+        })
       const matches =
         !state.expired &&
-        (dnsRecords
-          ? row.fields.subdomain
-              ?.toLowerCase()
-              .includes((url.searchParams.get("subdomain") ?? "").toLowerCase())
-          : !rootDomains ||
-            row.fields.root_domain
-              ?.toLowerCase()
-              .includes(
-                (url.searchParams.get("root_domain") ?? "").toLowerCase(),
-              ))
+        (portRecords
+          ? !ip || ip === portRow.fields.ip
+          : dnsRecords
+            ? row.fields.subdomain
+                ?.toLowerCase()
+                .includes(
+                  (url.searchParams.get("subdomain") ?? "").toLowerCase(),
+                )
+            : !rootDomains ||
+              row.fields.root_domain
+                ?.toLowerCase()
+                .includes(
+                  (url.searchParams.get("root_domain") ?? "").toLowerCase(),
+                )) &&
+        (!ip || ip === row.fields.ip)
       return route.fulfill({
         json: {
-          data: matches ? [row] : [],
+          data: matches ? [portRecords ? portRow : row] : [],
           count: matches ? 1 : 0,
           version: {
             ...version,
+            ...(portRecords
+              ? {
+                  id: portVersion,
+                  domain: "port",
+                  record_count: 1,
+                  expected_total: 1,
+                  filter: {},
+                }
+              : {}),
             status: state.expired ? "EXPIRED" : "PUBLISHED",
           },
           state: state.expired ? "EXPIRED" : "PUBLISHED",
@@ -473,9 +512,12 @@ test("root details isolate stale IP matching and retain source text and literal 
     .getByRole("button", { name: "Filter local records", exact: true })
     .click()
   await expect(
-    page.getByText("No records match these local filters or page.", {
-      exact: true,
-    }),
+    page.getByText(
+      "No records match this partial local batch or page. This does not show that the upstream source has no record.",
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible()
   await page.getByRole("button", { name: "Clear filters", exact: true }).click()
   await expect(
@@ -554,9 +596,12 @@ test("DNS flat records keep literal search, escaped detail, keyboard focus and r
     .getByRole("button", { name: "Filter local records", exact: true })
     .click()
   await expect(
-    page.getByText("No records match these local filters or page.", {
-      exact: true,
-    }),
+    page.getByText(
+      "No records match this partial local batch or page. This does not show that the upstream source has no record.",
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible()
   await page.getByRole("button", { name: "Clear filters", exact: true }).click()
   await expect(
@@ -792,10 +837,11 @@ test("bare entry pages local metadata, skips revoked sources, pins a readable pa
   expect(selected.get("external_source")).toBe(source)
   expect(selected.get("external_domain")).toBe("ip")
   expect(selected.get("external_version")).toBe(ipVersion)
-  expect(metadataReads).toEqual([
+  expect(metadataReads.slice(0, 2)).toEqual([
     { source, domain: "ip", skip: "0" },
     { source, domain: "ip", skip: "25" },
   ])
+  expect(metadataReads.every((read) => read.source === source)).toBe(true)
   expect(recordReads).toEqual([ipVersion])
 
   await page.goto(`${routePath}&external_version=${expiredId}`)
@@ -807,7 +853,7 @@ test("bare entry pages local metadata, skips revoked sources, pins a readable pa
     expiredId,
   )
   expect(recordReads).toEqual([ipVersion, expiredId])
-  expect(metadataReads).toHaveLength(2)
+  expect(metadataReads.every((read) => read.source === source)).toBe(true)
 
   metadataFailure = true
   await page.goto(`/projects/${project}/cloudatlas-ledger`)
@@ -816,10 +862,212 @@ test("bare entry pages local metadata, skips revoked sources, pins a readable pa
   )
   expect(new URL(page.url()).searchParams.has("external_source")).toBe(false)
   expect(recordReads).toEqual([ipVersion, expiredId])
-  expect(metadataReads).toEqual([
-    { source, domain: "ip", skip: "0" },
-    { source, domain: "ip", skip: "25" },
-    { source, domain: "ip", skip: "0" },
-  ])
+  expect(metadataReads.at(-1)).toEqual({ source, domain: "ip", skip: "0" })
+  expect(metadataReads.every((read) => read.source === source)).toBe(true)
   expect(writes).toBe(0)
+})
+
+test("source refresh preserves an unsubmitted exact-IP draft and fixed local counts", async ({
+  page,
+}) => {
+  await serve(page)
+  const refreshStarted = Promise.withResolvers<void>()
+  const releaseRefresh = Promise.withResolvers<void>()
+  let sourceReads = 0
+  await page.route("**/external-assets/sources", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback()
+    sourceReads += 1
+    if (sourceReads > 1) {
+      refreshStarted.resolve()
+      await releaseRefresh.promise
+    }
+    return route.fallback()
+  })
+  await page.goto(routePath)
+  const input = page.getByLabel("Exact IP (IPv4 or IPv6)")
+  await input.fill("2001:db8::7")
+  await input.focus()
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
+  await refreshStarted.promise
+  expect(sourceReads).toBeGreaterThan(1)
+  await expect(input).toHaveValue("2001:db8::7")
+  await expect(input).toBeFocused()
+  await expect(
+    page.getByRole("button", { name: /IP.*1/, exact: false }),
+  ).toBeVisible()
+  releaseRefresh.resolve()
+  await page
+    .getByRole("button", { name: "Filter local records", exact: true })
+    .click()
+  await expect(page.getByText("2001:db8::7", { exact: true })).toBeVisible()
+})
+
+test("exact IP filtering, partial-batch empty state, port columns, and directory states stay local", async ({
+  page,
+}) => {
+  const state = await serve(page)
+  state.version.complete = false
+  state.version.expected_total = 200
+  const recordRequests: URL[] = []
+  page.on("request", (request) => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith(`/external-assets/sources/${source}/records`))
+      recordRequests.push(url)
+  })
+  await page.goto(routePath)
+  await expect(
+    page.getByRole("button", { name: /IP.*1.*partial/, exact: false }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", {
+      name: /Root domains.*Not configured/,
+      exact: false,
+    }),
+  ).toBeVisible()
+  const input = page.getByLabel("Exact IP (IPv4 or IPv6)")
+  await input.fill("2001:db8::7")
+  await page
+    .getByRole("button", { name: "Filter local records", exact: true })
+    .click()
+  await expect(page.getByText("2001:db8::7", { exact: true })).toBeVisible()
+  expect(recordRequests.at(-1)?.searchParams.get("ip")).toBe("2001:db8::7")
+  await input.fill("2001:db8::8")
+  await page
+    .getByRole("button", { name: "Filter local records", exact: true })
+    .click()
+  await expect(
+    page.getByText(
+      "No records match this partial local batch or page. This does not show that the upstream source has no record.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await input.fill("bad/cidr")
+  await page
+    .getByRole("button", { name: "Filter local records", exact: true })
+    .click()
+  await expect(page.getByRole("alert")).toContainText("IP format is invalid")
+  await page.getByRole("button", { name: "Clear filters", exact: true }).click()
+  await page
+    .getByRole("button", { name: /Port services/, exact: false })
+    .click()
+  await expect(
+    page.getByRole("columnheader", { name: "IP", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("columnheader", { name: "Port", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("columnheader", { name: "Protocol", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("cell", { name: "443", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("cell", { name: "tcp", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: /Port services.*1/, exact: false }),
+  ).toBeVisible()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(
+    page.getByRole("button", { name: /端口服务.*1/, exact: false }),
+  ).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByLabel("资产域", { exact: true })).toHaveValue("port")
+  await expect(
+    page.getByRole("columnheader", { name: "端口", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("columnheader", { name: "协议", exact: true }),
+  ).toBeVisible()
+})
+
+test("directory waits for the selected fixed version and never exposes a revoked source count", async ({
+  page,
+}) => {
+  const state = await serve(page)
+  const nextVersion = "22222222-2222-4222-8222-222222222223"
+  const versionRead = Promise.withResolvers<void>()
+  const releaseVersion = Promise.withResolvers<void>()
+  await page.route("**/external-assets/sources/*/records?*", async (route) => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get("version_id") !== nextVersion)
+      return route.fallback()
+    versionRead.resolve()
+    await releaseVersion.promise
+    return route.fulfill({
+      json: {
+        data: [state.row],
+        count: 1,
+        state: "PUBLISHED",
+        version: {
+          ...state.version,
+          id: nextVersion,
+          record_count: 2,
+          expected_total: 2,
+        },
+      },
+    })
+  })
+  await page.route("**/external-assets/sources/*/versions?*", (route) => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get("domain") !== "ip") return route.fallback()
+    return route.fulfill({
+      json: {
+        data: [
+          state.version,
+          {
+            ...state.version,
+            id: nextVersion,
+            record_count: 2,
+            expected_total: 2,
+          },
+        ],
+        count: 2,
+        latest_complete_version: state.version,
+      },
+    })
+  })
+  await page.goto(routePath)
+  await expect(
+    page.getByRole("button", { name: /IP.*1/, exact: false }),
+  ).toBeVisible()
+  await page
+    .getByRole("button", { name: "More scopes / versions", exact: true })
+    .click()
+  await page
+    .getByRole("button", { name: "Read this fixed version", exact: true })
+    .nth(1)
+    .click()
+  await versionRead.promise
+  await expect(
+    page.getByRole("button", { name: /IP.*Not read/, exact: false }),
+  ).toBeVisible()
+  releaseVersion.resolve()
+  await expect(
+    page.getByRole("button", { name: /IP.*2/, exact: false }),
+  ).toBeVisible()
+
+  const sourceRead = Promise.withResolvers<void>()
+  const releaseSource = Promise.withResolvers<void>()
+  await page.route("**/external-assets/sources", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback()
+    sourceRead.resolve()
+    await releaseSource.promise
+    return route.fallback()
+  })
+  state.dataAccessEnabled = false
+  await page
+    .getByRole("button", { name: "Refresh local access and data", exact: true })
+    .click()
+  await sourceRead.promise
+  releaseSource.resolve()
+  await expect(
+    page.getByRole("button", { name: /IP.*Unavailable/, exact: false }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: /IP.*2/, exact: false }),
+  ).toHaveCount(0)
 })

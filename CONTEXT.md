@@ -36,6 +36,10 @@ _Avoid_: Resource、报告样本、全局 IP、可变行号
 一次已接受的人工管理版本，保留父版本、条目变化、作者、时间与理由；输入字段变化和仅本地管理字段变化明确区分，原版本不可覆盖。
 _Avoid_: GovernanceRun、人工核查结论、原上传文件覆盖、第四份资产主表
 
+**Current Customer Ledger（当前客户清单）**:
+一个 Project 当前生效的客户资产声明集合，由一份完整清单及其有效修订构成，是日常查询和下一次比对的客户侧基准。新的完整清单替换当前基准，旧版本留档，已保存比对所固定的客户版本不随之改变。
+_Avoid_: 最近上传但尚未生效的文件、全部历史上传的拼接、已确认资产归属、历史比对原位更新
+
 **Derived CustomerUpload（人工派生输入）**:
 由明确客户台账修订物化并重新通过既有校验的 CustomerUpload，保留人工来源和父输入关联；只有新批次明确固定后才成为该批次依据。
 _Avoid_: 客户系统返回、原始上传、自动治理执行、新的 Run 输入种类
@@ -47,6 +51,10 @@ _Avoid_: 跨 Project 共享 Profile、通用规则 DSL、可视化规则编辑�
 **NetFlowDataset**:
 归属于一个 Project、通过确定性校验后成立的不可变 NetFlow 输入版本，具有不可变 ID、内容 Hash 和校验时使用的合同版本。Project 可以选择其中一个作为当前可选输入，也可以明确不选择；GovernanceRun 固定选择结果，存在但记录数为零的 Dataset 仍不同于未提供 NetFlow。
 _Avoid_: 可变流量库、实时采集流、缺失输入、SourceSnapshot、零记录即 absent
+
+**NetFlow Observation（NetFlow 观测记录）**:
+由一批流量及其处理上下文形成的源侧地址、协议、本方端口、观测计数和时间等记录，保留输入与处理依据，供独立查询和来源比对使用。它不等于原始流量行、网络会话或已确认的监听服务。
+_Avoid_: 客户资产登记、公网可达证明、风险结论、外侧对端自动纳管
 
 **GovernanceRun**:
 在一个 Project 内由 Runner 实际开始执行的一次有边界的对账周期，固定客户侧输入、暴露面 SourceInstance、已验证连接配置版本、可选 NetFlow 输入的 absent 或 present 状态、输入合同与输入 Hash，以及实际参与计算的 Runner 版本；present 时同时固定 NetFlowDataset 的身份、内容 Hash 和合同版本。初期测试的客户侧输入是一个 CustomerUpload 内容 Hash；客户系统可达后的最终输入是客户 SourceInstance。同一 Project 可以持续产生多轮 GovernanceRun，但同一时间最多执行一轮；尚未启动 Runner 的触发请求不是 GovernanceRun。规范化、字段映射或 Policy 功能引入后，其实际版本也随 Run 固定。历史上尚未建模可选 NetFlow 的 Run 是 unmodeled，不等于明确 absent。

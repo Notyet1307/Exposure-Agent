@@ -13,7 +13,11 @@ from sqlmodel import Session, col, select
 from app.core.config import settings
 from app.core.db import engine
 from app.domain import external_assets as service
-from app.domain.external_asset_models import ExternalAssetVersion, ExternalSync
+from app.domain.external_asset_models import (
+    CAPABILITY_PROFILES,
+    ExternalAssetVersion,
+    ExternalSync,
+)
 from app.domain.models import SourceInstance
 
 
@@ -28,9 +32,7 @@ def main() -> int:
                     select(SourceInstance)
                     .where(
                         SourceInstance.id == source_id,
-                        col(SourceInstance.capability_profile).in_(
-                            ("assets-v1", "root-domains-v1", "dns-v1")
-                        ),
+                        col(SourceInstance.capability_profile).in_(CAPABILITY_PROFILES),
                     )
                     .with_for_update()
                 ).one_or_none()

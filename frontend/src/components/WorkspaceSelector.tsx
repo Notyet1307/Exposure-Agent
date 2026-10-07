@@ -30,6 +30,9 @@ export default function WorkspaceSelector() {
   const netflowCorrelationPage = useRouterState({
     select: (state) => state.location.pathname.endsWith("/netflow-correlation"),
   })
+  const netflowResultsPage = useRouterState({
+    select: (state) => state.location.pathname.endsWith("/netflow-results"),
+  })
   const { search, projectId, runId, project, projects, reports, latest } =
     useWorkspaceContext()
   const assetView = useSearch({ strict: false }).asset_view
@@ -113,7 +116,13 @@ export default function WorkspaceSelector() {
           value={projectId ?? ""}
           disabled={!projectChoices}
           onChange={(event) => {
-            if (netflowCorrelationPage) {
+            if (netflowResultsPage) {
+              void navigate({
+                to: "/projects/$projectId/netflow-results",
+                params: { projectId: event.target.value },
+                search: {},
+              })
+            } else if (netflowCorrelationPage) {
               void navigate({
                 to: "/projects/$projectId/netflow-correlation",
                 params: { projectId: event.target.value },
@@ -182,47 +191,53 @@ export default function WorkspaceSelector() {
           ))}
         </select>
       </label>
-      {!ledgerPage && !cloudAssetPage && !netflowCorrelationPage && (
-        <label className="flex min-w-0 items-center gap-2 text-sm">
-          <span>{t("Published run", "已发布运行")}</span>
-          <select
-            className="min-w-0 max-w-72 rounded-md border bg-background p-2"
-            aria-label={t("Published run", "已发布运行")}
-            value={runId ?? ""}
-            disabled={!runChoices?.length}
-            onChange={(event) => {
-              void navigate({
-                to: "/",
-                search: {
-                  project: projectId,
-                  run: event.target.value,
-                  view: search.view,
-                },
-              })
-            }}
-          >
-            <option value="" disabled>
-              {reports.isFetching || latest.isFetching
-                ? t("Loading…", "正在加载…")
-                : t("No compatible published result", "暂无兼容的已发布结果")}
-            </option>
-            {runId !== undefined &&
-              !runChoices?.some((item) => item.governance_run_id === runId) && (
-                <option value={runId}>
-                  {t("Run unavailable", "运行不可用")}
-                </option>
-              )}
-            {runChoices?.map((report) => (
-              <option key={report.id} value={report.governance_run_id}>
-                {formatDate(report.run_completed_at)}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       {!ledgerPage &&
         !cloudAssetPage &&
         !netflowCorrelationPage &&
+        !netflowResultsPage && (
+          <label className="flex min-w-0 items-center gap-2 text-sm">
+            <span>{t("Published run", "已发布运行")}</span>
+            <select
+              className="min-w-0 max-w-72 rounded-md border bg-background p-2"
+              aria-label={t("Published run", "已发布运行")}
+              value={runId ?? ""}
+              disabled={!runChoices?.length}
+              onChange={(event) => {
+                void navigate({
+                  to: "/",
+                  search: {
+                    project: projectId,
+                    run: event.target.value,
+                    view: search.view,
+                  },
+                })
+              }}
+            >
+              <option value="" disabled>
+                {reports.isFetching || latest.isFetching
+                  ? t("Loading…", "正在加载…")
+                  : t("No compatible published result", "暂无兼容的已发布结果")}
+              </option>
+              {runId !== undefined &&
+                !runChoices?.some(
+                  (item) => item.governance_run_id === runId,
+                ) && (
+                  <option value={runId}>
+                    {t("Run unavailable", "运行不可用")}
+                  </option>
+                )}
+              {runChoices?.map((report) => (
+                <option key={report.id} value={report.governance_run_id}>
+                  {formatDate(report.run_completed_at)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      {!ledgerPage &&
+        !cloudAssetPage &&
+        !netflowCorrelationPage &&
+        !netflowResultsPage &&
         runId !== undefined && (
           <details className="min-w-0 max-w-full text-sm">
             <summary className="cursor-pointer">

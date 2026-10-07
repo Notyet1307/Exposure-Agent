@@ -111,6 +111,12 @@ export const AddressPublicSchema = {
             type: 'array',
             title: 'Positive Sources'
         },
+        conclusion: {
+            type: 'string',
+            enum: ['COMMON_RECORD', 'SOURCE_DIFFERENCE', 'RECORDED_IP'],
+            title: 'Conclusion',
+            default: 'RECORDED_IP'
+        },
         unmatched_netflow: {
             type: 'boolean',
             title: 'Unmatched Netflow'
@@ -1778,6 +1784,49 @@ export const ComparisonSchema = {
     title: 'Comparison'
 } as const;
 
+export const ComparisonOverviewSchema = {
+    properties: {
+        state: {
+            type: 'string',
+            enum: ['AVAILABLE', 'SCOPE_UNCONFIRMED', 'SOURCES_UNAVAILABLE', 'INSUFFICIENT_COVERAGE', 'INSUFFICIENT_SOURCES'],
+            title: 'State'
+        },
+        sources: {
+            items: {
+                type: 'string',
+                enum: ['CUSTOMER', 'CLOUD', 'NETFLOW']
+            },
+            type: 'array',
+            title: 'Sources'
+        },
+        common_addresses: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Common Addresses'
+        },
+        different_addresses: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Different Addresses'
+        }
+    },
+    type: 'object',
+    required: ['state', 'sources'],
+    title: 'ComparisonOverview'
+} as const;
+
 export const ComparisonPageSchema = {
     properties: {
         data: {
@@ -2768,8 +2817,16 @@ export const ExpectedGenerationSchema = {
 export const ExternalDomainPublicSchema = {
     properties: {
         domain: {
-            type: 'string',
-            enum: ['ip', 'port', 'root_domain', 'dns'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['ip', 'port', 'root_domain', 'dns']
+                },
+                {
+                    type: 'string',
+                    enum: ['subdomain', 'cert', 'openport', 'web', 'dir', 'appfinger', 'crawler', 'seed_enterprise', 'seed_keyword', 'seed_domain', 'seed_email', 'seed_cert', 'seed_icon', 'seed_title']
+                }
+            ],
             title: 'Domain'
         },
         status: {
@@ -3019,8 +3076,16 @@ export const ExternalSelectionSchema = {
 export const ExternalSourceCreateSchema = {
     properties: {
         capability_profile: {
-            type: 'string',
-            enum: ['assets-v1', 'root-domains-v1', 'dns-v1'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['assets-v1', 'root-domains-v1', 'dns-v1']
+                },
+                {
+                    type: 'string',
+                    enum: ['subdomain-v1', 'cert-v1', 'openport-v1', 'web-v1', 'dir-v1', 'appfinger-v1', 'crawler-v1', 'seed-enterprise-v1', 'seed-keyword-v1', 'seed-domain-v1', 'seed-email-v1', 'seed-cert-v1', 'seed-icon-v1', 'seed-title-v1']
+                }
+            ],
             title: 'Capability Profile',
             default: 'assets-v1'
         },
@@ -3070,8 +3135,16 @@ export const ExternalSourcePublicSchema = {
             title: 'Space Id'
         },
         capability_profile: {
-            type: 'string',
-            enum: ['assets-v1', 'root-domains-v1', 'dns-v1'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['assets-v1', 'root-domains-v1', 'dns-v1']
+                },
+                {
+                    type: 'string',
+                    enum: ['subdomain-v1', 'cert-v1', 'openport-v1', 'web-v1', 'dir-v1', 'appfinger-v1', 'crawler-v1', 'seed-enterprise-v1', 'seed-keyword-v1', 'seed-domain-v1', 'seed-email-v1', 'seed-cert-v1', 'seed-icon-v1', 'seed-title-v1']
+                }
+            ],
             title: 'Capability Profile'
         },
         enabled: {
@@ -3339,8 +3412,16 @@ export const ExternalVersionPublicSchema = {
             title: 'Source Id'
         },
         domain: {
-            type: 'string',
-            enum: ['ip', 'port', 'root_domain', 'dns'],
+            anyOf: [
+                {
+                    type: 'string',
+                    enum: ['ip', 'port', 'root_domain', 'dns']
+                },
+                {
+                    type: 'string',
+                    enum: ['subdomain', 'cert', 'openport', 'web', 'dir', 'appfinger', 'crawler', 'seed_enterprise', 'seed_keyword', 'seed_domain', 'seed_email', 'seed_cert', 'seed_icon', 'seed_title']
+                }
+            ],
             title: 'Domain'
         },
         space_id: {
@@ -3359,6 +3440,17 @@ export const ExternalVersionPublicSchema = {
         complete: {
             type: 'boolean',
             title: 'Complete'
+        },
+        omitted_field_count: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Omitted Field Count'
         },
         expected_total: {
             anyOf: [
@@ -7335,6 +7427,290 @@ export const NetFlowSelectionSchema = {
     title: 'NetFlowSelection'
 } as const;
 
+export const ObservationSchema = {
+    properties: {
+        object_key: {
+            type: 'string',
+            title: 'Object Key'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        family: {
+            type: 'integer',
+            enum: [4, 6],
+            title: 'Family'
+        },
+        protocol_number: {
+            type: 'integer',
+            title: 'Protocol Number'
+        },
+        source_port: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Port'
+        },
+        source_record_count: {
+            type: 'integer',
+            title: 'Source Record Count'
+        },
+        retained_count: {
+            type: 'integer',
+            title: 'Retained Count'
+        },
+        omitted_count: {
+            type: 'integer',
+            title: 'Omitted Count'
+        },
+        original: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Original'
+        }
+    },
+    type: 'object',
+    required: ['object_key', 'canonical_ip', 'family', 'protocol_number', 'source_port', 'source_record_count', 'retained_count', 'omitted_count', 'original'],
+    title: 'Observation'
+} as const;
+
+export const ObservationDetailSchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'netflow-correlation-v1',
+            title: 'Contract Version',
+            default: 'netflow-correlation-v1'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        analysis_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Analysis Id'
+        },
+        dataset_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Dataset Id'
+        },
+        context_revision_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Context Revision Id'
+        },
+        network_namespace: {
+            type: 'string',
+            title: 'Network Namespace'
+        },
+        test_fixture: {
+            type: 'boolean',
+            title: 'Test Fixture'
+        },
+        provenance: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Provenance'
+        },
+        object_key: {
+            type: 'string',
+            title: 'Object Key'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        family: {
+            type: 'integer',
+            enum: [4, 6],
+            title: 'Family'
+        },
+        protocol_number: {
+            type: 'integer',
+            title: 'Protocol Number'
+        },
+        source_port: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Source Port'
+        },
+        source_record_count: {
+            type: 'integer',
+            title: 'Source Record Count'
+        },
+        retained_count: {
+            type: 'integer',
+            title: 'Retained Count'
+        },
+        omitted_count: {
+            type: 'integer',
+            title: 'Omitted Count'
+        },
+        original: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Original'
+        },
+        batch_created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Batch Created At'
+        },
+        batch_completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Batch Completed At'
+        },
+        original_time_basis: {
+            type: 'string',
+            title: 'Original Time Basis'
+        },
+        business_time_qualification: {
+            type: 'string',
+            const: 'UNKNOWN',
+            title: 'Business Time Qualification'
+        },
+        context: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Context'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'analysis_id', 'dataset_id', 'context_revision_id', 'network_namespace', 'test_fixture', 'provenance', 'object_key', 'canonical_ip', 'family', 'protocol_number', 'source_port', 'source_record_count', 'retained_count', 'omitted_count', 'original', 'batch_created_at', 'batch_completed_at', 'original_time_basis', 'business_time_qualification', 'context'],
+    title: 'ObservationDetail'
+} as const;
+
+export const ObservationPageSchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'netflow-correlation-v1',
+            title: 'Contract Version',
+            default: 'netflow-correlation-v1'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        analysis_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Analysis Id'
+        },
+        dataset_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Dataset Id'
+        },
+        context_revision_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Context Revision Id'
+        },
+        network_namespace: {
+            type: 'string',
+            title: 'Network Namespace'
+        },
+        test_fixture: {
+            type: 'boolean',
+            title: 'Test Fixture'
+        },
+        provenance: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Provenance'
+        },
+        data: {
+            items: {
+                '$ref': '#/components/schemas/Observation'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        skip: {
+            type: 'integer',
+            title: 'Skip'
+        },
+        limit: {
+            type: 'integer',
+            title: 'Limit'
+        },
+        raw_record_count: {
+            type: 'integer',
+            title: 'Raw Record Count'
+        },
+        total_observations: {
+            type: 'integer',
+            title: 'Total Observations'
+        },
+        total_source_records: {
+            type: 'integer',
+            title: 'Total Source Records'
+        },
+        total_addresses: {
+            type: 'integer',
+            title: 'Total Addresses'
+        },
+        batch_created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Batch Created At'
+        },
+        batch_completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Batch Completed At'
+        },
+        original_time_basis: {
+            type: 'string',
+            title: 'Original Time Basis'
+        },
+        business_time_qualification: {
+            type: 'string',
+            const: 'UNKNOWN',
+            title: 'Business Time Qualification'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'analysis_id', 'dataset_id', 'context_revision_id', 'network_namespace', 'test_fixture', 'provenance', 'data', 'count', 'skip', 'limit', 'raw_record_count', 'total_observations', 'total_source_records', 'total_addresses', 'batch_created_at', 'batch_completed_at', 'original_time_basis', 'business_time_qualification'],
+    title: 'ObservationPage'
+} as const;
+
 export const ObservationPointSchema = {
     properties: {
         id: {
@@ -8699,6 +9075,9 @@ export const SummarySchema = {
             ],
             title: 'Positive Intersections'
         },
+        comparison: {
+            '$ref': '#/components/schemas/ComparisonOverview'
+        },
         test_fixture: {
             type: 'boolean',
             title: 'Test Fixture'
@@ -8712,7 +9091,7 @@ export const SummarySchema = {
         }
     },
     type: 'object',
-    required: ['project_id', 'correlation_revision_id', 'network_namespace', 'root_id', 'parent_id', 'revision', 'historical_scope_state', 'current_scope_state', 'selection', 'pins', 'evidence', 'created_at', 'created_by', 'sources', 'total_addresses', 'positive_intersections', 'test_fixture', 'limitations'],
+    required: ['project_id', 'correlation_revision_id', 'network_namespace', 'root_id', 'parent_id', 'revision', 'historical_scope_state', 'current_scope_state', 'selection', 'pins', 'evidence', 'created_at', 'created_by', 'sources', 'total_addresses', 'positive_intersections', 'comparison', 'test_fixture', 'limitations'],
     title: 'Summary'
 } as const;
 

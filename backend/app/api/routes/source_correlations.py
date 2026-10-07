@@ -219,8 +219,9 @@ def summary(
     row = service.revision_for(session, project, revision_id)
     current, loaded = service.read_material(session, project, row)
     addresses = service.addresses(session, project, row, loaded)
+    comparison = service.comparison_overview(row, loaded, addresses)
     intersections: dict[str, int] | None = None
-    if row.scope_state == "CONFIRMED":
+    if comparison.state == "AVAILABLE":
         intersections = {
             "+".join(
                 s for index, s in enumerate(service.SOURCES) if mask & (1 << index)
@@ -234,6 +235,7 @@ def summary(
         sources=[m.state for m in loaded.values()],
         total_addresses=len(addresses),
         positive_intersections=intersections,
+        comparison=comparison,
         test_fixture=loaded["NETFLOW"].test_fixture,
         limitations=[] if row.scope_state == "CONFIRMED" else ["SCOPE_UNCONFIRMED"],
     )
@@ -249,6 +251,7 @@ def list_addresses(
     response: Response,
     ip: str | None = None,
     positive_sources: str | None = None,
+    comparison: Literal["all", "differences", "common"] = "all",
     unmatched_netflow: bool | None = None,
     has_review_task: bool | None = None,
     sort: Literal["ip_asc", "ip_desc"] = "ip_asc",
@@ -260,6 +263,9 @@ def list_addresses(
     row = service.revision_for(session, project, revision_id)
     _, loaded = service.read_material(session, project, row)
     all_rows = service.addresses(session, project, row, loaded)
+    overview = service.comparison_overview(row, loaded, all_rows)
+    if comparison != "all" and overview.state != "AVAILABLE":
+        deny("netflow_context_invalid", 422)
     canonical_ip = service.canonical(ip) if ip is not None else None
     sources = set(positive_sources.split(",")) if positive_sources is not None else None
     if sources is not None and (not sources or not sources.issubset(service.SOURCES)):
@@ -268,6 +274,10 @@ def list_addresses(
         a
         for a in all_rows
         if (canonical_ip is None or a.canonical_ip == canonical_ip)
+        and (
+            comparison == "all"
+            or (a.positive_sources == overview.sources) == (comparison == "common")
+        )
         and (sources is None or set(a.positive_sources) == sources)
         and (unmatched_netflow is None or a.unmatched_netflow == unmatched_netflow)
         and (has_review_task is None or bool(a.task_refs) == has_review_task)

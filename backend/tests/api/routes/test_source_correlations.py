@@ -24,7 +24,7 @@ from app.domain.external_asset_models import (
 from app.domain.models import SourceInstance
 from app.domain.netflow_models import SourceCorrelationRevision
 from tests.api.routes.test_netflow_datasets import _member, _project
-from tests.utils.netflow_processing import context_request, published_analysis
+from tests.utils.netflow_processing import context_request, published_analysis, reserve
 
 
 def _post(
@@ -59,6 +59,7 @@ def correlation(
     superuser_token_headers: dict[str, str],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
 ) -> dict[str, Any]:
     ips = ["192.0.2.3", "192.0.2.5", "192.0.2.6", "192.0.2.7"] + [
         f"198.51.100.{n}" for n in range(1, 32)
@@ -177,7 +178,7 @@ def correlation(
                     ip=f"192.0.2.{number}",
                     canonical_ip=f"192.0.2.{number}",
                     fields={
-                        "protocol": "tcp",
+                        "protocol": getattr(request, "param", "tcp"),
                         "port": 443,
                         "banner": "",
                         "service": None,
@@ -237,6 +238,30 @@ def test_full_intersections_filters_order_evidence_services(
     c = correlation
     url = c["base"] + "/" + c["confirmed"]["correlation_revision_id"]
     summary = _get(client, url, c["headers"])
+    assert summary["comparison"] == {
+        "state": "AVAILABLE",
+        "sources": ["CUSTOMER", "CLOUD", "NETFLOW"],
+        "common_addresses": 1,
+        "different_addresses": 37,
+    }
+    # Network coverage remains unknown; counts describe only the fixed batches.
+    assert summary["sources"][2]["coverage_state"] == "UNKNOWN"
+    differences = _get(
+        client, url + "/addresses", c["headers"], comparison="differences", limit=25
+    )
+    remaining = _get(
+        client, url + "/addresses", c["headers"], comparison="differences", skip=25
+    )
+    assert differences["count"] == remaining["count"] == 37
+    assert len(differences["data"]) == 25 and len(remaining["data"]) == 12
+    assert all(a["conclusion"] == "SOURCE_DIFFERENCE" for a in differences["data"])
+    assert (
+        len({a["address_key"] for a in differences["data"] + remaining["data"]}) == 37
+    )
+    common = _get(client, url + "/addresses", c["headers"], comparison="common")
+    assert common["count"] == 1
+    assert common["data"][0]["canonical_ip"] == "192.0.2.7"
+    assert common["data"][0]["conclusion"] == "COMMON_RECORD"
     assert summary["positive_intersections"] == {
         "CUSTOMER": 1,
         "CLOUD": 1,
@@ -246,6 +271,21 @@ def test_full_intersections_filters_order_evidence_services(
         "CLOUD+NETFLOW": 1,
         "CUSTOMER+CLOUD+NETFLOW": 1,
     }
+    for sources, expected in [
+        ("CUSTOMER", 1),
+        ("CLOUD", 1),
+        ("NETFLOW", 32),
+        ("CUSTOMER,CLOUD", 1),
+        ("CUSTOMER,NETFLOW", 1),
+        ("CLOUD,NETFLOW", 1),
+        ("CUSTOMER,CLOUD,NETFLOW", 1),
+    ]:
+        assert (
+            _get(client, url + "/addresses", c["headers"], positive_sources=sources)[
+                "count"
+            ]
+            == expected
+        )
     first = _get(client, url + "/addresses", c["headers"], limit=25)
     second = _get(client, url + "/addresses", c["headers"], skip=25, limit=25)
     assert first["count"] == second["count"] == 38
@@ -348,6 +388,211 @@ def test_full_intersections_filters_order_evidence_services(
     )
 
 
+@pytest.mark.parametrize(
+    "correlation,expected", [(1, 1), ("132", 132)], indirect=["correlation"]
+)
+def test_other_numeric_cloud_protocol_is_preserved(
+    client: TestClient, correlation: dict[str, Any], expected: int
+) -> None:
+    c = correlation
+    url = c["base"] + "/" + c["confirmed"]["correlation_revision_id"]
+    address = _get(client, url + "/addresses", c["headers"], ip="192.0.2.7")["data"][0]
+    services = _get(
+        client,
+        url + "/addresses/" + address["address_key"] + "/services",
+        c["headers"],
+        limit=100,
+    )
+    cloud = next(s for s in services["data"] if s["source"] == "CLOUD")
+    assert cloud["protocol_number"] == expected
+
+
+@pytest.mark.parametrize(
+    "omitted,state,common,different",
+    [
+        (["customer"], "AVAILABLE", 2, 35),
+        (["netflow"], "AVAILABLE", 2, 4),
+        (["netflow", "cloud"], "INSUFFICIENT_SOURCES", None, None),
+    ],
+)
+def test_comparison_only_uses_explicit_readable_sources(
+    client: TestClient,
+    correlation: dict[str, Any],
+    omitted: list[str],
+    state: str,
+    common: int | None,
+    different: int | None,
+) -> None:
+    c = correlation
+    created = _post(
+        client, c["base"], c["headers"], {**c["body"], **dict.fromkeys(omitted)}
+    )
+    confirmed = _post(
+        client,
+        c["base"] + "/" + created["correlation_revision_id"] + "/scope-revisions",
+        c["headers"],
+        {
+            "expected_parent_id": created["correlation_revision_id"],
+            "scope_state": "CONFIRMED",
+            "evidence": "Synthetic same-space declaration",
+        },
+    )
+    url = c["base"] + "/" + confirmed["correlation_revision_id"]
+    summary = _get(client, url, c["headers"])
+    assert summary["comparison"]["state"] == state
+    assert summary["comparison"]["common_addresses"] == common
+    assert summary["comparison"]["different_addresses"] == different
+    for source in summary["sources"]:
+        if source["source"].lower() in omitted:
+            assert source["read_state"] == "NOT_PROVIDED"
+            assert source["source_addresses"] is None
+    if state == "AVAILABLE":
+        assert (
+            _get(client, url + "/addresses", c["headers"], comparison="common")["count"]
+            == common
+        )
+        assert (
+            _get(client, url + "/addresses", c["headers"], comparison="differences")[
+                "count"
+            ]
+            == different
+        )
+    else:
+        assert (
+            client.get(
+                url + "/addresses",
+                headers=c["headers"],
+                params={"comparison": "common"},
+            ).status_code
+            == 422
+        )
+
+
+@pytest.mark.parametrize("filtered", [True, False])
+def test_empty_selected_batch_preserves_coverage_and_comparison_state(
+    client: TestClient, db: Session, correlation: dict[str, Any], filtered: bool
+) -> None:
+    c = correlation
+    # A fully read filtered batch still has insufficient comparison coverage.
+    original_sync = db.get(ExternalSync, c["versions"]["ip"].sync_id)
+    assert original_sync is not None
+    sync = ExternalSync(
+        **{
+            **original_sync.model_dump(),
+            "id": uuid.uuid4(),
+            "idempotency_key": uuid.uuid4().hex,
+            "agent_run_id": uuid.uuid4().hex,
+        }
+    )
+    db.add(sync)
+    db.flush()
+    version = ExternalAssetVersion(
+        **{
+            **c["versions"]["ip"].model_dump(),
+            "id": uuid.uuid4(),
+            "sync_id": sync.id,
+            "status": "RUNNING",
+            "complete": True,
+            "record_count": 0,
+            "expected_total": 0,
+            "filter": {"ip": "192.0.2.200"} if filtered else {},
+        }
+    )
+    db.add(version)
+    db.flush()
+    version.status = "PUBLISHED"
+    db.add(version)
+    db.commit()
+    created = _post(
+        client,
+        c["base"],
+        c["headers"],
+        {
+            **c["body"],
+            "cloud": {
+                **c["body"]["cloud"],
+                "ip_version_id": str(version.id),
+                "port_version_id": None,
+            },
+        },
+    )
+    confirmed = _post(
+        client,
+        c["base"] + "/" + created["correlation_revision_id"] + "/scope-revisions",
+        c["headers"],
+        {
+            "expected_parent_id": created["correlation_revision_id"],
+            "scope_state": "CONFIRMED",
+            "evidence": "Synthetic same-space declaration",
+        },
+    )
+    url = c["base"] + "/" + confirmed["correlation_revision_id"]
+    summary = _get(client, url, c["headers"])
+    assert summary["comparison"]["state"] == (
+        "INSUFFICIENT_COVERAGE" if filtered else "AVAILABLE"
+    )
+    assert summary["comparison"]["sources"] == ["CUSTOMER", "CLOUD", "NETFLOW"]
+    assert summary["comparison"]["different_addresses"] == (None if filtered else 37)
+    assert summary["comparison"]["common_addresses"] == (None if filtered else 0)
+    if filtered:
+        assert summary["positive_intersections"] is None
+    assert client.get(
+        url + "/addresses", headers=c["headers"], params={"comparison": "differences"}
+    ).status_code == (422 if filtered else 200)
+    assert _get(client, url + "/addresses", c["headers"])["count"] > 0
+
+
+def test_unreadable_selected_analysis_is_not_a_two_source_success(
+    client: TestClient, correlation: dict[str, Any]
+) -> None:
+    c = correlation
+    context = _post(
+        client,
+        c["dataset_url"] + "/processing-contexts",
+        c["headers"],
+        context_request(c["context_revision_id"]),
+    )
+    pending = reserve(
+        client,
+        {**c, "context_revision_id": context["context_revision_id"]},
+        key="unprocessed-context",
+    )
+    created = _post(
+        client,
+        c["base"],
+        c["headers"],
+        {**c["body"], "netflow": {"analysis_id": pending["analysis_id"]}},
+    )
+    confirmed = _post(
+        client,
+        c["base"] + "/" + created["correlation_revision_id"] + "/scope-revisions",
+        c["headers"],
+        {
+            "expected_parent_id": created["correlation_revision_id"],
+            "scope_state": "CONFIRMED",
+            "evidence": "Synthetic same-space declaration",
+        },
+    )
+    url = c["base"] + "/" + confirmed["correlation_revision_id"]
+    summary = _get(client, url, c["headers"])
+    assert summary["comparison"]["state"] == "SOURCES_UNAVAILABLE"
+    assert summary["positive_intersections"] is None
+    assert summary["comparison"]["sources"] == ["CUSTOMER", "CLOUD", "NETFLOW"]
+    assert (
+        summary["comparison"]["common_addresses"]
+        is summary["comparison"]["different_addresses"]
+        is None
+    )
+    assert summary["sources"][2]["read_state"] == "READ_FAILED"
+    assert summary["sources"][2]["source_addresses"] is None
+    assert (
+        client.get(
+            url + "/addresses", headers=c["headers"], params={"comparison": "common"}
+        ).status_code
+        == 422
+    )
+
+
 def test_unknown_scope_recovery_immutable_pins_and_revocation(
     client: TestClient, db: Session, correlation: dict[str, Any]
 ) -> None:
@@ -361,6 +606,17 @@ def test_unknown_scope_recovery_immutable_pins_and_revocation(
         ("NETFLOW",),
     }
     assert _get(client, old_url, c["headers"])["positive_intersections"] is None
+    comparison = _get(client, old_url, c["headers"])["comparison"]
+    assert comparison["state"] == "SCOPE_UNCONFIRMED"
+    assert comparison["common_addresses"] is comparison["different_addresses"] is None
+    assert (
+        client.get(
+            old_url + "/addresses",
+            headers=c["headers"],
+            params={"comparison": "differences"},
+        ).status_code
+        == 422
+    )
     assert (
         _get(client, c["base"] + "/operations/synthetic-correlation", c["headers"])[
             "correlation_revision_id"

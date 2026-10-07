@@ -34,8 +34,37 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import useAuth from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
-import { syncedAssetSearch } from "@/lib/assetSearch"
+import { externalDomains, syncedAssetSearch } from "@/lib/assetSearch"
 import { useI18n } from "@/lib/i18n"
+
+const textDomains = new Set([
+  "subdomain",
+  "cert",
+  "web",
+  "dir",
+  "appfinger",
+  "crawler",
+  "seed_enterprise",
+  "seed_keyword",
+  "seed_domain",
+  "seed_email",
+  "seed_cert",
+  "seed_title",
+])
+const nameSeed = new Set([
+  "seed_enterprise",
+  "seed_keyword",
+  "seed_domain",
+  "seed_email",
+  "seed_cert",
+  "seed_title",
+])
+const typedSeed = new Set([
+  "seed_keyword",
+  "seed_domain",
+  "seed_cert",
+  "seed_title",
+])
 
 const SIZE = 25
 const selectClass =
@@ -43,20 +72,48 @@ const selectClass =
 const panelClass =
   "left-auto right-0 top-0 h-dvh max-h-dvh w-full max-w-full translate-x-0 translate-y-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:rounded-none motion-reduce:animate-none [&>div:first-child]:px-4 [&>div:first-child]:pt-3 [&>div:first-child]:pr-12"
 type Domain = ExternalVersionPublic["domain"]
-const domains: Domain[] = ["ip", "port", "root_domain", "dns"]
+const domains: readonly Domain[] = externalDomains
 
+const profileDomains: Record<
+  ExternalSourcePublic["capability_profile"],
+  Domain
+> = {
+  "assets-v1": "ip",
+  "root-domains-v1": "root_domain",
+  "dns-v1": "dns",
+  "subdomain-v1": "subdomain",
+  "cert-v1": "cert",
+  "openport-v1": "openport",
+  "web-v1": "web",
+  "dir-v1": "dir",
+  "appfinger-v1": "appfinger",
+  "crawler-v1": "crawler",
+  "seed-enterprise-v1": "seed_enterprise",
+  "seed-keyword-v1": "seed_keyword",
+  "seed-domain-v1": "seed_domain",
+  "seed-email-v1": "seed_email",
+  "seed-cert-v1": "seed_cert",
+  "seed-icon-v1": "seed_icon",
+  "seed-title-v1": "seed_title",
+}
 const sourceDomain = (
   profile: ExternalSourcePublic["capability_profile"] | undefined,
-) =>
-  profile === "dns-v1"
-    ? "dns"
-    : profile === "root-domains-v1"
-      ? "root_domain"
-      : "ip"
+): Domain => (profile ? profileDomains[profile] : "ip")
 
 const supportsDomain = (source: ExternalSourcePublic, domain: Domain) =>
-  sourceDomain(source.capability_profile) === domain ||
-  (source.capability_profile === "assets-v1" && domain === "port")
+  Object.keys(profileDomains).includes(source.capability_profile) &&
+  (sourceDomain(source.capability_profile) === domain ||
+    (source.capability_profile === "assets-v1" && domain === "port"))
+
+const hasErrorCode = (error: unknown, code: string) =>
+  error instanceof ApiError &&
+  typeof error.body === "object" &&
+  error.body !== null &&
+  "detail" in error.body &&
+  typeof error.body.detail === "object" &&
+  error.body.detail !== null &&
+  "code" in error.body.detail &&
+  error.body.detail.code === code
 
 const categories = [
   {
@@ -86,25 +143,123 @@ const categories = [
     en: "Discovery seeds (read only)",
     zh: "发现种子（只读）",
     items: [
-      ["seed-enterprise", "Enterprises", "企业主体"],
-      ["seed-keyword", "Keywords", "关键词"],
-      ["seed-domain", "Domain WHOIS", "域名 WHOIS"],
-      ["seed-email", "Email domains", "邮箱域名"],
-      ["seed-cert", "Certificate information", "证书信息"],
-      ["seed-icon", "Website icons", "网站图标"],
-      ["seed-title", "Website titles", "网站标题"],
+      ["seed_enterprise", "Enterprises", "企业主体"],
+      ["seed_keyword", "Keywords", "关键词"],
+      ["seed_domain", "Domain WHOIS", "域名 WHOIS"],
+      ["seed_email", "Email domains", "邮箱域名"],
+      ["seed_cert", "Certificate information", "证书信息"],
+      ["seed_icon", "Website icons", "网站图标"],
+      ["seed_title", "Website titles", "网站标题"],
     ],
   },
 ] as const
 
+const domainTitle = (domain: string, t: (en: string, zh: string) => string) => {
+  const item = categories
+    .flatMap((group) => [...group.items])
+    .find(([id]) => id === domain)
+  return item ? t(item[1], item[2]) : t("Unsupported type", "不支持的类型")
+}
+
+type DirectoryMetadata = {
+  status: "ready" | "empty" | "error"
+  version?: ExternalVersionPublic
+}
+
+const categorySource = (
+  sources: ExternalSourcePublic[],
+  selected: ExternalSourcePublic | undefined,
+  domain: Domain,
+  activeDomain: Domain,
+) =>
+  selected &&
+  supportsDomain(selected, domain) &&
+  (domain === activeDomain || selected.data_access_enabled)
+    ? selected
+    : (sources.find(
+        (source) =>
+          source.data_access_enabled && supportsDomain(source, domain),
+      ) ?? sources.find((source) => supportsDomain(source, domain)))
+
 function AssetDirectory({
   selected,
+  activeDomain,
+  source,
+  sources,
+  versionId,
+  counts,
+  metadata,
+  blocked,
+  now,
   onSelect,
 }: {
   selected: string
+  activeDomain: Domain
+  source: ExternalSourcePublic | undefined
+  sources: ExternalSourcePublic[]
+  versionId: string | undefined
+  counts: Record<string, ExternalVersionPublic>
+  metadata: Record<string, DirectoryMetadata>
+  blocked: Set<string>
+  now: number
   onSelect: (category: string) => void
 }) {
   const { t } = useI18n()
+  const entryFor = (id: string) => {
+    const domain = domains.find((value) => value === id)
+    const target = domain
+      ? categorySource(sources, source, domain, activeDomain)
+      : undefined
+    const key = `${target?.id}:${domain}`
+    const current = domain === activeDomain && target?.id === source?.id
+    return {
+      target,
+      current,
+      entry: metadata[key],
+      version: current ? counts[key] : metadata[key]?.version,
+    }
+  }
+  const countFor = (id: string) => {
+    const { target, current, entry, version } = entryFor(id)
+    if (!target) return t("Not configured", "未配置")
+    if (!target.data_access_enabled || blocked.has(target.id))
+      return t("Unavailable", "不可用")
+    if (current && versionId && version?.id !== versionId)
+      return t("Not read", "未读取")
+    if (version) {
+      if (
+        version.status !== "PUBLISHED" ||
+        Date.parse(version.retain_until) <= now
+      )
+        return t("Expired", "已到期")
+      return version.complete
+        ? String(version.record_count)
+        : t(
+            `${version.record_count} (partial)`,
+            `${version.record_count}（部分）`,
+          )
+    }
+    if (current || entry?.status === "empty") return t("Not read", "未读取")
+    if (entry?.status === "error") return t("Unavailable", "不可用")
+    return t("Loading…", "加载中…")
+  }
+  const countTitle = (id: string) => {
+    const { target, version } = entryFor(id)
+    if (!target)
+      return t(
+        "No source is configured for this category.",
+        "此分类尚未配置来源。",
+      )
+    if (!target.data_access_enabled || blocked.has(target.id))
+      return t(
+        "Access to this category's source is unavailable.",
+        "此分类的来源不可读取。",
+      )
+    return t(
+      `This category uses source ${target.instance_id}, space ${target.space_id}${version ? `, fixed version ${version.id}` : ""}. Counts are local version records, independent of page filters; sources are not added together.`,
+      `此分类对应来源 ${target.instance_id}，空间 ${target.space_id}${version ? `，固定版本 ${version.id}` : ""}。数量为本地版本记录数，不受页面筛选影响，不跨来源相加。`,
+    )
+  }
   const items = (group: (typeof categories)[number]) => (
     <div className="mt-2 space-y-1">
       {group.items.map(([id, en, zh]) => (
@@ -118,12 +273,9 @@ function AssetDirectory({
           <span>{t(en, zh)}</span>
           <span
             className="text-xs text-muted-foreground"
-            title={t(
-              "Counts belong to the selected source and version only.",
-              "计数仅属于选定来源和版本。",
-            )}
+            title={countTitle(id)}
           >
-            —
+            {countFor(id)}
           </span>
         </button>
       ))}
@@ -143,7 +295,7 @@ function AssetDirectory({
             <optgroup key={group.en} label={t(group.en, group.zh)}>
               {group.items.map(([id, en, zh]) => (
                 <option key={id} value={id}>
-                  {t(en, zh)}
+                  {t(en, zh)} · {countFor(id)}
                 </option>
               ))}
             </optgroup>
@@ -209,6 +361,89 @@ function Status({ value }: { value: string }) {
   )
 }
 
+const sourceFieldLabels: Record<string, [string, string]> = {
+  id: ["Source record ID", "源记录 ID"],
+  pk: ["Source tag ID", "源标签 ID"],
+  name: ["Name", "名称"],
+  source: ["Source", "来源"],
+  reason: ["Reason", "原因"],
+  factor: ["Factor", "依据"],
+  source_name: ["Source name", "来源名称"],
+  cn_name: ["Common name (CN)", "通用名称 CN"],
+  o_name: ["Organization (O)", "组织 O"],
+  ou_name: ["Organizational unit (OU)", "组织单位 OU"],
+  email_name: ["Email name", "邮箱名称"],
+  subject: ["Subject", "主体"],
+  issuer: ["Issuer", "签发者"],
+  serial_number: ["Serial number", "序列号"],
+  sha256: ["SHA-256", "SHA-256"],
+  sha1: ["SHA-1", "SHA-1"],
+  md5: ["MD5", "MD5"],
+  start_date: ["Source validity start", "源有效期起点"],
+  end_date: ["Source validity end", "源有效期终点"],
+  trusted: ["Source-claimed trust", "源声明信任状态"],
+  url: ["URL", "URL"],
+  scheme: ["URL scheme", "URL 协议"],
+  hostname: ["Hostname", "主机名"],
+  netloc: ["Network location", "网络位置"],
+  entity: ["Source entity", "源实体标识"],
+  ip: ["IP", "IP"],
+  port: ["Port", "端口"],
+  protocol: ["Protocol", "协议"],
+  subdomain: ["Subdomain", "子域名"],
+  path: ["Path", "路径"],
+  ip_info: ["IP information", "IP 信息"],
+  apps: ["Source product matches", "源产品匹配"],
+  level: ["Source path level", "源路径层级"],
+  status_code: ["HTTP status code", "HTTP 状态码"],
+  title: ["Title", "标题"],
+  render_title: ["Rendered title", "渲染标题"],
+  server: ["Server", "服务器"],
+  x_powered_by: ["X-Powered-By", "X-Powered-By"],
+  content_type: ["Content type", "内容类型"],
+  content_lines: ["Content lines", "内容行数"],
+  content_words: ["Content words", "内容词数"],
+  content_length: ["Content length", "内容长度"],
+  body_md5_hash: ["Body MD5 fingerprint", "正文 MD5 指纹"],
+  icon_url: ["Icon link", "图标链接"],
+  icon_mmh3_hash: ["Icon MMH3", "图标 MMH3"],
+  icon_md5_hash: ["Icon MD5", "图标 MD5"],
+  isadmin: ["Source admin-page flag", "源管理页面标记"],
+  screenshot_link: ["Screenshot link", "截图链接"],
+  product_name: ["Product name", "产品名称"],
+  product_uuid: ["Product UUID", "产品 UUID"],
+  vendor: ["Vendor", "厂商"],
+  vendor_name: ["Vendor name", "厂商名称"],
+  vendor_uuid: ["Vendor UUID", "厂商 UUID"],
+  version: ["Product version", "产品版本"],
+  cpe: ["CPE", "CPE"],
+  target: ["Target", "目标"],
+  uri: ["URI", "URI"],
+  method: ["Method", "方法"],
+  request_type: ["Request type", "请求类型"],
+  enable: ["Source enabled flag", "源启用标记"],
+  confidence: ["Source confidence", "源置信度"],
+  type: ["Source matching type", "源匹配类型"],
+  equity: ["Source equity", "源股权声明"],
+  investment_path: ["Source investment path", "源投资路径"],
+  is_history: ["Source historical flag", "源历史标记"],
+  md5_value: ["MD5 value", "MD5 值"],
+  mmh3_value: ["MMH3 value", "MMH3 值"],
+  created_at: ["Source created time", "源创建时间"],
+  updated_at: ["Source updated time", "源更新时间"],
+  lastseen_at: ["Source last-seen time", "源最近发现时间"],
+  status: ["Source status", "源状态"],
+  bu: ["Business group", "业务分组"],
+  tags: ["Source tags", "源标签"],
+  location: ["Location", "位置"],
+}
+const fieldLabel = (field: string, t: (en: string, zh: string) => string) => {
+  const label = Object.keys(sourceFieldLabels).includes(field)
+    ? sourceFieldLabels[field]
+    : undefined
+  return label ? t(...label) : field
+}
+
 // Values are escaped text, never HTML or source URLs. Absence is not null or empty.
 function FieldValue({ value }: { value: unknown }) {
   const { t } = useI18n()
@@ -243,15 +478,7 @@ function FieldValue({ value }: { value: unknown }) {
       <dl className="space-y-1">
         {Object.entries(value).map(([key, item]) => (
           <div key={key} className="min-w-0">
-            <dt className="font-medium">
-              {key === "source"
-                ? t("Source", "来源")
-                : key === "reason"
-                  ? t("Reason", "原因")
-                  : key === "factor"
-                    ? t("Factor", "依据")
-                    : key}
-            </dt>
+            <dt className="font-medium">{fieldLabel(key, t)}</dt>
             <dd className="pl-3">
               <FieldValue value={item} />
             </dd>
@@ -273,6 +500,181 @@ const names = (value: unknown) =>
     ? value.map((item) => property(item, "name"))
     : property(value, "name")
 
+const structuredGroups: Record<string, [string, string, string[]][]> = {
+  subdomain: [
+    [
+      "Subdomain observation",
+      "子域名观测",
+      ["subdomain", "source_name", "reason", "status"],
+    ],
+    ["Source times", "源时间", ["created_at", "lastseen_at"]],
+  ],
+  cert: [
+    [
+      "Certificate subject",
+      "证书主体",
+      [
+        "cn_name",
+        "o_name",
+        "ou_name",
+        "email_name",
+        "subject",
+        "issuer",
+        "serial_number",
+        "status",
+      ],
+    ],
+    [
+      "Fingerprints and validity",
+      "指纹与有效期",
+      ["sha256", "sha1", "md5", "start_date", "end_date", "trusted"],
+    ],
+    ["Source observations", "来源观测", ["sources"]],
+    ["Source times", "源时间", ["created_at", "updated_at", "lastseen_at"]],
+  ],
+  openport: [
+    ["Open port", "开放端口", ["ip", "port", "protocol"]],
+    ["Source times", "源时间", ["created_at", "updated_at", "lastseen_at"]],
+  ],
+  web: [
+    [
+      "Website address",
+      "网站地址",
+      ["url", "scheme", "hostname", "netloc", "port", "ip", "entity", "status"],
+    ],
+    ["Groups and tags", "分组与标签", ["bu", "tags"]],
+    ["Source times", "源时间", ["created_at", "updated_at", "lastseen_at"]],
+  ],
+  dir: [
+    [
+      "Website path",
+      "网站路径",
+      [
+        "url",
+        "path",
+        "scheme",
+        "hostname",
+        "netloc",
+        "port",
+        "ip",
+        "level",
+        "status",
+      ],
+    ],
+    [
+      "Response metadata",
+      "响应元数据",
+      [
+        "status_code",
+        "title",
+        "render_title",
+        "server",
+        "x_powered_by",
+        "location",
+        "content_type",
+        "content_lines",
+        "content_words",
+        "content_length",
+        "isadmin",
+      ],
+    ],
+    [
+      "Links and fingerprints",
+      "链接与指纹",
+      [
+        "body_md5_hash",
+        "icon_url",
+        "icon_mmh3_hash",
+        "icon_md5_hash",
+        "screenshot_link",
+      ],
+    ],
+    ["Source associations", "来源关联声明", ["ip_info", "bu", "tags", "apps"]],
+    ["Source times", "源时间", ["created_at", "updated_at", "lastseen_at"]],
+  ],
+  appfinger: [
+    [
+      "Website address",
+      "网站地址",
+      ["url", "scheme", "hostname", "netloc", "path", "port", "status"],
+    ],
+    [
+      "Product fingerprint",
+      "产品指纹",
+      [
+        "product_name",
+        "product_uuid",
+        "vendor",
+        "vendor_uuid",
+        "version",
+        "cpe",
+      ],
+    ],
+    ["Groups and tags", "分组与标签", ["bu", "tags"]],
+    ["Source times", "源时间", ["created_at", "updated_at", "lastseen_at"]],
+  ],
+  crawler: [
+    [
+      "Crawler metadata",
+      "爬虫元数据",
+      [
+        "target",
+        "hostname",
+        "uri",
+        "path",
+        "method",
+        "request_type",
+        "source",
+        "status",
+      ],
+    ],
+    ["Source times", "源时间", ["created_at", "updated_at", "lastseen_at"]],
+  ],
+  seed_enterprise: [
+    ["Discovery input", "发现输入", ["name", "enable", "confidence"]],
+    [
+      "Source-claimed investment",
+      "源声明投资信息",
+      ["equity", "investment_path", "is_history"],
+    ],
+    ["Source times", "源时间", ["created_at", "updated_at"]],
+  ],
+  seed_keyword: [
+    ["Discovery input", "发现输入", ["name", "type", "enable", "confidence"]],
+    ["Source times", "源时间", ["created_at", "updated_at"]],
+  ],
+  seed_domain: [
+    ["Discovery input", "发现输入", ["name", "type", "enable", "confidence"]],
+    ["Source times", "源时间", ["created_at", "updated_at"]],
+  ],
+  seed_email: [
+    ["Discovery input", "发现输入", ["name", "enable", "confidence"]],
+    ["Source times", "源时间", ["created_at", "updated_at"]],
+  ],
+  seed_cert: [
+    ["Discovery input", "发现输入", ["name", "type", "enable", "confidence"]],
+    ["Source times", "源时间", ["created_at", "updated_at"]],
+  ],
+  seed_icon: [
+    [
+      "Icon discovery input",
+      "图标发现输入",
+      ["icon_url", "md5_value", "mmh3_value", "enable", "confidence"],
+    ],
+    ["Source times", "源时间", ["created_at", "updated_at"]],
+  ],
+  seed_title: [
+    ["Discovery input", "发现输入", ["name", "type", "enable", "confidence"]],
+    ["Source times", "源时间", ["created_at", "updated_at"]],
+  ],
+}
+const structuredFields: Record<string, string[]> = Object.fromEntries(
+  Object.entries(structuredGroups).map(([domain, groups]) => [
+    domain,
+    groups.flatMap(([, , fields]) => fields),
+  ]),
+)
+
 function RecordFields({
   record,
   domain,
@@ -281,8 +683,9 @@ function RecordFields({
   domain: string
 }) {
   const { t } = useI18n()
-  const groups: [string, string[]][] =
-    domain === "dns"
+  const groups: [string, string[]][] = structuredGroups[domain]
+    ? structuredGroups[domain].map(([en, zh, fields]) => [t(en, zh), fields])
+    : domain === "dns"
       ? [
           [
             t("DNS record", "解析记录"),
@@ -351,10 +754,11 @@ function RecordFields({
                 ["banner", "categories"],
               ],
             ]
-  groups.push([
-    t("Source times", "源时间"),
-    ["created_at", "updated_at", "lastseen_at"],
-  ])
+  if (!structuredGroups[domain])
+    groups.push([
+      t("Source times", "源时间"),
+      ["created_at", "updated_at", "lastseen_at"],
+    ])
   const labels: Record<string, string> = {
     id: t("Source record ID", "源记录 ID"),
     ip: "IP",
@@ -419,7 +823,7 @@ function RecordFields({
                 key={field}
               >
                 <dt className="mb-1 text-sm text-muted-foreground">
-                  {labels[field]}
+                  {labels[field] ?? fieldLabel(field, t)}
                 </dt>
                 <dd className="min-w-0 text-sm">
                   {field === "sources" &&
@@ -494,7 +898,10 @@ function RecordFields({
               <FieldValue value={record.fields.id} />
             </dd>
           </div>
-          {domain !== "root_domain" && (
+          {(domain === "ip" ||
+            domain === "port" ||
+            domain === "dns" ||
+            structuredFields[domain]?.includes("bu")) && (
             <>
               <div>
                 <dt>{t("Source group ID", "源分组 ID")}</dt>
@@ -559,14 +966,7 @@ function VersionInfo({ version }: { version: ExternalVersionPublic }) {
       <div className="flex flex-wrap items-center gap-2">
         <Status value={version.status} />
         <span>
-          {version.domain === "dns"
-            ? t("DNS records", "DNS 记录")
-            : version.domain === "root_domain"
-              ? t("Root domains", "主域名")
-              : version.domain === "ip"
-                ? "IP"
-                : t("Port services", "端口服务")}{" "}
-          ·{" "}
+          {domainTitle(version.domain, t)} ·{" "}
           {version.complete
             ? t("Full requested range", "请求范围完整")
             : t("Partial batch", "部分批次")}
@@ -579,6 +979,17 @@ function VersionInfo({ version }: { version: ExternalVersionPublic }) {
           )}
         </span>
       </div>
+      <p className="text-muted-foreground">
+        {version.omitted_field_count == null
+          ? t(
+              "Field omissions were not counted for this historical version.",
+              "此历史版本未采集字段差额数量。",
+            )
+          : t(
+              `Contract-external field occurrences not saved: ${version.omitted_field_count}. Pagination completeness does not imply every upstream field was saved.`,
+              `未保存的合同外字段出现次数：${version.omitted_field_count}。分页完整不代表已保存全部源字段。`,
+            )}
+      </p>
       <dl className="grid min-w-0 gap-2 sm:grid-cols-2">
         <div>
           <dt>{t("Version", "版本")}</dt>
@@ -704,6 +1115,54 @@ function AssetsPage({
     }
   }, [])
   const [generation, setGeneration] = useState(0)
+  const [directoryCounts, setDirectoryCounts] = useState<
+    Record<string, ExternalVersionPublic>
+  >({})
+  const [directoryMetadata, setDirectoryMetadata] = useState<
+    Record<string, DirectoryMetadata>
+  >({})
+  const blockedDirectorySources = useRef(new Set<string>())
+  const [directoryNow, setDirectoryNow] = useState(Date.now())
+  const reportVersion = useCallback(
+    (sourceId: string, version: ExternalVersionPublic) =>
+      setDirectoryCounts((previous) => {
+        const key = `${sourceId}:${version.domain}`
+        return previous[key]?.id === version.id &&
+          previous[key]?.record_count === version.record_count &&
+          previous[key]?.complete === version.complete
+          ? previous
+          : { ...previous, [key]: version }
+      }),
+    [],
+  )
+  const clearVersions = useCallback(
+    (sourceId: string, expiredDomain?: Domain) => {
+      if (expiredDomain) {
+        setDirectoryCounts((previous) => {
+          const next = { ...previous }
+          delete next[`${sourceId}:${expiredDomain}`]
+          return next
+        })
+        setDirectoryNow(Date.now())
+        return
+      }
+      blockedDirectorySources.current.add(sourceId)
+      setDirectoryMetadata((previous) =>
+        Object.fromEntries(
+          Object.entries(previous).filter(
+            ([key]) => !key.startsWith(`${sourceId}:`),
+          ),
+        ),
+      )
+      setDirectoryCounts((previous) => {
+        const next = { ...previous }
+        for (const key of Object.keys(next))
+          if (key.startsWith(`${sourceId}:`)) delete next[key]
+        return next
+      })
+    },
+    [],
+  )
   const [notice, setNotice] = useState("")
   const [busy, setBusy] = useState(false)
   const sources = useQuery({
@@ -717,6 +1176,111 @@ function AssetsPage({
   const selected = data?.data.find(
     (source) => source.id === search.external_source,
   )
+  useEffect(() => {
+    if (bare || !data || !sources.dataUpdatedAt) return
+    let active = true
+    const pending = new Set<ReturnType<typeof API.readExternalVersions>>()
+    blockedDirectorySources.current.clear()
+    setDirectoryMetadata({})
+    const pairs = data.data.flatMap((source) =>
+      source.data_access_enabled
+        ? domains
+            .filter((domain) => supportsDomain(source, domain))
+            .map((domain) => ({ source, domain }))
+        : [],
+    )
+    let next = 0
+    const read = async (source: ExternalSourcePublic, domain: Domain) => {
+      let expired: ExternalVersionPublic | undefined
+      for (
+        let skip = 0;
+        active && !blockedDirectorySources.current.has(source.id);
+        skip += SIZE
+      ) {
+        const request = API.readExternalVersions({
+          projectId,
+          sourceId: source.id,
+          domain,
+          skip,
+          limit: SIZE,
+        })
+        pending.add(request)
+        let page: Awaited<typeof request>
+        try {
+          page = await request
+        } finally {
+          pending.delete(request)
+        }
+        if (!active || blockedDirectorySources.current.has(source.id)) return
+        for (const version of page.data) {
+          if (
+            version.source_id !== source.id ||
+            version.domain !== domain ||
+            !Number.isFinite(Date.parse(version.retain_until))
+          )
+            throw new Error("Invalid directory version identity")
+          if (
+            version.status === "PUBLISHED" &&
+            Date.parse(version.retain_until) > Date.now()
+          )
+            return version
+          if (
+            !expired &&
+            (version.status === "EXPIRED" ||
+              Date.parse(version.retain_until) <= Date.now())
+          )
+            expired = version
+        }
+        if (skip + page.data.length >= page.count) return expired
+        if (!page.data.length) throw new Error("Incomplete directory metadata")
+      }
+    }
+    const worker = async () => {
+      while (active && next < pairs.length) {
+        const { source, domain } = pairs[next++]
+        const key = `${source.id}:${domain}`
+        try {
+          const version = await read(source, domain)
+          if (active && !blockedDirectorySources.current.has(source.id))
+            setDirectoryMetadata((previous) => ({
+              ...previous,
+              [key]: { status: version ? "ready" : "empty", version },
+            }))
+        } catch {
+          if (active && !blockedDirectorySources.current.has(source.id))
+            setDirectoryMetadata((previous) => ({
+              ...previous,
+              [key]: { status: "error" },
+            }))
+        }
+      }
+    }
+    // Bounded local metadata pages, with at most four independent requests in flight.
+    void Promise.all(Array.from({ length: Math.min(4, pairs.length) }, worker))
+    return () => {
+      active = false
+      for (const request of pending) request.cancel()
+    }
+  }, [bare, data, projectId, sources.dataUpdatedAt])
+  useEffect(() => {
+    const future = [
+      ...Object.values(directoryCounts),
+      ...Object.values(directoryMetadata).flatMap((entry) =>
+        entry.version ? [entry.version] : [],
+      ),
+    ]
+      .map((version) => Date.parse(version.retain_until))
+      .filter((deadline) => deadline > directoryNow)
+    if (!future.length) return
+    const timer = window.setTimeout(
+      () => setDirectoryNow(Date.now()),
+      Math.min(
+        Math.max(1, Math.min(...future) - Date.now() + 1),
+        2_147_483_647,
+      ),
+    )
+    return () => window.clearTimeout(timer)
+  }, [directoryCounts, directoryMetadata, directoryNow])
   useEffect(() => {
     if (!bare) {
       defaultAttempt.current = false
@@ -848,12 +1412,12 @@ function AssetsPage({
     setCategory(value)
     const domain = domains.find((item) => item === value)
     if (!domain) return
-    const target =
-      selected && supportsDomain(selected, domain)
-        ? selected
-        : (data?.data.find(
-            (item) => item.data_access_enabled && supportsDomain(item, domain),
-          ) ?? data?.data.find((item) => supportsDomain(item, domain)))
+    const target = categorySource(
+      data?.data ?? [],
+      selected,
+      domain,
+      search.external_domain,
+    )
     if (
       !target ||
       (target.id === selected?.id && domain === search.external_domain)
@@ -864,6 +1428,8 @@ function AssetsPage({
         asset_view: "synced",
         external_source: target.id,
         external_domain: domain,
+        external_version:
+          directoryMetadata[`${target.id}:${domain}`]?.version?.id,
       },
       hash: true,
     })
@@ -893,17 +1459,7 @@ function AssetsPage({
                     data.data.find((source) => source.id === event.target.value)
                       ?.capability_profile,
                   ),
-                  external_version: undefined,
-                  external_record: undefined,
-                  external_record_version: undefined,
-                  external_port_version: undefined,
-                  external_ip: undefined,
-                  external_root_domain: undefined,
-                  external_subdomain: undefined,
-                  external_status: undefined,
-                  external_task: undefined,
-                  external_page: 0,
-                  external_match_page: 0,
+                  asset_view: "synced",
                 },
               })
             }
@@ -914,11 +1470,12 @@ function AssetsPage({
             {data.data.map((source) => (
               <option key={source.id} value={source.id}>
                 {source.instance_id} · {source.space_id} ·{" "}
-                {source.capability_profile === "dns-v1"
-                  ? t("DNS records", "DNS 记录")
-                  : source.capability_profile === "root-domains-v1"
-                    ? t("Root domains", "主域名")
-                    : t("IP and port services", "IP 与端口服务")}{" "}
+                {source.capability_profile === "assets-v1"
+                  ? t("IP and port services", "IP 与端口服务")
+                  : domainTitle(
+                      sourceDomain(source.capability_profile),
+                      t,
+                    )}{" "}
                 ·{" "}
                 {source.enabled
                   ? t("sync enabled", "同步启用")
@@ -953,12 +1510,9 @@ function AssetsPage({
                 const created = await API.createExternalSource({
                   projectId,
                   requestBody: {
-                    capability_profile:
-                      values.get("capability_profile") === "dns-v1"
-                        ? "dns-v1"
-                        : values.get("capability_profile") === "root-domains-v1"
-                          ? "root-domains-v1"
-                          : "assets-v1",
+                    capability_profile: String(
+                      values.get("capability_profile"),
+                    ) as ExternalSourcePublic["capability_profile"],
                     instance_id: String(values.get("instance")),
                     capset_id: String(values.get("capset")),
                     space_id: String(values.get("space")),
@@ -1021,21 +1575,14 @@ function AssetsPage({
                 defaultValue="assets-v1"
                 disabled={busy}
               >
-                <option value="assets-v1">
-                  {t(
-                    "IP and port services — assets-v1",
-                    "IP 与端口服务 — assets-v1",
-                  )}
-                </option>
-                <option value="root-domains-v1">
-                  {t(
-                    "Root domains only — root-domains-v1",
-                    "仅主域名 — root-domains-v1",
-                  )}
-                </option>
-                <option value="dns-v1">
-                  {t("DNS records only — dns-v1", "仅 DNS 记录 — dns-v1")}
-                </option>
+                {Object.entries(profileDomains).map(([profile, domain]) => (
+                  <option key={profile} value={profile}>
+                    {profile === "assets-v1"
+                      ? t("IP and port services", "IP 与端口服务")
+                      : domainTitle(domain, t)}{" "}
+                    · {profile}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -1127,7 +1674,7 @@ function AssetsPage({
           )}
         </p>
       )}
-      {data && !sources.isFetching && (
+      {data && (
         <>
           {!data.can_manage && (
             <p className="text-sm text-muted-foreground">
@@ -1138,24 +1685,51 @@ function AssetsPage({
             </p>
           )}
           <div className="grid min-w-0 gap-4 md:grid-cols-[177px_minmax(0,1fr)]">
-            <AssetDirectory selected={category} onSelect={chooseCategory} />
+            <AssetDirectory
+              selected={category}
+              activeDomain={search.external_domain}
+              source={selected}
+              sources={data.data}
+              metadata={directoryMetadata}
+              blocked={blockedDirectorySources.current}
+              now={Math.max(directoryNow, Date.now())}
+              versionId={search.external_version}
+              counts={directoryCounts}
+              onSelect={chooseCategory}
+            />
             <div className="min-w-0">
-              {selected && (
-                <div hidden={category !== search.external_domain}>
-                  <SourceAssets
-                    key={`${selected.id}:${search.external_domain}:${generation}`}
-                    actor={actor}
-                    projectId={projectId}
-                    source={selected}
-                    canManage={data.can_manage}
-                    refreshSources={() => sources.refetch()}
-                    reload={reload}
-                    sourceControls={sourceControls}
-                    management={management}
-                    setManagement={setManagement}
-                  />
-                </div>
-              )}
+              {selected &&
+                Object.keys(profileDomains).includes(
+                  selected.capability_profile,
+                ) && (
+                  <div hidden={category !== search.external_domain}>
+                    <SourceAssets
+                      key={`${selected.id}:${search.external_domain}:${generation}`}
+                      actor={actor}
+                      projectId={projectId}
+                      source={selected}
+                      canManage={data.can_manage}
+                      refreshSources={() => sources.refetch()}
+                      reload={reload}
+                      sourceControls={sourceControls}
+                      management={management}
+                      setManagement={setManagement}
+                      reportVersion={reportVersion}
+                      clearVersions={clearVersions}
+                    />
+                  </div>
+                )}
+              {selected &&
+                !Object.keys(profileDomains).includes(
+                  selected.capability_profile,
+                ) && (
+                  <p role="alert">
+                    {t(
+                      "Unsupported source profile. No records were requested.",
+                      "不支持的来源档案，未请求记录。",
+                    )}
+                  </p>
+                )}
               {!domains.some((domain) => domain === category) ? (
                 <section className="space-y-2 rounded border p-6">
                   <h2 className="font-medium">
@@ -1246,6 +1820,8 @@ function SourceAssets({
   sourceControls,
   management,
   setManagement,
+  reportVersion,
+  clearVersions,
 }: {
   actor: string
   projectId: string
@@ -1256,24 +1832,38 @@ function SourceAssets({
   sourceControls: ReactNode
   management: string | null
   setManagement: (tab: string | null) => void
+  reportVersion: (sourceId: string, version: ExternalVersionPublic) => void
+  clearVersions: (sourceId: string, expiredDomain?: Domain) => void
 }) {
   const { showSuccessToast } = useCustomToast()
   const { t, formatDate } = useI18n()
   const search = Route.useSearch({ select: syncedAssetSearch })
   const rootDomains = source.capability_profile === "root-domains-v1"
   const dnsRecords = source.capability_profile === "dns-v1"
-  const singleDomain = rootDomains || dnsRecords
+  const selectedDomain = sourceDomain(source.capability_profile)
+  const singleDomain = source.capability_profile !== "assets-v1"
+  const addressDomain = selectedDomain === "openport" || !singleDomain
   const domain = singleDomain
-    ? sourceDomain(source.capability_profile)
+    ? selectedDomain
     : search.external_domain === "port"
       ? "port"
       : "ip"
+  const hasSourceStatus = domain !== "openport" && !domain.startsWith("seed_")
   const scopeReady =
     search.external_domain === domain &&
     (rootDomains || !search.external_root_domain) &&
     (dnsRecords || !search.external_subdomain) &&
+    (hasSourceStatus || !search.external_status) &&
+    (textDomains.has(domain) || !search.external_q) &&
+    (domain === "cert" || !search.external_sha256) &&
+    (domain === "seed_icon" ||
+      (!search.external_md5_value && !search.external_mmh3_value)) &&
+    (nameSeed.has(domain) ||
+      (search.external_seed_enabled === undefined &&
+        !search.external_confidence)) &&
+    (typedSeed.has(domain) || !search.external_seed_type) &&
     (!singleDomain ||
-      (!search.external_ip &&
+      ((addressDomain || !search.external_ip) &&
         !search.external_port_version &&
         search.external_match_page === 0))
   const navigate = Route.useNavigate()
@@ -1312,7 +1902,24 @@ function SourceAssets({
       void move(
         {
           external_domain: domain,
-          external_ip: singleDomain ? undefined : search.external_ip,
+          external_q: textDomains.has(domain) ? search.external_q : undefined,
+          external_sha256:
+            domain === "cert" ? search.external_sha256 : undefined,
+          external_md5_value:
+            domain === "seed_icon" ? search.external_md5_value : undefined,
+          external_mmh3_value:
+            domain === "seed_icon" ? search.external_mmh3_value : undefined,
+          external_seed_enabled: nameSeed.has(domain)
+            ? search.external_seed_enabled
+            : undefined,
+          external_confidence: nameSeed.has(domain)
+            ? search.external_confidence
+            : undefined,
+          external_seed_type: typedSeed.has(domain)
+            ? search.external_seed_type
+            : undefined,
+          external_status: hasSourceStatus ? search.external_status : undefined,
+          external_ip: addressDomain ? search.external_ip : undefined,
           external_root_domain: rootDomains
             ? search.external_root_domain
             : undefined,
@@ -1327,17 +1934,15 @@ function SourceAssets({
         true,
       )
   }, [
+    addressDomain,
     domain,
     move,
     rootDomains,
     dnsRecords,
     singleDomain,
     scopeReady,
-    search.external_ip,
-    search.external_root_domain,
-    search.external_subdomain,
-    search.external_port_version,
-    search.external_match_page,
+    hasSourceStatus,
+    search,
   ])
   const store = `exposure:external-sync:${actor}:${projectId}`
   const [saved] = useState(() => {
@@ -1363,6 +1968,7 @@ function SourceAssets({
         setDenied(true)
         setManagement(null)
       }
+      clearVersions(source.id, expiryOnly ? domain : undefined)
       const filters = {
         queryKey: ["external-assets", actor, projectId],
         predicate: (query: { queryKey: readonly unknown[] }) =>
@@ -1380,7 +1986,16 @@ function SourceAssets({
         replace: true,
       })
     },
-    [actor, cache, navigate, projectId, setManagement],
+    [
+      actor,
+      cache,
+      clearVersions,
+      domain,
+      navigate,
+      projectId,
+      setManagement,
+      source.id,
+    ],
   )
   const guarded = async <T,>(request: Promise<T>): Promise<T> => {
     try {
@@ -1423,6 +2038,13 @@ function SourceAssets({
       search.external_root_domain,
       search.external_subdomain,
       search.external_status,
+      search.external_q,
+      search.external_sha256,
+      search.external_md5_value,
+      search.external_mmh3_value,
+      search.external_seed_enabled,
+      search.external_confidence,
+      search.external_seed_type,
       search.external_page,
     ],
     enabled: allowed && scopeReady && !expired,
@@ -1433,16 +2055,25 @@ function SourceAssets({
           sourceId: source.id,
           domain,
           versionId: search.external_version,
-          ip: singleDomain ? undefined : search.external_ip,
+          ip: addressDomain ? search.external_ip : undefined,
           rootDomain: rootDomains ? search.external_root_domain : undefined,
           subdomain: dnsRecords ? search.external_subdomain : undefined,
           status: search.external_status,
+          q: search.external_q,
+          sha256: search.external_sha256,
+          md5Value: search.external_md5_value,
+          mmh3Value: search.external_mmh3_value,
+          seedEnabled: search.external_seed_enabled,
+          confidence: search.external_confidence,
+          seedType: search.external_seed_type,
           skip: search.external_page * SIZE,
           limit: SIZE,
         }),
       ),
     retry: false,
   })
+  const invalidIpFilter =
+    addressDomain && hasErrorCode(records.error, "external_ip_filter_invalid")
   const tasks = useQuery({
     queryKey: [...prefix, "tasks", taskPage],
     enabled: allowed,
@@ -1546,6 +2177,10 @@ function SourceAssets({
     )
       void move({ external_version: recordData.version.id }, true)
   }, [recordData, search.external_version, records.isFetching, move])
+  useEffect(() => {
+    if (recordData?.state === "PUBLISHED" && recordData.version)
+      reportVersion(source.id, recordData.version)
+  }, [recordData, reportVersion, source.id])
   useEffect(() => {
     if (!source.data_access_enabled) revoke()
   }, [source.data_access_enabled, revoke])
@@ -1706,21 +2341,19 @@ function SourceAssets({
           {t("Error code", "错误码")}: {item.error_code}
         </p>
       )}
+      <p className="text-sm text-muted-foreground">
+        {t(
+          "Completion describes the requested page range. Field omissions are recorded on each fixed version.",
+          "完成仅描述请求的分页范围；字段未保存差额以各固定版本为准。",
+        )}
+      </p>
       <ul className="space-y-2">
         {item.domains.map((domain) => (
           <li
             className="flex flex-wrap items-center gap-2 text-sm"
             key={domain.domain}
           >
-            <span>
-              {domain.domain === "dns"
-                ? t("DNS records", "DNS 记录")
-                : domain.domain === "root_domain"
-                  ? t("Root domains", "主域名")
-                  : domain.domain === "ip"
-                    ? "IP"
-                    : t("Port services", "端口服务")}
-            </span>
+            <span>{domainTitle(domain.domain, t)}</span>
             <Status value={domain.status} />
             {domain.status === "PUBLISHED" && (
               <span>
@@ -1820,138 +2453,263 @@ function SourceAssets({
     items: ExternalRecordPublic[],
     domain: string,
     versionId: string,
-  ) => (
-    <Table className="min-w-[760px]">
-      <TableHeader>
-        <TableRow>
-          <TableHead>
-            {domain === "dns"
-              ? t("Subdomain", "子域名")
-              : domain === "root_domain"
-                ? t("Root domain", "主域名")
-                : domain === "port"
-                  ? t("IP / port / protocol", "IP / 端口 / 协议")
-                  : t("IP / version", "IP / 版本")}
-          </TableHead>
-          <TableHead>
-            {domain === "dns"
-              ? t("Record type / value", "解析类型 / 值")
-              : domain === "root_domain"
-                ? t(
-                    "Source-claimed ICP organization / number",
-                    "源声明备案主体 / 号",
-                  )
-                : domain === "port"
-                  ? t("Service / product / version", "服务 / 产品 / 版本")
-                  : t("Group / tags", "分组 / 标签")}
-          </TableHead>
-          <TableHead>
-            {domain === "ip"
-              ? t("Network ownership", "网络归属")
-              : domain === "root_domain"
-                ? t("Source-reported valid subdomains", "来源报告有效子域名数")
-                : t("Group / tags", "分组 / 标签")}
-          </TableHead>
-          <TableHead>{t("Source status", "源状态")}</TableHead>
-          <TableHead>{t("Source last-seen time", "源最近发现时间")}</TableHead>
-          <TableHead>{t("Details", "详情")}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.map((record) => (
-          <TableRow key={record.id}>
-            <TableCell className="font-mono">
-              {cell(
-                domain === "dns"
-                  ? record.fields.subdomain
-                  : domain === "root_domain"
-                    ? record.fields.root_domain
-                    : record.fields.ip,
-              )}
-              {domain === "port" && (
-                <div className="text-xs text-muted-foreground">
-                  <FieldValue value={record.fields.port} /> /{" "}
-                  <FieldValue value={record.fields.protocol} />
-                </div>
-              )}
-              {domain === "ip" && (
-                <div className="text-xs text-muted-foreground">
-                  {t("Version", "版本")}:{" "}
-                  <FieldValue value={record.fields.version} />
-                </div>
-              )}
-            </TableCell>
-            <TableCell>
-              {domain === "ip" ? (
-                <>
-                  {cell(names(record.fields.bu))}
-                  {cell(names(record.fields.tags))}
-                </>
-              ) : domain === "port" ? (
-                <>
+  ) => {
+    const detailLink = (record: ExternalRecordPublic) => (
+      <Link
+        className="underline underline-offset-4"
+        to="/projects/$projectId/cloudatlas-ledger"
+        params={{ projectId }}
+        search={{
+          ...search,
+          asset_view: "synced",
+          external_record: record.id,
+          external_record_version: versionId,
+          external_port_version: undefined,
+          external_match_page: 0,
+        }}
+        onClick={(event) => {
+          detailTrigger.current = event.currentTarget
+        }}
+        aria-label={t(
+          `Details for ${record.fields.subdomain ?? record.fields.root_domain ?? record.fields.cn_name ?? record.fields.name ?? record.fields.url ?? record.fields.target ?? record.ip ?? record.source_id}, source ID ${record.source_id}`,
+          `${record.fields.subdomain ?? record.fields.root_domain ?? record.fields.cn_name ?? record.fields.name ?? record.fields.url ?? record.fields.target ?? record.ip ?? record.source_id} 的详情，源 ID ${record.source_id}`,
+        )}
+      >
+        {t("Details", "详情")}
+      </Link>
+    )
+    const structured = structuredFields[domain]
+    if (structured) {
+      const primary =
+        structured.find((field) =>
+          [
+            "name",
+            "subdomain",
+            "cn_name",
+            "ip",
+            "url",
+            "target",
+            "icon_url",
+          ].includes(field),
+        ) ?? "id"
+      const details =
+        (
+          {
+            subdomain: ["source_name", "reason"],
+            cert: ["issuer", "end_date", "trusted", "sha256"],
+            openport: ["port", "protocol"],
+            web: ["hostname", "ip", "port", "bu"],
+            dir: ["path", "status_code", "title", "content_type"],
+            appfinger: ["product_name", "vendor", "version", "cpe"],
+            crawler: ["hostname", "method", "request_type"],
+            seed_enterprise: ["enable", "confidence", "equity"],
+            seed_icon: ["md5_value", "mmh3_value", "enable", "confidence"],
+          } as Record<string, string[]>
+        )[domain] ??
+        structured.filter((field) =>
+          ["type", "enable", "confidence"].includes(field),
+        )
+      const hasStatus = structured.includes("status")
+      const hasTimes = structured.some((field) =>
+        ["created_at", "updated_at", "lastseen_at"].includes(field),
+      )
+      const title = (field: string) => fieldLabel(field, t)
+      return (
+        <Table className="min-w-[760px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{title(primary)}</TableHead>
+              {details.map((field) => (
+                <TableHead key={field}>{title(field)}</TableHead>
+              ))}
+              {hasStatus && <TableHead>{title("status")}</TableHead>}
+              {hasTimes && <TableHead>{t("Source times", "源时间")}</TableHead>}
+              <TableHead>{t("Details", "详情")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((record) => (
+              <TableRow key={record.id}>
+                <TableCell className="font-mono">
+                  {cell(
+                    primary === "id"
+                      ? record.source_id
+                      : record.fields[primary],
+                  )}
+                </TableCell>
+                {details.map((field) => (
+                  <TableCell key={field}>
+                    {cell(record.fields[field])}
+                  </TableCell>
+                ))}
+                {hasStatus && (
+                  <TableCell>{cell(record.fields.status)}</TableCell>
+                )}
+                {hasTimes && (
+                  <TableCell>
+                    {cell(
+                      [
+                        record.fields.created_at,
+                        record.fields.updated_at,
+                        record.fields.lastseen_at,
+                      ].filter((value) => value !== undefined),
+                    )}
+                  </TableCell>
+                )}
+                <TableCell>{detailLink(record)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )
+    }
+    if (domain === "port")
+      return (
+        <Table className="min-w-[1080px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("IP", "IP")}</TableHead>
+              <TableHead>{t("Port", "端口")}</TableHead>
+              <TableHead>{t("Protocol", "协议")}</TableHead>
+              <TableHead>
+                {t("Service / product / version", "服务 / 产品 / 版本")}
+              </TableHead>
+              <TableHead>{t("Group / tags", "分组 / 标签")}</TableHead>
+              <TableHead>{t("Source status", "源状态")}</TableHead>
+              <TableHead>
+                {t("Source last-seen time", "源最近发现时间")}
+              </TableHead>
+              <TableHead>{t("Details", "详情")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.map((record) => (
+              <TableRow key={record.id}>
+                <TableCell className="font-mono">
+                  {cell(record.fields.ip)}
+                </TableCell>
+                <TableCell className="font-mono">
+                  {cell(record.fields.port)}
+                </TableCell>
+                <TableCell>{cell(record.fields.protocol)}</TableCell>
+                <TableCell>
                   {cell(record.fields.service)}
                   {cell(record.fields.product)}
                   {cell(record.fields.version)}
-                </>
-              ) : domain === "root_domain" ? (
-                <>
-                  {cell(record.fields.icp_official_name)}
-                  {cell(record.fields.icp_num)}
-                </>
-              ) : (
-                <>
-                  {cell(record.fields.rdtype)}
-                  {cell(record.fields.record)}
-                </>
-              )}
-            </TableCell>
-            <TableCell>
-              {domain === "ip" ? (
-                <>
-                  {cell(record.fields.provider)}
-                  {cell(record.fields.as_name)}
-                  {cell(record.fields.as_num)}
-                </>
-              ) : domain === "root_domain" ? (
-                cell(record.fields.valid_subdomain)
-              ) : (
-                <>
+                </TableCell>
+                <TableCell>
                   {cell(names(record.fields.bu))}
                   {cell(names(record.fields.tags))}
-                </>
-              )}
-            </TableCell>
-            <TableCell>{cell(record.fields.status)}</TableCell>
-            <TableCell>{cell(record.fields.lastseen_at)}</TableCell>
-            <TableCell>
-              <Link
-                className="underline underline-offset-4"
-                to="/projects/$projectId/cloudatlas-ledger"
-                params={{ projectId }}
-                search={{
-                  ...search,
-                  asset_view: "synced",
-                  external_record: record.id,
-                  external_record_version: versionId,
-                  external_port_version: undefined,
-                  external_match_page: 0,
-                }}
-                onClick={(event) => {
-                  detailTrigger.current = event.currentTarget
-                }}
-                aria-label={t(
-                  `Details for ${domain === "dns" ? record.fields.subdomain : domain === "root_domain" ? record.fields.root_domain : record.ip}, source ID ${record.source_id}`,
-                  `${domain === "dns" ? record.fields.subdomain : domain === "root_domain" ? record.fields.root_domain : record.ip} 的详情，源 ID ${record.source_id}`,
-                )}
-              >
-                {t("Details", "详情")}
-              </Link>
-            </TableCell>
+                </TableCell>
+                <TableCell>{cell(record.fields.status)}</TableCell>
+                <TableCell>{cell(record.fields.lastseen_at)}</TableCell>
+                <TableCell>{detailLink(record)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )
+    return (
+      <Table className="min-w-[760px]">
+        <TableHeader>
+          <TableRow>
+            <TableHead>
+              {domain === "dns"
+                ? t("Subdomain", "子域名")
+                : domain === "root_domain"
+                  ? t("Root domain", "主域名")
+                  : t("IP / version", "IP / 版本")}
+            </TableHead>
+            <TableHead>
+              {domain === "dns"
+                ? t("Record type / value", "解析类型 / 值")
+                : domain === "root_domain"
+                  ? t(
+                      "Source-claimed ICP organization / number",
+                      "源声明备案主体 / 号",
+                    )
+                  : domain === "port"
+                    ? t("Service / product / version", "服务 / 产品 / 版本")
+                    : t("Group / tags", "分组 / 标签")}
+            </TableHead>
+            <TableHead>
+              {domain === "ip"
+                ? t("Network ownership", "网络归属")
+                : domain === "root_domain"
+                  ? t(
+                      "Source-reported valid subdomains",
+                      "来源报告有效子域名数",
+                    )
+                  : t("Group / tags", "分组 / 标签")}
+            </TableHead>
+            <TableHead>{t("Source status", "源状态")}</TableHead>
+            <TableHead>
+              {t("Source last-seen time", "源最近发现时间")}
+            </TableHead>
+            <TableHead>{t("Details", "详情")}</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  )
+        </TableHeader>
+        <TableBody>
+          {items.map((record) => (
+            <TableRow key={record.id}>
+              <TableCell className="font-mono">
+                {cell(
+                  domain === "dns"
+                    ? record.fields.subdomain
+                    : domain === "root_domain"
+                      ? record.fields.root_domain
+                      : record.fields.ip,
+                )}
+                {domain === "ip" && (
+                  <div className="text-xs text-muted-foreground">
+                    {t("Version", "版本")}:{" "}
+                    <FieldValue value={record.fields.version} />
+                  </div>
+                )}
+              </TableCell>
+              <TableCell>
+                {domain === "ip" ? (
+                  <>
+                    {cell(names(record.fields.bu))}
+                    {cell(names(record.fields.tags))}
+                  </>
+                ) : domain === "root_domain" ? (
+                  <>
+                    {cell(record.fields.icp_official_name)}
+                    {cell(record.fields.icp_num)}
+                  </>
+                ) : (
+                  <>
+                    {cell(record.fields.rdtype)}
+                    {cell(record.fields.record)}
+                  </>
+                )}
+              </TableCell>
+              <TableCell>
+                {domain === "ip" ? (
+                  <>
+                    {cell(record.fields.provider)}
+                    {cell(record.fields.as_name)}
+                    {cell(record.fields.as_num)}
+                  </>
+                ) : domain === "root_domain" ? (
+                  cell(record.fields.valid_subdomain)
+                ) : (
+                  <>
+                    {cell(names(record.fields.bu))}
+                    {cell(names(record.fields.tags))}
+                  </>
+                )}
+              </TableCell>
+              <TableCell>{cell(record.fields.status)}</TableCell>
+              <TableCell>{cell(record.fields.lastseen_at)}</TableCell>
+              <TableCell>{detailLink(record)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    )
+  }
   return (
     <div className="min-w-0 space-y-6">
       {notice && (
@@ -2049,7 +2807,9 @@ function SourceAssets({
               tabIndex={-1}
               className="text-lg font-medium"
             >
-              {t("Local asset records", "本地资产记录")}
+              {domain.startsWith("seed_")
+                ? t("Local discovery inputs", "本地发现输入")
+                : t("Local asset records", "本地资产记录")}
             </h2>
             <details className="space-y-2 text-sm">
               <summary className="cursor-pointer text-muted-foreground">
@@ -2061,6 +2821,14 @@ function SourceAssets({
                   "部分批次仅包含已抓取页面，本地条数不是来源总量。完整版本也仅覆盖固定请求范围，不代表上游全部状态或一致性快照。源 ID 仅标识版本内记录，不是跨版本稳定实体。",
                 )}
               </p>
+              {addressDomain && (
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "IP lookup sends one exact IPv4 or IPv6 value to the selected local fixed version. It does not search CIDR ranges, prefixes, or upstream data.",
+                    "IP 检索只将一个精确 IPv4 或 IPv6 值发送到选定的本地固定版本；不检索 CIDR、前缀或上游数据。",
+                  )}
+                </p>
+              )}
               {rootDomains && (
                 <p className="text-sm text-muted-foreground">
                   {t(
@@ -2079,71 +2847,198 @@ function SourceAssets({
               )}
             </details>
             <form
-              key={`${domain}:${search.external_ip}:${search.external_root_domain}:${search.external_subdomain}:${search.external_status}`}
+              key={`${domain}:${search.external_ip}:${search.external_root_domain}:${search.external_subdomain}:${search.external_status}:${search.external_q}:${search.external_sha256}:${search.external_md5_value}:${search.external_mmh3_value}:${search.external_seed_enabled}:${search.external_confidence}:${search.external_seed_type}`}
               className="flex flex-wrap items-end gap-3"
               onSubmit={(event) => {
                 event.preventDefault()
                 const form = new FormData(event.currentTarget)
+                const enabled = String(form.get("seed_enabled") ?? "")
                 void move({
-                  external_ip: singleDomain
-                    ? undefined
-                    : String(form.get("ip") ?? "").trim() || undefined,
+                  external_ip: addressDomain
+                    ? String(form.get("ip") ?? "").trim() || undefined
+                    : undefined,
                   external_root_domain: rootDomains
                     ? String(form.get("root_domain") ?? "") || undefined
                     : undefined,
                   external_subdomain: dnsRecords
                     ? String(form.get("subdomain") ?? "") || undefined
                     : undefined,
-                  external_status:
-                    String(form.get("status") ?? "").trim() || undefined,
+                  external_status: hasSourceStatus
+                    ? String(form.get("status") ?? "").trim() || undefined
+                    : undefined,
+                  external_q: textDomains.has(domain)
+                    ? String(form.get("q") ?? "") || undefined
+                    : undefined,
+                  external_sha256:
+                    domain === "cert"
+                      ? String(form.get("sha256") ?? "") || undefined
+                      : undefined,
+                  external_md5_value:
+                    domain === "seed_icon"
+                      ? String(form.get("md5_value") ?? "") || undefined
+                      : undefined,
+                  external_mmh3_value:
+                    domain === "seed_icon"
+                      ? String(form.get("mmh3_value") ?? "") || undefined
+                      : undefined,
+                  external_seed_enabled: nameSeed.has(domain)
+                    ? enabled === "true"
+                      ? true
+                      : enabled === "false"
+                        ? false
+                        : undefined
+                    : undefined,
+                  external_confidence: nameSeed.has(domain)
+                    ? String(form.get("confidence") ?? "") || undefined
+                    : undefined,
+                  external_seed_type: typedSeed.has(domain)
+                    ? String(form.get("seed_type") ?? "") || undefined
+                    : undefined,
                   external_page: 0,
                 })
                 heading.current?.focus()
               }}
             >
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="filter-name">
-                  {dnsRecords
-                    ? t(
-                        "Subdomain contains (local text)",
-                        "子域名包含（本地文本）",
-                      )
-                    : rootDomains
-                      ? t(
-                          "Root domain contains (local text)",
-                          "主域名包含（本地文本）",
-                        )
-                      : t("Exact IP (IPv4 or IPv6)", "精确 IP（IPv4 或 IPv6）")}
-                </Label>
-                <Input
-                  id="filter-name"
-                  name={
-                    dnsRecords
-                      ? "subdomain"
-                      : rootDomains
-                        ? "root_domain"
-                        : "ip"
-                  }
-                  maxLength={singleDomain ? 1024 : undefined}
-                  defaultValue={
-                    (dnsRecords
-                      ? search.external_subdomain
-                      : rootDomains
-                        ? search.external_root_domain
-                        : search.external_ip) ?? ""
-                  }
-                />
-              </div>
-              <div className="min-w-0 space-y-1">
-                <Label htmlFor="filter-status">
-                  {t("Local source-status filter", "本地源状态筛选")}
-                </Label>
-                <Input
-                  id="filter-status"
-                  name="status"
-                  defaultValue={search.external_status ?? ""}
-                />
-              </div>
+              {(addressDomain ||
+                rootDomains ||
+                dnsRecords ||
+                textDomains.has(domain)) && (
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="filter-name">
+                    {textDomains.has(domain)
+                      ? t("Text contains (local text)", "文本包含（本地文本）")
+                      : dnsRecords
+                        ? t(
+                            "Subdomain contains (local text)",
+                            "子域名包含（本地文本）",
+                          )
+                        : rootDomains
+                          ? t(
+                              "Root domain contains (local text)",
+                              "主域名包含（本地文本）",
+                            )
+                          : t(
+                              "Exact IP (IPv4 or IPv6)",
+                              "精确 IP（IPv4 或 IPv6）",
+                            )}
+                  </Label>
+                  <Input
+                    id="filter-name"
+                    name={
+                      textDomains.has(domain)
+                        ? "q"
+                        : dnsRecords
+                          ? "subdomain"
+                          : rootDomains
+                            ? "root_domain"
+                            : "ip"
+                    }
+                    defaultValue={
+                      (textDomains.has(domain)
+                        ? search.external_q
+                        : dnsRecords
+                          ? search.external_subdomain
+                          : rootDomains
+                            ? search.external_root_domain
+                            : search.external_ip) ?? ""
+                    }
+                    aria-invalid={invalidIpFilter ? true : undefined}
+                  />
+                </div>
+              )}
+              {domain === "cert" && (
+                <div className="space-y-1">
+                  <Label htmlFor="filter-sha">
+                    {t("SHA-256 exact", "SHA-256 精确匹配")}
+                  </Label>
+                  <Input
+                    id="filter-sha"
+                    name="sha256"
+                    defaultValue={search.external_sha256 ?? ""}
+                  />
+                </div>
+              )}
+              {domain === "seed_icon" && (
+                <>
+                  <div className="space-y-1">
+                    <Label htmlFor="filter-md5">
+                      {t("MD5 exact", "MD5 精确匹配")}
+                    </Label>
+                    <Input
+                      id="filter-md5"
+                      name="md5_value"
+                      defaultValue={search.external_md5_value ?? ""}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="filter-mmh3">
+                      {t("MMH3 exact", "MMH3 精确匹配")}
+                    </Label>
+                    <Input
+                      id="filter-mmh3"
+                      name="mmh3_value"
+                      defaultValue={search.external_mmh3_value ?? ""}
+                    />
+                  </div>
+                </>
+              )}
+              {nameSeed.has(domain) && (
+                <>
+                  <div className="space-y-1">
+                    <Label htmlFor="filter-enabled">
+                      {t("Source enabled", "来源启用")}
+                    </Label>
+                    <select
+                      id="filter-enabled"
+                      name="seed_enabled"
+                      className={selectClass}
+                      defaultValue={
+                        search.external_seed_enabled === undefined
+                          ? ""
+                          : String(search.external_seed_enabled)
+                      }
+                    >
+                      <option value="">{t("Any", "不限")}</option>
+                      <option value="true">{t("True", "是")}</option>
+                      <option value="false">{t("False", "否")}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="filter-confidence">
+                      {t("Source confidence", "来源置信度")}
+                    </Label>
+                    <Input
+                      id="filter-confidence"
+                      name="confidence"
+                      defaultValue={search.external_confidence ?? ""}
+                    />
+                  </div>
+                  {typedSeed.has(domain) && (
+                    <div className="space-y-1">
+                      <Label htmlFor="filter-type">
+                        {t("Source type", "来源类型")}
+                      </Label>
+                      <Input
+                        id="filter-type"
+                        name="seed_type"
+                        defaultValue={search.external_seed_type ?? ""}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+              {hasSourceStatus && (
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="filter-status">
+                    {t("Local source-status filter", "本地源状态筛选")}
+                  </Label>
+                  <Input
+                    id="filter-status"
+                    name="status"
+                    defaultValue={search.external_status ?? ""}
+                  />
+                </div>
+              )}
               <Button type="submit">
                 {t("Filter local records", "筛选本地记录")}
               </Button>
@@ -2156,6 +3051,13 @@ function SourceAssets({
                     external_root_domain: undefined,
                     external_subdomain: undefined,
                     external_status: undefined,
+                    external_q: undefined,
+                    external_sha256: undefined,
+                    external_md5_value: undefined,
+                    external_mmh3_value: undefined,
+                    external_seed_enabled: undefined,
+                    external_confidence: undefined,
+                    external_seed_type: undefined,
                     external_page: 0,
                   })
                 }
@@ -2178,10 +3080,15 @@ function SourceAssets({
             )}
             {!expired && records.isError && (
               <p role="alert">
-                {t(
-                  "Local records could not be read. Cached results are not used.",
-                  "无法读取本地记录，不使用缓存结果。",
-                )}
+                {invalidIpFilter
+                  ? t(
+                      "The IP format is invalid. Enter one exact IPv4 or IPv6 address; CIDR ranges and partial values are not accepted.",
+                      "IP 格式无效。请输入一个精确 IPv4 或 IPv6 地址；不接受 CIDR 范围或部分值。",
+                    )
+                  : t(
+                      "Local records could not be read. Cached results are not used.",
+                      "无法读取本地记录，不使用缓存结果。",
+                    )}
               </p>
             )}
             {recordData?.state === "NOT_SYNCED" && (
@@ -2200,11 +3107,10 @@ function SourceAssets({
                       {source.instance_id} / {source.space_id}
                     </span>
                     <span>
-                      {domain === "port"
-                        ? t("Source-default scope", "来源默认范围")
-                        : domain === "dns"
-                          ? "flat=1 · status=valid"
-                          : "status=valid"}
+                      {Object.entries(recordData.version.filter)
+                        .map(([key, value]) => `${key}=${String(value)}`)
+                        .join(" · ") ||
+                        t("Source-default scope", "来源默认范围")}
                     </span>
                     <span>
                       {recordData.version.complete
@@ -2235,6 +3141,15 @@ function SourceAssets({
                       {t("More scopes / versions", "更多范围 / 版本")}
                     </Button>
                   </div>
+                  {recordData.version.omitted_field_count != null &&
+                    recordData.version.omitted_field_count > 0 && (
+                      <p className="text-muted-foreground">
+                        {t(
+                          `Fields outside this contract were not saved (occurrences: ${recordData.version.omitted_field_count}). See the fixed version for coverage details.`,
+                          `未保存的合同外字段出现次数：${recordData.version.omitted_field_count}。字段覆盖范围见固定版本详情。`,
+                        )}
+                      </p>
+                    )}
                   <details>
                     <summary className="cursor-pointer text-muted-foreground">
                       {t(
@@ -2254,10 +3169,15 @@ function SourceAssets({
                           "Published complete empty version for the requested range.",
                           "此请求范围已发布完整空版本。",
                         )
-                      : t(
-                          "No records match these local filters or page.",
-                          "当前本地筛选或页码无匹配记录。",
-                        )}
+                      : !recordData.version.complete
+                        ? t(
+                            "No records match this partial local batch or page. This does not show that the upstream source has no record.",
+                            "当前部分本地批次或页码没有匹配记录；这不表示上游来源没有该记录。",
+                          )
+                        : t(
+                            "No records match these local filters or page.",
+                            "当前本地筛选或页码无匹配记录。",
+                          )}
                   </p>
                 )}
                 <ResultPagination
@@ -2681,20 +3601,25 @@ function SourceAssets({
                         {t("Manual synchronization", "手动同步")}
                       </h2>
                       <p className="text-sm text-muted-foreground">
-                        {dnsRecords
+                        {structuredFields[domain]
                           ? t(
-                              "Explicit authorization required: DNS records only, flat=1, status=valid, sort=-id. Read serially from page 1; capacity = min(maximum pages, floor(maximum records / page size)), with at least one page. Normal quota completion publishes a partial batch. Anomalies stop calls; no retries, continuation, parsing, asset linking, or other-domain reads. Retention applies only to this new read.",
-                              "需显式授权：仅 DNS 记录，flat=1、status=valid、sort=-id。从第 1 页串行读取；容量 = min(最大页数, floor(最大记录数 / 每页条数))，至少一页。正常到额发布部分批次；异常停止，不重试、不续拉、不解析、不关联资产、不读取其他域。保留截止仅适用于本次新增读取。",
+                              `Explicit authorization required: ${domainTitle(domain, t)} only; ${domain.startsWith("seed_") ? "enable=true" : domain === "openport" ? "source-default scope; no status filter" : domain === "dir" ? "flat=1, status=valid" : "status=valid"}; sort=-id. Read serially from page 1. Capacity = min(maximum pages, floor(maximum records / page size)), reserved for this one type, with at least one page. Normal quota completion publishes a partial batch. Anomalies stop calls; no retries, continuation or other-type reads. Retention applies only to this new read.`,
+                              `需显式授权：仅${domainTitle(domain, t)}；${domain.startsWith("seed_") ? "enable=true" : domain === "openport" ? "来源默认范围，不添加状态过滤" : domain === "dir" ? "flat=1、status=valid" : "status=valid"}；sort=-id。从第 1 页串行读取。容量 = min(最大页数, floor(最大记录数 / 每页条数))，全部留给该类型，至少一页。正常到额发布部分批次；异常停止，不重试、不续拉、不读取其他类型。保留截止仅适用于本次新增读取。`,
                             )
-                          : rootDomains
+                          : dnsRecords
                             ? t(
-                                "Explicit authorization required: root domains only, status=valid, sort=-id. Start at page 1 and read serially. Capacity = min(maximum pages, floor(maximum records / page size)), entirely reserved for root domains, with at least one page. Normal quota completion publishes a clearly partial batch; a complete version requires the entire requested range. Any anomaly stops source calls; no retries, continuation, cross-batch merging, or IP/port reads. Retention applies only to this new read.",
-                                "需显式授权：仅主域名，过滤 status=valid，排序 -id。从第 1 页串行读取。容量 = min(最大页数, floor(最大记录数 / 每页条数))，全部属于主域名且至少一页。正常到额可发布明确标识的部分批次；读完请求范围才是完整版本。异常停止来源调用，不重试、不续拉、不跨批次合并、不读取 IP 或端口；保留截止仅适用于本次新增读取。",
+                                "Explicit authorization required: DNS records only, flat=1, status=valid, sort=-id. Read serially from page 1; capacity = min(maximum pages, floor(maximum records / page size)), with at least one page. Normal quota completion publishes a partial batch. Anomalies stop calls; no retries, continuation, parsing, asset linking, or other-domain reads. Retention applies only to this new read.",
+                                "需显式授权：仅 DNS 记录，flat=1、status=valid、sort=-id。从第 1 页串行读取；容量 = min(最大页数, floor(最大记录数 / 每页条数))，至少一页。正常到额发布部分批次；异常停止，不重试、不续拉、不解析、不关联资产、不读取其他域。保留截止仅适用于本次新增读取。",
                               )
-                            : t(
-                                "Explicit authorization required: IP status=valid; ports use source-default filtering; sort=-id. Both domains start at page 1, alternate serially, and reserve at least one page each. Capacity = min(maximum pages, floor(maximum records / page size)); IP gets the rounded-up half and ports the rounded-down half, with no borrowing. Normal quota completion publishes a clearly partial batch. Any anomaly stops further source calls; no automatic retries or cross-batch merging. Retention applies only to this new read.",
-                                "需显式授权：IP 过滤 status=valid；端口采用来源默认过滤；排序 -id。两域均从第 1 页串行轮转，各预留至少一页。容量 = min(最大页数, floor(最大记录数 / 每页条数))；IP 取上半数、端口取下半数，余量不借用。正常达到配额可发布明确标识的部分批次。异常立即停止后续来源调用，不自动重试、不跨批次合并；保留截止仅适用于本次新增读取。",
-                              )}
+                            : rootDomains
+                              ? t(
+                                  "Explicit authorization required: root domains only, status=valid, sort=-id. Start at page 1 and read serially. Capacity = min(maximum pages, floor(maximum records / page size)), entirely reserved for root domains, with at least one page. Normal quota completion publishes a clearly partial batch; a complete version requires the entire requested range. Any anomaly stops source calls; no retries, continuation, cross-batch merging, or IP/port reads. Retention applies only to this new read.",
+                                  "需显式授权：仅主域名，过滤 status=valid，排序 -id。从第 1 页串行读取。容量 = min(最大页数, floor(最大记录数 / 每页条数))，全部属于主域名且至少一页。正常到额可发布明确标识的部分批次；读完请求范围才是完整版本。异常停止来源调用，不重试、不续拉、不跨批次合并、不读取 IP 或端口；保留截止仅适用于本次新增读取。",
+                                )
+                              : t(
+                                  "Explicit authorization required: IP status=valid; ports use source-default filtering; sort=-id. Both domains start at page 1, alternate serially, and reserve at least one page each. Capacity = min(maximum pages, floor(maximum records / page size)); IP gets the rounded-up half and ports the rounded-down half, with no borrowing. Normal quota completion publishes a clearly partial batch. Any anomaly stops further source calls; no automatic retries or cross-batch merging. Retention applies only to this new read.",
+                                  "需显式授权：IP 过滤 status=valid；端口采用来源默认过滤；排序 -id。两域均从第 1 页串行轮转，各预留至少一页。容量 = min(最大页数, floor(最大记录数 / 每页条数))；IP 取上半数、端口取下半数，余量不借用。正常达到配额可发布明确标识的部分批次。异常立即停止后续来源调用，不自动重试、不跨批次合并；保留截止仅适用于本次新增读取。",
+                                )}
                       </p>
                       {!canManage && (
                         <p>

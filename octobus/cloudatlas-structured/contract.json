@@ -1,0 +1,1133 @@
+{
+  "schema": "exposure-agent.cloudatlas-structured-contract.v1",
+  "source_commit": "857ae38973b9c7886fc088a4065e3694202b7982",
+  "source_sha256": "4bce5d8165f7ddfd992558d4d74b707f806881f0ed951a76c65a9cbcc8e1f5bd",
+  "domains": {
+    "subdomain": {
+      "profile": "subdomain-v1",
+      "source_type": "cloudatlas_subdomain",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListSubdomains",
+      "path": "/v1/asset/subdomain",
+      "filters": {
+        "status": "valid"
+      },
+      "text_fields": [
+        "subdomain"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "lastseen_at": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "source_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "subdomain": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "subdomain",
+          "source_name",
+          "reason",
+          "status",
+          "created_at",
+          "lastseen_at"
+        ]
+      }
+    },
+    "cert": {
+      "profile": "cert-v1",
+      "source_type": "cloudatlas_cert",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListCertificates",
+      "path": "/v1/asset/cert",
+      "filters": {
+        "status": "valid"
+      },
+      "text_fields": [
+        "cn_name"
+      ],
+      "exact_fields": [
+        "sha256"
+      ],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "cn_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "email_name": {
+            "type": "string"
+          },
+          "end_date": {
+            "type": "string"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "lastseen_at": {
+            "type": "string"
+          },
+          "md5": {
+            "type": "string"
+          },
+          "o_name": {
+            "type": "string"
+          },
+          "ou_name": {
+            "type": "string"
+          },
+          "serial_number": {
+            "type": "string"
+          },
+          "sha1": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "factor": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source",
+                "reason",
+                "factor"
+              ]
+            }
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "trusted": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sha256",
+          "start_date",
+          "end_date",
+          "cn_name",
+          "o_name",
+          "ou_name",
+          "email_name",
+          "subject",
+          "issuer",
+          "serial_number",
+          "sha1",
+          "md5",
+          "trusted",
+          "sources",
+          "status",
+          "created_at",
+          "updated_at",
+          "lastseen_at"
+        ]
+      }
+    },
+    "openport": {
+      "profile": "openport-v1",
+      "source_type": "cloudatlas_openport",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListOpenPorts",
+      "path": "/v1/attack/openport",
+      "filters": {},
+      "text_fields": [],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "lastseen_at": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ip",
+          "port",
+          "protocol",
+          "created_at",
+          "updated_at",
+          "lastseen_at"
+        ]
+      }
+    },
+    "web": {
+      "profile": "web-v1",
+      "source_type": "cloudatlas_web",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListWebsites",
+      "path": "/v1/attack/web",
+      "filters": {
+        "status": "valid"
+      },
+      "text_fields": [
+        "url",
+        "hostname"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "bu": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "identity"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "entity": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "lastseen_at": {
+            "type": "string"
+          },
+          "netloc": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "pk": {
+                  "type": "identity"
+                }
+              },
+              "required": [
+                "pk",
+                "name"
+              ]
+            }
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "netloc",
+          "hostname",
+          "entity",
+          "tags",
+          "ip",
+          "updated_at",
+          "port",
+          "lastseen_at",
+          "bu",
+          "url",
+          "status",
+          "scheme"
+        ]
+      }
+    },
+    "dir": {
+      "profile": "dir-v1",
+      "source_type": "cloudatlas_dir",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListWebPaths",
+      "path": "/v1/attack/dir",
+      "filters": {
+        "status": "valid",
+        "flat": "1"
+      },
+      "text_fields": [
+        "url",
+        "path",
+        "title",
+        "render_title"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "cpe": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "lastseen_at": {
+                  "type": "string"
+                },
+                "product_name": {
+                  "type": "string"
+                },
+                "product_uuid": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                },
+                "vendor_name": {
+                  "type": "string"
+                },
+                "vendor_uuid": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "product_uuid",
+                "vendor_uuid",
+                "product_name",
+                "vendor_name",
+                "cpe",
+                "version",
+                "created_at",
+                "updated_at",
+                "lastseen_at"
+              ]
+            }
+          },
+          "body_md5_hash": {
+            "type": "string"
+          },
+          "bu": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "identity"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "content_length": {
+            "type": "integer"
+          },
+          "content_lines": {
+            "type": "integer"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "content_words": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "icon_md5_hash": {
+            "type": "string",
+            "nullable": true
+          },
+          "icon_mmh3_hash": {
+            "type": "string",
+            "nullable": true
+          },
+          "icon_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "identity"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "ip_info": {
+            "type": "object",
+            "properties": {
+              "as_name": {
+                "type": "string"
+              },
+              "as_num": {
+                "type": "string"
+              },
+              "city": {
+                "type": "string"
+              },
+              "country": {
+                "type": "string"
+              },
+              "ip": {
+                "type": "string"
+              },
+              "location": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              },
+              "province": {
+                "type": "string"
+              },
+              "subnet": {
+                "type": "string",
+                "nullable": true
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": []
+          },
+          "isadmin": {
+            "type": "boolean"
+          },
+          "lastseen_at": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "location": {
+            "type": "string"
+          },
+          "netloc": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "render_title": {
+            "type": "string",
+            "nullable": true
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "screenshot_link": {
+            "type": "string",
+            "nullable": true
+          },
+          "server": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "status_code": {
+            "type": "integer"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "pk": {
+                  "type": "identity"
+                }
+              },
+              "required": [
+                "pk",
+                "name"
+              ]
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "x_powered_by": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "scheme",
+          "netloc",
+          "hostname",
+          "port",
+          "ip",
+          "ip_info",
+          "url",
+          "bu",
+          "tags",
+          "apps",
+          "path",
+          "level",
+          "status_code",
+          "title",
+          "render_title",
+          "server",
+          "x_powered_by",
+          "screenshot_link",
+          "location",
+          "content_type",
+          "content_lines",
+          "content_words",
+          "content_length",
+          "body_md5_hash",
+          "icon_url",
+          "icon_mmh3_hash",
+          "icon_md5_hash",
+          "isadmin",
+          "created_at",
+          "updated_at",
+          "lastseen_at"
+        ]
+      }
+    },
+    "appfinger": {
+      "profile": "appfinger-v1",
+      "source_type": "cloudatlas_appfinger",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListWebFingerprints",
+      "path": "/v1/attack/appfinger",
+      "filters": {
+        "status": "valid"
+      },
+      "text_fields": [
+        "url",
+        "product_name",
+        "vendor",
+        "version",
+        "cpe"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "bu": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "identity"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ]
+          },
+          "cpe": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "lastseen_at": {
+            "type": "string"
+          },
+          "netloc": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "product_name": {
+            "type": "string"
+          },
+          "product_uuid": {
+            "type": "string"
+          },
+          "scheme": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "pk": {
+                  "type": "identity"
+                }
+              },
+              "required": [
+                "pk",
+                "name"
+              ]
+            }
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "vendor": {
+            "type": "string"
+          },
+          "vendor_uuid": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "scheme",
+          "hostname",
+          "netloc",
+          "path",
+          "port",
+          "product_name",
+          "product_uuid",
+          "vendor",
+          "vendor_uuid",
+          "version",
+          "cpe",
+          "bu",
+          "tags",
+          "status",
+          "created_at",
+          "updated_at",
+          "lastseen_at"
+        ]
+      }
+    },
+    "crawler": {
+      "profile": "crawler-v1",
+      "source_type": "cloudatlas_crawler",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListCrawlerRecords",
+      "path": "/v1/attack/crawler",
+      "filters": {
+        "status": "valid"
+      },
+      "text_fields": [
+        "target",
+        "hostname",
+        "uri",
+        "path"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [
+        "headers",
+        "data"
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "lastseen_at": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "request_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "uri": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    "seed_enterprise": {
+      "profile": "seed-enterprise-v1",
+      "source_type": "cloudatlas_seed_enterprise",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListEnterpriseSeeds",
+      "path": "/v1/seed/enterprise",
+      "filters": {
+        "enable": "true"
+      },
+      "text_fields": [
+        "name"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "60",
+              "100"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "equity": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "investment_path": {
+            "type": "string"
+          },
+          "is_history": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "confidence",
+          "name",
+          "created_at",
+          "updated_at",
+          "equity",
+          "investment_path",
+          "is_history",
+          "enable"
+        ]
+      }
+    },
+    "seed_keyword": {
+      "profile": "seed-keyword-v1",
+      "source_type": "cloudatlas_seed_keyword",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListKeywordSeeds",
+      "path": "/v1/seed/keyword",
+      "filters": {
+        "enable": "true"
+      },
+      "text_fields": [
+        "name"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "60",
+              "100"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "品牌标识",
+              "业务系统"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    "seed_domain": {
+      "profile": "seed-domain-v1",
+      "source_type": "cloudatlas_seed_domain",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListDomainSeeds",
+      "path": "/v1/seed/domain",
+      "filters": {
+        "enable": "true"
+      },
+      "text_fields": [
+        "name"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "confidence": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "NS",
+              "MX",
+              "注册邮箱"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    "seed_email": {
+      "profile": "seed-email-v1",
+      "source_type": "cloudatlas_seed_email",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListEmailDomainSeeds",
+      "path": "/v1/seed/email-domain",
+      "filters": {
+        "enable": "true"
+      },
+      "text_fields": [
+        "name"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "60",
+              "100"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    "seed_cert": {
+      "profile": "seed-cert-v1",
+      "source_type": "cloudatlas_seed_cert",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListCertificateSeeds",
+      "path": "/v1/seed/cert",
+      "filters": {
+        "enable": "true"
+      },
+      "text_fields": [
+        "name"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "confidence": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "O",
+              "OU"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    "seed_icon": {
+      "profile": "seed-icon-v1",
+      "source_type": "cloudatlas_seed_icon",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListIconSeeds",
+      "path": "/v1/seed/icon",
+      "filters": {
+        "enable": "true"
+      },
+      "text_fields": [],
+      "exact_fields": [
+        "md5_value",
+        "mmh3_value"
+      ],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "confidence": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "icon_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "id": {
+            "type": "identity"
+          },
+          "md5_value": {
+            "type": "string",
+            "nullable": true
+          },
+          "mmh3_value": {
+            "type": "string",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    "seed_title": {
+      "profile": "seed-title-v1",
+      "source_type": "cloudatlas_seed_title",
+      "method": "cloudatlas.structured.v1.CloudAtlasStructuredService/ListWebTitleSeeds",
+      "path": "/v1/seed/web-title",
+      "filters": {
+        "enable": "true"
+      },
+      "text_fields": [
+        "name"
+      ],
+      "exact_fields": [],
+      "omitted_fields": [],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "confidence": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "identity"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "full",
+              "like"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    }
+  },
+  "shape_evidence": "E15: 2026-10-03 bounded type-only diagnostics; raw values are not retained"
+}
