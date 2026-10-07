@@ -17,3 +17,6 @@ WORKDIR /app/frontend
 RUN bun install --frozen-lockfile --network-concurrency=1
 
 COPY ./frontend /app/frontend
+
+# Browser tests consume the same structured contract as the backend.
+COPY ./backend/app/domain/cloudatlas_structured.schema.json /app/backend/app/domain/cloudatlas_structured.schema.json
