@@ -194,10 +194,7 @@ function NetflowCorrelationRoute() {
   const { user } = useAuth()
   const { t } = useI18n()
   useEffect(() => {
-    document.title = t(
-      "NetFlow source correlation - Exposure",
-      "NetFlow 来源关联 - Exposure",
-    )
+    document.title = t("Source comparison - Exposure", "来源比对 - Exposure")
   }, [t])
   return user ? (
     <NetflowCorrelation

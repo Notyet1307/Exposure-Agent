@@ -1,5 +1,6 @@
 import type { FindingDetailPublic, ManualReviewPublic } from "../src/client"
 import { expect, test } from "./fixtures"
+import { clickHistoricalLink, openLegacyAssets } from "./utils/legacy-assets"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
 const resourceId = "80000000-0000-0000-0000-000000000001"
@@ -493,9 +494,7 @@ test.describe("Project result views", () => {
         })
       },
     )
-    await page
-      .getByRole("link", { name: "Current assets", exact: true })
-      .click()
+    await openLegacyAssets(page)
     await page.getByRole("button", { name: "View details" }).click()
     const panel = page.getByRole("region", {
       name: "Manual review",
@@ -589,7 +588,7 @@ test.describe("Project result views", () => {
       .getByLabel("Manual conclusion", { exact: true })
       .fill("Do not leak this asset draft")
     await page.getByRole("button", { name: "Close", exact: true }).click()
-    await page.getByRole("link", { name: "Findings", exact: true }).click()
+    await clickHistoricalLink(page, "Findings")
     await page.getByRole("button", { name: "View details" }).click()
     await expect(
       panel.getByLabel("Manual conclusion", { exact: true }),
@@ -694,9 +693,7 @@ test.describe("Project result views", () => {
         })
       },
     )
-    await page
-      .getByRole("link", { name: "Current assets", exact: true })
-      .click()
+    await openLegacyAssets(page)
     await page.getByRole("button", { name: "View details" }).click()
     const panel = page.getByRole("region", {
       name: "Manual review",
@@ -793,9 +790,7 @@ test.describe("Project result views", () => {
         return route.fulfill({ json: path.endsWith(child.id) ? child : parent })
       },
     )
-    await page
-      .getByRole("link", { name: "Current assets", exact: true })
-      .click()
+    await openLegacyAssets(page)
     await page.getByRole("button", { name: "View details" }).click()
     const panel = page.getByRole("region", { name: "AI investigation" })
     for (const question of [
@@ -883,9 +878,7 @@ test.describe("Project result views", () => {
         })
       },
     )
-    await page
-      .getByRole("link", { name: "Current assets", exact: true })
-      .click()
+    await openLegacyAssets(page)
     await page.getByRole("button", { name: "View details" }).click()
     const panel = page.getByRole("region", { name: "AI investigation" })
     await panel.getByLabel("Follow-up question").fill(question)
@@ -1053,9 +1046,7 @@ test.describe("Project result views", () => {
         })
       },
     )
-    await page
-      .getByRole("link", { name: "Current assets", exact: true })
-      .click()
+    await openLegacyAssets(page)
     await page.getByRole("button", { name: "View details" }).click()
     const panel = page.getByRole("region", { name: "AI investigation" })
     await expect(panel).toContainText("Live and historical evidence differ.")
@@ -1167,9 +1158,7 @@ test.describe("Project result views", () => {
   test("uses paginated Assets and Findings views with bounded source details", async ({
     page,
   }) => {
-    await page
-      .getByRole("link", { name: "Current assets", exact: true })
-      .click()
+    await openLegacyAssets(page)
     await expect(page.getByText("IP Assets")).toBeVisible()
     await expect(page.getByText("192.0.2.10", { exact: true })).toBeVisible()
     await expect(page.getByText("Present", { exact: true })).toHaveCount(2)
@@ -1208,7 +1197,7 @@ test.describe("Project result views", () => {
     ).toBeVisible()
     await page.getByRole("button", { name: "Close" }).click()
 
-    await page.getByRole("link", { name: "Findings", exact: true }).click()
+    await clickHistoricalLink(page, "Findings")
     await expect(
       page.getByRole("table").getByText("OPEN", { exact: true }),
     ).toBeVisible()
@@ -1268,9 +1257,7 @@ test.describe("Project result views", () => {
         })
       },
     )
-    await page
-      .getByRole("link", { name: "Current assets", exact: true })
-      .click()
+    await openLegacyAssets(page)
     await page.getByRole("button", { name: "View details" }).click()
     await page.getByRole("button", { name: "Investigate this asset" }).click()
     await expect(page.getByText("Start not yet confirmed")).toBeVisible()
@@ -1458,7 +1445,7 @@ test.describe("Project result views", () => {
         })
       },
     )
-    await page.getByRole("link", { name: "Findings", exact: true }).click()
+    await clickHistoricalLink(page, "Findings")
     await page.getByRole("button", { name: "View details" }).click()
     const panel = page.getByRole("region", { name: "AI investigation" })
     await expect(panel).toContainText("Customer-side observation is present.")
@@ -1535,9 +1522,7 @@ test.describe("Project result views", () => {
           },
         }),
     )
-    await page
-      .getByRole("link", { name: "Current assets", exact: true })
-      .click()
+    await openLegacyAssets(page)
     await expect(
       page.getByText("Stage 4 results are not available yet"),
     ).toBeVisible()
@@ -1556,7 +1541,7 @@ test.describe("Finding NetFlow context presentation", () => {
     await installBaseMocks(page)
     await installResultMocks(page)
     await page.goto("/")
-    await page.getByRole("link", { name: "Findings", exact: true }).click()
+    await clickHistoricalLink(page, "Findings")
   })
 
   for (const scenario of [

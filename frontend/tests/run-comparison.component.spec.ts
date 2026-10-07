@@ -8,6 +8,7 @@ import type {
 } from "../src/client"
 import { expect, type Page, type Route, test } from "./fixtures"
 import { feedback, recordFeedback } from "./utils/interaction-feedback"
+import { clickHistoricalLink } from "./utils/legacy-assets"
 
 const projectId = "00000000-0000-0000-0000-000000000001"
 const otherProjectId = "00000000-0000-0000-0000-000000000002"
@@ -729,7 +730,7 @@ for (const targetProject of [projectId, otherProjectId]) {
     await page.goto(`${comparisonPath()}?view=runs`)
     await expect(page.getByRole("status")).toContainText(/loading/i)
     await expect.poll(() => pending).toBe(2)
-    await page.getByRole("link", { name: "Runs", exact: true }).click()
+    await clickHistoricalLink(page, "Runs")
     if (targetProject !== projectId) {
       await page
         .getByRole("combobox", { name: "Project", exact: true })

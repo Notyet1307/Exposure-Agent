@@ -1167,9 +1167,12 @@ export default function NetflowCorrelation({
       : new Error("fixed_analysis_identity_mismatch")
   const explicitFeedbackMismatch =
     Boolean(search.feedbackRevision) &&
+    feedbackValidation.isSuccess &&
     (!feedbackValidation.data ||
       !matchesAnalysisIdentity(feedbackValidation.data) ||
       feedbackValidation.data.feedback_revision_id !== search.feedbackRevision)
+  const explicitFeedbackError =
+    readErrors["feedback-validation"] ?? feedbackValidation.error
   const identityReady = Boolean(
     (!search.dataset && !search.analysis && namespace.trim()) ||
       (selectedContext &&
@@ -1420,17 +1423,6 @@ export default function NetflowCorrelation({
         </p>
       </section>
     )
-  if (explicitFeedbackMismatch && !feedbackValidation.isLoading)
-    return (
-      <section className="space-y-3">
-        <p role="alert" className="text-sm text-destructive">
-          {t(
-            "The explicit feedback revision does not belong to this fixed Analysis.",
-            "明确反馈修订不属于当前固定 Analysis。",
-          )}
-        </p>
-      </section>
-    )
   if (accessError)
     return (
       <section className="space-y-3">
@@ -1458,6 +1450,62 @@ export default function NetflowCorrelation({
             {t("Choose fixed inputs", "选择固定输入")}
           </Button>
         )}
+      </section>
+    )
+  if (search.feedbackRevision && explicitFeedbackError)
+    return (
+      <section className="space-y-3">
+        <ErrorNotice error={explicitFeedbackError} />
+        {!(
+          explicitFeedbackError instanceof ApiError &&
+          [401, 403, 404, 410].includes(explicitFeedbackError.status)
+        ) && (
+          <Button
+            variant="outline"
+            disabled={feedbackValidation.isFetching}
+            onClick={() => void feedbackValidation.refetch()}
+          >
+            {t("Retry reading feedback", "重新读取反馈修订")}
+          </Button>
+        )}
+      </section>
+    )
+  if (explicitFeedbackMismatch)
+    return (
+      <section className="space-y-3">
+        <p role="alert" className="text-sm text-destructive">
+          {t(
+            "The explicit feedback revision does not belong to this fixed Analysis.",
+            "明确反馈修订不属于当前固定 Analysis。",
+          )}
+        </p>
+      </section>
+    )
+  if (search.feedbackRevision && revisionIdentity && !selectedAnalysisId)
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        {t(
+          "This fixed comparison has no NetFlow Analysis to verify the selected feedback revision.",
+          "该固定比对没有 NetFlow Analysis，无法核验指定的反馈修订。",
+        )}
+      </p>
+    )
+  if (
+    search.feedbackRevision &&
+    (revisionIdentity || independentAnalysis) &&
+    !feedbackValidation.isSuccess
+  )
+    return (
+      <section
+        className="space-y-3 rounded-md border p-4"
+        aria-label={t("Comparison results", "比对结果")}
+      >
+        <h2 className="text-xl font-semibold">
+          {t("Comparison results", "比对结果")}
+        </h2>
+        <p role="status" className="text-sm">
+          {t("Verifying the fixed feedback revision…", "正在核验固定反馈修订…")}
+        </p>
       </section>
     )
   const change = (patch: Partial<NetflowCorrelationSearch>, reset = false) =>
@@ -1516,9 +1564,9 @@ export default function NetflowCorrelation({
           </a>
           <a
             className="underline"
-            href={`/projects/${projectId}/netflow-ledger`}
+            href={`/projects/${projectId}/netflow-results${selectedAnalysisId ? `?analysis=${encodeURIComponent(selectedAnalysisId)}` : ""}`}
           >
-            {t("Legacy NetFlow ledger", "旧 NetFlow 活动账")}
+            {t("View flow observations", "查看流量观测")}
           </a>
           <a
             className="underline"
@@ -1535,6 +1583,53 @@ export default function NetflowCorrelation({
           />
         </div>
       </header>
+      {search.revision && !revisionIdentity && !identityError && (
+        <section
+          className="space-y-3 rounded-md border p-4"
+          aria-label={t("Comparison results", "比对结果")}
+        >
+          <h2 className="text-xl font-semibold">
+            {t("Comparison results", "比对结果")}
+          </h2>
+          {summary.isError ? (
+            <>
+              <p role="alert" className="text-sm text-destructive">
+                {t(
+                  "This saved comparison could not be loaded. Retry the read or inspect the error details.",
+                  "本次已保存的比对结果读取失败。可重新读取，或展开查看错误详情。",
+                )}
+              </p>
+              <details className="text-sm">
+                <summary className="cursor-pointer">
+                  {t("Read error details", "读取错误详情")}
+                </summary>
+                <ErrorNotice error={summary.error} />
+              </details>
+              <Button
+                variant="outline"
+                disabled={summary.isFetching}
+                onClick={() => void summary.refetch()}
+              >
+                {t("Retry loading comparison", "重新读取比对结果")}
+              </Button>
+            </>
+          ) : summary.isSuccess ? (
+            <p role="alert" className="text-sm text-destructive">
+              {t(
+                "The explicit correlation revision is unavailable; no latest fallback was used.",
+                "明确关联修订不可读；未回退到 latest。",
+              )}
+            </p>
+          ) : (
+            <p role="status" className="text-sm">
+              {t(
+                "Loading this saved comparison. Confirmed IP facts will appear after its fixed inputs are verified.",
+                "正在读取这次已保存的比对结果，核验固定资料后将显示确定的 IP 事实。",
+              )}
+            </p>
+          )}
+        </section>
+      )}
       {(revisionIdentity || independentAnalysis) && (
         <>
           <nav
@@ -1782,15 +1877,6 @@ export default function NetflowCorrelation({
             />
           )}
         </>
-      )}
-      {summary.error && <ErrorNotice error={summary.error} />}
-      {search.revision && summary.isSuccess && !identityMatches && (
-        <p role="alert" className="text-sm text-destructive">
-          {t(
-            "The explicit correlation revision is unavailable; no latest fallback was used.",
-            "明确关联修订不可读；未回退到 latest。",
-          )}
-        </p>
       )}
       <section
         className={search.revision ? "text-sm" : "rounded-md border p-4"}
