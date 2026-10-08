@@ -1,12 +1,12 @@
 # V2 AI 交付任务草稿
 
-状态：本地候选，未发布 Issue。固定 Spec/ADR commit 须在文档正常发布后填入真实 SHA；不得以 HEAD、附件或占位 hash 冒称已批准。维护者已请求完成附件目标，远端建单及规格发布尚需独立许可。现有 #285/#292/#293/#295 已交付，不重新实施；#279/#281/#287 保持其独立归属。
+状态：任务拆分已批准，尚未发布 Issue。固定 Spec/ADR commit 须在文档正常发布后填入真实 SHA；不得以 HEAD、附件或占位 hash 冒称已批准。维护者2026-10-08明确批准候选b307415，已授权仅规格文档push/PR、必需CI/Review后merge及建单，随后本地分阶段实施；业务发布和部署等边界不变。现有 #285/#292/#293/#295 已交付，不重新实施；#279/#281/#287 保持其独立归属。
 
 ## A：EXP-V2-READING-01
 
 标题：V2 首次辅证失败、分域追溯与业务依据阅读。
 
-批准行为：本候选 Spec §2，A-01–04；保留固定 V2 Spec `docs/specs/product-logic-convergence-v2.md@b603b45c853de764e47f99ccd1ed3ba98dec7c7e` 和 ADR-0024，以及旧来源/连接合同。
+批准行为：本Spec §2，A-01–04；保留固定 V2 Spec `docs/specs/product-logic-convergence-v2.md@b603b45c853de764e47f99ccd1ed3ba98dec7c7e` 和 ADR-0024，以及旧来源/连接合同。
 
 范围：F1/F2 先失败复现；最小状态优先级及显式 GET 重试；每域独立固定版本入口与往返上下文；既有业务字段投影/显示；AI设置独立导航和准确状态。A 不依赖模型或 B/C。
 
@@ -20,7 +20,7 @@ Allowed files：`frontend/src/components/CoreComparisonResults.tsx`、Sidebar/�
 
 标题：固定 V2 结果的 AI 解读报告及同报告摘要。
 
-批准行为：本候选 Spec §3–7、B-01–09 与同版 ADR-0025；旧 `asset-governance-release-1.md` 报告、ADR-0015/0017兼容边界保留。Issue 发布时引用真实固定 commit，不在票中重定义合同。
+批准行为：本Spec §3–7、B-01–09 与同版已接受ADR-0025；旧 `asset-governance-release-1.md` 报告、ADR-0015/0017兼容边界保留。Issue 发布时引用真实固定 commit，不在票中重定义合同。
 
 依赖：A 交付；采用 GitHub 原生 blocked_by/sub-issue 表达。无 NetFlow/GovernanceRun 不是前置；#287/Durable/真实模型许可不作为本地 C+A 切片依赖。含辅证 transcript失效无法证明时仅阻断该扩展并记录，不能降级。
 
@@ -34,7 +34,7 @@ Allowed files：现有 AnalysisReport domain/models/routes、Pi integration及�
 
 标题：固定 V2 地址的差异解释。
 
-批准行为：本候选 Spec §1/3/4/7、C-01与同版ADR-0025。原生依赖 B；A/B 的交付不等待 C。
+批准行为：本Spec §1/3/4/7、C-01与同版ADR-0025。原生依赖 B；A/B 的交付不等待 C。
 
 Allowed files：B中相同材料 adapter/请求 subject scope/受限 runner及V2地址详情，相关测试、生成客户端和验证回执；不新增单资产自由工具、历史/实时查询、模型目的地或调度器。
 

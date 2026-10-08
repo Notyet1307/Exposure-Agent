@@ -1,6 +1,6 @@
 # 当前工作
 
-- 2026-10-08 新请求为按维护者附件完成 V2 阅读修复与 AI 解读报告。当前仅接管/候选合同和 F1/F2 先失败核验；[候选回执](v2-ai-interpretation-takeover.md)、[Spec候选](../specs/v2-ai-interpretation.md)、[ADR-0025候选](../adr/0025-v2-ai-report-materials.md) 与 [任务草稿](../plans/v2-ai-interpretation-issues.md) 未批准/未发布正式Issue，不能冒称已接受或继承#292的远端/部署许可。工作树 `exposure-v2-ai` 保留原checkout WIP；后续先完成固定规格和任务衔接，再分A/B/C本地实施。下方保留此前已交付事实。
+- 2026-10-08 V2阅读与AI报告候选b307415已获维护者明确批准：[Spec](../specs/v2-ai-interpretation.md)、[ADR-0025](../adr/0025-v2-ai-report-materials.md)和[A/B/C任务拆分](../plans/v2-ai-interpretation-issues.md)。当前授权规格文档push/PR、必需CI/Review后merge及固定commit建单，随后本地分阶段实施/隔离合成验证/提交；业务源码发布、部署、真实调用和关闭保持独立。工作树`exposure-v2-ai`保护原checkout WIP；[接管/红用例记录](v2-ai-interpretation-takeover.md)保留旧阶段事实。正式Issue待发布，下方保留已交付事实。
 
 - 2026-10-08 产品使用逻辑收敛 [#292](https://github.com/Notyet1307/Exposure-Agent/issues/292) 与客户全量替换 [#285](https://github.com/Notyet1307/Exposure-Agent/issues/285)：维护者后续明确授权合并、部署和关闭。源码 [PR #293](https://github.com/Notyet1307/Exposure-Agent/pull/293) 经必需CI与独立审阅后正常合并为 `6f0d5ea`，8081现有正式实例已完成加密备份、实际恢复/迁移演练、上线与阅读验收，见 [上线回执](product-logic-v2-deployment.md)。固定 V2 Spec/ADR-0024 仍为 `b603b45`；[实施验证](product-logic-v2-validation.md) 与 [阶段 A 接管记录](product-logic-convergence-20261008.md) 保留各阶段事实。正式项目首次V2生成仍要求管理员确认网络空间及可比范围；本次未发起新的来源或模型调用。#287 不纳入；任务状态和关闭以各自GitHub Issue为准。
 

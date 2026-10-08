@@ -1,6 +1,6 @@
 # V2 阅读修复与 AI 解读报告
 
-状态：候选，待维护者批准和 Git 固定版本任务衔接。2026-10-08 的“按照 prompt 完成我们 v2 目标”授权本轮接管、候选合同及必要核验；不将其写成新 ADR 已接受或远端发布许可。输入为维护者提供的 `Exposure_V2_AI_Review_and_Codex_Prompt_20261008.md`；接管基线 `5c46d44a753db4f39479640d7f07e0b3909f85df`。行为以批准后固定的本文件为准，附件和 Issue 不各自维护第二份合同。
+状态：已批准，正式 Issue 待文档发布后固定 commit。维护者于2026-10-08明确回复“批准”，接受候选 `b3074155337546ddf8ee3ad23296d850fee506fa` 的本Spec、ADR-0025和A/B/C任务拆分，授权仅规格文档push/PR、必需CI/Review后merge及引用固定版本建单；随后继续已请求的本地实施、隔离合成验证和分阶段本地提交。业务源码push/PR/merge、部署/生产迁移、真实来源/模型调用、清理和关闭未获本轮许可。输入为维护者提供的 `Exposure_V2_AI_Review_and_Codex_Prompt_20261008.md`；接管基线 `5c46d44a753db4f39479640d7f07e0b3909f85df`。行为以固定的本文件为准，附件和 Issue 不各自维护第二份合同。
 
 ## 1. 目标与阶段
 
@@ -71,7 +71,7 @@ V2 新结构至少含 `summary`、`sections[]`、`claims[]`、`priority_cases[]`
 
 缓存按 actor/project/result/binding/report/revision 分离；注销、切换、403/410、辅证截止清除正文/摘要/打印和本地编辑内容。runner 不复用过期 transcript 中的业务材料；控制面不能暴露原文，无法证明会话材料不再可读则拒绝含辅证生成并记录具体 blocker，不降低 reader 边界。取消/未知/超时按原真实终态表示，不用关浏览器假装后端已取消。已下载文件无法远程收回；打印前说明用途和实际辅证截止，不承诺撤回。
 
-新 [ADR-0025 候选](../adr/0025-v2-ai-report-materials.md) 只扩展受限报告的 V2 subject/材料范围，默认私网目标和现有网络保护不变。本轮验证只在独立 PostgreSQL、文件存储、端口与执行器使用非客户黄金集和本地固定响应 Provider/临时凭据；不调用既有真实模型或来源、不读取现场 Secret、不泛化 ADR-0015 公网例外。真实模型语义单独 NOT_RUN，不能用 fake Provider PASS 代替。
+新 [ADR-0025](../adr/0025-v2-ai-report-materials.md) 只扩展受限报告的 V2 subject/材料范围，默认私网目标和现有网络保护不变。本轮验证只在独立 PostgreSQL、文件存储、端口与执行器使用非客户黄金集和本地固定响应 Provider/临时凭据；不调用既有真实模型或来源、不读取现场 Secret、不泛化 ADR-0015 公网例外。真实模型语义单独 NOT_RUN，不能用 fake Provider PASS 代替。
 
 V2合成许可使用独立的判别manifest项，至少精确绑定 project/subject kind/result ID/core input hash、binding ID/revision/valid_until或明确null、material SHA-256及真实source identities；旧run许可项不能匹配V2，不能用空sources绕过。每次出站/工具/恢复均比较固定许可并重新检查当前读取资格，旧hash仍命中不代表过期材料可读。
 
