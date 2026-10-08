@@ -1,5 +1,7 @@
 # 当前工作
 
+- 2026-10-08 新请求为按维护者附件完成 V2 阅读修复与 AI 解读报告。当前仅接管/候选合同和 F1/F2 先失败核验；[候选回执](v2-ai-interpretation-takeover.md)、[Spec候选](../specs/v2-ai-interpretation.md)、[ADR-0025候选](../adr/0025-v2-ai-report-materials.md) 与 [任务草稿](../plans/v2-ai-interpretation-issues.md) 未批准/未发布正式Issue，不能冒称已接受或继承#292的远端/部署许可。工作树 `exposure-v2-ai` 保留原checkout WIP；后续先完成固定规格和任务衔接，再分A/B/C本地实施。下方保留此前已交付事实。
+
 - 2026-10-08 产品使用逻辑收敛 [#292](https://github.com/Notyet1307/Exposure-Agent/issues/292) 与客户全量替换 [#285](https://github.com/Notyet1307/Exposure-Agent/issues/285)：维护者后续明确授权合并、部署和关闭。源码 [PR #293](https://github.com/Notyet1307/Exposure-Agent/pull/293) 经必需CI与独立审阅后正常合并为 `6f0d5ea`，8081现有正式实例已完成加密备份、实际恢复/迁移演练、上线与阅读验收，见 [上线回执](product-logic-v2-deployment.md)。固定 V2 Spec/ADR-0024 仍为 `b603b45`；[实施验证](product-logic-v2-validation.md) 与 [阶段 A 接管记录](product-logic-convergence-20261008.md) 保留各阶段事实。正式项目首次V2生成仍要求管理员确认网络空间及可比范围；本次未发起新的来源或模型调用。#287 不纳入；任务状态和关闭以各自GitHub Issue为准。
 
 - 当前本地跟进为维护者 2026-10-07 提出的应用导航精简与固定比对刷新问题，分支 `codex/navigation-refresh-fix`，基于 `e8bbdc01b54b28719ddeb707ad7fd20bbb3ad3d3`。范围、复现、验证和发布边界见 [本地候选记录](navigation-refresh-validation.md)。维护者于 2026-10-08 明确授权建单、push/PR、必需 CI 通过后合并及 8081 前端部署；正式跟踪为 [#289](https://github.com/Notyet1307/Exposure-Agent/issues/289)。远端验收状态以该 Issue 为准。
