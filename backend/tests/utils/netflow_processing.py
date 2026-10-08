@@ -93,10 +93,11 @@ def context_request(
     *,
     state: str = "CONFIRMED",
     collection_scope: str | None = None,
+    network_namespace: str = NAMESPACE,
 ) -> dict[str, Any]:
     return {
         "expected_parent_id": parent,
-        "network_namespace": NAMESPACE,
+        "network_namespace": network_namespace,
         "state": state,
         "collection_scope": collection_scope,
         "collection_scope_evidence": "Synthetic fixed collector scope."

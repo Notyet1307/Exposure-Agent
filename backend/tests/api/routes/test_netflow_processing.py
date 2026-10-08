@@ -19,6 +19,7 @@ from sqlmodel import Session
 
 from app.core.config import settings
 from app.domain.models import Artifact, NetFlowDataset
+from app.domain.netflow_common import request_hash
 from app.domain.netflow_models import NetFlowAnalysis, NetFlowContextRevision
 from app.integrations import netflow_processor as processor
 from app.integrations.agent_compose import AgentComposeSessionObservation as Observation
@@ -234,7 +235,9 @@ def test_current_result_uses_confirmed_collection_scope_and_pins_success(
     assert response.status_code == 200, response.text
     current = response.json()
     assert response.headers["Cache-Control"] == "private, no-store"
-    assert current["scope_id"] == "synthetic-nf273:branch-edge-a"
+    assert current["scope_id"] == request_hash(
+        ["synthetic-nf273", "declared", "branch-edge-a"]
+    )
     assert current["current"]["analysis_id"] == queued["analysis_id"]
     assert current["latest_attempt"]["analysis_id"] == queued["analysis_id"]
 
@@ -396,6 +399,75 @@ def test_current_result_prefers_newer_successful_empty_scope_member(
     current = response.json()["current"]
     assert current["analysis_id"] == empty["analysis_id"]
     assert current["result"]["counts"]["valid_records"] == 0
+
+
+def test_current_scope_separates_namespaces_and_respects_current_dataset(
+    client: TestClient, db: Session, setup: dict[str, Any]
+) -> None:
+    first_context = client.post(
+        setup["dataset_url"] + "/processing-contexts",
+        headers=setup["headers"] | {"Idempotency-Key": "scope-first"},
+        json=context_request(
+            setup["context_revision_id"], collection_scope="branch-edge-a"
+        ),
+    )
+    assert first_context.status_code == 201, first_context.text
+    setup["context_revision_id"] = first_context.json()["context_revision_id"]
+    first = reserve(client, setup, key="scope-first-analysis")
+    execute(db, setup, first["analysis_id"])
+    uploaded = _upload(
+        client, setup["headers"], setup["project_id"], (HEADER + VALID).encode()
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    second = setup | {
+        "dataset_id": uploaded.json()["id"],
+        "dataset_url": setup["root"] + "/netflow-datasets/" + uploaded.json()["id"],
+        "context_revision_id": None,
+        "namespace": "synthetic-other",
+    }
+    second_context = client.post(
+        second["dataset_url"] + "/processing-contexts",
+        headers=setup["headers"] | {"Idempotency-Key": "scope-second"},
+        json=context_request(
+            collection_scope="branch-edge-a", network_namespace=second["namespace"]
+        ),
+    )
+    assert second_context.status_code == 201, second_context.text
+    second["context_revision_id"] = second_context.json()["context_revision_id"]
+    second_analysis = reserve(client, second, key="scope-second-analysis")
+    execute(db, second, second_analysis["analysis_id"])
+    first_scope = request_hash(["synthetic-nf273", "declared", "branch-edge-a"])
+    second_scope = request_hash(["synthetic-other", "declared", "branch-edge-a"])
+    unresolved = client.get(setup["root"] + "/netflow-results/current", headers=setup["headers"])
+    assert unresolved.status_code == 200, unresolved.text
+    assert unresolved.json()["current"] is None
+    assert {row["scope_id"] for row in unresolved.json()["scopes"]} == {
+        first_scope,
+        second_scope,
+    }
+    explicit_first = client.get(
+        setup["root"] + "/netflow-results/current",
+        headers=setup["headers"],
+        params={"collection_scope": first_scope},
+    )
+    assert explicit_first.status_code == 200, explicit_first.text
+    assert explicit_first.json()["current"]["analysis_id"] == first["analysis_id"]
+    selected = client.post(
+        setup["root"] + "/netflow-datasets/" + second["dataset_id"] + "/select",
+        headers=setup["headers"],
+    )
+    assert selected.status_code == 200, selected.text
+    preferred = client.get(setup["root"] + "/netflow-results/current", headers=setup["headers"])
+    assert preferred.status_code == 200, preferred.text
+    assert preferred.json()["current"]["analysis_id"] == second_analysis["analysis_id"]
+    assert client.get(
+        setup["root"] + "/netflow-results/current",
+        headers=setup["headers"],
+        params={"collection_scope": first_scope},
+    ).json()["current"]["analysis_id"] == first["analysis_id"]
+    assert client.get(
+        _url(setup, first["analysis_id"]), headers=setup["headers"]
+    ).json()["analysis_id"] == first["analysis_id"]
 
 
 def test_lost_start_response_never_reexecutes_for_same_or_new_key(
