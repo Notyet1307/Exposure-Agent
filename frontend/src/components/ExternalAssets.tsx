@@ -1096,7 +1096,7 @@ function AssetsPage({
   })
   const [category, setCategory] = useState<string>(search.external_domain)
   const [management, setManagement] = useState<string | null>(
-    search.external_task ? "tasks" : null,
+    search.external_manage ?? (search.external_task ? "tasks" : null),
   )
   const [defaultState, setDefaultState] = useState<
     "idle" | "loading" | "empty" | "error"

@@ -52,25 +52,18 @@ export function AppSidebar() {
   const primary: Item[] = [
     {
       icon: Network,
-      title: t("Source comparison", "本次比对"),
+      title: t("Comparison results", "比对结果"),
       path: project ? `/projects/${project}/netflow-correlation` : "/",
       search: pathname.endsWith("/netflow-correlation")
         ? true
         : project
           ? undefined
-          : { view: "inputs" },
+          : {},
       active: pathname.endsWith("/netflow-correlation"),
     },
     {
-      icon: FileSpreadsheet,
-      title: t("Customer ledger", "客户清单"),
-      path: project ? `/projects/${project}/customer-ledger` : "/",
-      search: project ? undefined : { view: "inputs" },
-      active: pathname.endsWith("/customer-ledger"),
-    },
-    {
       icon: Waypoints,
-      title: t("CloudAtlas data", "云图数据"),
+      title: t("CloudAtlas assets", "云图资产"),
       path: project ? `/projects/${project}/cloudatlas-ledger` : "/",
       search: project ? undefined : { view: "cloudatlas-ledger" },
       active:
@@ -79,16 +72,28 @@ export function AppSidebar() {
         (pathname === "/" && search.view === "cloudatlas-ledger"),
     },
     {
+      icon: FileSpreadsheet,
+      title: t("Customer asset ledger", "客户资产台账"),
+      path: project ? `/projects/${project}/customer-ledger` : "/",
+      search: project ? undefined : { view: "inputs" },
+      active: pathname.endsWith("/customer-ledger"),
+    },
+    {
       icon: Network,
-      title: t("Processed NetFlow data", "流量观测"),
+      title: t("NetFlow observations", "NetFlow 观测"),
       path: project ? `/projects/${project}/netflow-results` : "/",
       search: project ? undefined : { view: "inputs" },
       active: pathname.endsWith("/netflow-results"),
     },
   ]
   const management: Item[] = [
-    home("inputs", t("Inputs", "输入管理"), Upload),
-    home("cloudatlas", t("CloudAtlas", "来源管理"), Waypoints),
+    {
+      ...home("inputs", t("Data access", "数据接入"), Upload),
+      search: { project, view: "inputs" },
+      active:
+        pathname === "/" &&
+        ["inputs", "cloudatlas"].includes(search.view ?? ""),
+    },
   ]
   const historical: Item[] = [
     home("overview", t("Overview", "旧运行概览"), Home),
@@ -138,7 +143,7 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <Main label={t("Data and comparison", "资料与比对")} items={primary} />
-        <Main label={t("Project setup", "项目配置")} items={management} />
+        <Main label={t("Project settings", "项目设置")} items={management} />
         <details
           key={historicalPage ? "historical" : "current"}
           open={historicalPage}

@@ -1819,6 +1819,39 @@ export type ProjectUpdate = {
     name: string;
 };
 
+export type ReplacementPreview = {
+    candidate_upload_id: string;
+    current_upload_id: (string | null);
+    current_revision_id: (string | null);
+    profile_id: string;
+    current_record_count: number;
+    current_unique_ips: number;
+    candidate_record_count: number;
+    candidate_unique_ips: number;
+    added_ips: number;
+    removed_ips: number;
+    changed_ip_declarations: number;
+};
+
+export type ReplacementReceipt = {
+    id: string;
+    project_id: string;
+    created_by: string;
+    candidate_upload_id: string;
+    expected_upload_id: (string | null);
+    expected_revision_id: (string | null);
+    expected_profile_id: string;
+    request_sha256: string;
+    created_at: string;
+};
+
+export type ReplacementRequest = {
+    candidate_upload_id: string;
+    expected_upload_id?: (string | null);
+    expected_revision_id?: (string | null);
+    expected_profile_id: string;
+};
+
 export type ResponsePatch = {
     task_id: string;
     provided_by: (string | null);
@@ -2332,6 +2365,28 @@ export type CustomerLedgerCreateCustomerLedgerRevisionData = {
 };
 
 export type CustomerLedgerCreateCustomerLedgerRevisionResponse = (app__domain__customer_ledger__RevisionPublic);
+
+export type CustomerLedgerPreviewCustomerUploadReplacementData = {
+    projectId: string;
+    requestBody: ReplacementRequest;
+};
+
+export type CustomerLedgerPreviewCustomerUploadReplacementResponse = (ReplacementPreview);
+
+export type CustomerLedgerApplyCustomerUploadReplacementData = {
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: ReplacementRequest;
+};
+
+export type CustomerLedgerApplyCustomerUploadReplacementResponse = (ReplacementReceipt);
+
+export type CustomerLedgerReadCustomerUploadReplacementData = {
+    operationKey: string;
+    projectId: string;
+};
+
+export type CustomerLedgerReadCustomerUploadReplacementResponse = (ReplacementReceipt);
 
 export type CustomerLedgerReadCustomerLedgerOperationData = {
     operationKey: string;

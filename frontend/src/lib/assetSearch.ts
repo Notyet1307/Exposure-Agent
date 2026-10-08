@@ -33,8 +33,18 @@ const syncedKeys = [
   "external_page",
   "external_match_page",
   "external_task",
+  "external_manage",
 ] as const
 const text = (value: unknown) => (typeof value === "string" ? value : undefined)
+const management = (
+  value: unknown,
+): "sources" | "sync" | "tasks" | "versions" | undefined =>
+  value === "sources" ||
+  value === "sync" ||
+  value === "tasks" ||
+  value === "versions"
+    ? value
+    : undefined
 export const externalDomains = [
   "ip",
   "port",
@@ -114,6 +124,7 @@ export function syncedAssetSearch(s: Record<string, unknown>) {
     external_page: number(s.external_page) ?? 0,
     external_match_page: number(s.external_match_page) ?? 0,
     external_task: text(s.external_task) || undefined,
+    external_manage: management(s.external_manage),
   }
 }
 
@@ -149,6 +160,7 @@ export type AssetSearch = {
   external_page?: number
   external_match_page?: number
   external_task?: string
+  external_manage?: "sources" | "sync" | "tasks" | "versions"
   asset_view?: "synced" | "history"
   asset_error?: "invalid" | "conflict"
 }
@@ -156,6 +168,8 @@ export type AssetSearch = {
 export function validateAssetSearch(s: Record<string, unknown>): AssetSearch {
   const history = historyKeys.some((key) => s[key] !== undefined)
   const synced = syncedKeys.some((key) => s[key] !== undefined)
+  if (s.external_manage !== undefined && !management(s.external_manage))
+    return { asset_error: "invalid" }
   if (s.external_domain !== undefined && !externalDomain(s.external_domain))
     return { asset_error: "invalid" }
   if (

@@ -7,6 +7,7 @@ import hashlib
 import json
 import tempfile
 import uuid
+from collections import Counter
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -43,6 +44,7 @@ from app.domain.models import (
     CustomerLedgerEntryVersion,
     CustomerLedgerRevision,
     CustomerUpload,
+    CustomerUploadReplacement,
     Project,
 )
 
@@ -163,6 +165,40 @@ class LedgerPage(BaseModel):
     total_records: int = 0
     unique_ips: int = 0
     can_edit: bool = False
+
+
+class ReplacementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_upload_id: uuid.UUID
+    expected_upload_id: uuid.UUID | None = None
+    expected_revision_id: uuid.UUID | None = None
+    expected_profile_id: uuid.UUID
+
+
+class ReplacementPreview(BaseModel):
+    candidate_upload_id: uuid.UUID
+    current_upload_id: uuid.UUID | None
+    current_revision_id: uuid.UUID | None
+    profile_id: uuid.UUID
+    current_record_count: int
+    current_unique_ips: int
+    candidate_record_count: int
+    candidate_unique_ips: int
+    added_ips: int
+    removed_ips: int
+    changed_ip_declarations: int
+
+
+class ReplacementReceipt(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    created_by: uuid.UUID
+    candidate_upload_id: uuid.UUID
+    expected_upload_id: uuid.UUID | None
+    expected_revision_id: uuid.UUID | None
+    expected_profile_id: uuid.UUID
+    request_sha256: str
+    created_at: datetime
 
 
 class LedgerError(Exception):
@@ -319,6 +355,184 @@ def load_rows(
         revision,
         [LedgerEntry.model_validate(row, from_attributes=True) for row in rows],
     )
+
+
+def _replacement_rows(
+    session: Session, project: Project, request: ReplacementRequest
+) -> tuple[CustomerUpload, list[LedgerEntry], list[LedgerEntry]]:
+    if request.expected_profile_id != project.current_customer_upload_profile_id:
+        raise LedgerError("ledger_profile_changed")
+    if (
+        request.expected_upload_id != project.current_customer_upload_id
+        or request.expected_revision_id != project.current_customer_ledger_revision_id
+    ):
+        raise LedgerError("ledger_version_conflict")
+    candidate = _upload(session, project, request.candidate_upload_id)
+    if candidate.profile_id != request.expected_profile_id:
+        raise LedgerError("ledger_profile_changed")
+    candidate_rows = _source_rows(session, project, candidate)
+    if project.current_customer_upload_id is None:
+        return candidate, [], candidate_rows
+    _current, _revision, current_rows = load_rows(
+        session,
+        project,
+        project.current_customer_upload_id,
+        project.current_customer_ledger_revision_id,
+    )
+    return candidate, current_rows, candidate_rows
+
+
+def _declaration(row: LedgerEntry) -> str:
+    """Keep duplicate source declarations distinct without inventing cross-file row IDs."""
+    return json.dumps(row.fields, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def replacement_preview(
+    session: Session, project: Project, request: ReplacementRequest
+) -> ReplacementPreview:
+    candidate, current_rows, candidate_rows = _replacement_rows(
+        session, project, request
+    )
+    current_active = [row for row in current_rows if not row.archived]
+    candidate_active = [row for row in candidate_rows if not row.archived]
+    current_by_ip: dict[str, Counter[str]] = {}
+    candidate_by_ip: dict[str, Counter[str]] = {}
+    for row in current_active:
+        current_by_ip.setdefault(row.canonical_ip, Counter())[_declaration(row)] += 1
+    for row in candidate_active:
+        candidate_by_ip.setdefault(row.canonical_ip, Counter())[_declaration(row)] += 1
+    current_ips = set(current_by_ip)
+    candidate_ips = set(candidate_by_ip)
+    return ReplacementPreview(
+        candidate_upload_id=candidate.id,
+        current_upload_id=project.current_customer_upload_id,
+        current_revision_id=project.current_customer_ledger_revision_id,
+        profile_id=project.current_customer_upload_profile_id,
+        current_record_count=len(current_active),
+        current_unique_ips=len(current_ips),
+        candidate_record_count=len(candidate_active),
+        candidate_unique_ips=len(candidate_ips),
+        added_ips=len(candidate_ips - current_ips),
+        removed_ips=len(current_ips - candidate_ips),
+        changed_ip_declarations=sum(
+            current_by_ip[ip] != candidate_by_ip[ip]
+            for ip in current_ips & candidate_ips
+        ),
+    )
+
+
+def public_replacement(record: CustomerUploadReplacement) -> ReplacementReceipt:
+    return ReplacementReceipt.model_validate(record, from_attributes=True)
+
+
+def recover_replacement(
+    session: Session, project: Project, actor_id: uuid.UUID, key: str
+) -> CustomerUploadReplacement | None:
+    return session.exec(
+        select(CustomerUploadReplacement).where(
+            CustomerUploadReplacement.project_id == project.id,
+            CustomerUploadReplacement.tenant_id == project.tenant_id,
+            CustomerUploadReplacement.created_by == actor_id,
+            CustomerUploadReplacement.operation_key == key,
+        )
+    ).one_or_none()
+
+
+def apply_replacement(
+    session: Session,
+    project: Project,
+    *,
+    actor_id: uuid.UUID,
+    key: str,
+    request: ReplacementRequest,
+    ip_address: str | None,
+) -> CustomerUploadReplacement:
+    digest = hashlib.sha256(
+        json.dumps(
+            request.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    existing = recover_replacement(session, project, actor_id, key)
+    if existing is not None:
+        if existing.request_sha256 != digest:
+            raise LedgerError("ledger_key_conflict")
+        return existing
+    # Serialise against saves and other replacements; recheck the key after waiting.
+    locked = session.exec(
+        select(Project).where(Project.id == project.id).with_for_update()
+    ).one()
+    session.refresh(locked)
+    existing = recover_replacement(session, locked, actor_id, key)
+    if existing is not None:
+        if existing.request_sha256 != digest:
+            raise LedgerError("ledger_key_conflict")
+        return existing
+    _candidate, _current_rows, _candidate_rows = _replacement_rows(
+        session, locked, request
+    )
+    receipt = CustomerUploadReplacement(
+        tenant_id=locked.tenant_id,
+        project_id=locked.id,
+        candidate_upload_id=request.candidate_upload_id,
+        expected_upload_id=request.expected_upload_id,
+        expected_revision_id=request.expected_revision_id,
+        expected_profile_id=request.expected_profile_id,
+        created_by=actor_id,
+        operation_key=key,
+        request_sha256=digest,
+    )
+    try:
+        session.add(receipt)
+        session.flush()
+        before = {
+            "upload_id": str(locked.current_customer_upload_id)
+            if locked.current_customer_upload_id
+            else None,
+            "revision_id": str(locked.current_customer_ledger_revision_id)
+            if locked.current_customer_ledger_revision_id
+            else None,
+        }
+        locked.current_customer_upload_id = request.candidate_upload_id
+        locked.current_customer_ledger_revision_id = None
+        session.add(locked)
+        session.add(
+            AuditEvent(
+                tenant_id=locked.tenant_id,
+                project_id=locked.id,
+                actor_subject=str(actor_id),
+                actor_type="user",
+                action="customer_upload.replaced",
+                target_type="customer_upload_replacement",
+                target_id=receipt.id,
+                before_data=before,
+                after_data={
+                    "upload_id": str(request.candidate_upload_id),
+                    "revision_id": None,
+                    "profile_id": str(request.expected_profile_id),
+                },
+                ip_address=ip_address,
+            )
+        )
+        session.flush()
+        receipt.sealed = True
+        session.add(receipt)
+        session.flush()
+        session.expunge(receipt)
+        session.commit()
+        return receipt
+    except SQLAlchemyError:
+        session.rollback()
+        try:
+            with Session(session.get_bind()) as check:
+                committed = recover_replacement(check, project, actor_id, key)
+                if committed is not None:
+                    check.expunge(committed)
+                    return committed
+        except SQLAlchemyError:
+            pass
+        raise LedgerError("ledger_commit_unknown", 503) from None
 
 
 def read_page(

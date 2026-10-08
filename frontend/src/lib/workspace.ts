@@ -145,6 +145,11 @@ export function useWorkspaceContext() {
   const params = useParams({ strict: false })
   const projectId = params.projectId ?? search.project
   const runId = params.runId ?? search.run
+  const needsRuns =
+    runId !== undefined ||
+    ["overview", "reports", "runs", "assets", "findings"].includes(
+      search.view ?? "",
+    )
   const projects = useQuery({
     queryKey: ["projects"],
     queryFn: readAccessibleProjects,
@@ -153,7 +158,7 @@ export function useWorkspaceContext() {
   const reports = useQuery({
     queryKey: ["workspace-published-reports", projectId],
     queryFn: () => readPublishedReports(projectId!),
-    enabled: !!project,
+    enabled: !!project && needsRuns,
     retry: false,
   })
   const queryClient = useQueryClient()
@@ -195,6 +200,7 @@ export function useWorkspaceContext() {
       return null
     },
     enabled:
+      needsRuns &&
       !!project &&
       projects.isSuccess &&
       !projects.isFetching &&

@@ -23,6 +23,7 @@ from app.domain.models import (
     AuditEvent,
     CustomerLedgerRevision,
     CustomerUpload,
+    CustomerUploadReplacement,
 )
 from tests.api.routes.test_customer_uploads import _create_member, _create_project
 from tests.utils.audit import reject_audit_inserts
@@ -238,6 +239,196 @@ def test_concurrent_saves_have_one_winner(
             )
         )
     assert sorted(statuses) == [201, 409]
+
+
+def test_full_upload_replacement_preview_apply_replay_and_conflict(
+    client: TestClient, setup_ledger: LedgerSetup
+) -> None:
+    root, headers, original, _data, _path = setup_ledger
+    page = read(client, setup_ledger)
+    book = Workbook()
+    sheet = book.active
+    sheet.append(list(ledger.HEADERS))
+    sheet.append(["2001:db8:10::20", 443, 443, "是", "example.net"])
+    sheet.append(["2001:db8:10::30", 443, 443, "否", None])
+    stream = io.BytesIO()
+    book.save(stream)
+    book.close()
+    candidate_response = client.post(
+        root + "/customer-uploads",
+        headers=headers,
+        files={"file": ("replacement.xlsx", stream.getvalue())},
+    )
+    assert candidate_response.status_code == 201, candidate_response.text
+    candidate = candidate_response.json()
+    body = {
+        "candidate_upload_id": candidate["id"],
+        "expected_upload_id": original["id"],
+        "expected_revision_id": None,
+        "expected_profile_id": page["current_profile_id"],
+    }
+    preview = client.post(
+        root + "/customer-ledger/replacements/preview", headers=headers, json=body
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.headers["Cache-Control"] == "private, no-store"
+    assert read(client, setup_ledger)["upload_id"] == original["id"]
+    assert preview.json() == {
+        "candidate_upload_id": candidate["id"],
+        "current_upload_id": original["id"],
+        "current_revision_id": None,
+        "profile_id": page["current_profile_id"],
+        "current_record_count": 61,
+        "current_unique_ips": 1,
+        "candidate_record_count": 2,
+        "candidate_unique_ips": 2,
+        "added_ips": 1,
+        "removed_ips": 0,
+        "changed_ip_declarations": 1,
+    }
+    key = "replace-ledger-once"
+    applied = client.post(
+        root + "/customer-ledger/replacements",
+        headers={**headers, "Idempotency-Key": key},
+        json=body,
+    )
+    assert applied.status_code == 201, applied.text
+    current = read(client, setup_ledger)
+    assert current["upload_id"] == candidate["id"] and current["revision_id"] is None
+    assert read(client, setup_ledger, upload_id=original["id"])["count"] == 61
+    conflicting_key = client.post(
+        root + "/customer-ledger/replacements",
+        headers={**headers, "Idempotency-Key": key},
+        json={**body, "candidate_upload_id": original["id"]},
+    )
+    assert conflicting_key.status_code == 409
+    assert conflicting_key.json()["detail"]["code"] == "ledger_key_conflict"
+    assert (
+        client.post(
+            root + "/customer-ledger/replacements",
+            headers={**headers, "Idempotency-Key": key},
+            json=body,
+        ).json()
+        == applied.json()
+    )
+    changed = post(client, setup_ledger, edit(current), "later-ledger-save")
+    assert changed.status_code == 201, changed.text
+    # A recovered receipt documents the original action; it never rewinds later input.
+    replay = client.post(
+        root + "/customer-ledger/replacements",
+        headers={**headers, "Idempotency-Key": key},
+        json=body,
+    )
+    assert replay.status_code == 201 and replay.json() == applied.json()
+    assert read(client, setup_ledger)["revision_id"] == changed.json()["id"]
+    assert (
+        client.post(
+            root + "/customer-ledger/replacements/preview", headers=headers, json=body
+        ).status_code
+        == 409
+    )
+
+
+def test_concurrent_full_replacements_have_one_winner(
+    client: TestClient, setup_ledger: LedgerSetup
+) -> None:
+    root, headers, original, _data, _path = setup_ledger
+    page = read(client, setup_ledger)
+    candidates = []
+    for suffix in ("31", "32"):
+        book = Workbook()
+        sheet = book.active
+        sheet.append(list(ledger.HEADERS))
+        sheet.append([f"2001:db8:10::{suffix}", 443, 443, "否", None])
+        stream = io.BytesIO()
+        book.save(stream)
+        book.close()
+        response = client.post(
+            root + "/customer-uploads",
+            headers=headers,
+            files={"file": (f"replacement-{suffix}.xlsx", stream.getvalue())},
+        )
+        assert response.status_code == 201, response.text
+        candidates.append(response.json()["id"])
+
+    def replace(candidate_id: str) -> int:
+        return client.post(
+            root + "/customer-ledger/replacements",
+            headers={**headers, "Idempotency-Key": f"replace-{candidate_id}"},
+            json={
+                "candidate_upload_id": candidate_id,
+                "expected_upload_id": original["id"],
+                "expected_revision_id": None,
+                "expected_profile_id": page["current_profile_id"],
+            },
+        ).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        assert sorted(workers.map(replace, candidates)) == [201, 409]
+
+
+def test_replacement_recovery_permissions_and_failed_audit_are_atomic(
+    client: TestClient, setup_ledger: LedgerSetup, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, admin, original, *_ = setup_ledger
+    current = read(client, setup_ledger)
+    corrected = post(client, setup_ledger, edit(current)).json()
+    current = read(client, setup_ledger)
+    body = {
+        "candidate_upload_id": original["id"],
+        "expected_upload_id": current["upload_id"],
+        "expected_revision_id": corrected["id"],
+        "expected_profile_id": current["current_profile_id"],
+    }
+    url = root + "/customer-ledger/replacements"
+    key = "replacement-lost-ack"
+    viewer = _create_member(
+        client, admin, project_id=root.split("/")[-1], roles=["viewer"]
+    )
+    assert (
+        client.post(
+            url, headers={**viewer, "Idempotency-Key": key}, json=body
+        ).status_code
+        == 404
+    )
+    assert read(client, setup_ledger)["revision_id"] == corrected["id"]
+    # A receipt and current selection must roll back together on a failed audit.
+    with Session(engine) as audit_db, reject_audit_inserts(audit_db):
+        failed = client.post(
+            url, headers={**admin, "Idempotency-Key": "audit-failure"}, json=body
+        )
+    assert failed.status_code == 503
+    assert read(client, setup_ledger)["revision_id"] == corrected["id"]
+    assert client.get(url + "/audit-failure", headers=admin).status_code == 404
+    original_commit = Session.commit
+
+    def commit_then_fail(session: Session) -> None:
+        original_commit(session)
+        raise SQLAlchemyError("lost acknowledgement")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Session, "commit", commit_then_fail)
+        applied = client.post(url, headers={**admin, "Idempotency-Key": key}, json=body)
+    assert applied.status_code == 201, applied.text
+    recovered = client.get(url + "/" + key, headers=admin)
+    assert recovered.status_code == 200 and recovered.json() == applied.json()
+    assert recovered.headers["Cache-Control"] == "private, no-store"
+    assert recovered.json()["project_id"] == root.split("/")[-1]
+    assert client.get(url + "/" + key, headers=viewer).status_code == 404
+    with Session(engine) as session:
+        rows = session.exec(
+            select(CustomerUploadReplacement).where(
+                CustomerUploadReplacement.project_id == uuid.UUID(root.split("/")[-1])
+            )
+        ).all()
+        assert len(rows) == 1 and rows[0].sealed
+        with pytest.raises(SQLAlchemyError, match="immutable"):
+            session.execute(
+                text("DELETE FROM customer_upload_replacements WHERE id=:id"),
+                {"id": rows[0].id},
+            )
+            session.commit()
+        session.rollback()
 
 
 def test_archive_add_validation_and_immutability(

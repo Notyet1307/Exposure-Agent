@@ -8354,6 +8354,185 @@ export const ProjectsPublicSchema = {
     title: 'ProjectsPublic'
 } as const;
 
+export const ReplacementPreviewSchema = {
+    properties: {
+        candidate_upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Candidate Upload Id'
+        },
+        current_upload_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Upload Id'
+        },
+        current_revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Revision Id'
+        },
+        profile_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Profile Id'
+        },
+        current_record_count: {
+            type: 'integer',
+            title: 'Current Record Count'
+        },
+        current_unique_ips: {
+            type: 'integer',
+            title: 'Current Unique Ips'
+        },
+        candidate_record_count: {
+            type: 'integer',
+            title: 'Candidate Record Count'
+        },
+        candidate_unique_ips: {
+            type: 'integer',
+            title: 'Candidate Unique Ips'
+        },
+        added_ips: {
+            type: 'integer',
+            title: 'Added Ips'
+        },
+        removed_ips: {
+            type: 'integer',
+            title: 'Removed Ips'
+        },
+        changed_ip_declarations: {
+            type: 'integer',
+            title: 'Changed Ip Declarations'
+        }
+    },
+    type: 'object',
+    required: ['candidate_upload_id', 'current_upload_id', 'current_revision_id', 'profile_id', 'current_record_count', 'current_unique_ips', 'candidate_record_count', 'candidate_unique_ips', 'added_ips', 'removed_ips', 'changed_ip_declarations'],
+    title: 'ReplacementPreview'
+} as const;
+
+export const ReplacementReceiptSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        created_by: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Created By'
+        },
+        candidate_upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Candidate Upload Id'
+        },
+        expected_upload_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Upload Id'
+        },
+        expected_revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Revision Id'
+        },
+        expected_profile_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Expected Profile Id'
+        },
+        request_sha256: {
+            type: 'string',
+            title: 'Request Sha256'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'project_id', 'created_by', 'candidate_upload_id', 'expected_upload_id', 'expected_revision_id', 'expected_profile_id', 'request_sha256', 'created_at'],
+    title: 'ReplacementReceipt'
+} as const;
+
+export const ReplacementRequestSchema = {
+    properties: {
+        candidate_upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Candidate Upload Id'
+        },
+        expected_upload_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Upload Id'
+        },
+        expected_revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Revision Id'
+        },
+        expected_profile_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Expected Profile Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['candidate_upload_id', 'expected_profile_id'],
+    title: 'ReplacementRequest'
+} as const;
+
 export const ResponsePatchSchema = {
     properties: {
         task_id: {

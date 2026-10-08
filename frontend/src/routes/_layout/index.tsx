@@ -5,10 +5,14 @@ import { type FormEvent, useEffect, useRef, useState } from "react"
 
 import {
   ApiError,
+  CustomerLedgerService,
   type CustomerUploadPublic,
   type CustomerUploadWarningPublic,
   type ProjectPublic,
   ProjectsService,
+  type ReplacementPreview,
+  type ReplacementReceipt,
+  type ReplacementRequest,
 } from "@/client"
 import CloudAtlasSources from "@/components/CloudAtlasSources"
 import CreateProject, { CreateProjectLink } from "@/components/CreateProject"
@@ -40,7 +44,9 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import WorkspaceOverview from "@/components/WorkspaceOverview"
+import useAuth from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
+import { requestDigest } from "@/lib/ledgerIntent"
 import {
   useWorkspaceContext,
   useWorkspaceNavigate,
@@ -204,7 +210,7 @@ function UploadRows({
                     disabled={selectingUploadId !== null}
                     onClick={() => onSelect(upload.id)}
                   >
-                    {t("Set as current input", "设为当前输入")}
+                    {t("Preview replacement", "预览替换")}
                   </LoadingButton>
                 )}
               </TableCell>
@@ -216,7 +222,19 @@ function UploadRows({
   )
 }
 
-function ProjectInputs({ project }: { project: ProjectPublic }) {
+type ReplacementIntent = {
+  key: string
+  digest: string
+  request: ReplacementRequest
+}
+
+function ProjectInputs({
+  project,
+  actorId,
+}: {
+  project: ProjectPublic
+  actorId: string
+}) {
   const { t, message, formatDate } = useI18n()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -236,6 +254,43 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
   }
   const [fileMessage, setFileMessage] = useState<string | null>(null)
   const [selectionMessage, setSelectionMessage] = useState<string | null>(null)
+  const replacementStorage = `exposure:customer-replacement:${actorId}:${project.id}`
+  const alive = useRef(true)
+  const starting = useRef(false)
+  const [preparing, setPreparing] = useState(false)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+    }
+  }, [])
+  const [pendingReplacement, setPendingReplacement] =
+    useState<ReplacementIntent | null>(() => {
+      try {
+        const item = JSON.parse(
+          sessionStorage.getItem(replacementStorage) ?? "null",
+        ) as ReplacementIntent | null
+        const id = (value: unknown, nullable = false) =>
+          (nullable && value === null) ||
+          (typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value))
+        return item &&
+          /^[A-Za-z0-9_-]{1,128}$/.test(item.key) &&
+          /^[a-f0-9]{64}$/.test(item.digest) &&
+          id(item.request?.candidate_upload_id) &&
+          id(item.request?.expected_profile_id) &&
+          id(item.request?.expected_upload_id, true) &&
+          id(item.request?.expected_revision_id, true)
+          ? item
+          : null
+      } catch {
+        return null
+      }
+    })
+  const [canReplay, setCanReplay] = useState(false)
+  const [replacement, setReplacement] = useState<{
+    request: ReplacementRequest
+    preview: ReplacementPreview
+  } | null>(null)
 
   const profileQuery = useQuery({
     queryKey: ["customer-upload-profile", project.id],
@@ -253,6 +308,31 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
         limit: UPLOAD_PAGE_SIZE,
       }),
   })
+  const writable = useRef(false)
+  writable.current = !!uploadsQuery.data?.can_select && !uploadsQuery.isError
+  const clearIntent = () => {
+    sessionStorage.removeItem(replacementStorage)
+    setPendingReplacement(null)
+    setCanReplay(false)
+  }
+  useEffect(() => {
+    if (
+      uploadsQuery.data?.can_select === false ||
+      (uploadsQuery.isError &&
+        uploadsQuery.error instanceof ApiError &&
+        [401, 403, 404].includes(uploadsQuery.error.status))
+    ) {
+      setReplacement(null)
+      setPendingReplacement(null)
+      setCanReplay(false)
+      sessionStorage.removeItem(replacementStorage)
+    }
+  }, [
+    uploadsQuery.data?.can_select,
+    uploadsQuery.isError,
+    uploadsQuery.error,
+    replacementStorage,
+  ])
   const uploadMutation = useMutation({
     mutationFn: (file: File) =>
       ProjectsService.createCustomerUpload({
@@ -271,25 +351,183 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
     onError: (error: Error) => setFileMessage(safeUploadErrorMessage(error)),
   })
   const selectionMutation = useMutation({
-    mutationFn: (uploadId: string) =>
-      ProjectsService.selectCurrentCustomerUpload({
+    mutationFn: async (uploadId: string) => {
+      const current = await CustomerLedgerService.readCustomerLedger({
         projectId: project.id,
-        uploadId,
-      }),
-    onSuccess: async () => {
-      setSelectionMessage("Current Project input updated successfully.")
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["customer-uploads", project.id],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["governance-runs", project.id],
-        }),
-      ])
-      currentInputTitle.current?.focus()
+        skip: 0,
+        limit: 1,
+      })
+      const request: ReplacementRequest = {
+        candidate_upload_id: uploadId,
+        expected_upload_id: current.current_upload_id,
+        expected_revision_id: current.current_revision_id,
+        expected_profile_id: current.current_profile_id,
+      }
+      const preview =
+        await CustomerLedgerService.previewCustomerUploadReplacement({
+          projectId: project.id,
+          requestBody: request,
+        })
+      return { request, preview }
     },
-    onError: () =>
-      setSelectionMessage("The current Project input could not be changed."),
+    onSuccess: (result) => {
+      if (!alive.current || !writable.current) return
+      setReplacement(result)
+      setSelectionMessage(null)
+    },
+    onError: () => {
+      if (alive.current)
+        setSelectionMessage(
+          t(
+            "Could not read the replacement preview. Reload the current version and try again.",
+            "无法读取替换预览，请重新读取当前版本后重试。",
+          ),
+        )
+    },
+  })
+  const validReceipt = (
+    receipt: ReplacementReceipt,
+    intent: ReplacementIntent,
+  ) => {
+    if (
+      receipt.project_id !== project.id ||
+      receipt.created_by !== actorId ||
+      receipt.candidate_upload_id !== intent.request.candidate_upload_id ||
+      receipt.expected_upload_id !== intent.request.expected_upload_id ||
+      receipt.expected_revision_id !== intent.request.expected_revision_id ||
+      receipt.expected_profile_id !== intent.request.expected_profile_id ||
+      receipt.request_sha256 !== intent.digest
+    )
+      throw new Error("Replacement receipt identity mismatch")
+    return receipt
+  }
+  const replacementSaved = async () => {
+    if (!alive.current || !writable.current) return
+    clearIntent()
+    setReplacement(null)
+    setSelectionMessage(
+      t(
+        "Replacement confirmed. Current data has been reloaded; history is unchanged.",
+        "替换操作已确认。已重新读取当前数据，历史版本保持不变。",
+      ),
+    )
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: ["customer-uploads", project.id],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["customer-ledger", actorId, project.id],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["governance-runs", project.id],
+      }),
+    ])
+    if (alive.current) currentInputTitle.current?.focus()
+  }
+  const applyReplacement = useMutation({
+    mutationFn: async (intent: ReplacementIntent) => {
+      if ((await requestDigest(intent.request)) !== intent.digest)
+        throw new Error("Invalid saved request")
+      return validReceipt(
+        await CustomerLedgerService.applyCustomerUploadReplacement({
+          projectId: project.id,
+          idempotencyKey: intent.key,
+          requestBody: intent.request,
+        }),
+        intent,
+      )
+    },
+    onSuccess: replacementSaved,
+    onError: (error) => {
+      if (!alive.current) return
+      setCanReplay(false)
+      if (
+        error instanceof ApiError &&
+        [400, 401, 403, 404, 409, 422].includes(error.status)
+      ) {
+        clearIntent()
+        setSelectionMessage(
+          error.status === 409
+            ? t(
+                "The current version or profile changed. This request was rejected; preview the latest version again.",
+                "当前版本或配置已变化，本次请求被拒绝，请重新预览最新版本。",
+              )
+            : t(
+                "Replacement was rejected. Check access and the accepted file before previewing again.",
+                "替换请求被拒绝，请核对权限与已接受文件后重新预览。",
+              ),
+        )
+      } else {
+        setSelectionMessage(
+          t(
+            "The replacement outcome is unknown. Read the saved operation before submitting again.",
+            "替换结果尚未确认，请先读取原操作回执，再决定是否重新提交。",
+          ),
+        )
+      }
+    },
+  })
+  const startReplacement = async () => {
+    if (
+      !replacement ||
+      pendingReplacement ||
+      starting.current ||
+      !writable.current
+    )
+      return
+    starting.current = true
+    setPreparing(true)
+    try {
+      const intent = {
+        key: crypto.randomUUID(),
+        request: replacement.request,
+        digest: await requestDigest(replacement.request),
+      }
+      if (!alive.current || !writable.current) return
+      sessionStorage.setItem(replacementStorage, JSON.stringify(intent))
+      setPendingReplacement(intent)
+      setCanReplay(false)
+      setReplacement(null)
+      applyReplacement.mutate(intent)
+    } catch {
+      if (alive.current)
+        setSelectionMessage(
+          t(
+            "The request could not be saved. Nothing was submitted.",
+            "无法保存操作身份，尚未提交替换。",
+          ),
+        )
+    } finally {
+      starting.current = false
+      if (alive.current) setPreparing(false)
+    }
+  }
+  const recoverReplacement = useMutation({
+    mutationFn: async (intent: ReplacementIntent) =>
+      validReceipt(
+        await CustomerLedgerService.readCustomerUploadReplacement({
+          projectId: project.id,
+          operationKey: intent.key,
+        }),
+        intent,
+      ),
+    onSuccess: replacementSaved,
+    onError: (error) => {
+      if (!alive.current) return
+      const missing = error instanceof ApiError && error.status === 404
+      setCanReplay(missing && writable.current)
+      setSelectionMessage(
+        missing
+          ? t(
+              "No completed receipt yet. You may explicitly resend the same request with its original identity; the server will recover any committed operation.",
+              "尚无完成回执。可明确复用原标识重新提交同一请求，服务端会恢复任何已提交操作。",
+            )
+          : t(
+              "Could not read the operation. Keep its identity and retry this read.",
+              "无法读取操作回执。已保留原标识，请重试读取。",
+            ),
+      )
+    },
   })
 
   if (profileQuery.isPending || uploadsQuery.isPending) {
@@ -448,6 +686,118 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
         </CardContent>
       </Card>
 
+      {replacement && (
+        <Card aria-live="polite">
+          <CardHeader>
+            <CardTitle>{t("Replacement preview", "替换预览")}</CardTitle>
+            <CardDescription>
+              {t(
+                "Apply replaces the complete current register and clears local edits for the new file. It does not change history.",
+                "应用会以新文件完整替换当前台账，并清除新文件的本地修订；不会改变历史版本。",
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <dl className="grid gap-3 text-sm sm:grid-cols-3">
+              <div>
+                <dt className="text-muted-foreground">
+                  {t("Current records / IPs", "当前条目 / IP")}
+                </dt>
+                <dd>
+                  {replacement.preview.current_record_count} /{" "}
+                  {replacement.preview.current_unique_ips}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">
+                  {t("New records / IPs", "新条目 / IP")}
+                </dt>
+                <dd>
+                  {replacement.preview.candidate_record_count} /{" "}
+                  {replacement.preview.candidate_unique_ips}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">
+                  {t(
+                    "Added / removed / changed IPs",
+                    "新增 / 移出 / 声明变化 IP",
+                  )}
+                </dt>
+                <dd>
+                  {replacement.preview.added_ips} /{" "}
+                  {replacement.preview.removed_ips} /{" "}
+                  {replacement.preview.changed_ip_declarations}
+                </dd>
+              </div>
+            </dl>
+            <div className="flex flex-wrap gap-2">
+              <LoadingButton
+                type="button"
+                loading={preparing || applyReplacement.isPending}
+                disabled={!!pendingReplacement || !uploads.can_select}
+                onClick={() => void startReplacement()}
+              >
+                {t("Apply replacement", "应用替换")}
+              </LoadingButton>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={preparing || applyReplacement.isPending}
+                onClick={() => {
+                  setReplacement(null)
+                }}
+              >
+                {t("Cancel", "取消")}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {pendingReplacement && (
+        <Alert>
+          <AlertTitle>
+            {applyReplacement.isPending
+              ? t("Applying replacement…", "正在应用替换…")
+              : t("Replacement outcome unknown", "替换结果未知")}
+          </AlertTitle>
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            <span>
+              {t(
+                "Recover the saved request before starting another replacement.",
+                "请先恢复已保存的请求，再开始新的替换。",
+              )}
+            </span>
+            <LoadingButton
+              type="button"
+              size="sm"
+              variant="outline"
+              loading={recoverReplacement.isPending}
+              disabled={applyReplacement.isPending}
+              onClick={() => recoverReplacement.mutate(pendingReplacement)}
+            >
+              {t("Recover result", "恢复结果")}
+            </LoadingButton>
+            {canReplay && (
+              <LoadingButton
+                type="button"
+                size="sm"
+                variant="outline"
+                loading={applyReplacement.isPending}
+                disabled={recoverReplacement.isPending || !uploads.can_select}
+                onClick={() => {
+                  setCanReplay(false)
+                  applyReplacement.mutate(pendingReplacement)
+                }}
+              >
+                {t("Resend original request", "复用原请求提交")}
+              </LoadingButton>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {uploads.can_upload ? (
         <Card>
           <CardHeader>
@@ -529,14 +879,16 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
           <UploadRows
             uploads={uploads.data}
             currentUploadId={uploads.current_customer_upload_id}
-            canSelect={uploads.can_select}
+            canSelect={uploads.can_select && !pendingReplacement && !preparing}
             selectingUploadId={
               selectionMutation.isPending
                 ? (selectionMutation.variables ?? null)
                 : null
             }
             onSelect={(uploadId) => {
+              if (pendingReplacement || preparing) return
               setSelectionMessage(null)
+              setReplacement(null)
               selectionMutation.mutate(uploadId)
             }}
           />
@@ -571,6 +923,7 @@ function ProjectInputs({ project }: { project: ProjectPublic }) {
 
 function Dashboard() {
   const { t } = useI18n()
+  const { user } = useAuth()
   const {
     search,
     projectId,
@@ -588,6 +941,7 @@ function Dashboard() {
       "项目工作区 - Exposure Agent",
     )
   }, [t])
+  if (!user) return null
   if (view === "create") return <CreateProject />
   if (projects.isPending)
     return <p role="status">{t("Loading Projects…", "正在加载项目…")}</p>
@@ -651,29 +1005,20 @@ function Dashboard() {
       </p>
     )
 
+  if (search.view === undefined && search.run === undefined) {
+    return (
+      <Navigate
+        to="/projects/$projectId/netflow-correlation"
+        params={{ projectId: project.id }}
+        search={{}}
+        replace
+      />
+    )
+  }
+
   let content: React.ReactNode
   switch (view) {
     case "inputs":
-      content = (
-        <>
-          <ProjectPreparation
-            key={`preparation:${project.id}`}
-            projectId={project.id}
-            archived={project.archived_at !== null}
-          />
-          <div id="customer-inputs" tabIndex={-1} className="scroll-mt-32">
-            <ProjectInputs key={project.id} project={project} />
-          </div>
-          <div id="netflow-inputs" tabIndex={-1} className="scroll-mt-32">
-            <NetFlowDatasets
-              key={`netflow:${project.id}`}
-              projectId={project.id}
-              archived={project.archived_at !== null}
-            />
-          </div>
-        </>
-      )
-      break
     case "cloudatlas":
       content = (
         <>
@@ -682,7 +1027,65 @@ function Dashboard() {
             projectId={project.id}
             archived={project.archived_at !== null}
           />
-          <CloudAtlasSources key={project.id} projectId={project.id} />
+          <div id="customer-inputs" tabIndex={-1} className="scroll-mt-32">
+            <ProjectInputs
+              key={`${user.id}:${project.id}`}
+              actorId={user.id}
+              project={project}
+            />
+          </div>
+          <section
+            id="cloudatlas-inputs"
+            tabIndex={-1}
+            className="scroll-mt-32 space-y-3 border-t pt-6"
+            aria-labelledby="cloud-access-title"
+          >
+            <h2 id="cloud-access-title" className="text-xl font-semibold">
+              {t("CloudAtlas data access", "云图数据接入")}
+            </h2>
+            <p className="max-w-prose text-sm text-muted-foreground">
+              {t(
+                "Source configuration, sync scope, attempts and published versions use the same controls as the CloudAtlas data page. Opening them only reads local records.",
+                "来源配置、同步范围、执行记录和已发布版本，与云图数据页使用同一套操作入口。打开只读取本地记录。",
+              )}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline">
+                <Link
+                  to="/projects/$projectId/cloudatlas-ledger"
+                  params={{ projectId: project.id }}
+                  search={{ asset_view: "synced", external_manage: "sources" }}
+                >
+                  {t("Configure sources and sync", "配置来源与同步")}
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link
+                  to="/projects/$projectId/cloudatlas-ledger"
+                  params={{ projectId: project.id }}
+                  search={{ asset_view: "synced" }}
+                >
+                  {t("Read current CloudAtlas assets", "阅读当前云图资产")}
+                </Link>
+              </Button>
+            </div>
+            <details className="space-y-3 text-sm">
+              <summary className="cursor-pointer">
+                {t("Historical Run source settings", "旧 Run 来源配置（兼容）")}
+              </summary>
+              <CloudAtlasSources
+                key={`${user.id}:${project.id}`}
+                projectId={project.id}
+              />
+            </details>
+          </section>
+          <div id="netflow-inputs" tabIndex={-1} className="scroll-mt-32">
+            <NetFlowDatasets
+              key={`netflow:${project.id}`}
+              projectId={project.id}
+              archived={project.archived_at !== null}
+            />
+          </div>
         </>
       )
       break

@@ -3526,6 +3526,53 @@ class CustomerLedgerRevision(SQLModel, table=True):
     )
 
 
+class CustomerUploadReplacement(SQLModel, table=True):
+    """Immutable receipt for applying one accepted full customer upload."""
+
+    __tablename__: ClassVar[str] = "customer_upload_replacements"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "created_by",
+            "operation_key",
+            name="uq_customer_upload_replacement_operation",
+        ),
+        CheckConstraint(
+            "request_sha256 ~ '^[0-9a-f]{64}$'",
+            name="ck_customer_upload_replacement_request_hash",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["projects.id", "projects.tenant_id"],
+            name="fk_customer_upload_replacement_project_scope",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["candidate_upload_id", "project_id", "tenant_id"],
+            [
+                "customer_uploads.id",
+                "customer_uploads.project_id",
+                "customer_uploads.tenant_id",
+            ],
+            name="fk_customer_upload_replacement_candidate_scope",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(index=True)
+    project_id: uuid.UUID = Field(index=True)
+    candidate_upload_id: uuid.UUID
+    expected_upload_id: uuid.UUID | None = None
+    expected_revision_id: uuid.UUID | None = None
+    expected_profile_id: uuid.UUID
+    created_by: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    operation_key: str = Field(max_length=128)
+    request_sha256: str = Field(max_length=64)
+    sealed: bool = False
+    created_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_DRAFT_TIME)
+
+
 class CustomerLedgerEntryVersion(SQLModel, table=True):
     __tablename__: ClassVar[str] = "customer_ledger_entry_versions"
     __table_args__ = (
