@@ -1,0 +1,39 @@
+{
+  "recorded_at": "2026-10-08T04:42:53.750733+00:00",
+  "source_commit": "1bd0b8183d1d3c5cf55df347f5312cad68a07c3f",
+  "acceptance_commit": "9f8bcc34df1a06e2a9611bb096f0f07eeabd711e",
+  "spec_commit": "b603b45c853de764e47f99ccd1ed3ba98dec7c7e",
+  "backend": {
+    "passed": 1457,
+    "seconds": 1078.48,
+    "coverage_percent": 90,
+    "warnings": 3
+  },
+  "frontend_component_regressions": {
+    "passed": 152
+  },
+  "real_browser": {
+    "passed": 3,
+    "seconds": 52.7
+  },
+  "independent_business_execution": {
+    "passed": 3,
+    "seconds": 52.8,
+    "status": "PASS"
+  },
+  "source_standards_review": "PASS",
+  "source_spec_review": "PASS",
+  "business_source_remote_publication": "NOT_RUN",
+  "deployment": "NOT_RUN",
+  "real_upstream_model_calls": "NOT_RUN",
+  "screenshots_sha256": {
+    "comparison-1366-en-light.png": "c068f4171daaaa97bd1738968ffd7331bb907e2e287472a7b7058e0a4a6980ba",
+    "comparison-1920-zh-CN-dark.png": "3371ae62dbfb50356b488e731a6a7c8fe58410febacb364becc26aad7cb25ff5",
+    "comparison-390-zh-CN-light.png": "38e6607b380b0697e8c160d7b21beb56c0a6935a2a01e47ef56e98cd40fdd531",
+    "comparison-with-evidence-en-1366.png": "eae1c1a985640bd991d3388cde6d59c35e519f06e0259183eb533757b260f04c",
+    "netflow-en-1366.png": "d41207600733e644ad58c794ecc1c65bb736abf680ab2cac893b8f34f78b1c2b",
+    "data-access-en-1366.png": "763d6377f5444b43addff6102e49a68b33203fe4ad984773940d556d27b4be1b",
+    "fixed-evidence-en-1366.png": "8d291dee0961ef71e34351faf481b275aa2f77cad94e74de8b41e337ffb85220",
+    "core-after-evidence-revocation.png": "8458821e910e808e5ad917a945d05641595f634adad3084e24cd36825a011d37"
+  }
+}

@@ -66,7 +66,7 @@ NetFlow 普通入口跨 Dataset 在已确认采集范围内定位最新成功可
 
 Standards 与固定 Spec 由独立只读 reviewer 分轴审阅。`23a227a` 基础结论均 PASS，`8af4288` 原回执恢复和 `1bd0b81` 共享权限恢复增量分别复核 PASS。错误报告经主会话结合实际 Project 锁、路由 key、部分覆盖统计校验后撤回，真实客户替换问题修复。无尚存代码审阅 blocker。
 
-独立业务 reviewer 用真实浏览器确认普通入口固定身份、123/121/1/1、25条/5页及撤权辅证不影响核心。其余独立自动操作未完成，记 NOT_RUN，未据此扩充独立业务 PASS。主会话的实际浏览器主线、故障注入和逐项证据单独记录。
+最终独立业务 reviewer 未参与源码或验收测试编写，在固定候选 `9f8bcc34df1a06e2a9611bb096f0f07eeabd711e` 上独占合成验证窗口，执行全部3条实际浏览器流程：**3 passed，52.8s，退出0**。逐一对照 C+A计数、N补充线索、客户与核心丢回执恢复、固定依据往返、到期、真实撤权和晚响应隔离，并查看已加载实际内容的截图；结论PASS。日志 `evidence/product-browser/independent-business-final.log`。此前另一轮只完成首屏、其他操作未完成；未用该首轮局部结果替代最终独立复验。
 
 ## 源码候选与20项验收
 
@@ -105,15 +105,15 @@ Standards 与固定 Spec 由独立只读 reviewer 分轴审阅。`23a227a` 基�
 
 ### 截图
 
-截图是实际合成页面；生产构建复核没有开发工具覆盖。证据根目录下的文件保留原图：
+截图是实际合成页面；生产构建复核没有开发工具覆盖。原图与SHA256随本记录保存；结构化回执见 [summary.json](evidence/product-logic-v2/summary.json)：
 
-- [比对结果，1366英文亮色](/Users/yang/.codex/worktrees/product-logic-convergence/evidence/product-browser/comparison-1366-en-light.png)
-- [比对结果，1920中文暗色](/Users/yang/.codex/worktrees/product-logic-convergence/evidence/product-browser/comparison-1920-zh-CN-dark.png)
-- [比对结果，390中文](/Users/yang/.codex/worktrees/product-logic-convergence/evidence/product-browser/comparison-390-zh-CN-light.png)
-- [NetFlow当前列表](/Users/yang/.codex/worktrees/product-logic-convergence/evidence/product-browser/netflow-en-1366.png)
-- [统一数据接入与客户应用](/Users/yang/.codex/worktrees/product-logic-convergence/evidence/product-browser/data-access-en-1366.png)
-- [固定地址与两条客户原始依据](/Users/yang/.codex/worktrees/product-logic-convergence/evidence/product-browser/fixed-evidence-en-1366.png)
-- [辅证撤权后的核心](/Users/yang/.codex/worktrees/product-logic-convergence/evidence/product-browser/core-after-evidence-revocation.png)
+- [比对结果，1366英文亮色](evidence/product-logic-v2/comparison-1366-en-light.png)
+- [比对结果，1920中文暗色](evidence/product-logic-v2/comparison-1920-zh-CN-dark.png)
+- [比对结果，390中文](evidence/product-logic-v2/comparison-390-zh-CN-light.png)
+- [NetFlow当前列表](evidence/product-logic-v2/netflow-en-1366.png)
+- [统一数据接入与客户应用](evidence/product-logic-v2/data-access-en-1366.png)
+- [固定地址与两条客户原始依据](evidence/product-logic-v2/fixed-evidence-en-1366.png)
+- [辅证撤权后的核心](evidence/product-logic-v2/core-after-evidence-revocation.png)
 
 ### 尚未执行的独立阶段
 
@@ -121,12 +121,12 @@ Standards 与固定 Spec 由独立只读 reviewer 分轴审阅。`23a227a` 基�
 
 旧 `RUN_GOVERNANCE_E2E` / `RUN_NETFLOW_USABILITY_E2E` 专用完整栈本轮未重新启动（NOT_RUN）；仅适配显式legacy/history、数据接入和preview/apply入口，保留原断言，测试收集通过。旧Run/报告已由本轮完整后端与63项固定阅读/兼容组件检查覆盖，不将此结果冒充上述专用栈端到端回执。
 
-独立业务复核仅首屏完成，其余独立操作NOT_RUN；主会话的3条正式真实浏览器验收已通过，二者不混记。没有留下待修复的产品blocker。
+主会话与独立reviewer的3条正式真实浏览器验收分别通过，静态两轴审阅和业务验收分别记账。没有留下待修复的产品blocker。
 
 
 ## 修改文件
 
-业务源码固定于 `1bd0b81`；清单包含后续测试与交付文档。
+业务源码固定于 `1bd0b81`；清单包含后续测试与交付文档；另随仓库保存 `docs/work/evidence/product-logic-v2/` 下8张合成截图及 `summary.json`。
 
 ```text
 backend/app/alembic/env.py
