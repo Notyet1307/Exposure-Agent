@@ -142,7 +142,9 @@ test("fresh project to real worker, three sources, review history and local-only
   await page
     .getByRole("link", { name: "Processed NetFlow data", exact: true })
     .click()
-  await page.getByRole("button", {name:"Browse processing history",exact:true}).click()
+  await page
+    .getByRole("button", { name: "Browse processing history", exact: true })
+    .click()
   await page.getByRole("button", { name: "synthetic.csv", exact: true }).click()
   await page.getByRole("button", { name: "Open batch", exact: true }).click()
   await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(

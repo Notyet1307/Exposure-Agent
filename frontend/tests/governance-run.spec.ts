@@ -125,7 +125,9 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     .getByRole("row")
     .filter({ hasText: "customer-upload-v1.xlsx" })
   await uploadRow.getByRole("button", { name: "Preview replacement" }).click()
-  await page.getByRole("button", {name:"Apply replacement", exact:true}).click()
+  await page
+    .getByRole("button", { name: "Apply replacement", exact: true })
+    .click()
 
   await clickHistoricalLink(page, "Runs")
   await expect(page.getByText("Inputs ready")).toBeVisible()
@@ -497,7 +499,9 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await firstUploadRow
     .getByRole("button", { name: "Preview replacement" })
     .click()
-  await page.getByRole("button", {name:"Apply replacement", exact:true}).click()
+  await page
+    .getByRole("button", { name: "Apply replacement", exact: true })
+    .click()
 
   await request.post(`${stage4FixtureUrl}/fixture/set-assets`, {
     data: {
@@ -580,7 +584,9 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await secondUploadRow
     .getByRole("button", { name: "Preview replacement" })
     .click()
-  await page.getByRole("button", {name:"Apply replacement", exact:true}).click()
+  await page
+    .getByRole("button", { name: "Apply replacement", exact: true })
+    .click()
   await request.post(`${stage4FixtureUrl}/fixture/set-assets`, {
     data: {
       items: [

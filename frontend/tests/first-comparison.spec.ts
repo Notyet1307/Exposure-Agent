@@ -97,7 +97,9 @@ test("administrator completes a historical Run through explicit compatibility co
       .getByRole("row")
       .filter({ hasText: "first-comparison.xlsx" })
     await activate(row.getByRole("button", { name: "Preview replacement" }))
-    await activate(page.getByRole("button", {name:"Apply replacement",exact:true}))
+    await activate(
+      page.getByRole("button", { name: "Apply replacement", exact: true }),
+    )
     await expect(
       page.getByRole("heading", { name: "Current Project input", exact: true }),
     ).toBeFocused()
@@ -120,7 +122,9 @@ test("administrator completes a historical Run through explicit compatibility co
         page.getByRole("heading", { name: "NetFlowDatasets", exact: true }),
       ).toBeFocused()
     }
-    await activate(page.getByText("Historical Run source settings", {exact:true}))
+    await activate(
+      page.getByText("Historical Run source settings", { exact: true }),
+    )
     await page.getByLabel("OctoBus Instance ID").fill("cloudatlas-fixture")
     await page.getByLabel("Read-only Capset ID").fill("cloudatlas-readonly")
     await activate(

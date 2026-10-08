@@ -2,7 +2,9 @@ import { defineConfig } from "@playwright/test"
 import base from "./playwright.netflow.config"
 
 if (!process.env.PRODUCT_LOGIC_FIXTURE || !process.env.PRODUCT_LOGIC_EVIDENCE)
-  throw new Error("Configure explicit isolated product_browser_* fixture and evidence paths")
+  throw new Error(
+    "Configure explicit isolated product_browser_* fixture and evidence paths",
+  )
 
 export default defineConfig({
   ...base,

@@ -54,6 +54,8 @@ NetFlow 普通入口跨 Dataset 在已确认采集范围内定位最新成功可
 
 ## 首次失败与修复
 
+- 源码PR首轮CI在生成客户端后的clean-tree检查失败：生成本身成功，随后Biome自动格式化了5个测试/配置文件。按仓库生成脚本固化格式化输出；未更改客户端合同、后端或已共享迁移。远端CI按修复后的PR head重新执行。
+
 - 浏览器最初两次等待误用了后端地址匹配 UI 代理响应、未展开“查看本次资料”；修正测试操作，真实主线通过。
 - 旧 UI 测试仍预期 Source comparison/Processed NetFlow data/技术选择器和直接 select；保留固定身份/拒读断言，旧选择器转显式 history/legacy，客户改 preview→apply。缺失的新只读 metadata mock 会触发真实401；补精确 mock，不放宽产品鉴权。
 - 旧 Run 交互预算在开发构建失败，原断言在生产构建重跑通过，未放宽预算。

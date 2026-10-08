@@ -178,7 +178,11 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
   const { execFileSync } = await import("node:child_process")
   const repo = path.resolve(fileURLToPath(new URL("../..", import.meta.url)))
   const seed = (stage: string) =>
-    execFileSync("uv", ["run", "python", "../scripts/seed-product-logic-acceptance.py", stage], { cwd: path.join(repo, "backend"), stdio: "pipe" })
+    execFileSync(
+      "uv",
+      ["run", "python", "../scripts/seed-product-logic-acceptance.py", stage],
+      { cwd: path.join(repo, "backend"), stdio: "pipe" },
+    )
   seed("core")
   let fixture = JSON.parse(
     await readFile(process.env.PRODUCT_LOGIC_FIXTURE!, "utf8"),
