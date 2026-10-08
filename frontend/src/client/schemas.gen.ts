@@ -2736,7 +2736,7 @@ export const CurrentResultSchema = {
             ]
         },
         readiness: {
-            '$ref': '#/components/schemas/Readiness'
+            '$ref': '#/components/schemas/app__domain__comparison_results__Readiness'
         },
         scope_choices: {
             items: {
@@ -4031,6 +4031,76 @@ export const ExternalVersionsPublicSchema = {
     type: 'object',
     required: ['data', 'count'],
     title: 'ExternalVersionsPublic'
+} as const;
+
+export const FactSchema = {
+    properties: {
+        kind: {
+            type: 'string',
+            enum: ['counts', 'address', 'identity', 'source_record', 'supplement'],
+            title: 'Kind'
+        },
+        value: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Value'
+        },
+        evidence_refs: {
+            items: {
+                type: 'string',
+                maxLength: 256,
+                minLength: 1
+            },
+            type: 'array',
+            minItems: 1,
+            title: 'Evidence Refs'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['kind', 'value', 'evidence_refs'],
+    title: 'Fact'
+} as const;
+
+export const FactClaimSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            pattern: '^[a-z][a-z0-9_-]{0,63}$',
+            title: 'Id'
+        },
+        type: {
+            type: 'string',
+            const: 'fact',
+            title: 'Type'
+        },
+        fact_refs: {
+            items: {
+                type: 'string',
+                maxLength: 256,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 8,
+            minItems: 1,
+            title: 'Fact Refs'
+        },
+        evidence_refs: {
+            items: {
+                type: 'string',
+                maxLength: 256,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 8,
+            minItems: 1,
+            title: 'Evidence Refs'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['id', 'type', 'fact_refs', 'evidence_refs'],
+    title: 'FactClaim'
 } as const;
 
 export const FeedbackPatchSchema = {
@@ -7443,6 +7513,29 @@ export const LineageTotalsPublicSchema = {
     title: 'LineageTotalsPublic'
 } as const;
 
+export const ListingSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/Public'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        can_create: {
+            type: 'boolean',
+            title: 'Can Create'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count', 'can_create'],
+    title: 'Listing'
+} as const;
+
 export const ManagementSchema = {
     properties: {
         owner: {
@@ -7693,6 +7786,70 @@ export const ManualReviewsPublicSchema = {
     title: 'ManualReviewsPublic'
 } as const;
 
+export const MaterialSchema = {
+    properties: {
+        captured_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Captured At'
+        },
+        subject: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Subject'
+        },
+        identity: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Identity'
+        },
+        summary: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Summary'
+        },
+        facts: {
+            additionalProperties: {
+                '$ref': '#/components/schemas/Fact'
+            },
+            type: 'object',
+            title: 'Facts'
+        },
+        items: {
+            items: {
+                additionalProperties: true,
+                type: 'object'
+            },
+            type: 'array',
+            title: 'Items'
+        },
+        samples: {
+            items: {
+                additionalProperties: true,
+                type: 'object'
+            },
+            type: 'array',
+            title: 'Samples'
+        },
+        coverage: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Coverage'
+        },
+        limitations: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            title: 'Limitations'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['captured_at', 'subject', 'identity', 'summary', 'facts', 'items', 'samples', 'coverage', 'limitations'],
+    title: 'Material'
+} as const;
+
 export const MessageSchema = {
     properties: {
         message: {
@@ -7715,6 +7872,52 @@ export const ModelQualificationStatusSchema = {
     type: 'object',
     required: ['qualified'],
     title: 'ModelQualificationStatus'
+} as const;
+
+export const NarrativeClaimSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            pattern: '^[a-z][a-z0-9_-]{0,63}$',
+            title: 'Id'
+        },
+        type: {
+            type: 'string',
+            enum: ['explanation', 'hypothesis', 'gap', 'action'],
+            title: 'Type'
+        },
+        text: {
+            type: 'string',
+            maxLength: 2000,
+            minLength: 1,
+            title: 'Text'
+        },
+        fact_refs: {
+            items: {
+                type: 'string',
+                maxLength: 256,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 8,
+            title: 'Fact Refs'
+        },
+        evidence_refs: {
+            items: {
+                type: 'string',
+                maxLength: 256,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 8,
+            minItems: 1,
+            title: 'Evidence Refs'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['id', 'type', 'text', 'evidence_refs'],
+    title: 'NarrativeClaim'
 } as const;
 
 export const NetFlowDatasetPublicSchema = {
@@ -8283,6 +8486,23 @@ export const OperationPublicSchema = {
     title: 'OperationPublic'
 } as const;
 
+export const OutputSchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'v2-ai-output-v1',
+            title: 'Contract Version'
+        },
+        text: {
+            '$ref': '#/components/schemas/ReportText'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['contract_version', 'text'],
+    title: 'Output'
+} as const;
+
 export const PageSchema = {
     properties: {
         project_id: {
@@ -8542,6 +8762,43 @@ export const PeerPageSchema = {
     type: 'object',
     required: ['project_id', 'analysis_id', 'dataset_id', 'context_revision_id', 'network_namespace', 'test_fixture', 'provenance', 'data', 'count', 'skip', 'limit', 'total_peers', 'total_peer_records'],
     title: 'PeerPage'
+} as const;
+
+export const PriorityCaseSchema = {
+    properties: {
+        address_key: {
+            type: 'string',
+            pattern: '^addr:[a-f0-9]{64}$',
+            title: 'Address Key'
+        },
+        why_review: {
+            type: 'string',
+            maxLength: 2000,
+            minLength: 1,
+            title: 'Why Review'
+        },
+        next_check: {
+            type: 'string',
+            maxLength: 2000,
+            minLength: 1,
+            title: 'Next Check'
+        },
+        evidence_refs: {
+            items: {
+                type: 'string',
+                maxLength: 256,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 8,
+            minItems: 1,
+            title: 'Evidence Refs'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['address_key', 'why_review', 'next_check', 'evidence_refs'],
+    title: 'PriorityCase'
 } as const;
 
 export const ProfileSchema = {
@@ -8836,113 +9093,80 @@ export const ProjectsPublicSchema = {
     title: 'ProjectsPublic'
 } as const;
 
-export const ReadinessSchema = {
+export const PublicSchema = {
     properties: {
-        contract_version: {
+        subject_kind: {
             type: 'string',
-            const: 'core-comparison-v2',
-            title: 'Contract Version',
-            default: 'core-comparison-v2'
+            const: 'core_comparison_v2',
+            title: 'Subject Kind',
+            default: 'core_comparison_v2'
+        },
+        result_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Result Id'
+        },
+        supplement_binding_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Supplement Binding Id'
+        },
+        audience: {
+            type: 'string',
+            enum: ['management', 'operations'],
+            title: 'Audience',
+            default: 'management'
+        },
+        language: {
+            type: 'string',
+            enum: ['zh', 'en'],
+            title: 'Language',
+            default: 'zh'
+        },
+        address_key: {
+            anyOf: [
+                {
+                    type: 'string',
+                    pattern: '^addr:[a-f0-9]{64}$'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Address Key'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
         },
         project_id: {
             type: 'string',
             format: 'uuid',
             title: 'Project Id'
         },
-        state: {
+        status: {
             type: 'string',
-            enum: ['READY', 'SCOPE_REQUIRED', 'SCOPE_CONFIRMATION_REQUIRED', 'CUSTOMER_NOT_READY', 'CLOUD_NOT_READY', 'INSUFFICIENT_COVERAGE', 'EXPIRED', 'ACCESS_DENIED', 'READ_FAILED', 'MULTIPLE_SCOPES', 'METADATA_UNAVAILABLE'],
-            title: 'State'
+            enum: ['GENERATING', 'DRAFT', 'CONFIRMED', 'FAILED'],
+            title: 'Status'
         },
-        reason_code: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Reason Code'
+        revision: {
+            type: 'integer',
+            title: 'Revision'
         },
-        scope_key: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Scope Key'
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
         },
-        scope_confirmation_id: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'uuid'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Scope Confirmation Id'
-        },
-        selection: {
-            anyOf: [
-                {
-                    '$ref': '#/components/schemas/Selection'
-                },
-                {
-                    type: 'null'
-                }
-            ]
-        },
-        input_sha256: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Input Sha256'
-        },
-        expected_current_result_id: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'uuid'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Expected Current Result Id'
-        },
-        customer: {
-            anyOf: [
-                {
-                    '$ref': '#/components/schemas/CustomerSelection'
-                },
-                {
-                    type: 'null'
-                }
-            ]
-        },
-        customer_filename: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Customer Filename'
-        },
-        customer_applied_at: {
+        completed_at: {
             anyOf: [
                 {
                     type: 'string',
@@ -8952,48 +9176,165 @@ export const ReadinessSchema = {
                     type: 'null'
                 }
             ],
-            title: 'Customer Applied At'
+            title: 'Completed At'
         },
-        clouds: {
-            items: {
-                '$ref': '#/components/schemas/CloudChoice'
-            },
-            type: 'array',
-            title: 'Clouds'
+        edited_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Edited At'
         },
-        scope_choices: {
-            items: {
-                '$ref': '#/components/schemas/ScopeChoice'
-            },
-            type: 'array',
-            title: 'Scope Choices'
+        confirmed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Confirmed At'
         },
-        can_generate: {
+        created_by_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Created By Id'
+        },
+        edited_by_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Edited By Id'
+        },
+        confirmed_by_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Confirmed By Id'
+        },
+        connection_version_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Connection Version Id'
+        },
+        config_fingerprint: {
+            type: 'string',
+            title: 'Config Fingerprint'
+        },
+        material_sha256: {
+            type: 'string',
+            title: 'Material Sha256'
+        },
+        failure_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Failure Code'
+        },
+        readable: {
             type: 'boolean',
-            title: 'Can Generate',
-            default: false
+            title: 'Readable'
         },
-        can_write: {
-            type: 'boolean',
-            title: 'Can Write',
-            default: false
+        unavailable_reason: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Unavailable Reason'
         },
-        can_confirm_scope: {
-            type: 'boolean',
-            title: 'Can Confirm Scope',
-            default: false
+        materials_changed: {
+            anyOf: [
+                {
+                    type: 'boolean'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Materials Changed'
         },
-        sources: {
-            items: {
-                '$ref': '#/components/schemas/SourceState'
-            },
-            type: 'array',
-            title: 'Sources'
+        valid_until: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Valid Until'
+        },
+        original_output: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/Output'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        text: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ReportText'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        material: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/Material'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         }
     },
+    additionalProperties: false,
     type: 'object',
-    required: ['project_id', 'state'],
-    title: 'Readiness'
+    required: ['result_id', 'supplement_binding_id', 'id', 'project_id', 'status', 'revision', 'created_at', 'completed_at', 'edited_at', 'confirmed_at', 'created_by_id', 'edited_by_id', 'confirmed_by_id', 'connection_version_id', 'config_fingerprint', 'material_sha256', 'failure_code', 'readable', 'unavailable_reason', 'materials_changed', 'valid_until', 'original_output', 'text', 'material'],
+    title: 'Public'
 } as const;
 
 export const ReplacementPreviewSchema = {
@@ -9173,6 +9514,134 @@ export const ReplacementRequestSchema = {
     type: 'object',
     required: ['candidate_upload_id', 'expected_profile_id'],
     title: 'ReplacementRequest'
+} as const;
+
+export const ReportTextSchema = {
+    properties: {
+        summary: {
+            items: {
+                type: 'string',
+                pattern: '^[a-z][a-z0-9_-]{0,63}$'
+            },
+            type: 'array',
+            maxItems: 8,
+            minItems: 1,
+            title: 'Summary'
+        },
+        sections: {
+            items: {
+                '$ref': '#/components/schemas/Section'
+            },
+            type: 'array',
+            maxItems: 6,
+            minItems: 4,
+            title: 'Sections'
+        },
+        claims: {
+            items: {
+                oneOf: [
+                    {
+                        '$ref': '#/components/schemas/FactClaim'
+                    },
+                    {
+                        '$ref': '#/components/schemas/NarrativeClaim'
+                    }
+                ],
+                discriminator: {
+                    propertyName: 'type',
+                    mapping: {
+                        action: '#/components/schemas/NarrativeClaim',
+                        explanation: '#/components/schemas/NarrativeClaim',
+                        fact: '#/components/schemas/FactClaim',
+                        gap: '#/components/schemas/NarrativeClaim',
+                        hypothesis: '#/components/schemas/NarrativeClaim'
+                    }
+                }
+            },
+            type: 'array',
+            maxItems: 48,
+            minItems: 1,
+            title: 'Claims'
+        },
+        priority_cases: {
+            items: {
+                '$ref': '#/components/schemas/PriorityCase'
+            },
+            type: 'array',
+            maxItems: 20,
+            title: 'Priority Cases'
+        },
+        limitations: {
+            items: {
+                type: 'string',
+                maxLength: 2000,
+                minLength: 1
+            },
+            type: 'array',
+            maxItems: 32,
+            title: 'Limitations'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['summary', 'sections', 'claims', 'priority_cases', 'limitations'],
+    title: 'ReportText'
+} as const;
+
+export const RequestSchema = {
+    properties: {
+        subject_kind: {
+            type: 'string',
+            const: 'core_comparison_v2',
+            title: 'Subject Kind',
+            default: 'core_comparison_v2'
+        },
+        result_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Result Id'
+        },
+        supplement_binding_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Supplement Binding Id'
+        },
+        audience: {
+            type: 'string',
+            enum: ['management', 'operations'],
+            title: 'Audience',
+            default: 'management'
+        },
+        language: {
+            type: 'string',
+            enum: ['zh', 'en'],
+            title: 'Language',
+            default: 'zh'
+        },
+        address_key: {
+            anyOf: [
+                {
+                    type: 'string',
+                    pattern: '^addr:[a-f0-9]{64}$'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Address Key'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['result_id', 'supplement_binding_id'],
+    title: 'Request'
 } as const;
 
 export const ResponsePatchSchema = {
@@ -9723,6 +10192,30 @@ export const ScopeChoiceSchema = {
     type: 'object',
     required: ['scope_key', 'network_namespace', 'source_instance_id', 'source_name', 'space_id'],
     title: 'ScopeChoice'
+} as const;
+
+export const SectionSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            enum: ['conclusion', 'differences', 'priority', 'netflow', 'next_steps', 'appendix', 'known_facts', 'possible_explanations', 'missing_evidence', 'next_checks'],
+            title: 'Id'
+        },
+        claim_ids: {
+            items: {
+                type: 'string',
+                pattern: '^[a-z][a-z0-9_-]{0,63}$'
+            },
+            type: 'array',
+            maxItems: 16,
+            minItems: 1,
+            title: 'Claim Ids'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['id', 'claim_ids'],
+    title: 'Section'
 } as const;
 
 export const SelectionSchema = {
@@ -10893,6 +11386,50 @@ export const TokenSchema = {
     title: 'Token'
 } as const;
 
+export const UpdateSchema = {
+    properties: {
+        expected_revision: {
+            type: 'integer',
+            minimum: 1,
+            title: 'Expected Revision'
+        },
+        edits: {
+            patternProperties: {
+                '^[a-z][a-z0-9_-]{0,63}$': {
+                    type: 'string',
+                    maxLength: 2000,
+                    minLength: 1
+                }
+            },
+            type: 'object',
+            maxProperties: 48,
+            title: 'Edits'
+        },
+        case_edits: {
+            patternProperties: {
+                '^addr:[a-f0-9]{64}$': {
+                    additionalProperties: {
+                        type: 'string',
+                        maxLength: 2000,
+                        minLength: 1
+                    },
+                    propertyNames: {
+                        enum: ['why_review', 'next_check']
+                    },
+                    type: 'object'
+                }
+            },
+            type: 'object',
+            maxProperties: 20,
+            title: 'Case Edits'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['expected_revision', 'edits'],
+    title: 'Update'
+} as const;
+
 export const UpdatePasswordSchema = {
     properties: {
         current_password: {
@@ -10960,7 +11497,7 @@ export const UpdatesSchema = {
             title: 'Latest Result Id'
         },
         readiness: {
-            '$ref': '#/components/schemas/Readiness'
+            '$ref': '#/components/schemas/app__domain__comparison_results__Readiness'
         },
         latest_attempt: {
             anyOf: [
@@ -11306,6 +11843,166 @@ export const app__domain__comparison_results__EvidencePageSchema = {
     type: 'object',
     required: ['project_id', 'result_id', 'address_key', 'source', 'data', 'count', 'skip', 'limit'],
     title: 'EvidencePage'
+} as const;
+
+export const app__domain__comparison_results__ReadinessSchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'core-comparison-v2',
+            title: 'Contract Version',
+            default: 'core-comparison-v2'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        state: {
+            type: 'string',
+            enum: ['READY', 'SCOPE_REQUIRED', 'SCOPE_CONFIRMATION_REQUIRED', 'CUSTOMER_NOT_READY', 'CLOUD_NOT_READY', 'INSUFFICIENT_COVERAGE', 'EXPIRED', 'ACCESS_DENIED', 'READ_FAILED', 'MULTIPLE_SCOPES', 'METADATA_UNAVAILABLE'],
+            title: 'State'
+        },
+        reason_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Reason Code'
+        },
+        scope_key: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Scope Key'
+        },
+        scope_confirmation_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Scope Confirmation Id'
+        },
+        selection: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/Selection'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        input_sha256: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Input Sha256'
+        },
+        expected_current_result_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Current Result Id'
+        },
+        customer: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/CustomerSelection'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        customer_filename: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Customer Filename'
+        },
+        customer_applied_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Customer Applied At'
+        },
+        clouds: {
+            items: {
+                '$ref': '#/components/schemas/CloudChoice'
+            },
+            type: 'array',
+            title: 'Clouds'
+        },
+        scope_choices: {
+            items: {
+                '$ref': '#/components/schemas/ScopeChoice'
+            },
+            type: 'array',
+            title: 'Scope Choices'
+        },
+        can_generate: {
+            type: 'boolean',
+            title: 'Can Generate',
+            default: false
+        },
+        can_write: {
+            type: 'boolean',
+            title: 'Can Write',
+            default: false
+        },
+        can_confirm_scope: {
+            type: 'boolean',
+            title: 'Can Confirm Scope',
+            default: false
+        },
+        sources: {
+            items: {
+                '$ref': '#/components/schemas/SourceState'
+            },
+            type: 'array',
+            title: 'Sources'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'state'],
+    title: 'Readiness'
 } as const;
 
 export const app__domain__customer_ledger__RevisionPublicSchema = {
@@ -11806,4 +12503,66 @@ export const app__domain__source_correlations__RevisionPublicSchema = {
     type: 'object',
     required: ['project_id', 'correlation_revision_id', 'network_namespace', 'root_id', 'parent_id', 'revision', 'historical_scope_state', 'current_scope_state', 'selection', 'pins', 'evidence', 'created_at', 'created_by'],
     title: 'RevisionPublic'
+} as const;
+
+export const app__domain__v2_analysis_reports__ReadinessSchema = {
+    properties: {
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        result_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Result Id'
+        },
+        supplement_binding_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Supplement Binding Id'
+        },
+        state: {
+            type: 'string',
+            enum: ['READY', 'NO_PERMISSION', 'NOT_CONFIGURED', 'NOT_ENABLED', 'NOT_QUALIFIED', 'MATERIAL_UNAVAILABLE', 'MODEL_UNAVAILABLE'],
+            title: 'State'
+        },
+        can_create: {
+            type: 'boolean',
+            title: 'Can Create'
+        },
+        reason_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Reason Code'
+        },
+        connection_version_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Connection Version Id'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'result_id', 'supplement_binding_id', 'state', 'can_create'],
+    title: 'Readiness'
 } as const;

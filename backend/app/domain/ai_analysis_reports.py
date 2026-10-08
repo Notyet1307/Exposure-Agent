@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core.db import engine
 from app.core.time import get_datetime_utc
 from app.domain import ai_investigations, manual_reviews, model_connections
+from app.domain import v2_analysis_reports as v2
 from app.domain.ai_investigations import (
     Citation,
     Digest,
@@ -35,6 +36,7 @@ from app.domain.model_qualification import (
 from app.domain.models import (
     AiInvestigation,
     AnalysisReport,
+    AnalysisReportRevisionRecord,
     AuditEvent,
     GovernanceReport,
     GovernanceRun,
@@ -427,7 +429,7 @@ def authorize_material(
     *,
     binding: ModelBinding,
     project_id: uuid.UUID,
-    run_id: uuid.UUID,
+    run_id: uuid.UUID | None,
     material: dict[str, Any],
     sources: list[dict[str, Any]],
 ) -> None:
@@ -436,15 +438,36 @@ def authorize_material(
     if not settings.AI_ANALYSIS_REPORT_ALLOW_BAIZHI_TEST:
         raise AnalysisReportError("synthetic_material_denied")
     try:
-        manifest = TypeAdapter(list[SyntheticReportPermission]).validate_json(
-            settings.AI_ANALYSIS_REPORT_SYNTHETIC_MANIFEST
-        )
-        expected = SyntheticReportPermission(
-            project_id=project_id,
-            run_id=run_id,
-            material_sha256=material_hash(material),
-            sources=[SyntheticSource.model_validate(source) for source in sources],
-        )
+        manifest = TypeAdapter(
+            list[SyntheticReportPermission | v2.SyntheticPermission]
+        ).validate_json(settings.AI_ANALYSIS_REPORT_SYNTHETIC_MANIFEST)
+        expected: SyntheticReportPermission | v2.SyntheticPermission
+        if material.get("subject", {}).get("subject_kind") == "core_comparison_v2":
+            scope = material["subject"]
+            supplement = (
+                material["facts"]
+                .get(f"fact:{scope['result_id']}:supplement", {})
+                .get("value", {})
+                .get("binding", {})
+            )
+            expected = v2.SyntheticPermission(
+                **{key: scope[key] for key in v2.Request.model_fields},
+                project_id=project_id,
+                core_input_sha256=material["identity"]["input_sha256"],
+                binding_revision=supplement.get("revision"),
+                valid_until=supplement.get("valid_until"),
+                material_sha256=material_hash(material),
+                sources=[v2.Source.model_validate(source) for source in sources],
+            )
+        else:
+            if run_id is None:
+                raise AnalysisReportError("analysis_report_scope_denied")
+            expected = SyntheticReportPermission(
+                project_id=project_id,
+                run_id=run_id,
+                material_sha256=material_hash(material),
+                sources=[SyntheticSource.model_validate(source) for source in sources],
+            )
     except ValueError:
         raise AnalysisReportError("synthetic_manifest_invalid") from None
     if expected not in manifest:
@@ -455,9 +478,12 @@ def load_material(
     *,
     project_id: uuid.UUID,
     user_id: uuid.UUID,
-    run_id: uuid.UUID,
+    run_id: uuid.UUID | None = None,
     record: AnalysisReport | None = None,
+    core_request: v2.Request | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], ModelBinding]:
+    if core_request is not None and (run_id is not None or record is not None):
+        raise AnalysisReportError("analysis_report_scope_denied")
     with Session(engine) as session:
         session.connection(
             execution_options={
@@ -482,12 +508,22 @@ def load_material(
         ):
             raise AnalysisReportError("analysis_report_scope_denied")
         if record is None:
-            material, sources = prepare_material(
-                session=session,
-                project=project,
-                run_id=run_id,
-                max_bytes=settings.AI_ANALYSIS_REPORT_MAX_MATERIAL_BYTES,
-            )
+            if core_request is not None:
+                material, sources = v2.prepare_material(
+                    session,
+                    project,
+                    core_request,
+                    settings.AI_ANALYSIS_REPORT_MAX_MATERIAL_BYTES,
+                )
+            else:
+                if run_id is None:
+                    raise AnalysisReportError("analysis_report_scope_denied")
+                material, sources = prepare_material(
+                    session=session,
+                    project=project,
+                    run_id=run_id,
+                    max_bytes=settings.AI_ANALYSIS_REPORT_MAX_MATERIAL_BYTES,
+                )
         else:
             # The fixed capture, not newly available material, is the egress scope.
             current = session.get(AnalysisReport, record.id)
@@ -500,8 +536,21 @@ def load_material(
                     current.run_id,
                     current.created_by_id,
                     current.material_sha256,
+                    current.subject_kind,
+                    current.core_result_id,
+                    current.supplement_binding_id,
+                    current.request_sha256,
                 )
-                != (project_id, run_id, user_id, record.material_sha256)
+                != (
+                    project_id,
+                    run_id,
+                    user_id,
+                    record.material_sha256,
+                    record.subject_kind,
+                    record.core_result_id,
+                    record.supplement_binding_id,
+                    record.request_sha256,
+                )
             ):
                 raise AnalysisReportError("analysis_report_scope_denied")
             material, sources = current.material, current.sources
@@ -510,6 +559,10 @@ def load_material(
                 or sources != record.sources
             ):
                 raise AnalysisReportError("analysis_report_material_changed")
+            if current.subject_kind == "core_comparison_v2":
+                v2.check_record(session, project, current)
+            elif run_id is None:
+                raise AnalysisReportError("analysis_report_scope_denied")
         binding = require_model(session, record)
         authorize_material(
             binding=binding,
@@ -571,6 +624,19 @@ def audit(
                 "run_id": str(record.run_id),
                 "status": record.status,
                 "revision": record.revision,
+                **(
+                    {
+                        "subject_kind": record.subject_kind,
+                        "run_id": None,
+                        "result_id": str(record.core_result_id),
+                        "supplement_binding_id": str(record.supplement_binding_id)
+                        if record.supplement_binding_id
+                        else None,
+                        "request_sha256": record.request_sha256,
+                    }
+                    if record.subject_kind == "core_comparison_v2"
+                    else {}
+                ),
                 "material_sha256": record.material_sha256,
                 "failure_code": record.failure_code,
             },
@@ -622,6 +688,15 @@ def finish(
     with Session(engine) as session:
         record = locked_record(session, analysis_report_id)
         if record.status == "GENERATING":
+            if output is not None and record.subject_kind == "core_comparison_v2":
+                try:
+                    load_material(
+                        project_id=record.project_id,
+                        user_id=record.created_by_id,
+                        record=record,
+                    )
+                except AnalysisReportError as error:
+                    failure_code, output = error.code, None
             record.status = "FAILED" if failure_code else "DRAFT"
             record.failure_code = failure_code
             record.original_output = output
@@ -630,6 +705,8 @@ def finish(
             record.material_bytes_read = material_bytes_read
             record.completed_at = get_datetime_utc()
             session.add(record)
+            if record.subject_kind == "core_comparison_v2" and record.status == "DRAFT":
+                append_revision(session, record, record.created_by_id)
             audit(
                 session,
                 record,
@@ -641,6 +718,22 @@ def finish(
         session.refresh(record)
         session.expunge(record)
         return record
+
+
+def append_revision(
+    session: Session, record: AnalysisReport, actor_id: uuid.UUID
+) -> None:
+    assert record.text is not None
+    session.flush()
+    session.add(
+        AnalysisReportRevisionRecord(
+            report_id=record.id,
+            revision=record.revision,
+            status=record.status,
+            text=record.text,
+            actor_id=actor_id,
+        )
+    )
 
 
 def reconcile(record: AnalysisReport, *, launch: bool = False) -> AnalysisReport:
@@ -666,6 +759,7 @@ def reconcile(record: AnalysisReport, *, launch: bool = False) -> AnalysisReport
                 from app.integrations.model_connection_runtime import (
                     start_business_task,
                 )
+
                 observation = start_business_task(record, "report")
             else:
                 observation = client.start_analysis_report(

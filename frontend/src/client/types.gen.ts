@@ -213,6 +213,29 @@ export type app__domain__comparison_results__EvidencePage = {
 
 export type source = 'customer' | 'cloud';
 
+export type app__domain__comparison_results__Readiness = {
+    contract_version?: "core-comparison-v2";
+    project_id: string;
+    state: 'READY' | 'SCOPE_REQUIRED' | 'SCOPE_CONFIRMATION_REQUIRED' | 'CUSTOMER_NOT_READY' | 'CLOUD_NOT_READY' | 'INSUFFICIENT_COVERAGE' | 'EXPIRED' | 'ACCESS_DENIED' | 'READ_FAILED' | 'MULTIPLE_SCOPES' | 'METADATA_UNAVAILABLE';
+    reason_code?: (string | null);
+    scope_key?: (string | null);
+    scope_confirmation_id?: (string | null);
+    selection?: (Selection | null);
+    input_sha256?: (string | null);
+    expected_current_result_id?: (string | null);
+    customer?: (CustomerSelection | null);
+    customer_filename?: (string | null);
+    customer_applied_at?: (string | null);
+    clouds?: Array<CloudChoice>;
+    scope_choices?: Array<ScopeChoice>;
+    can_generate?: boolean;
+    can_write?: boolean;
+    can_confirm_scope?: boolean;
+    sources?: Array<SourceState>;
+};
+
+export type state = 'READY' | 'SCOPE_REQUIRED' | 'SCOPE_CONFIRMATION_REQUIRED' | 'CUSTOMER_NOT_READY' | 'CLOUD_NOT_READY' | 'INSUFFICIENT_COVERAGE' | 'EXPIRED' | 'ACCESS_DENIED' | 'READ_FAILED' | 'MULTIPLE_SCOPES' | 'METADATA_UNAVAILABLE';
+
 export type app__domain__customer_ledger__RevisionPublic = {
     id: string;
     parent_revision_id: (string | null);
@@ -332,6 +355,18 @@ export type historical_scope_state = 'UNKNOWN' | 'CONFIRMED' | 'REVOKED';
 
 export type current_scope_state = 'UNKNOWN' | 'CONFIRMED' | 'REVOKED';
 
+export type app__domain__v2_analysis_reports__Readiness = {
+    project_id: string;
+    result_id: string;
+    supplement_binding_id: (string | null);
+    state: 'READY' | 'NO_PERMISSION' | 'NOT_CONFIGURED' | 'NOT_ENABLED' | 'NOT_QUALIFIED' | 'MATERIAL_UNAVAILABLE' | 'MODEL_UNAVAILABLE';
+    can_create: boolean;
+    reason_code?: (string | null);
+    connection_version_id?: (string | null);
+};
+
+export type state2 = 'READY' | 'NO_PERMISSION' | 'NOT_CONFIGURED' | 'NOT_ENABLED' | 'NOT_QUALIFIED' | 'MATERIAL_UNAVAILABLE' | 'MODEL_UNAVAILABLE';
+
 export type AttemptPublic = {
     id: string;
     status: string;
@@ -420,7 +455,7 @@ export type CloudChoice = {
     selection: (ExternalSelection | null);
 };
 
-export type state = 'PUBLISHED' | 'EXPIRED' | 'NOT_PUBLISHED';
+export type state3 = 'PUBLISHED' | 'EXPIRED' | 'NOT_PUBLISHED';
 
 export type CloudIPProfile = {
     project_id: string;
@@ -552,7 +587,7 @@ export type ComparisonOverview = {
     different_addresses?: (number | null);
 };
 
-export type state2 = 'AVAILABLE' | 'SCOPE_UNCONFIRMED' | 'SOURCES_UNAVAILABLE' | 'INSUFFICIENT_COVERAGE' | 'INSUFFICIENT_SOURCES';
+export type state4 = 'AVAILABLE' | 'SCOPE_UNCONFIRMED' | 'SOURCES_UNAVAILABLE' | 'INSUFFICIENT_COVERAGE' | 'INSUFFICIENT_SOURCES';
 
 export type ComparisonPage = {
     data: Array<Comparison>;
@@ -624,7 +659,7 @@ export type ConnectionStatus = {
     reason?: (string | null);
 };
 
-export type state3 = 'legacy' | 'unconfigured' | 'active' | 'disabled' | 'unavailable';
+export type state5 = 'legacy' | 'unconfigured' | 'active' | 'disabled' | 'unavailable';
 
 export type ContextCreate = {
     expected_parent_id: (string | null);
@@ -640,7 +675,7 @@ export type ContextCreate = {
     sampling: Sampling;
 };
 
-export type state4 = 'CONFIRMED' | 'UNKNOWN' | 'CONFLICT' | 'REVOKED';
+export type state6 = 'CONFIRMED' | 'UNKNOWN' | 'CONFLICT' | 'REVOKED';
 
 export type nat_context = 'none' | 'mapped' | 'unknown';
 
@@ -709,12 +744,12 @@ export type CurrentResult = {
     project_id: string;
     state: 'AVAILABLE' | 'NO_RESULT' | 'MULTIPLE_SCOPES';
     result?: (ResultPublic | null);
-    readiness: Readiness;
+    readiness: app__domain__comparison_results__Readiness;
     scope_choices?: Array<ScopeChoice>;
     latest_attempt?: (AttemptPublic | null);
 };
 
-export type state5 = 'AVAILABLE' | 'NO_RESULT' | 'MULTIPLE_SCOPES';
+export type state7 = 'AVAILABLE' | 'NO_RESULT' | 'MULTIPLE_SCOPES';
 
 export type CustomerSelection = {
     upload_id: string;
@@ -866,7 +901,7 @@ export type ExternalRecordsPublic = {
     state: 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
 };
 
-export type state6 = 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
+export type state8 = 'PUBLISHED' | 'NOT_SYNCED' | 'EXPIRED';
 
 export type ExternalSelection = {
     kind: "external_versions";
@@ -965,6 +1000,23 @@ export type ExternalVersionsPublic = {
     data: Array<ExternalVersionPublic>;
     count: number;
     latest_complete_version?: (ExternalVersionPublic | null);
+};
+
+export type Fact = {
+    kind: 'counts' | 'address' | 'identity' | 'source_record' | 'supplement';
+    value: {
+        [key: string]: unknown;
+    };
+    evidence_refs: Array<(string)>;
+};
+
+export type kind2 = 'counts' | 'address' | 'identity' | 'source_record' | 'supplement';
+
+export type FactClaim = {
+    id: string;
+    type: "fact";
+    fact_refs: Array<(string)>;
+    evidence_refs: Array<(string)>;
 };
 
 export type FeedbackPatch = {
@@ -1239,7 +1291,7 @@ export type GovernanceRunSourcePublic = {
 
 export type source_type = 'CUSTOMER_UPLOAD' | 'CLOUDATLAS' | 'NETFLOW';
 
-export type state7 = 'ABSENT' | 'PRESENT';
+export type state9 = 'ABSENT' | 'PRESENT';
 
 export type GovernanceRunSourcesPublic = {
     project_id: string;
@@ -1545,7 +1597,7 @@ export type LineageEdgePublic = {
     to: string;
 };
 
-export type kind2 = 'SOURCE_SNAPSHOT' | 'SNAPSHOT_PROCESS' | 'ABSENT_SOURCE_PROCESS' | 'PROCESS_COMPARISON' | 'PROCESS_FINDING' | 'PROCESS_REPORT' | 'COMPARISON_REPORT_CONTEXT' | 'FINDING_REPORT_CONTEXT';
+export type kind3 = 'SOURCE_SNAPSHOT' | 'SNAPSHOT_PROCESS' | 'ABSENT_SOURCE_PROCESS' | 'PROCESS_COMPARISON' | 'PROCESS_FINDING' | 'PROCESS_REPORT' | 'COMPARISON_REPORT_CONTEXT' | 'FINDING_REPORT_CONTEXT';
 
 export type LineageEvidenceReferencePublic = {
     id: string;
@@ -1644,6 +1696,12 @@ export type LineageTotalsPublic = {
     finding_event_count: number;
 };
 
+export type Listing = {
+    data: Array<Public>;
+    count: number;
+    can_create: boolean;
+};
+
 export type Management = {
     owner?: string;
     department?: string;
@@ -1697,6 +1755,32 @@ export type ManualReviewVerification = {
 
 export type status12 = 'RESOLVED' | 'UNRESOLVED' | 'INSUFFICIENT_EVIDENCE' | 'NO_NEW_CONCLUSION';
 
+export type Material = {
+    captured_at: string;
+    subject: {
+        [key: string]: unknown;
+    };
+    identity: {
+        [key: string]: unknown;
+    };
+    summary: {
+        [key: string]: unknown;
+    };
+    facts: {
+        [key: string]: Fact;
+    };
+    items: Array<{
+        [key: string]: unknown;
+    }>;
+    samples: Array<{
+        [key: string]: unknown;
+    }>;
+    coverage: {
+        [key: string]: unknown;
+    };
+    limitations: Array<(string)>;
+};
+
 export type Message = {
     message: string;
 };
@@ -1704,6 +1788,16 @@ export type Message = {
 export type ModelQualificationStatus = {
     qualified: boolean;
 };
+
+export type NarrativeClaim = {
+    id: string;
+    type: 'explanation' | 'hypothesis' | 'gap' | 'action';
+    text: string;
+    fact_refs?: Array<(string)>;
+    evidence_refs: Array<(string)>;
+};
+
+export type type = 'explanation' | 'hypothesis' | 'gap' | 'action';
 
 export type NetFlowDatasetPublic = {
     id: string;
@@ -1839,6 +1933,11 @@ export type OperationPublic = {
     completed_at: (string | null);
 };
 
+export type Output = {
+    contract_version: "v2-ai-output-v1";
+    text: ReportText;
+};
+
 export type Page = {
     project_id: string;
     dataset_id?: (string | null);
@@ -1892,6 +1991,13 @@ export type PeerPage = {
     limit: number;
     total_peers: number;
     total_peer_records: number;
+};
+
+export type PriorityCase = {
+    address_key: string;
+    why_review: string;
+    next_check: string;
+    evidence_refs: Array<(string)>;
 };
 
 export type Profile = {
@@ -1955,28 +2061,40 @@ export type ProjectUpdate = {
     name: string;
 };
 
-export type Readiness = {
-    contract_version?: "core-comparison-v2";
+export type Public = {
+    subject_kind?: "core_comparison_v2";
+    result_id: string;
+    supplement_binding_id: (string | null);
+    audience?: 'management' | 'operations';
+    language?: 'zh' | 'en';
+    address_key?: (string | null);
+    id: string;
     project_id: string;
-    state: 'READY' | 'SCOPE_REQUIRED' | 'SCOPE_CONFIRMATION_REQUIRED' | 'CUSTOMER_NOT_READY' | 'CLOUD_NOT_READY' | 'INSUFFICIENT_COVERAGE' | 'EXPIRED' | 'ACCESS_DENIED' | 'READ_FAILED' | 'MULTIPLE_SCOPES' | 'METADATA_UNAVAILABLE';
-    reason_code?: (string | null);
-    scope_key?: (string | null);
-    scope_confirmation_id?: (string | null);
-    selection?: (Selection | null);
-    input_sha256?: (string | null);
-    expected_current_result_id?: (string | null);
-    customer?: (CustomerSelection | null);
-    customer_filename?: (string | null);
-    customer_applied_at?: (string | null);
-    clouds?: Array<CloudChoice>;
-    scope_choices?: Array<ScopeChoice>;
-    can_generate?: boolean;
-    can_write?: boolean;
-    can_confirm_scope?: boolean;
-    sources?: Array<SourceState>;
+    status: 'GENERATING' | 'DRAFT' | 'CONFIRMED' | 'FAILED';
+    revision: number;
+    created_at: string;
+    completed_at: (string | null);
+    edited_at: (string | null);
+    confirmed_at: (string | null);
+    created_by_id: string;
+    edited_by_id: (string | null);
+    confirmed_by_id: (string | null);
+    connection_version_id: (string | null);
+    config_fingerprint: string;
+    material_sha256: string;
+    failure_code: (string | null);
+    readable: boolean;
+    unavailable_reason: (string | null);
+    materials_changed: (boolean | null);
+    valid_until: (string | null);
+    original_output: (Output | null);
+    text: (ReportText | null);
+    material: (Material | null);
 };
 
-export type state8 = 'READY' | 'SCOPE_REQUIRED' | 'SCOPE_CONFIRMATION_REQUIRED' | 'CUSTOMER_NOT_READY' | 'CLOUD_NOT_READY' | 'INSUFFICIENT_COVERAGE' | 'EXPIRED' | 'ACCESS_DENIED' | 'READ_FAILED' | 'MULTIPLE_SCOPES' | 'METADATA_UNAVAILABLE';
+export type audience = 'management' | 'operations';
+
+export type language = 'zh' | 'en';
 
 export type ReplacementPreview = {
     candidate_upload_id: string;
@@ -2009,6 +2127,23 @@ export type ReplacementRequest = {
     expected_upload_id?: (string | null);
     expected_revision_id?: (string | null);
     expected_profile_id: string;
+};
+
+export type ReportText = {
+    summary: Array<(string)>;
+    sections: Array<Section>;
+    claims: Array<(FactClaim | NarrativeClaim)>;
+    priority_cases: Array<PriorityCase>;
+    limitations: Array<(string)>;
+};
+
+export type Request = {
+    subject_kind?: "core_comparison_v2";
+    result_id: string;
+    supplement_binding_id: (string | null);
+    audience?: 'management' | 'operations';
+    language?: 'zh' | 'en';
+    address_key?: (string | null);
 };
 
 export type ResponsePatch = {
@@ -2134,6 +2269,13 @@ export type ScopeChoice = {
     space_id: string;
 };
 
+export type Section = {
+    id: 'conclusion' | 'differences' | 'priority' | 'netflow' | 'next_steps' | 'appendix' | 'known_facts' | 'possible_explanations' | 'missing_evidence' | 'next_checks';
+    claim_ids: Array<(string)>;
+};
+
+export type id = 'conclusion' | 'differences' | 'priority' | 'netflow' | 'next_steps' | 'appendix' | 'known_facts' | 'possible_explanations' | 'missing_evidence' | 'next_checks';
+
 export type Selection = {
     network_namespace: string;
     customer?: (CustomerSelection | null);
@@ -2198,7 +2340,7 @@ export type SourceState = {
     };
 };
 
-export type state9 = 'VALID_NONEMPTY' | 'VALID_EMPTY' | 'NOT_PROVIDED' | 'READ_FAILED' | 'INSUFFICIENT_COVERAGE';
+export type state10 = 'VALID_NONEMPTY' | 'VALID_EMPTY' | 'NOT_PROVIDED' | 'READ_FAILED' | 'INSUFFICIENT_COVERAGE';
 
 export type read_state = 'VALID_NONEMPTY' | 'VALID_EMPTY' | 'NOT_PROVIDED' | 'READ_FAILED';
 
@@ -2289,7 +2431,7 @@ export type SupplementPublic = {
     total_addresses?: (number | null);
 };
 
-export type state10 = 'NOT_PROVIDED' | 'ACTIVE' | 'REMOVED' | 'EXPIRED' | 'UNREADABLE';
+export type state11 = 'NOT_PROVIDED' | 'ACTIVE' | 'REMOVED' | 'EXPIRED' | 'UNREADABLE';
 
 export type TaskDetail = {
     contract_version?: "netflow-correlation-v1";
@@ -2382,11 +2524,21 @@ export type TemporalCell = {
     value: string;
 };
 
-export type kind3 = 'datetime' | 'date' | 'time' | 'timedelta';
+export type kind4 = 'datetime' | 'date' | 'time' | 'timedelta';
 
 export type Token = {
     access_token: string;
     token_type?: string;
+};
+
+export type Update = {
+    expected_revision: number;
+    edits: {
+        [key: string]: unknown;
+    };
+    case_edits?: {
+        [key: string]: unknown;
+    };
 };
 
 export type UpdatePassword = {
@@ -2401,11 +2553,11 @@ export type Updates = {
     state: 'UNCHANGED' | 'UPDATED' | 'UNAVAILABLE';
     reason_code: (string | null);
     latest_result_id: (string | null);
-    readiness: Readiness;
+    readiness: app__domain__comparison_results__Readiness;
     latest_attempt: (AttemptPublic | null);
 };
 
-export type state11 = 'UNCHANGED' | 'UPDATED' | 'UNAVAILABLE';
+export type state12 = 'UNCHANGED' | 'UPDATED' | 'UNAVAILABLE';
 
 export type UserCreateByAdmin = {
     email: string;
@@ -2497,6 +2649,77 @@ export type AnalysisReportsReadAnalysisReportsData = {
 };
 
 export type AnalysisReportsReadAnalysisReportsResponse = (AnalysisReportsPublic);
+
+export type AnalysisReportsCreateV2AnalysisReportData = {
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: Request;
+};
+
+export type AnalysisReportsCreateV2AnalysisReportResponse = (Public);
+
+export type AnalysisReportsReadV2AnalysisReportsData = {
+    addressKey?: (string | null);
+    audience?: string;
+    language?: string;
+    limit?: number;
+    projectId: string;
+    resultId: string;
+    skip?: number;
+    supplementBindingId?: (string | null);
+};
+
+export type AnalysisReportsReadV2AnalysisReportsResponse = (Listing);
+
+export type AnalysisReportsReadV2ReportReadinessData = {
+    addressKey?: (string | null);
+    audience?: string;
+    language?: string;
+    projectId: string;
+    resultId: string;
+    supplementBindingId?: (string | null);
+};
+
+export type AnalysisReportsReadV2ReportReadinessResponse = (app__domain__v2_analysis_reports__Readiness);
+
+export type AnalysisReportsReadV2ReportOperationData = {
+    key: string;
+    projectId: string;
+};
+
+export type AnalysisReportsReadV2ReportOperationResponse = (Public);
+
+export type AnalysisReportsReadV2AnalysisReportData = {
+    analysisReportId: string;
+    projectId: string;
+};
+
+export type AnalysisReportsReadV2AnalysisReportResponse = (Public);
+
+export type AnalysisReportsUpdateV2AnalysisReportData = {
+    analysisReportId: string;
+    projectId: string;
+    requestBody: Update;
+};
+
+export type AnalysisReportsUpdateV2AnalysisReportResponse = (Public);
+
+export type AnalysisReportsConfirmV2AnalysisReportData = {
+    analysisReportId: string;
+    projectId: string;
+    requestBody: AnalysisReportRevision;
+};
+
+export type AnalysisReportsConfirmV2AnalysisReportResponse = (Public);
+
+export type AnalysisReportsReadV2ReportRevisionsData = {
+    analysisReportId: string;
+    projectId: string;
+};
+
+export type AnalysisReportsReadV2ReportRevisionsResponse = (Array<{
+    [key: string]: unknown;
+}>);
 
 export type AnalysisReportsReadAnalysisReportData = {
     analysisReportId: string;
@@ -2648,7 +2871,7 @@ export type ComparisonResultsReadinessData = {
     sourceInstanceId?: (string | null);
 };
 
-export type ComparisonResultsReadinessResponse = (Readiness);
+export type ComparisonResultsReadinessResponse = (app__domain__comparison_results__Readiness);
 
 export type ComparisonResultsCurrentData = {
     projectId: string;

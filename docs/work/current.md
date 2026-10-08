@@ -1,5 +1,7 @@
 # 当前工作
 
+- 2026-10-09维护者明确授权按附件完成V2后正常源码push/PR、必需CI/Review后merge、既有8081备份/恢复演练/追加迁移与部署验收、完成后关闭297/298/299；各Issue已记录该后续授权。固定Spec/ADR1c42406不变，当前在B实现/验证，A候选a17dd09已本地提交。此前仅本地阶段条目保留为历史，不覆盖本授权；真实来源/模型出域、清理和保留期限扩展仍未包含。
+
 - V2阶段A[#297](https://github.com/Notyet1307/Exposure-Agent/issues/297)本地实现/隔离阅读验收已完成，见[回执](v2-reading-validation.md)；固定Spec/ADR为`1c42406`（文档PR#296已合并），阶段B[#298](https://github.com/Notyet1307/Exposure-Agent/issues/298)与C[#299](https://github.com/Notyet1307/Exposure-Agent/issues/299)按本地候选验收顺序继续。当前仅分阶段本地实现/验证/提交，业务源码发布、部署、真实调用及关闭仍未获许可；Issue状态以GitHub为准。下方是此前规格发布前及已交付快照。
 
 - 2026-10-08 V2阅读与AI报告候选b307415已获维护者明确批准：[Spec](../specs/v2-ai-interpretation.md)、[ADR-0025](../adr/0025-v2-ai-report-materials.md)和[A/B/C任务拆分](../plans/v2-ai-interpretation-issues.md)。当前授权规格文档push/PR、必需CI/Review后merge及固定commit建单，随后本地分阶段实施/隔离合成验证/提交；业务源码发布、部署、真实调用和关闭保持独立。工作树`exposure-v2-ai`保护原checkout WIP；[接管/红用例记录](v2-ai-interpretation-takeover.md)保留旧阶段事实。正式Issue待发布，下方保留已交付事实。

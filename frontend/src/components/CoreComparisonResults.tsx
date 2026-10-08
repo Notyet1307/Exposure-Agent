@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { V2AnalysisReportsPanel } from "@/components/V2AnalysisReportsPanel"
 import {
   type ComparisonClass,
   type ComparisonReturn,
@@ -1558,6 +1559,13 @@ export default function CoreComparisonResults({
             className="space-y-3"
           >
             <AiModelStatus />
+            <V2AnalysisReportsPanel
+              key={`${actor}:${projectId}:${result.id}:${search.binding}`}
+              actor={actor}
+              projectId={projectId}
+              resultId={result.id}
+              bindingId={search.binding === "none" ? null : search.binding}
+            />
           </section>
           <details className="space-y-3 rounded border p-4">
             <summary className="cursor-pointer font-medium">

@@ -3,7 +3,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from sqlalchemy import func
 from sqlmodel import col, select
 
@@ -16,8 +16,17 @@ from app.api.project_authorization import (
 from app.core.config import settings
 from app.core.time import get_datetime_utc
 from app.domain import ai_analysis_reports as service
+from app.domain import v2_analysis_reports as v2
 from app.domain.model_connections import ConnectionBinding, client_for_binding
-from app.domain.models import AnalysisReport, GovernanceRun, Project, ProjectRole
+from app.domain.models import (
+    DEPLOYMENT_TENANT_ID,
+    AnalysisReport,
+    AnalysisReportRevisionRecord,
+    GovernanceRun,
+    ModelConnectionState,
+    Project,
+    ProjectRole,
+)
 from app.integrations.agent_compose import AgentComposeClient
 
 router = APIRouter(
@@ -27,7 +36,7 @@ router = APIRouter(
 
 def _error(error: service.AnalysisReportError) -> HTTPException:
     return HTTPException(
-        status_code=409,
+        status_code=410 if error.code == "v2_report_material_expired" else 409,
         detail={
             "code": error.code,
             "message": "Analysis report cannot proceed with the fixed authorized material, version and model configuration.",
@@ -36,6 +45,7 @@ def _error(error: service.AnalysisReportError) -> HTTPException:
 
 
 def _public(record: AnalysisReport) -> service.AnalysisReportPublic:
+    assert record.run_id is not None and record.subject_kind == "governance_run"
     return service.public(
         record,
         current_hash=service.current_material_hash(
@@ -46,16 +56,15 @@ def _public(record: AnalysisReport) -> service.AnalysisReportPublic:
     )
 
 
-@router.post("", response_model=service.AnalysisReportPublic, status_code=201)
-def create_analysis_report(
+def _create_report(
     *,
     session: SessionDep,
     current_user: CurrentUser,
     project_id: uuid.UUID,
-    request_body: service.AnalysisReportRequest,
+    request_body: service.AnalysisReportRequest | v2.Request,
     response: Response,
-    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> service.AnalysisReportPublic:
+    idempotency_key: str,
+) -> service.AnalysisReportPublic | v2.Public:
     if (
         not idempotency_key
         or idempotency_key.strip() != idempotency_key
@@ -65,6 +74,18 @@ def create_analysis_report(
         raise HTTPException(
             status_code=400, detail={"code": "analysis_report_idempotency_key_invalid"}
         )
+    core_request = request_body if isinstance(request_body, v2.Request) else None
+    run_id = (
+        request_body.run_id
+        if isinstance(request_body, service.AnalysisReportRequest)
+        else None
+    )
+    subject_kind = "core_comparison_v2" if core_request else "governance_run"
+    request_hash = (
+        service.material_hash(core_request.model_dump(mode="json"))
+        if core_request
+        else None
+    )
     project = get_authorized_project(
         session=session,
         user=current_user,
@@ -81,25 +102,45 @@ def create_analysis_report(
         )
     ).one_or_none()
     if existing is not None:
-        if existing.run_id != request_body.run_id:
+        if (
+            existing.run_id != run_id
+            or existing.subject_kind != subject_kind
+            or (
+                core_request is not None
+                and (
+                    existing.request_sha256 != request_hash
+                    or existing.created_by_id != current_user.id
+                )
+            )
+        ):
             raise _error(
                 service.AnalysisReportError("analysis_report_idempotency_conflict")
             )
         session.expunge(existing)
         session.commit()
         response.status_code = 200
-        return _public(service.reconcile(existing))
+        record = service.reconcile(existing)
+        return v2.public(record, current_user) if core_request else _public(record)
     try:
-        material, sources, binding = service.load_material(
-            project_id=project.id, user_id=current_user.id, run_id=request_body.run_id
-        )
+        if core_request:
+            material, sources, binding = service.load_material(
+                project_id=project.id,
+                user_id=current_user.id,
+                core_request=core_request,
+            )
+        else:
+            material, sources, binding = service.load_material(
+                project_id=project.id, user_id=current_user.id, run_id=run_id
+            )
     except service.AnalysisReportError as error:
         raise _error(error) from None
     active = session.exec(
         select(AnalysisReport.id).where(
             AnalysisReport.project_id == project.id,
             AnalysisReport.tenant_id == project.tenant_id,
-            AnalysisReport.run_id == request_body.run_id,
+            AnalysisReport.run_id == run_id,
+            AnalysisReport.subject_kind == subject_kind,
+            *([AnalysisReport.request_sha256 == request_hash] if core_request else []),
             AnalysisReport.status == "GENERATING",
         )
     ).first()
@@ -115,7 +156,16 @@ def create_analysis_report(
         id=record_id,
         tenant_id=project.tenant_id,
         project_id=project.id,
-        run_id=request_body.run_id,
+        run_id=run_id,
+        subject_kind=subject_kind,
+        core_result_id=core_request.result_id if core_request else None,
+        supplement_binding_id=core_request.supplement_binding_id
+        if core_request
+        else None,
+        audience=core_request.audience if core_request else None,
+        language=core_request.language if core_request else None,
+        address_key=core_request.address_key if core_request else None,
+        request_sha256=request_hash,
         created_by_id=current_user.id,
         idempotency_key=idempotency_key,
         config_fingerprint=binding.config_fingerprint,
@@ -139,7 +189,30 @@ def create_analysis_report(
     session.refresh(record)
     session.expunge(record)
     session.commit()
-    return _public(service.reconcile(record, launch=True))
+    record = service.reconcile(record, launch=True)
+    return v2.public(record, current_user) if core_request else _public(record)
+
+
+@router.post("", response_model=service.AnalysisReportPublic, status_code=201)
+def create_analysis_report(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    request_body: service.AnalysisReportRequest,
+    response: Response,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+) -> service.AnalysisReportPublic:
+    result = _create_report(
+        session=session,
+        current_user=current_user,
+        project_id=project_id,
+        request_body=request_body,
+        response=response,
+        idempotency_key=idempotency_key,
+    )
+    assert isinstance(result, service.AnalysisReportPublic)
+    return result
 
 
 @router.get("", response_model=service.AnalysisReportsPublic)
@@ -220,6 +293,7 @@ def _record(
     project_id: uuid.UUID,
     analysis_report_id: uuid.UUID,
     write: bool = False,
+    subject_kind: str = "governance_run",
 ) -> AnalysisReport:
     project = get_authorized_project(
         session=session,
@@ -233,6 +307,7 @@ def _record(
         AnalysisReport.id == analysis_report_id,
         AnalysisReport.project_id == project.id,
         AnalysisReport.tenant_id == project.tenant_id,
+        AnalysisReport.subject_kind == subject_kind,
     )
     if write:
         statement = statement.with_for_update().execution_options(
@@ -241,7 +316,353 @@ def _record(
     record = session.exec(statement).one_or_none()
     if record is None:
         raise HTTPException(status_code=404, detail="Analysis report not found")
+    if write and subject_kind == "core_comparison_v2":
+        try:
+            v2.check_record(session, project, record)
+        except service.AnalysisReportError as error:
+            raise _error(error) from None
     return record
+
+
+@router.post("/v2", response_model=v2.Public, status_code=201)
+def create_v2_analysis_report(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    request_body: v2.Request,
+    response: Response,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+) -> v2.Public:
+    result = _create_report(
+        session=session,
+        current_user=current_user,
+        project_id=project_id,
+        request_body=request_body,
+        response=response,
+        idempotency_key=idempotency_key,
+    )
+    assert isinstance(result, v2.Public)
+    return result
+
+
+@router.get("/v2/readiness", response_model=v2.Readiness)
+def read_v2_report_readiness(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    result_id: uuid.UUID,
+    supplement_binding_id: uuid.UUID | None = None,
+    audience: str = "management",
+    language: str = "zh",
+    address_key: str | None = None,
+) -> v2.Readiness:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=PROJECT_READ_ROLES,
+    )
+    try:
+        body = v2.Request.model_validate(
+            {
+                "result_id": result_id,
+                "supplement_binding_id": supplement_binding_id,
+                "audience": audience,
+                "language": language,
+                "address_key": address_key,
+            }
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail={"code": "v2_report_request_invalid"}
+        ) from None
+    result = v2.Readiness(
+        project_id=project.id,
+        result_id=result_id,
+        supplement_binding_id=supplement_binding_id,
+        state="NO_PERMISSION",
+        can_create=False,
+    )
+    if (
+        project.archived_at is not None
+        or session.exec(
+            select(Project.id).where(
+                Project.id == project.id,
+                project_access_filter(
+                    user=current_user, allowed_roles=(ProjectRole.OPERATOR,)
+                ),
+            )
+        ).first()
+        is None
+    ):
+        return result
+    try:
+        v2.read_scope(session, project, body)
+    except service.AnalysisReportError as error:
+        result.state, result.reason_code = "MATERIAL_UNAVAILABLE", error.code
+        return result
+    state = session.get(ModelConnectionState, DEPLOYMENT_TENANT_ID)
+    if (
+        state is not None
+        and state.active_id is None
+        and (state.adopted or state.pending_id is not None)
+    ):
+        result.state = "NOT_ENABLED"
+        return result
+    if (
+        state is None or not state.adopted
+    ) and not settings.MODEL_API_KEY.get_secret_value():
+        result.state = "NOT_CONFIGURED"
+        return result
+    try:
+        _material, _sources, binding = service.load_material(
+            project_id=project.id, user_id=current_user.id, core_request=body
+        )
+    except service.AnalysisReportError as error:
+        result.state = (
+            "MATERIAL_UNAVAILABLE"
+            if error.code.startswith(("v2_report_", "synthetic_", "material_"))
+            else "NOT_QUALIFIED"
+            if "qualified" in error.code
+            else "MODEL_UNAVAILABLE"
+        )
+        result.reason_code = error.code
+        return result
+    result.state, result.can_create = "READY", True
+    result.connection_version_id = getattr(binding, "connection_version_id", None)
+    return result
+
+
+@router.get("/v2", response_model=v2.Listing)
+def read_v2_analysis_reports(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    result_id: uuid.UUID,
+    supplement_binding_id: uuid.UUID | None = None,
+    audience: str = "management",
+    language: str = "zh",
+    address_key: str | None = None,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=25)] = 25,
+) -> v2.Listing:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=PROJECT_READ_ROLES,
+    )
+    try:
+        body = v2.Request.model_validate(
+            {
+                "result_id": result_id,
+                "supplement_binding_id": supplement_binding_id,
+                "audience": audience,
+                "language": language,
+                "address_key": address_key,
+            }
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail={"code": "v2_report_request_invalid"}
+        ) from None
+    filters = (
+        AnalysisReport.project_id == project.id,
+        AnalysisReport.tenant_id == project.tenant_id,
+        AnalysisReport.subject_kind == "core_comparison_v2",
+        AnalysisReport.core_result_id == body.result_id,
+        AnalysisReport.supplement_binding_id == body.supplement_binding_id,
+        AnalysisReport.audience == body.audience,
+        AnalysisReport.language == body.language,
+        AnalysisReport.address_key == body.address_key,
+    )
+    count = session.exec(
+        select(func.count()).select_from(AnalysisReport).where(*filters)
+    ).one()
+    records = session.exec(
+        select(AnalysisReport)
+        .where(*filters)
+        .order_by(col(AnalysisReport.created_at).desc(), col(AnalysisReport.id).desc())
+        .offset(skip)
+        .limit(limit)
+    ).all()
+    can_create = (
+        project.archived_at is None
+        and session.exec(
+            select(Project.id).where(
+                Project.id == project.id,
+                project_access_filter(
+                    user=current_user, allowed_roles=(ProjectRole.OPERATOR,)
+                ),
+            )
+        ).first()
+        is not None
+    )
+    for record in records:
+        session.expunge(record)
+    session.commit()
+    return v2.Listing(
+        data=[
+            v2.public(service.reconcile(record), current_user, include_content=False)
+            for record in records
+        ],
+        count=count,
+        can_create=can_create,
+    )
+
+
+@router.get("/v2/operations/{key}", response_model=v2.Public)
+def read_v2_report_operation(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    key: str,
+) -> v2.Public:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=PROJECT_READ_ROLES,
+    )
+    record = session.exec(
+        select(AnalysisReport).where(
+            AnalysisReport.project_id == project.id,
+            AnalysisReport.tenant_id == project.tenant_id,
+            AnalysisReport.subject_kind == "core_comparison_v2",
+            AnalysisReport.idempotency_key == key,
+            AnalysisReport.created_by_id == current_user.id,
+        )
+    ).one_or_none()
+    if record is None:
+        raise HTTPException(
+            status_code=404, detail={"code": "v2_report_operation_not_found"}
+        )
+    session.expunge(record)
+    session.commit()
+    return v2.public(service.reconcile(record), current_user)
+
+
+@router.get("/v2/{analysis_report_id}", response_model=v2.Public)
+def read_v2_analysis_report(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    analysis_report_id: uuid.UUID,
+) -> v2.Public:
+    record = _record(
+        session=session,
+        current_user=current_user,
+        project_id=project_id,
+        analysis_report_id=analysis_report_id,
+        subject_kind="core_comparison_v2",
+    )
+    session.expunge(record)
+    session.commit()
+    return v2.public(service.reconcile(record), current_user)
+
+
+@router.patch("/v2/{analysis_report_id}", response_model=v2.Public)
+def update_v2_analysis_report(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    analysis_report_id: uuid.UUID,
+    request_body: v2.Update,
+) -> v2.Public:
+    record = _record(
+        session=session,
+        current_user=current_user,
+        project_id=project_id,
+        analysis_report_id=analysis_report_id,
+        write=True,
+        subject_kind="core_comparison_v2",
+    )
+    _require_revision(record, request_body.expected_revision)
+    try:
+        record.text = v2.edit_text(record, request_body)
+    except service.AnalysisReportError as error:
+        raise _error(error) from None
+    record.edited_by_id, record.edited_at = current_user.id, get_datetime_utc()
+    record.revision += 1
+    session.add(record)
+    service.append_revision(session, record, current_user.id)
+    service.audit(session, record, "analysis_report.edited", current_user.id)
+    session.commit()
+    session.refresh(record)
+    session.expunge(record)
+    session.commit()
+    return v2.public(record, current_user)
+
+
+@router.post("/v2/{analysis_report_id}/confirm", response_model=v2.Public)
+def confirm_v2_analysis_report(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    analysis_report_id: uuid.UUID,
+    request_body: service.AnalysisReportRevision,
+) -> v2.Public:
+    record = _record(
+        session=session,
+        current_user=current_user,
+        project_id=project_id,
+        analysis_report_id=analysis_report_id,
+        write=True,
+        subject_kind="core_comparison_v2",
+    )
+    _require_revision(record, request_body.expected_revision)
+    record.status, record.confirmed_by_id, record.confirmed_at = (
+        "CONFIRMED",
+        current_user.id,
+        get_datetime_utc(),
+    )
+    record.revision += 1
+    session.add(record)
+    service.append_revision(session, record, current_user.id)
+    service.audit(session, record, "analysis_report.confirmed", current_user.id)
+    session.commit()
+    session.refresh(record)
+    session.expunge(record)
+    session.commit()
+    return v2.public(record, current_user)
+
+
+@router.get("/v2/{analysis_report_id}/revisions")
+def read_v2_report_revisions(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    analysis_report_id: uuid.UUID,
+) -> list[dict[str, object]]:
+    record = _record(
+        session=session,
+        current_user=current_user,
+        project_id=project_id,
+        analysis_report_id=analysis_report_id,
+        subject_kind="core_comparison_v2",
+    )
+    project = session.get(Project, project_id)
+    assert project is not None
+    try:
+        v2.check_record(session, project, record)
+    except service.AnalysisReportError as error:
+        raise _error(error) from None
+    return [
+        row.model_dump(mode="json")
+        for row in session.exec(
+            select(AnalysisReportRevisionRecord)
+            .where(AnalysisReportRevisionRecord.report_id == record.id)
+            .order_by(col(AnalysisReportRevisionRecord.revision).desc())
+        ).all()
+    ]
 
 
 @router.get("/{analysis_report_id}", response_model=service.AnalysisReportPublic)

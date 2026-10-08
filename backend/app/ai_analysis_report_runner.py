@@ -17,6 +17,7 @@ try:
     from app.core.db import engine
     from app.core.time import get_datetime_utc
     from app.domain import ai_analysis_reports as service
+    from app.domain import v2_analysis_reports as v2
     from app.domain.ai_investigations import canonical_bytes
     from app.integrations.pi_investigation import run_pi_investigation
     from app.model_qualification_runner import _runner_build_version
@@ -48,6 +49,10 @@ _FAILURE_CODES = frozenset(
         "synthetic_manifest_invalid",
         "analysis_report_scope_denied",
         "analysis_report_material_changed",
+        "v2_report_material_unavailable",
+        "v2_report_material_expired",
+        "v2_report_material_invalid",
+        "v2_report_unsupported_claim",
     }
 )
 
@@ -129,12 +134,14 @@ def main() -> int:
         transport = binding
         if record.connection_version_id is not None:
             from app.domain.model_connection_proxy import transport_binding
+
             transport, api_key = transport_binding(binding, "analysis_report")
         output = run_pi_investigation(
             binding=transport,
             api_key=api_key,
             tools={"read_report_material": read_tool},
             task="analysis_report",
+            report_format="v2" if record.subject_kind == "core_comparison_v2" else "v1",
             before_model_call=authorize,
             timeout_seconds=record.timeout_seconds - (time.monotonic() - started),
             max_tool_calls=record.max_tool_calls,
@@ -145,9 +152,16 @@ def main() -> int:
             raise service.AnalysisReportError("tool_required")
         if time.monotonic() - started > record.timeout_seconds:
             raise service.AnalysisReportError("investigation_timeout")
-        validated = service.validate_output(
-            output, citation_ids=citation_ids, max_output_bytes=record.max_output_bytes
-        )
+        if record.subject_kind == "core_comparison_v2":
+            validated = v2.validate_output(
+                output, record.material, citation_ids, record.max_output_bytes
+            )
+        else:
+            validated = service.validate_output(
+                output,
+                citation_ids=citation_ids,
+                max_output_bytes=record.max_output_bytes,
+            )
         service.finish(
             analysis_report_id=record.id,
             output=validated,
