@@ -32,8 +32,13 @@ def _pending(monkeypatch: MonkeyPatch) -> list[str]:
     starts: list[str] = []
 
     def start(
-        client: AgentComposeClient, *, client_request_id: str, analysis_report_id: str
+        client: AgentComposeClient,
+        *,
+        client_request_id: str,
+        analysis_report_id: str,
+        material_capability: str | None = None,
     ) -> AgentComposeRunStart:
+        assert material_capability is None or len(material_capability) == 64
         starts.append(analysis_report_id)
         return AgentComposeRunStart(
             run_id=client.expected_analysis_report_run_id(client_request_id),

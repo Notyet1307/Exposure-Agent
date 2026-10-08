@@ -428,10 +428,8 @@ def require_model(
 
 
 def runner_material_token(record: AnalysisReport) -> str:
-    if record.session_id is None:
-        raise AnalysisReportError("analysis_report_scope_denied")
     message = ":".join(
-        (str(record.id), record.agent_compose_run_id, record.session_id)
+        ("v2-report-material", str(record.id), record.agent_compose_run_id)
     ).encode()
     return hmac.new(settings.SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()
 
@@ -776,6 +774,11 @@ def reconcile(record: AnalysisReport, *, launch: bool = False) -> AnalysisReport
                 observation = client.start_analysis_report(
                     client_request_id=f"analysis-report:{record.id}",
                     analysis_report_id=str(record.id),
+                    **(
+                        {"material_capability": runner_material_token(record)}
+                        if record.subject_kind == "core_comparison_v2"
+                        else {}
+                    ),
                 )
         else:
             observation = client.get_run(record.agent_compose_run_id)

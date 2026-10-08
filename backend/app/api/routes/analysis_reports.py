@@ -2,6 +2,7 @@
 
 import hmac
 import uuid
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Response
@@ -35,7 +36,7 @@ router = APIRouter(
 )
 
 
-@router.post("/internal/{analysis_report_id}/material")
+@router.post("/internal/{analysis_report_id}/material", include_in_schema=False)
 def read_runner_material(
     *,
     session: SessionDep,
@@ -52,6 +53,9 @@ def read_runner_material(
         or record.subject_kind != "core_comparison_v2"
         or record.project_id != project_id
         or record.status != "GENERATING"
+        or record.execution_started_at is None
+        or get_datetime_utc()
+        >= record.execution_started_at + timedelta(seconds=record.timeout_seconds)
         or record.agent_compose_run_id != agent_run_id
         or record.session_id != session_id
         or not hmac.compare_digest(capability, service.runner_material_token(record))

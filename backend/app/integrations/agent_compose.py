@@ -353,7 +353,11 @@ class AgentComposeClient:
         )
 
     def start_analysis_report(
-        self, *, client_request_id: str, analysis_report_id: str
+        self,
+        *,
+        client_request_id: str,
+        analysis_report_id: str,
+        material_capability: str | None = None,
     ) -> AgentComposeRunStart:
         return self._start_run(
             agent_name="ai-analysis-report",
@@ -365,6 +369,11 @@ class AgentComposeClient:
                 ),
             },
             command="/app/.venv/bin/python -m app.ai_analysis_report_runner",
+            secret_environment=(
+                {"AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY": material_capability}
+                if material_capability is not None
+                else None
+            ),
         )
 
     def start_cloudatlas_sync(

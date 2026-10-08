@@ -100,6 +100,9 @@ def main() -> int:
                 record=record,
             )
         try:
+            capability = os.environ.get("AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY", "")
+            if not re.fullmatch(r"[0-9a-f]{64}", capability):
+                raise ValueError("v2_report_material_invalid")
             response = httpx.post(
                 settings.AI_ANALYSIS_REPORT_INTERNAL_URL.rstrip("/")
                 + settings.API_V1_STR
@@ -107,16 +110,22 @@ def main() -> int:
                 headers={
                     "X-Analysis-Report-Run": record.agent_compose_run_id,
                     "X-Analysis-Report-Session": record.session_id or "",
-                    "X-Analysis-Report-Capability": service.runner_material_token(record),
+                    "X-Analysis-Report-Capability": capability,
                 },
-                timeout=min(10, max(1, record.timeout_seconds - (time.monotonic() - started))),
+                timeout=min(
+                    10, max(1, record.timeout_seconds - (time.monotonic() - started))
+                ),
             )
             response.raise_for_status()
             material = response.json()["material"]
             if not isinstance(material, dict):
                 raise ValueError("v2_report_material_invalid")
-        except (httpx.HTTPError, KeyError, TypeError, ValueError):
-            raise service.AnalysisReportError("v2_report_material_unavailable") from None
+            if service.material_hash(material) != record.material_sha256:
+                raise ValueError("v2_report_material_invalid")
+        except httpx.HTTPError, KeyError, TypeError, ValueError:
+            raise service.AnalysisReportError(
+                "v2_report_material_unavailable"
+            ) from None
         with Session(engine) as session:
             binding = service.require_model(session, record)
         return material, record.sources, binding

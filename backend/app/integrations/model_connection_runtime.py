@@ -184,6 +184,7 @@ def runner_environment() -> tuple[dict[str, str], dict[str, str]]:
         "AGENT_COMPOSE_URL",
         "AGENT_COMPOSE_PROJECT_NAME",
         "MODEL_CONNECTION_INTERNAL_URL",
+        "AI_ANALYSIS_REPORT_INTERNAL_URL",
         "MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST",
         "AI_INVESTIGATION_ALLOW_BAIZHI_TEST",
         "AI_ANALYSIS_REPORT_ALLOW_BAIZHI_TEST",
@@ -350,6 +351,12 @@ def start_business_task(record: Any, family: str) -> AgentComposeRunStart:
         nonce = "ai-investigation:" + str(record.id)
         module = "app.ai_investigation_runner"
     else:
+        if getattr(record, "subject_kind", None) == "core_comparison_v2":
+            from app.domain.ai_analysis_reports import runner_material_token
+
+            secrets["AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY"] = runner_material_token(
+                record
+            )
         env.update(
             AI_ANALYSIS_REPORT_ID=str(record.id),
             AI_ANALYSIS_REPORT_RUN_ID=record.agent_compose_run_id,

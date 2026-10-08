@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -13,7 +14,6 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.db import engine
 from app.core.time import get_datetime_utc
-from app import ai_analysis_report_runner as runner
 from app.domain import ai_analysis_reports as reports
 from app.domain import comparison_results as comparisons
 from app.domain import v2_analysis_reports as v2
@@ -22,6 +22,7 @@ from app.domain.models import (
     AnalysisReportRevisionRecord,
     GovernanceRun,
 )
+from app.models import User
 from tests.api.routes.test_ai_governance_draft_requests import (
     _configure_qualified_model,
 )
@@ -128,8 +129,15 @@ def generate(
     )
     assert created.status_code == 201, created.text
     report = created.json()
+    with Session(engine) as session:
+        fixed = session.get(AnalysisReport, uuid.UUID(report["id"]))
+        assert fixed is not None
+        monkeypatch.setenv(
+            "AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY",
+            reports.runner_material_token(fixed),
+        )
     monkeypatch.setattr(
-        runner.httpx,
+        httpx,
         "post",
         lambda *_args, **_kwargs: SimpleNamespace(
             raise_for_status=lambda: None, json=lambda: {"material": report["material"]}
@@ -243,6 +251,108 @@ def test_v2_no_run_generation_edit_confirm_and_immutable_revisions(
             )
             session.commit()
         session.rollback()
+
+
+def test_v2_runner_bridge_rechecks_scope_and_current_actor(
+    client: TestClient,
+    context: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _pending(monkeypatch)
+    created = client.post(
+        context["url"],
+        headers=context["headers"] | {"Idempotency-Key": "bridge-scope"},
+        json=context["body"],
+    )
+    assert created.status_code == 201
+    with Session(engine) as session:
+        record = session.get(AnalysisReport, uuid.UUID(created.json()["id"]))
+        assert record is not None
+        record.execution_started_at = get_datetime_utc()
+        session.add(record)
+        session.commit()
+        headers = {
+            "X-Analysis-Report-Run": record.agent_compose_run_id,
+            "X-Analysis-Report-Session": record.session_id or "",
+            "X-Analysis-Report-Capability": reports.runner_material_token(record),
+        }
+        url = context["root"] + f"/analysis-reports/internal/{record.id}/material"
+        expected = record.material
+        actor_id = record.created_by_id
+    response = client.post(url, headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {"material": expected}
+    for name in headers:
+        denied = client.post(url, headers=headers | {name: "f" * 64})
+        assert denied.status_code == 403
+        assert "material" not in denied.json()
+    wrong_project = url.replace(str(context["project"].id), str(uuid.uuid4()))
+    assert client.post(wrong_project, headers=headers).status_code == 403
+    with Session(engine) as session:
+        actor = session.get(User, actor_id)
+        assert actor is not None
+        actor.is_active = False
+        session.add(actor)
+        session.commit()
+    try:
+        denied = client.post(url, headers=headers)
+        assert denied.status_code == 409
+        assert denied.json()["detail"]["code"] == "analysis_report_scope_denied"
+        assert "material" not in denied.json()
+    finally:
+        with Session(engine) as session:
+            actor = session.get(User, actor_id)
+            assert actor is not None
+            actor.is_active = True
+            session.add(actor)
+            session.commit()
+    monkeypatch.setattr(
+        "app.api.routes.analysis_reports.get_datetime_utc",
+        lambda: get_datetime_utc() + timedelta(hours=1),
+    )
+    assert client.post(url, headers=headers).status_code == 403
+
+
+def test_v2_runner_uses_opaque_capability_and_real_bridge_endpoint(
+    client: TestClient,
+    context: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _pending(monkeypatch)
+    created = client.post(
+        context["url"],
+        headers=context["headers"] | {"Idempotency-Key": "bridge-execution"},
+        json=context["body"],
+    )
+    assert created.status_code == 201
+    report_id = created.json()["id"]
+    with Session(engine) as session:
+        record = session.get(AnalysisReport, uuid.UUID(report_id))
+        assert record is not None
+        capability = reports.runner_material_token(record)
+        url = context["root"] + f"/analysis-reports/internal/{record.id}/material"
+    monkeypatch.setenv("AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY", capability)
+    forwarded: list[dict[str, str]] = []
+
+    def bridge(_url: str, *, headers: dict[str, str], **_kwargs: Any) -> Any:
+        forwarded.append(headers)
+        return client.post(url, headers=headers)
+
+    monkeypatch.setattr(httpx, "post", bridge)
+    assert (
+        _run(
+            monkeypatch,
+            report_id,
+            lambda **kwargs: proposal(kwargs["tools"]["read_report_material"]({})),
+        )
+        == 0
+    )
+    assert forwarded and all(
+        request["X-Analysis-Report-Capability"] == capability for request in forwarded
+    )
+    report = client.get(context["url"] + "/" + report_id, headers=context["headers"])
+    assert report.json()["status"] == "DRAFT"
+    assert client.post(url, headers=forwarded[-1]).status_code == 403
 
 
 def test_v2_acl_strict_binding_and_unknown_operation_replay(
