@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlmodel import Session, select
@@ -17,10 +18,13 @@ from app.core.time import get_datetime_utc
 from app.domain import ai_analysis_reports as reports
 from app.domain import comparison_results as comparisons
 from app.domain import v2_analysis_reports as v2
+from app.domain.ai_investigations import canonical_bytes
 from app.domain.models import (
+    DEPLOYMENT_TENANT_ID,
     AnalysisReport,
     AnalysisReportRevisionRecord,
     GovernanceRun,
+    ModelConnectionState,
 )
 from app.models import User
 from tests.api.routes.test_ai_governance_draft_requests import (
@@ -311,6 +315,95 @@ def test_v2_runner_bridge_rechecks_scope_and_current_actor(
         lambda: get_datetime_utc() + timedelta(hours=1),
     )
     assert client.post(url, headers=headers).status_code == 403
+
+
+def test_v2_readiness_tracks_configuration_and_material_failures(
+    client: TestClient,
+    context: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    params = {key: value for key, value in context["body"].items() if value is not None}
+    url = context["url"] + "/readiness"
+    ready = client.get(url, headers=context["headers"], params=params).json()
+    assert ready["state"] == "READY" and ready["can_create"]
+    with monkeypatch.context() as patch:
+        patch.setattr(settings, "MODEL_API_KEY", SecretStr(""))
+        unavailable = client.get(url, headers=context["headers"], params=params).json()
+        assert (
+            unavailable["state"] == "NOT_CONFIGURED" and not unavailable["can_create"]
+        )
+    with Session(engine) as session:
+        state = ModelConnectionState(adopted=True)
+        assert session.get(ModelConnectionState, DEPLOYMENT_TENANT_ID) is None
+        session.add(state)
+        session.commit()
+    try:
+        disabled = client.get(url, headers=context["headers"], params=params).json()
+        assert disabled["state"] == "NOT_ENABLED" and not disabled["can_create"]
+    finally:
+        with Session(engine) as session:
+            existing_state = session.get(ModelConnectionState, DEPLOYMENT_TENANT_ID)
+            assert existing_state is not None
+            session.delete(existing_state)
+            session.commit()
+    unavailable = client.get(
+        url,
+        headers=context["headers"],
+        params=params | {"result_id": str(uuid.uuid4())},
+    ).json()
+    assert unavailable["state"] == "MATERIAL_UNAVAILABLE"
+    assert not unavailable["can_create"]
+
+
+def test_v2_samples_are_bounded_without_changing_authority_or_language_facts(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    core = _setup_core(
+        client,
+        db,
+        superuser_token_headers,
+        tmp_path,
+        monkeypatch,
+        cloud_ips=tuple(f"192.0.2.{number}" for number in range(20, 66)),
+    )
+    result = _create_core(client, core)
+    request = v2.Request(result_id=result["id"], supplement_binding_id=None)
+    full, _sources = v2.prepare_material(db, core["project"], request, 65536)
+    assert full["summary"]["total_addresses"] == 47
+    assert full["summary"]["cloud_only"] == 45
+    assert full["coverage"]["sampled_addresses"] == 20
+    assert full["coverage"]["omitted_addresses"] == 27
+    assert full["coverage"]["stop_reason"] == "address_limit"
+    translated, _ = v2.prepare_material(
+        db,
+        core["project"],
+        request.model_copy(update={"audience": "operations", "language": "en"}),
+        65536,
+    )
+    assert translated["facts"] == full["facts"]
+    assert translated["summary"] == full["summary"]
+    trimmed, _ = v2.prepare_material(
+        db, core["project"], request, len(canonical_bytes(full)) - 1
+    )
+    assert trimmed["coverage"]["sampled_addresses"] < 20
+    assert trimmed["coverage"]["stop_reason"] == "material_bytes"
+    assert trimmed["summary"] == full["summary"]
+    refs = {item["citation_id"] for item in trimmed["items"]}
+    assert all(
+        set(fact["evidence_refs"]).issubset(refs) for fact in trimmed["facts"].values()
+    )
+    scoped = request.model_copy(
+        update={"address_key": full["samples"][0]["address_key"]}
+    )
+    address, _ = v2.prepare_material(db, core["project"], scoped, 65536)
+    assert len(address["samples"]) == 1
+    assert address["summary"] == full["summary"]
+    with pytest.raises(reports.AnalysisReportError, match="material_limit"):
+        v2.prepare_material(db, core["project"], scoped, 1)
 
 
 def test_v2_runner_uses_opaque_capability_and_real_bridge_endpoint(
