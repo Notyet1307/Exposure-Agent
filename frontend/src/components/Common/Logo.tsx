@@ -69,7 +69,7 @@ export function Logo({
       <Link
         to="/projects/$projectId/netflow-correlation"
         params={{ projectId: project }}
-        search={comparisonPage ? true : {}}
+        search={comparisonPage && !search.legacy ? true : {}}
         aria-label={t("Exposure-Agent home", "Exposure-Agent 首页")}
       >
         {content}
