@@ -623,7 +623,8 @@ test("selects an accepted upload as the current Project input", async ({
   await page.goto("/?view=inputs")
 
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
-  await page.getByRole("button", { name: "Set as current input" }).click()
+  await page.getByRole("button", { name: "Preview replacement" }).click()
+  await page.getByRole("button", { name: "Apply replacement" }).click()
 
   const currentDetails = page
     .locator("details")
@@ -677,7 +678,7 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).toBeVisible()
   await expect(page.getByLabel("XLSX file")).not.toBeVisible()
   await expect(
-    page.getByRole("button", { name: "Set as current input" }),
+    page.getByRole("button", { name: "Preview replacement" }),
   ).not.toBeVisible()
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })

@@ -153,10 +153,10 @@ test("zero-project creation survives a lost response and refresh with the same k
   await page.getByRole("button", { name: "Resume creation" }).click()
   await expect(page).toHaveURL(new RegExp(`project=${project.id}.*view=inputs`))
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeVisible()
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeFocused()
   expect(keys).toHaveLength(2)
   expect(keys[0]).toBe(keys[1])
@@ -282,7 +282,7 @@ test("viewer is read-only and preparation remains usable at 390px", async ({
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto(`/?project=${project.id}&view=inputs`)
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeVisible()
   await expect(
     page.getByRole("link", { name: "New comparison project" }),
@@ -418,7 +418,7 @@ test("switching accounts in another tab hides the previous creation intent immed
     localStorage.setItem("access_token", "different-account-token"),
   )
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeVisible()
   await page.goto("/?view=create")
   await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("")
@@ -508,7 +508,7 @@ test("delivery measures five zero-project creation feedback samples", async ({
       ),
     )
     await expect(
-      page.getByRole("heading", { name: "Prepare this comparison" }),
+      page.getByRole("heading", { name: "Data access", exact: true }),
     ).toBeVisible()
   }
   recordFeedback("create", samples)
@@ -628,6 +628,6 @@ test("delivery pending action remains named and stops motion without losing busy
   ).toBe("none")
   finish()
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeVisible()
 })
