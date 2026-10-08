@@ -6,6 +6,9 @@ import {
   ApiError,
   NetflowProcessingService,
 } from "@/client"
+import { AiModelStatus } from "@/components/AiWorkflow"
+import { CustomerRecordFields } from "@/components/CustomerRecordFields"
+import { RecordFields } from "@/components/ExternalAssets"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Button } from "@/components/ui/button"
@@ -518,7 +521,7 @@ export default function CoreComparisonResults({
     ...options,
     queryKey: [...prefix, "supplement", search.binding],
     enabled: readable && search.binding !== "none",
-    refetchInterval: 5000,
+    refetchInterval: (query) => (query.state.status === "error" ? false : 5000),
     queryFn: async () => {
       const value = verify(
         await (search.binding
@@ -574,22 +577,26 @@ export default function CoreComparisonResults({
       cache.removeQueries({ queryKey: ePrefix })
     }
   }, [eReadable, cache, ePrefix])
+  const annotationIps = [
+    ...new Set([
+      ...(rows.data?.data.map((row) => row.canonical_ip) ?? []),
+      ...(detail.isSuccess && !detail.isError
+        ? [detail.data.address.canonical_ip]
+        : []),
+    ]),
+  ]
   const flows = useQuery({
     ...options,
-    queryKey: [
-      ...ePrefix,
-      "annotations",
-      rows.data?.data.map((row) => row.canonical_ip),
-    ],
+    queryKey: [...ePrefix, "annotations", annotationIps],
     enabled:
-      eReadable && rows.isSuccess && !rows.isError && !!rows.data.data.length,
+      eReadable && rows.isSuccess && !rows.isError && !!annotationIps.length,
     queryFn: async () => {
       const value = verify(
         await API.supplementAddresses({
           projectId,
           resultId: search.result!,
           bindingId: search.binding!,
-          ip: rows.data!.data.map((row) => row.canonical_ip),
+          ip: annotationIps,
           limit: 100,
         }),
       )
@@ -986,10 +993,6 @@ export default function CoreComparisonResults({
   const materialLinks = (value: Summary | Result) => {
     const customer = value.selection.customer,
       cloud = value.selection.cloud
-    const version =
-      cloud?.kind === "external_versions"
-        ? (cloud.ip_version_id ?? cloud.port_version_id)
-        : undefined
     return (
       <div className="flex flex-wrap gap-3 text-sm">
         {customer && (
@@ -1009,22 +1012,38 @@ export default function CoreComparisonResults({
             {t("Read the customer version used here", "查看本次客户资料")}
           </Link>
         )}
-        {cloud?.kind === "external_versions" && version && (
-          <Link
-            className="underline"
-            to="/projects/$projectId/cloudatlas-ledger"
-            params={{ projectId }}
-            search={{
-              ...back,
-              asset_view: "synced",
-              external_source: cloud.source_instance_id,
-              external_domain: cloud.ip_version_id ? "ip" : "port",
-              external_version: version,
-            }}
-          >
-            {t("Read the CloudAtlas version used here", "查看本次云图资料")}
-          </Link>
-        )}
+        {cloud?.kind === "external_versions" &&
+          (["ip", "port"] as const).map((domain) => {
+            const version =
+              domain === "ip" ? cloud.ip_version_id : cloud.port_version_id
+            return (
+              version && (
+                <Link
+                  key={domain}
+                  className="underline"
+                  to="/projects/$projectId/cloudatlas-ledger"
+                  params={{ projectId }}
+                  search={{
+                    ...back,
+                    asset_view: "synced",
+                    external_source: cloud.source_instance_id,
+                    external_domain: domain,
+                    external_version: version,
+                  }}
+                >
+                  {domain === "ip"
+                    ? t(
+                        "Read the CloudAtlas IP version used here",
+                        "查看本次云图 IP 资料",
+                      )
+                    : t(
+                        "Read the CloudAtlas port version used here",
+                        "查看本次云图端口资料",
+                      )}
+                </Link>
+              )
+            )
+          })}
         <Link
           className="underline"
           to="/projects/$projectId/customer-ledger"
@@ -1045,10 +1064,12 @@ export default function CoreComparisonResults({
     )
   }
   const flowStatus = (value: string) => {
-    if (!search.binding || search.binding === "none")
+    if (search.binding === "none")
       return t("No evidence provided", "未提供佐证")
     if (eMeta.isError || flows.isError)
       return t("Evidence unavailable", "辅证不可读")
+    if (!search.binding || eMeta.isPending)
+      return t("Reading evidence…", "正在读取佐证…")
     if (!eReadable)
       return eMeta.data?.state === "EXPIRED" ||
         expiredBinding === search.binding
@@ -1532,6 +1553,12 @@ export default function CoreComparisonResults({
       )}
       {result && (
         <>
+          <section
+            aria-label={t("AI model status", "AI 模型状态")}
+            className="space-y-3"
+          >
+            <AiModelStatus />
+          </section>
           <details className="space-y-3 rounded border p-4">
             <summary className="cursor-pointer font-medium">
               {t("View the materials used here", "查看本次资料")}
@@ -1826,7 +1853,54 @@ export default function CoreComparisonResults({
                   {detail.data.address.cloud_records}
                 </p>
               )}
-              {materialLinks(result)}
+              <section
+                className="space-y-2"
+                aria-label={t("NetFlow corroboration", "NetFlow 佐证说明")}
+              >
+                <h3 className="font-medium">
+                  {t("NetFlow corroboration", "NetFlow 佐证说明")}
+                </h3>
+                <p>
+                  {detail.data
+                    ? flowStatus(detail.data.address.canonical_ip)
+                    : t("Reading the address…", "正在读取地址…")}
+                </p>
+                {eReadable &&
+                  flows.isSuccess &&
+                  flows.data.data
+                    .filter(
+                      (row) =>
+                        row.canonical_ip === detail.data?.address.canonical_ip,
+                    )
+                    .map((row) => (
+                      <p key={row.canonical_ip} className="text-sm">
+                        {t("Observation objects", "观测对象")}{" "}
+                        {row.observation_count} ·{" "}
+                        {t("Source records", "源记录")} {row.source_records}
+                      </p>
+                    ))}
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "The actual observation window was not provided. Flow records do not prove simultaneous activity or listening services.",
+                    "未提供实际观测窗口。流量记录不证明同时活动或监听服务。",
+                  )}
+                </p>
+              </section>
+              <section
+                className="space-y-2"
+                aria-label={t("Limits and sources", "限制与来源")}
+              >
+                <h3 className="font-medium">
+                  {t("Limits and sources", "限制与来源")}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "These records do not prove ownership, a vulnerability or that an unobserved asset is offline. Review the fixed source records below.",
+                    "这些记录不证明资产归属、漏洞或未观测资产已下线。请核对下方固定来源记录。",
+                  )}
+                </p>
+                {materialLinks(result)}
+              </section>
               {eReadable && eMeta.data?.analysis_id && (
                 <Link
                   className="block text-sm underline"
@@ -1890,33 +1964,50 @@ export default function CoreComparisonResults({
                     </p>
                   )}
                   {proof.data.data.map((record) => (
-                    <details
+                    <section
                       key={`${record.version_id}:${record.record_key}`}
-                      className="rounded border p-3 text-sm"
+                      className="space-y-3 rounded border p-3 text-sm"
                     >
-                      <summary className="cursor-pointer">
-                        {record.canonical_ip} · {record.domain} ·{" "}
-                        {t("Original source record", "原始来源记录")}
-                      </summary>
-                      <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs">
-                        {JSON.stringify(
-                          {
-                            original: record.original,
-                            availability: record.availability,
-                          },
-                          null,
-                          2,
-                        )}
-                      </pre>
-                      <TechnicalValue
-                        value={record.version_id}
-                        label={t("Fixed version", "固定版本")}
-                      />
-                      <TechnicalValue
-                        value={record.record_key}
-                        label={t("Source record", "来源记录")}
-                      />
-                    </details>
+                      <h3 className="font-medium">
+                        {record.source === "CUSTOMER"
+                          ? t("Customer declaration", "客户声明")
+                          : t("CloudAtlas observation", "云图观测")}
+                      </h3>
+                      {record.source === "CUSTOMER" ? (
+                        <CustomerRecordFields
+                          fields={object(record.original.fields)}
+                        />
+                      ) : (
+                        <RecordFields
+                          record={{ fields: record.original }}
+                          domain={record.domain}
+                        />
+                      )}
+                      <details className="rounded border p-3 text-sm">
+                        <summary className="cursor-pointer">
+                          {record.canonical_ip} · {record.domain} ·{" "}
+                          {t("Original source record", "原始来源记录")}
+                        </summary>
+                        <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs">
+                          {JSON.stringify(
+                            {
+                              original: record.original,
+                              availability: record.availability,
+                            },
+                            null,
+                            2,
+                          )}
+                        </pre>
+                        <TechnicalValue
+                          value={record.version_id}
+                          label={t("Fixed version", "固定版本")}
+                        />
+                        <TechnicalValue
+                          value={record.record_key}
+                          label={t("Source record", "来源记录")}
+                        />
+                      </details>
+                    </section>
                   ))}
                   <ResultPagination
                     label={t("Evidence records", "依据记录")}
@@ -1982,7 +2073,30 @@ export default function CoreComparisonResults({
                   )}
               </div>
             </div>
-            {!search.binding ? (
+            {eMeta.isError && search.binding !== "none" ? (
+              <div className="space-y-3">
+                <p role="alert">
+                  {eMeta.error instanceof ApiError && eMeta.error.status === 403
+                    ? t(
+                        "Access to this evidence is denied. Core classification and counts remain available.",
+                        "无权读取此辅证，核心分类与计数仍可阅读。",
+                      )
+                    : t(
+                        "Evidence could not be read. Core classification and counts remain available.",
+                        "辅证读取失败，核心分类与计数仍可阅读。",
+                      )}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={eMeta.isFetching}
+                  onClick={() => void eMeta.refetch()}
+                >
+                  {t("Retry reading evidence", "重试读取辅证")}
+                </Button>
+              </div>
+            ) : !search.binding ||
+              (search.binding !== "none" && eMeta.isPending) ? (
               <p role="status">
                 {t("Reading the evidence binding…", "正在读取辅证绑定…")}
               </p>
@@ -1991,13 +2105,6 @@ export default function CoreComparisonResults({
                 {t(
                   "No NetFlow evidence was provided. Core results are complete without it.",
                   "未提供 NetFlow 佐证，核心结果不依赖它。",
-                )}
-              </p>
-            ) : eMeta.isError ? (
-              <p role="alert">
-                {t(
-                  "Evidence cannot be read. Core classification and counts remain available.",
-                  "辅证不可读，核心分类与计数仍可阅读。",
                 )}
               </p>
             ) : !eReadable ? (

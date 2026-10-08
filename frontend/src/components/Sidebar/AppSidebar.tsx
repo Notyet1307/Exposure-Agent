@@ -115,26 +115,27 @@ export function AppSidebar() {
     },
     home("runs", t("Runs", "运行管理"), Play),
     home("findings", t("Findings", "发现项"), ListChecks),
+  ]
+  const administration: Item[] = [
     {
       icon: Settings2,
       title: t("AI settings", "AI 设置"),
       path: "/ai-settings",
     },
+    ...(currentUser?.is_superuser
+      ? [
+          {
+            icon: Users,
+            title: t("Admin", "用户管理"),
+            path: "/admin",
+            search: context,
+          },
+        ]
+      : []),
   ]
-  const administration: Item[] = currentUser?.is_superuser
-    ? [
-        {
-          icon: Users,
-          title: t("Admin", "用户管理"),
-          path: "/admin",
-          search: context,
-        },
-      ]
-    : []
   const historicalPage =
     historical.some((item) => item.active) ||
     pathname.endsWith("/lineage") ||
-    pathname === "/ai-settings" ||
     (pathname === "/" && search.view === "assets")
   return (
     <Sidebar collapsible="icon">
