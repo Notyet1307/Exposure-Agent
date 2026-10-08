@@ -82,8 +82,8 @@ export default function NetflowResults({
   }, [search.ip, search.protocol, search.port])
   useEffect(() => {
     document.title = t(
-      "Processed NetFlow data - Exposure",
-      "NetFlow 处理数据 - Exposure",
+      "NetFlow observations - Exposure",
+      "NetFlow 观测 - Exposure",
     )
   }, [t])
   useEffect(() => {
@@ -283,7 +283,10 @@ export default function NetflowResults({
   const datasets = useQuery({
     ...options,
     queryKey: [...scope, "datasets", search.datasetPage],
-    enabled: available && !search.analysis,
+    enabled:
+      available &&
+      !search.analysis &&
+      Boolean(search.history || search.dataset),
     queryFn: () =>
       ProjectsService.readNetflowDatasets({
         projectId,
@@ -360,7 +363,7 @@ export default function NetflowResults({
     <main className="min-w-0 space-y-6">
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">
-          {t("Processed NetFlow data", "NetFlow 处理数据")}
+          {t("NetFlow observations", "NetFlow 观测")}
         </h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
           {t(
@@ -392,18 +395,17 @@ export default function NetflowResults({
             className="underline"
             to="/projects/$projectId/netflow-correlation"
             params={{ projectId }}
-            search={
-              identityMatches
-                ? {
-                    analysis: identity?.analysis_id,
-                    dataset: identity?.dataset_id,
-                    context: identity?.context_revision_id,
-                    namespace: identity?.network_namespace,
-                  }
-                : {}
-            }
+            search={{}}
           >
-            {t("Source comparison", "来源比对")}
+            {t("Comparison results", "比对结果")}
+          </Link>
+          <Link
+            className="underline"
+            to="/"
+            search={{ project: projectId, view: "inputs" }}
+            hash="netflow-inputs"
+          >
+            {t("Upload and processing", "上传与处理")}
           </Link>
           {search.analysis && (
             <Button
@@ -488,7 +490,7 @@ export default function NetflowResults({
               <div className="flex flex-wrap gap-2">
                 {current.data?.scopes.map((row) => (
                   <Button
-                    key={row.collection_scope}
+                    key={row.scope_id}
                     variant="outline"
                     onClick={() =>
                       void navigate({
@@ -505,7 +507,24 @@ export default function NetflowResults({
               </div>
             </section>
           )}
-          {datasets.isPending ? (
+          {!search.history && !search.dataset ? (
+            <div className="space-y-3">
+              <p>
+                {t(
+                  "No readable result is selected yet. Choose a confirmed scope above, or prepare processing data.",
+                  "尚未定位可读的处理结果。可选择上方已确认范围，或准备处理资料。",
+                )}
+              </p>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  void navigate({ search: () => ({ history: true }) })
+                }
+              >
+                {t("Browse processing history", "浏览处理历史")}
+              </Button>
+            </div>
+          ) : datasets.isPending ? (
             <p role="status">
               {t("Loading uploaded data…", "正在读取上传数据…")}
             </p>

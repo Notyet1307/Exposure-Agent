@@ -34,6 +34,12 @@ export const Route = createFileRoute(
     }
     const text = (key: string) =>
       typeof search[key] === "string" ? (search[key] as string) : undefined
+    if (
+      search.collectionScope !== undefined &&
+      (typeof search.collectionScope !== "string" ||
+        !/^[a-f0-9]{64}$/.test(search.collectionScope))
+    )
+      invalid = true
     const result: NetflowResultsSearch = {
       analysis: id("analysis"),
       dataset: id("dataset"),
@@ -64,7 +70,7 @@ function ResultsRoute() {
   const { user } = useAuth()
   return user ? (
     <NetflowResults
-      key={`${user.id}:${projectId}:${search.analysis ?? "none"}:${search.dataset ?? "none"}`}
+      key={`${user.id}:${projectId}:${search.analysis ?? "none"}:${search.dataset ?? "none"}:${search.collectionScope ?? "none"}:${search.history ?? false}`}
       actor={user.id}
       projectId={projectId}
       search={search}

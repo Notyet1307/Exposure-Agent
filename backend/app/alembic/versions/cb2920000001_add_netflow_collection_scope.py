@@ -1,14 +1,14 @@
 """Add explicit confirmed collection scope to immutable NetFlow contexts.
 
 Revision ID: cb2920000001
-Revises: ca2810000001
+Revises: f1a2b3c4d5e6
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "cb2920000001"
-down_revision = "ca2810000001"
+down_revision = "f1a2b3c4d5e6"
 branch_labels = None
 depends_on = None
 
@@ -26,7 +26,8 @@ def upgrade() -> None:
         "ck_nf_context_collection_scope",
         "netflow_context_revisions",
         "(collection_scope IS NULL AND collection_scope_evidence IS NULL) OR "
-        "(btrim(collection_scope) <> '' AND btrim(collection_scope_evidence) <> '')",
+        "(collection_scope IS NOT NULL AND collection_scope_evidence IS NOT NULL "
+        "AND btrim(collection_scope) <> '' AND btrim(collection_scope_evidence) <> '')",
     )
     op.create_index(
         "ix_nf_context_collection_scope",

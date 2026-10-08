@@ -93,6 +93,11 @@ class ContextCreate(BaseModel):
             (self.collection_scope_evidence or "").strip()
         ):
             raise ValueError("netflow_context_invalid")
+        if any(
+            value is not None and not value.strip()
+            for value in (self.collection_scope, self.collection_scope_evidence)
+        ):
+            raise ValueError("netflow_context_invalid")
         return self
 
 
@@ -323,6 +328,10 @@ def save_context(
     if not actor.is_superuser:
         deny("netflow_context_admin_required", 403)
     payload = request.model_dump(mode="json")
+    if request.collection_scope is None and request.collection_scope_evidence is None:
+        # Adding optional display scope must not change pre-V2 idempotency hashes.
+        payload.pop("collection_scope")
+        payload.pop("collection_scope_evidence")
     operation = f"context:{dataset_id}"
     existing = operation_result(session, project, actor.id, operation, key, payload)
     if existing:
@@ -647,9 +656,11 @@ def current_netflow(
     contexts = [
         row
         for row in candidates
-        if (current := current_context(session, project, row.dataset_id)) is not None
-        and current.id == row.id
+        if (current_revision := current_context(session, project, row.dataset_id))
+        is not None
+        and current_revision.id == row.id
     ]
+
     def scope_id(row: NetFlowContextRevision) -> str:
         return request_hash(
             [
@@ -663,7 +674,11 @@ def current_netflow(
     chosen = collection_scope
     if chosen is None and project.current_netflow_dataset_id is not None:
         selected = next(
-            (row for row in contexts if row.dataset_id == project.current_netflow_dataset_id),
+            (
+                row
+                for row in contexts
+                if row.dataset_id == project.current_netflow_dataset_id
+            ),
             None,
         )
         if selected is not None:
@@ -715,7 +730,9 @@ def current_netflow(
             col(NetFlowAnalysis.context_revision_id).in_(matching_context_ids),
             NetFlowAnalysis.network_namespace == selected.network_namespace,
         )
-        .order_by(col(NetFlowAnalysis.created_at).desc(), col(NetFlowAnalysis.id).desc())
+        .order_by(
+            col(NetFlowAnalysis.created_at).desc(), col(NetFlowAnalysis.id).desc()
+        )
     ).all()
     latest = rows[0] if rows else None
     current: AnalysisPublic | None = None

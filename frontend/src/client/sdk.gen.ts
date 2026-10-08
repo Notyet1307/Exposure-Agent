@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { AiInvestigationsCreateAiInvestigationData, AiInvestigationsCreateAiInvestigationResponse, AiInvestigationsReadAiInvestigationsData, AiInvestigationsReadAiInvestigationsResponse, AiInvestigationsCreateAiInvestigationFollowupData, AiInvestigationsCreateAiInvestigationFollowupResponse, AiInvestigationsReadAiInvestigationData, AiInvestigationsReadAiInvestigationResponse, AnalysisReportsCreateAnalysisReportData, AnalysisReportsCreateAnalysisReportResponse, AnalysisReportsReadAnalysisReportsData, AnalysisReportsReadAnalysisReportsResponse, AnalysisReportsReadAnalysisReportData, AnalysisReportsReadAnalysisReportResponse, AnalysisReportsUpdateAnalysisReportData, AnalysisReportsUpdateAnalysisReportResponse, AnalysisReportsConfirmAnalysisReportData, AnalysisReportsConfirmAnalysisReportResponse, AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasLedgerReadCloudatlasLedgerData, CloudatlasLedgerReadCloudatlasLedgerResponse, CloudatlasLedgerReadCloudatlasLedgerSnapshotsData, CloudatlasLedgerReadCloudatlasLedgerSnapshotsResponse, CloudatlasLedgerReadCloudatlasLedgerRevisionsData, CloudatlasLedgerReadCloudatlasLedgerRevisionsResponse, CloudatlasLedgerCreateCloudatlasLedgerRevisionData, CloudatlasLedgerCreateCloudatlasLedgerRevisionResponse, CloudatlasLedgerReadCloudatlasLedgerOperationData, CloudatlasLedgerReadCloudatlasLedgerOperationResponse, CloudatlasLedgerReadCloudatlasIpProfileData, CloudatlasLedgerReadCloudatlasIpProfileResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, CustomerLedgerReadCustomerLedgerData, CustomerLedgerReadCustomerLedgerResponse, CustomerLedgerReadCustomerLedgerRevisionsData, CustomerLedgerReadCustomerLedgerRevisionsResponse, CustomerLedgerCreateCustomerLedgerRevisionData, CustomerLedgerCreateCustomerLedgerRevisionResponse, CustomerLedgerPreviewCustomerUploadReplacementData, CustomerLedgerPreviewCustomerUploadReplacementResponse, CustomerLedgerApplyCustomerUploadReplacementData, CustomerLedgerApplyCustomerUploadReplacementResponse, CustomerLedgerReadCustomerUploadReplacementData, CustomerLedgerReadCustomerUploadReplacementResponse, CustomerLedgerReadCustomerLedgerOperationData, CustomerLedgerReadCustomerLedgerOperationResponse, ExternalAssetsReadExternalSourcesData, ExternalAssetsReadExternalSourcesResponse, ExternalAssetsCreateExternalSourceData, ExternalAssetsCreateExternalSourceResponse, ExternalAssetsValidateExternalSourceData, ExternalAssetsValidateExternalSourceResponse, ExternalAssetsUpdateExternalSourceData, ExternalAssetsUpdateExternalSourceResponse, ExternalAssetsCreateExternalSyncData, ExternalAssetsCreateExternalSyncResponse, ExternalAssetsReadExternalSyncsData, ExternalAssetsReadExternalSyncsResponse, ExternalAssetsReadExternalSyncData, ExternalAssetsReadExternalSyncResponse, ExternalAssetsReconcileExternalSyncData, ExternalAssetsReconcileExternalSyncResponse, ExternalAssetsReadExternalVersionsData, ExternalAssetsReadExternalVersionsResponse, ExternalAssetsReadExternalRecordsData, ExternalAssetsReadExternalRecordsResponse, ExternalAssetsReadExternalRecordData, ExternalAssetsReadExternalRecordResponse, ExternalAssetsPurgeExternalExpiredData, ExternalAssetsPurgeExternalExpiredResponse, GovernanceReportsReadGovernanceReportsData, GovernanceReportsReadGovernanceReportsResponse, GovernanceReportsReadGovernanceReportData, GovernanceReportsReadGovernanceReportResponse, GovernanceReportsRequestAiGovernanceDraftData, GovernanceReportsRequestAiGovernanceDraftResponse, GovernanceReportsDownloadGovernanceReportCsvData, GovernanceReportsDownloadGovernanceReportCsvResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, IpResultsReadGovernanceRunSourcesData, IpResultsReadGovernanceRunSourcesResponse, IpResultsReadGovernanceRunIpSourceComparisonsData, IpResultsReadGovernanceRunIpSourceComparisonsResponse, IpResultsReadIpAssetsData, IpResultsReadIpAssetsResponse, IpResultsReadIpAssetData, IpResultsReadIpAssetResponse, IpResultsReadFindingsData, IpResultsReadFindingsResponse, IpResultsReadGovernanceRunLineageData, IpResultsReadGovernanceRunLineageResponse, IpResultsReadFindingData, IpResultsReadFindingResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ManualReviewsCreateManualReviewData, ManualReviewsCreateManualReviewResponse, ManualReviewsReadManualReviewsData, ManualReviewsReadManualReviewsResponse, ModelConnectionsStatusResponse, ModelConnectionsReadConnectionsResponse, ModelConnectionsSaveData, ModelConnectionsSaveResponse, ModelConnectionsAdoptLegacyData, ModelConnectionsAdoptLegacyResponse, ModelConnectionsActionData, ModelConnectionsActionResponse, ModelConnectionsRecoverOperationData, ModelConnectionsRecoverOperationResponse, ModelConnectionsOperationData, ModelConnectionsOperationResponse, ModelQualificationReadModelQualificationStatusResponse, NetflowLedgerReadNetflowLedgerData, NetflowLedgerReadNetflowLedgerResponse, NetflowLedgerCreateNetflowLedgerRevisionData, NetflowLedgerCreateNetflowLedgerRevisionResponse, NetflowLedgerReadNetflowLedgerRevisionsData, NetflowLedgerReadNetflowLedgerRevisionsResponse, NetflowLedgerReadNetflowLedgerOperationData, NetflowLedgerReadNetflowLedgerOperationResponse, NetflowLedgerReadNetflowLedgerProfileData, NetflowLedgerReadNetflowLedgerProfileResponse, NetflowProcessingReadCurrentNetflowData, NetflowProcessingReadCurrentNetflowResponse, NetflowProcessingReadContextsData, NetflowProcessingReadContextsResponse, NetflowProcessingCreateContextData, NetflowProcessingCreateContextResponse, NetflowProcessingContextOperationData, NetflowProcessingContextOperationResponse, NetflowProcessingCreateAnalysisData, NetflowProcessingCreateAnalysisResponse, NetflowProcessingReadAnalysesData, NetflowProcessingReadAnalysesResponse, NetflowProcessingAnalysisOperationData, NetflowProcessingAnalysisOperationResponse, NetflowProcessingImportAnalysisData, NetflowProcessingImportAnalysisResponse, NetflowProcessingImportOperationData, NetflowProcessingImportOperationResponse, NetflowProcessingReadAnalysisData, NetflowProcessingReadAnalysisResponse, NetflowProcessingReconcileAnalysisData, NetflowProcessingReconcileAnalysisResponse, NetflowProcessingReconcileOperationData, NetflowProcessingReconcileOperationResponse, NetflowReviewsReadPeersData, NetflowReviewsReadPeersResponse, NetflowReviewsReadObservationsData, NetflowReviewsReadObservationsResponse, NetflowReviewsReadObservationData, NetflowReviewsReadObservationResponse, NetflowReviewsReadTasksData, NetflowReviewsReadTasksResponse, NetflowReviewsReadTaskData, NetflowReviewsReadTaskResponse, NetflowReviewsReadFeedbackData, NetflowReviewsReadFeedbackResponse, NetflowReviewsAppendFeedbackData, NetflowReviewsAppendFeedbackResponse, NetflowReviewsReadOperationData, NetflowReviewsReadOperationResponse, NetflowReviewsReadEvidenceData, NetflowReviewsReadEvidenceResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsReadNetflowDatasetsData, ProjectsReadNetflowDatasetsResponse, ProjectsCreateNetflowDatasetData, ProjectsCreateNetflowDatasetResponse, ProjectsSelectCurrentNetflowDatasetData, ProjectsSelectCurrentNetflowDatasetResponse, ProjectsClearCurrentNetflowDatasetData, ProjectsClearCurrentNetflowDatasetResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsDeleteCustomerUploadData, ProjectsDeleteCustomerUploadResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, SourceCorrelationsCreateCorrelationData, SourceCorrelationsCreateCorrelationResponse, SourceCorrelationsListCorrelationsData, SourceCorrelationsListCorrelationsResponse, SourceCorrelationsCreationOperationData, SourceCorrelationsCreationOperationResponse, SourceCorrelationsScopeRevisionData, SourceCorrelationsScopeRevisionResponse, SourceCorrelationsScopeOperationData, SourceCorrelationsScopeOperationResponse, SourceCorrelationsSummaryData, SourceCorrelationsSummaryResponse, SourceCorrelationsListAddressesData, SourceCorrelationsListAddressesResponse, SourceCorrelationsAddressDetailData, SourceCorrelationsAddressDetailResponse, SourceCorrelationsAddressServicesData, SourceCorrelationsAddressServicesResponse, SourceCorrelationsAddressEvidenceData, SourceCorrelationsAddressEvidenceResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
+import type { AiInvestigationsCreateAiInvestigationData, AiInvestigationsCreateAiInvestigationResponse, AiInvestigationsReadAiInvestigationsData, AiInvestigationsReadAiInvestigationsResponse, AiInvestigationsCreateAiInvestigationFollowupData, AiInvestigationsCreateAiInvestigationFollowupResponse, AiInvestigationsReadAiInvestigationData, AiInvestigationsReadAiInvestigationResponse, AnalysisReportsCreateAnalysisReportData, AnalysisReportsCreateAnalysisReportResponse, AnalysisReportsReadAnalysisReportsData, AnalysisReportsReadAnalysisReportsResponse, AnalysisReportsReadAnalysisReportData, AnalysisReportsReadAnalysisReportResponse, AnalysisReportsUpdateAnalysisReportData, AnalysisReportsUpdateAnalysisReportResponse, AnalysisReportsConfirmAnalysisReportData, AnalysisReportsConfirmAnalysisReportResponse, AuditEventsReadAuditEventsData, AuditEventsReadAuditEventsResponse, CloudatlasLedgerReadCloudatlasLedgerData, CloudatlasLedgerReadCloudatlasLedgerResponse, CloudatlasLedgerReadCloudatlasLedgerSnapshotsData, CloudatlasLedgerReadCloudatlasLedgerSnapshotsResponse, CloudatlasLedgerReadCloudatlasLedgerRevisionsData, CloudatlasLedgerReadCloudatlasLedgerRevisionsResponse, CloudatlasLedgerCreateCloudatlasLedgerRevisionData, CloudatlasLedgerCreateCloudatlasLedgerRevisionResponse, CloudatlasLedgerReadCloudatlasLedgerOperationData, CloudatlasLedgerReadCloudatlasLedgerOperationResponse, CloudatlasLedgerReadCloudatlasIpProfileData, CloudatlasLedgerReadCloudatlasIpProfileResponse, CloudatlasSourceInstancesReadCloudatlasSourcesData, CloudatlasSourceInstancesReadCloudatlasSourcesResponse, CloudatlasSourceInstancesCreateCloudatlasSourceData, CloudatlasSourceInstancesCreateCloudatlasSourceResponse, CloudatlasSourceInstancesUpdateCloudatlasSourceData, CloudatlasSourceInstancesUpdateCloudatlasSourceResponse, CloudatlasSourceInstancesValidateCloudatlasSourceData, CloudatlasSourceInstancesValidateCloudatlasSourceResponse, CloudatlasSourceInstancesEnableCloudatlasSourceData, CloudatlasSourceInstancesEnableCloudatlasSourceResponse, CloudatlasSourceInstancesDisableCloudatlasSourceData, CloudatlasSourceInstancesDisableCloudatlasSourceResponse, ComparisonResultsConfirmScopeData, ComparisonResultsConfirmScopeResponse, ComparisonResultsReadinessData, ComparisonResultsReadinessResponse, ComparisonResultsCurrentData, ComparisonResultsCurrentResponse, ComparisonResultsHistoryData, ComparisonResultsHistoryResponse, ComparisonResultsCreateData, ComparisonResultsCreateResponse, ComparisonResultsOperationData, ComparisonResultsOperationResponse, ComparisonResultsSummaryData, ComparisonResultsSummaryResponse, ComparisonResultsUpdatesData, ComparisonResultsUpdatesResponse, ComparisonResultsAddressesData, ComparisonResultsAddressesResponse, ComparisonResultsEvidenceData, ComparisonResultsEvidenceResponse, ComparisonResultsCurrentSupplementData, ComparisonResultsCurrentSupplementResponse, ComparisonResultsBindSupplementData, ComparisonResultsBindSupplementResponse, ComparisonResultsSupplementOperationData, ComparisonResultsSupplementOperationResponse, ComparisonResultsSupplementHistoryData, ComparisonResultsSupplementHistoryResponse, ComparisonResultsFixedSupplementData, ComparisonResultsFixedSupplementResponse, ComparisonResultsSupplementAddressesData, ComparisonResultsSupplementAddressesResponse, CustomerLedgerReadCustomerLedgerData, CustomerLedgerReadCustomerLedgerResponse, CustomerLedgerReadCustomerLedgerRevisionsData, CustomerLedgerReadCustomerLedgerRevisionsResponse, CustomerLedgerCreateCustomerLedgerRevisionData, CustomerLedgerCreateCustomerLedgerRevisionResponse, CustomerLedgerPreviewCustomerUploadReplacementData, CustomerLedgerPreviewCustomerUploadReplacementResponse, CustomerLedgerApplyCustomerUploadReplacementData, CustomerLedgerApplyCustomerUploadReplacementResponse, CustomerLedgerReadCustomerUploadReplacementData, CustomerLedgerReadCustomerUploadReplacementResponse, CustomerLedgerReadCustomerLedgerOperationData, CustomerLedgerReadCustomerLedgerOperationResponse, ExternalAssetsReadExternalSourcesData, ExternalAssetsReadExternalSourcesResponse, ExternalAssetsCreateExternalSourceData, ExternalAssetsCreateExternalSourceResponse, ExternalAssetsValidateExternalSourceData, ExternalAssetsValidateExternalSourceResponse, ExternalAssetsUpdateExternalSourceData, ExternalAssetsUpdateExternalSourceResponse, ExternalAssetsCreateExternalSyncData, ExternalAssetsCreateExternalSyncResponse, ExternalAssetsReadExternalSyncsData, ExternalAssetsReadExternalSyncsResponse, ExternalAssetsReadExternalSyncData, ExternalAssetsReadExternalSyncResponse, ExternalAssetsReconcileExternalSyncData, ExternalAssetsReconcileExternalSyncResponse, ExternalAssetsReadExternalVersionsData, ExternalAssetsReadExternalVersionsResponse, ExternalAssetsReadExternalRecordsData, ExternalAssetsReadExternalRecordsResponse, ExternalAssetsReadExternalRecordData, ExternalAssetsReadExternalRecordResponse, ExternalAssetsPurgeExternalExpiredData, ExternalAssetsPurgeExternalExpiredResponse, GovernanceReportsReadGovernanceReportsData, GovernanceReportsReadGovernanceReportsResponse, GovernanceReportsReadGovernanceReportData, GovernanceReportsReadGovernanceReportResponse, GovernanceReportsRequestAiGovernanceDraftData, GovernanceReportsRequestAiGovernanceDraftResponse, GovernanceReportsDownloadGovernanceReportCsvData, GovernanceReportsDownloadGovernanceReportCsvResponse, GovernanceRunsReadGovernanceRunsData, GovernanceRunsReadGovernanceRunsResponse, GovernanceRunsTriggerGovernanceRunData, GovernanceRunsTriggerGovernanceRunResponse, GovernanceRunsRetryGovernanceRunData, GovernanceRunsRetryGovernanceRunResponse, GovernanceRunsRerunGovernanceRunData, GovernanceRunsRerunGovernanceRunResponse, HealthHealthLiveResponse, HealthHealthReadyResponse, IpResultsReadGovernanceRunSourcesData, IpResultsReadGovernanceRunSourcesResponse, IpResultsReadGovernanceRunIpSourceComparisonsData, IpResultsReadGovernanceRunIpSourceComparisonsResponse, IpResultsReadIpAssetsData, IpResultsReadIpAssetsResponse, IpResultsReadIpAssetData, IpResultsReadIpAssetResponse, IpResultsReadFindingsData, IpResultsReadFindingsResponse, IpResultsReadGovernanceRunLineageData, IpResultsReadGovernanceRunLineageResponse, IpResultsReadFindingData, IpResultsReadFindingResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, ManualReviewsCreateManualReviewData, ManualReviewsCreateManualReviewResponse, ManualReviewsReadManualReviewsData, ManualReviewsReadManualReviewsResponse, ModelConnectionsStatusResponse, ModelConnectionsReadConnectionsResponse, ModelConnectionsSaveData, ModelConnectionsSaveResponse, ModelConnectionsAdoptLegacyData, ModelConnectionsAdoptLegacyResponse, ModelConnectionsActionData, ModelConnectionsActionResponse, ModelConnectionsRecoverOperationData, ModelConnectionsRecoverOperationResponse, ModelConnectionsOperationData, ModelConnectionsOperationResponse, ModelQualificationReadModelQualificationStatusResponse, NetflowLedgerReadNetflowLedgerData, NetflowLedgerReadNetflowLedgerResponse, NetflowLedgerCreateNetflowLedgerRevisionData, NetflowLedgerCreateNetflowLedgerRevisionResponse, NetflowLedgerReadNetflowLedgerRevisionsData, NetflowLedgerReadNetflowLedgerRevisionsResponse, NetflowLedgerReadNetflowLedgerOperationData, NetflowLedgerReadNetflowLedgerOperationResponse, NetflowLedgerReadNetflowLedgerProfileData, NetflowLedgerReadNetflowLedgerProfileResponse, NetflowProcessingReadCurrentNetflowData, NetflowProcessingReadCurrentNetflowResponse, NetflowProcessingReadContextsData, NetflowProcessingReadContextsResponse, NetflowProcessingCreateContextData, NetflowProcessingCreateContextResponse, NetflowProcessingContextOperationData, NetflowProcessingContextOperationResponse, NetflowProcessingCreateAnalysisData, NetflowProcessingCreateAnalysisResponse, NetflowProcessingReadAnalysesData, NetflowProcessingReadAnalysesResponse, NetflowProcessingAnalysisOperationData, NetflowProcessingAnalysisOperationResponse, NetflowProcessingImportAnalysisData, NetflowProcessingImportAnalysisResponse, NetflowProcessingImportOperationData, NetflowProcessingImportOperationResponse, NetflowProcessingReadAnalysisData, NetflowProcessingReadAnalysisResponse, NetflowProcessingReconcileAnalysisData, NetflowProcessingReconcileAnalysisResponse, NetflowProcessingReconcileOperationData, NetflowProcessingReconcileOperationResponse, NetflowReviewsReadPeersData, NetflowReviewsReadPeersResponse, NetflowReviewsReadObservationsData, NetflowReviewsReadObservationsResponse, NetflowReviewsReadObservationData, NetflowReviewsReadObservationResponse, NetflowReviewsReadTasksData, NetflowReviewsReadTasksResponse, NetflowReviewsReadTaskData, NetflowReviewsReadTaskResponse, NetflowReviewsReadFeedbackData, NetflowReviewsReadFeedbackResponse, NetflowReviewsAppendFeedbackData, NetflowReviewsAppendFeedbackResponse, NetflowReviewsReadOperationData, NetflowReviewsReadOperationResponse, NetflowReviewsReadEvidenceData, NetflowReviewsReadEvidenceResponse, ProjectMembershipsReadProjectMembershipsData, ProjectMembershipsReadProjectMembershipsResponse, ProjectMembershipsGrantProjectMembershipData, ProjectMembershipsGrantProjectMembershipResponse, ProjectMembershipsChangeProjectMembershipRolesData, ProjectMembershipsChangeProjectMembershipRolesResponse, ProjectMembershipsRevokeProjectMembershipData, ProjectMembershipsRevokeProjectMembershipResponse, ProjectMembershipsRegrantProjectMembershipData, ProjectMembershipsRegrantProjectMembershipResponse, ProjectsCreateProjectData, ProjectsCreateProjectResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsRenameProjectData, ProjectsRenameProjectResponse, ProjectsReadCurrentCustomerUploadProfileData, ProjectsReadCurrentCustomerUploadProfileResponse, ProjectsReadNetflowDatasetsData, ProjectsReadNetflowDatasetsResponse, ProjectsCreateNetflowDatasetData, ProjectsCreateNetflowDatasetResponse, ProjectsSelectCurrentNetflowDatasetData, ProjectsSelectCurrentNetflowDatasetResponse, ProjectsClearCurrentNetflowDatasetData, ProjectsClearCurrentNetflowDatasetResponse, ProjectsCreateCustomerUploadData, ProjectsCreateCustomerUploadResponse, ProjectsReadCustomerUploadsData, ProjectsReadCustomerUploadsResponse, ProjectsDeleteCustomerUploadData, ProjectsDeleteCustomerUploadResponse, ProjectsSelectCurrentCustomerUploadData, ProjectsSelectCurrentCustomerUploadResponse, ProjectsArchiveProjectData, ProjectsArchiveProjectResponse, ProjectsReactivateProjectData, ProjectsReactivateProjectResponse, SourceCorrelationsCreateCorrelationData, SourceCorrelationsCreateCorrelationResponse, SourceCorrelationsListCorrelationsData, SourceCorrelationsListCorrelationsResponse, SourceCorrelationsCreationOperationData, SourceCorrelationsCreationOperationResponse, SourceCorrelationsScopeRevisionData, SourceCorrelationsScopeRevisionResponse, SourceCorrelationsScopeOperationData, SourceCorrelationsScopeOperationResponse, SourceCorrelationsSummaryData, SourceCorrelationsSummaryResponse, SourceCorrelationsListAddressesData, SourceCorrelationsListAddressesResponse, SourceCorrelationsAddressDetailData, SourceCorrelationsAddressDetailResponse, SourceCorrelationsAddressServicesData, SourceCorrelationsAddressServicesResponse, SourceCorrelationsAddressEvidenceData, SourceCorrelationsAddressEvidenceResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse } from './types.gen';
 
 export class AiInvestigationsService {
     /**
@@ -583,6 +583,579 @@ export class CloudatlasSourceInstancesService {
             },
             errors: {
                 422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class ComparisonResultsService {
+    /**
+     * Confirm Scope
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns ConfirmationPublic Successful Response
+     * @throws ApiError
+     */
+    public static confirmScope(data: ComparisonResultsConfirmScopeData): CancelablePromise<ComparisonResultsConfirmScopeResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/comparison-results/scope-confirmations',
+            path: {
+                project_id: data.projectId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Readiness
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.sourceInstanceId
+     * @param data.networkNamespace
+     * @param data.resultId
+     * @returns Readiness Successful Response
+     * @throws ApiError
+     */
+    public static readiness(data: ComparisonResultsReadinessData): CancelablePromise<ComparisonResultsReadinessResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/readiness',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                source_instance_id: data.sourceInstanceId,
+                network_namespace: data.networkNamespace,
+                result_id: data.resultId
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Current
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.scopeKey
+     * @returns CurrentResult Successful Response
+     * @throws ApiError
+     */
+    public static current(data: ComparisonResultsCurrentData): CancelablePromise<ComparisonResultsCurrentResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/current',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                scope_key: data.scopeKey
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * History
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.scopeKey
+     * @param data.skip
+     * @param data.limit
+     * @returns ResultHistory Successful Response
+     * @throws ApiError
+     */
+    public static history(data: ComparisonResultsHistoryData): CancelablePromise<ComparisonResultsHistoryResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/history',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                scope_key: data.scopeKey,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Create
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns ResultPublic Successful Response
+     * @throws ApiError
+     */
+    public static create(data: ComparisonResultsCreateData): CancelablePromise<ComparisonResultsCreateResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/comparison-results',
+            path: {
+                project_id: data.projectId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.key
+     * @returns app__domain__comparison_results__OperationPublic Successful Response
+     * @throws ApiError
+     */
+    public static operation(data: ComparisonResultsOperationData): CancelablePromise<ComparisonResultsOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/operations/{key}',
+            path: {
+                project_id: data.projectId,
+                key: data.key
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Summary
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @returns ResultSummary Successful Response
+     * @throws ApiError
+     */
+    public static summary(data: ComparisonResultsSummaryData): CancelablePromise<ComparisonResultsSummaryResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/summary',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Updates
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @returns Updates Successful Response
+     * @throws ApiError
+     */
+    public static updates(data: ComparisonResultsUpdatesData): CancelablePromise<ComparisonResultsUpdatesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/updates',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Addresses
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @param data.classification
+     * @param data.ip
+     * @param data.skip
+     * @param data.limit
+     * @param data.sort
+     * @returns app__domain__comparison_results__AddressPage Successful Response
+     * @throws ApiError
+     */
+    public static addresses(data: ComparisonResultsAddressesData): CancelablePromise<ComparisonResultsAddressesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/addresses',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId
+            },
+            query: {
+                classification: data.classification,
+                ip: data.ip,
+                skip: data.skip,
+                limit: data.limit,
+                sort: data.sort
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Evidence
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @param data.addressKey
+     * @param data.source
+     * @param data.skip
+     * @param data.limit
+     * @returns app__domain__comparison_results__EvidencePage Successful Response
+     * @throws ApiError
+     */
+    public static evidence(data: ComparisonResultsEvidenceData): CancelablePromise<ComparisonResultsEvidenceResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/addresses/{address_key}/evidence',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId,
+                address_key: data.addressKey
+            },
+            query: {
+                source: data.source,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Current Supplement
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @returns SupplementPublic Successful Response
+     * @throws ApiError
+     */
+    public static currentSupplement(data: ComparisonResultsCurrentSupplementData): CancelablePromise<ComparisonResultsCurrentSupplementResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/supplements',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Bind Supplement
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @param data.idempotencyKey
+     * @param data.requestBody
+     * @returns SupplementPublic Successful Response
+     * @throws ApiError
+     */
+    public static bindSupplement(data: ComparisonResultsBindSupplementData): CancelablePromise<ComparisonResultsBindSupplementResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/supplements',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId
+            },
+            headers: {
+                'Idempotency-Key': data.idempotencyKey
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Supplement Operation
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @param data.key
+     * @returns SupplementPublic Successful Response
+     * @throws ApiError
+     */
+    public static supplementOperation(data: ComparisonResultsSupplementOperationData): CancelablePromise<ComparisonResultsSupplementOperationResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/supplements/operations/{key}',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId,
+                key: data.key
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Supplement History
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @param data.skip
+     * @param data.limit
+     * @returns SupplementHistory Successful Response
+     * @throws ApiError
+     */
+    public static supplementHistory(data: ComparisonResultsSupplementHistoryData): CancelablePromise<ComparisonResultsSupplementHistoryResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/supplements/history',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId
+            },
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Fixed Supplement
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @param data.bindingId
+     * @returns SupplementPublic Successful Response
+     * @throws ApiError
+     */
+    public static fixedSupplement(data: ComparisonResultsFixedSupplementData): CancelablePromise<ComparisonResultsFixedSupplementResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/supplements/{binding_id}',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId,
+                binding_id: data.bindingId
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
+            }
+        });
+    }
+    
+    /**
+     * Supplement Addresses
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.resultId
+     * @param data.bindingId
+     * @param data.onlySupplemental
+     * @param data.ip
+     * @param data.skip
+     * @param data.limit
+     * @returns SupplementAddresses Successful Response
+     * @throws ApiError
+     */
+    public static supplementAddresses(data: ComparisonResultsSupplementAddressesData): CancelablePromise<ComparisonResultsSupplementAddressesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/comparison-results/{result_id}/supplements/{binding_id}/addresses',
+            path: {
+                project_id: data.projectId,
+                result_id: data.resultId,
+                binding_id: data.bindingId
+            },
+            query: {
+                only_supplemental: data.onlySupplemental,
+                ip: data.ip,
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                400: 'Bad Request',
+                401: 'Unauthorized',
+                403: 'Forbidden',
+                404: 'Not Found',
+                409: 'Conflict',
+                410: 'Gone',
+                413: 'Content Too Large',
+                415: 'Unsupported Media Type',
+                422: 'Unprocessable Content',
+                503: 'Service Unavailable'
             }
         });
     }
@@ -3394,7 +3967,7 @@ export class SourceCorrelationsService {
      * @param data.sort
      * @param data.skip
      * @param data.limit
-     * @returns AddressPage Successful Response
+     * @returns app__domain__source_correlations__AddressPage Successful Response
      * @throws ApiError
      */
     public static listAddresses(data: SourceCorrelationsListAddressesData): CancelablePromise<SourceCorrelationsListAddressesResponse> {

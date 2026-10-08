@@ -1196,7 +1196,9 @@ def test_fixed_metadata_filters_never_substitute_another_version(
     assert response.status_code == 200 and response.json()["count"] == 0
 
 
-def _comparison_scope_body(c: dict[str, Any], *, customer_upload_id: str, namespace: str) -> dict[str, Any]:
+def _comparison_scope_body(
+    c: dict[str, Any], *, customer_upload_id: str, namespace: str
+) -> dict[str, Any]:
     return {
         "network_namespace": namespace,
         "customer_upload_id": customer_upload_id,
@@ -1215,9 +1217,17 @@ def _replacement_workbook() -> bytes:
     sheet.append(list(customer_ledger.HEADERS))
     sheet.append(
         [
-            "192.0.2.88", 443, 443, "是", "example.net", "HTTPS",
-            "Synthetic owner", "Synthetic department", "Synthetic port owner",
-            "Synthetic department", 1,
+            "192.0.2.88",
+            443,
+            443,
+            "是",
+            "example.net",
+            "HTTPS",
+            "Synthetic owner",
+            "Synthetic department",
+            "Synthetic port owner",
+            "Synthetic department",
+            1,
         ]
     )
     stream = io.BytesIO()
@@ -1236,7 +1246,11 @@ def test_core_comparison_current_contract_and_fixed_history(
     root = f"{settings.API_V1_STR}/projects/{c['project'].id}"
     base = root + "/comparison-results"
     for domain, version in c["versions"].items():
-        db.merge(ExternalAssetHead(source_id=c["source"].id, domain=domain, version_id=version.id))
+        db.merge(
+            ExternalAssetHead(
+                source_id=c["source"].id, domain=domain, version_id=version.id
+            )
+        )
     db.commit()
     selected_initial = client.post(
         root + f"/customer-uploads/{c['body']['customer']['upload_id']}/select",
@@ -1260,6 +1274,7 @@ def test_core_comparison_current_contract_and_fixed_history(
     ready = no_result["readiness"]
     request = {
         "scope_confirmation_id": first_scope["id"],
+        "selection": first_scope["selection"],
         "expected_input_sha256": ready["input_sha256"],
         "expected_current_result_id": None,
     }
@@ -1277,7 +1292,9 @@ def test_core_comparison_current_contract_and_fixed_history(
         "core-current-custom",
     )
     assert custom["purpose"] == "custom"
-    assert _get(client, base + "/current", c["headers"])["result"]["id"] == regular["id"]
+    assert (
+        _get(client, base + "/current", c["headers"])["result"]["id"] == regular["id"]
+    )
     replay = _post(client, base, c["headers"], request, "core-current-regular")
     assert replay["id"] == regular["id"]
     conflict = client.post(
@@ -1298,8 +1315,13 @@ def test_core_comparison_current_contract_and_fixed_history(
     )
     assert selected.status_code == 200, selected.text
     drifted = _get(client, base + "/current", c["headers"])
-    assert drifted["state"] == "SCOPE_CONFIRMATION_REQUIRED"
-    assert client.get(base + f"/{regular['id']}/summary", headers=c["headers"]).status_code == 200
+    assert drifted["state"] == "AVAILABLE"
+    assert drifted["result"]["id"] == regular["id"]
+    assert drifted["readiness"]["state"] == "SCOPE_CONFIRMATION_REQUIRED"
+    assert (
+        client.get(base + f"/{regular['id']}/summary", headers=c["headers"]).status_code
+        == 200
+    )
 
     revoked = client.post(
         c["base"] + f"/{first_scope['id']}/scope-revisions",
@@ -1315,13 +1337,30 @@ def test_core_comparison_current_contract_and_fixed_history(
     assert old_summary.status_code == 409
     assert old_summary.json()["detail"]["code"] == "correlation_scope_unconfirmed"
 
-    for key, namespace in (("core-current-a", c["namespace"]), ("core-current-b", "alternate")):
-        _post(
+    for key, namespace in (
+        ("core-current-a", c["namespace"]),
+        ("core-current-b", "alternate"),
+    ):
+        proof = _post(
             client,
             base + "/scope-confirmations",
             c["headers"],
-            _comparison_scope_body(c, customer_upload_id=uploaded.json()["id"], namespace=namespace),
+            _comparison_scope_body(
+                c, customer_upload_id=uploaded.json()["id"], namespace=namespace
+            ),
             key,
+        )
+        _post(
+            client,
+            base,
+            c["headers"],
+            {
+                "selection": proof["selection"],
+                "scope_confirmation_id": proof["id"],
+                "expected_input_sha256": proof["input_sha256"],
+                "expected_current_result_id": None,
+            },
+            key + "-publish",
         )
     multiple = _get(client, base + "/current", c["headers"])
     assert multiple["state"] == "MULTIPLE_SCOPES"
