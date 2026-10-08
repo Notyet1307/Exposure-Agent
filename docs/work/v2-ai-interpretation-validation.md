@@ -9,7 +9,7 @@
 | 前端构建 | PASS | `cd frontend && bun run build`。 |
 | 前端 lint | PASS_WITH_INFO | `bun run lint` 完成；Biome 提示配置 schema 为 2.3.14、CLI 为 2.4.16。 |
 | V2 runner 固定材料重鉴权 | FAIL | 独立探针 `exposure-v2-runtime-3f725egz`：后端 direct core reader PASS；同 guest 因客户工件未挂载返回 `netflow_artifact_integrity_failed`，runner 映射为 `v2_report_material_unavailable`，未到 Provider。不得通过向模型 runner 挂载原始工件修复。 |
-| 后端完整回归 | NOT_RUN | 本轮局部 pytest 未显式隔离测试库，可能触发共享库清理；最终候选稳定后必须在隔离库重新运行。 |
+| 后端完整回归 | NOT_RUN | 父会话此前全量回归为 1472 passed、coverage 89%，低于 CI 90% 门槛；bridge 变更后仍需在 `product_browser_v2_ai_tests` 完成迁移并重跑。领域测试的专用 conftest 不访问数据库。 |
 | 真实模型语义/客户出域 | NOT_RUN | 不在本轮授权范围。 |
 
 运行时失败需要受控的后端侧重鉴权/固定 DTO bridge：模型 guest 只能读取已封存 DTO，不能获得 Artifact、文件系统或任意读取能力。
