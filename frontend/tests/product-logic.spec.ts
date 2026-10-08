@@ -221,22 +221,45 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
     .fill(
       "Synthetic customer and CloudAtlas scope confirmed for the same test network",
     )
-  const generated = page.waitForResponse(
-    (r) =>
-      r.request().method() === "POST" &&
-      new URL(r.url()).pathname ===
-        `/api/v1/projects/${fixture.project_id}/comparison-results`,
+  let result: { id: string } | undefined
+  let creates = 0
+  await page.route(
+    `**/api/v1/projects/${fixture.project_id}/comparison-results`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue()
+      creates += 1
+      const response = await route.fetch()
+      expect(response.status(), await response.text()).toBe(201)
+      result = await response.json()
+      await route.abort("connectionfailed")
+    },
   )
   await page
     .getByRole("button", { name: "Confirm and generate results", exact: true })
     .click()
-  const created = await generated
-  expect(created.status(), await created.text()).toBe(201)
-  const result = await created.json()
-  await expect(page).toHaveURL(new RegExp(`result=${result.id}`))
+  await expect(
+    page.getByRole("region", {
+      name: "Recover original operation",
+      exact: true,
+    }),
+  ).toBeVisible()
+  expect(creates).toBe(1)
+  await page.reload()
+  await expect(
+    page.getByRole("region", {
+      name: "Recover original operation",
+      exact: true,
+    }),
+  ).toBeVisible()
+  expect(new URL(page.url()).searchParams.has("result")).toBe(false)
+  await page
+    .getByRole("button", { name: "Read original operation", exact: true })
+    .click()
+  await expect(page).toHaveURL(new RegExp(`result=${result!.id}`))
+  expect(creates).toBe(1)
   const summary = async () => {
     const response = await request.get(
-      `${root}/comparison-results/${result.id}/summary`,
+      `${root}/comparison-results/${result!.id}/summary`,
       { headers },
     )
     expect(response.ok()).toBeTruthy()
@@ -281,7 +304,7 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
   await page
     .getByRole("link", { name: "Return to comparison results", exact: true })
     .click()
-  await expect(page).toHaveURL(new RegExp(`result=${result.id}`))
+  await expect(page).toHaveURL(new RegExp(`result=${result!.id}`))
   await expect(page).toHaveURL(/core_page=1/)
   await page
     .locator("summary")
@@ -328,7 +351,7 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
   await page.getByRole("button", { name: /^All addresses/ }).click()
   await page.getByRole("button", { name: "Refresh page", exact: true }).click()
   await page.goto(route)
-  await expect(page).toHaveURL(new RegExp(`result=${result.id}`))
+  await expect(page).toHaveURL(new RegExp(`result=${result!.id}`))
   await expect(rows).toBeVisible()
   expect(writes).toEqual([])
   page.off("request", observe)
@@ -373,7 +396,7 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
     (r) =>
       r.request().method() === "POST" &&
       new URL(r.url()).pathname ===
-        `/api/v1/projects/${fixture.project_id}/comparison-results/${result.id}/supplements`,
+        `/api/v1/projects/${fixture.project_id}/comparison-results/${result!.id}/supplements`,
   )
   await page
     .getByRole("button", { name: "Confirm evidence binding", exact: true })

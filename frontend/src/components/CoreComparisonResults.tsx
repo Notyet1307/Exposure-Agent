@@ -299,7 +299,7 @@ export default function CoreComparisonResults({
   const current = useQuery({
     ...options,
     queryKey: [...prefix, "current"],
-    enabled: enabled && !search.result && !search.core_history,
+    enabled: enabled && !search.result && !search.core_history && !pending,
     queryFn: async () =>
       verify(await API.current({ projectId, scopeKey: search.scope })),
   })
@@ -308,6 +308,7 @@ export default function CoreComparisonResults({
     if (
       !search.result &&
       !search.core_history &&
+      !pending &&
       !search.core_invalid &&
       !current.isError &&
       found
@@ -318,6 +319,7 @@ export default function CoreComparisonResults({
   }, [
     current.data,
     current.isError,
+    pending,
     search.result,
     search.core_history,
     search.core_invalid,
