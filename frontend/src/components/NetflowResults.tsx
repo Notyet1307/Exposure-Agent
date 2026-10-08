@@ -7,20 +7,25 @@ import {
   NetflowReviewsService,
   ProjectsService,
 } from "@/client"
+import { ComparisonReturnLink } from "@/components/ComparisonReturnLink"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import type { ComparisonReturn } from "@/lib/comparisonReturn"
+import { comparisonReturnFields } from "@/lib/comparisonReturn"
 import { useI18n } from "@/lib/i18n"
 import { netflowErrorCode } from "@/lib/netflow-errors"
 import { netflowProtocol, netflowText } from "@/lib/netflow-labels"
 
 const SIZE = 25
 const EVIDENCE_SIZE = 10
-export type NetflowResultsSearch = {
+export type NetflowResultsSearch = ComparisonReturn & {
   analysis?: string
   dataset?: string
+  collectionScope?: string
+  history?: boolean
   tab?: "observations" | "peers"
   resultPage?: number
   datasetPage?: number
@@ -60,8 +65,9 @@ export default function NetflowResults({
       projectId,
       search.analysis ?? "none",
       search.dataset ?? "none",
+      search.collectionScope ?? "none",
     ],
-    [actor, projectId, search.analysis, search.dataset],
+    [actor, projectId, search.analysis, search.dataset, search.collectionScope],
   )
   const [denied, setDenied] = useState(false)
   const [ip, setIp] = useState(search.ip ?? "")
@@ -79,8 +85,8 @@ export default function NetflowResults({
   }, [search.ip, search.protocol, search.port])
   useEffect(() => {
     document.title = t(
-      "Processed NetFlow data - Exposure",
-      "NetFlow 处理数据 - Exposure",
+      "NetFlow observations - Exposure",
+      "NetFlow 观测 - Exposure",
     )
   }, [t])
   useEffect(() => {
@@ -112,6 +118,41 @@ export default function NetflowResults({
         analysisId: search.analysis!,
       }),
   })
+  const current = useQuery({
+    ...options,
+    queryKey: [...scope, "current"],
+    enabled:
+      available &&
+      ((Boolean(search.analysis) &&
+        Boolean(search.collectionScope) &&
+        !search.history) ||
+        (!search.history && !search.dataset)),
+    queryFn: () =>
+      NetflowProcessingService.readCurrentNetflow({
+        projectId,
+        collectionScope: search.collectionScope,
+      }),
+  })
+  useEffect(() => {
+    const resolved = current.data?.current
+    if (!resolved || search.analysis || search.history || search.dataset) return
+    void navigate({
+      replace: true,
+      search: (previous) => ({
+        ...previous,
+        analysis: resolved.analysis_id,
+        dataset: resolved.dataset_id,
+        collectionScope: current.data?.scope_id ?? undefined,
+      }),
+    })
+  }, [
+    current.data?.current,
+    navigate,
+    search.analysis,
+    search.dataset,
+    search.history,
+    current.data?.scope_id,
+  ])
   const identity = batch.data
   const identityMatches = Boolean(
     identity &&
@@ -245,7 +286,10 @@ export default function NetflowResults({
   const datasets = useQuery({
     ...options,
     queryKey: [...scope, "datasets", search.datasetPage],
-    enabled: available && !search.analysis,
+    enabled:
+      available &&
+      !search.analysis &&
+      Boolean(search.history || search.dataset),
     queryFn: () =>
       ProjectsService.readNetflowDatasets({
         projectId,
@@ -271,6 +315,7 @@ export default function NetflowResults({
     detail,
     peers,
     evidence,
+    ...(search.analysis ? [] : [current]),
     datasets,
     batches,
   ].find((query) => query.isError)?.error
@@ -321,7 +366,7 @@ export default function NetflowResults({
     <main className="min-w-0 space-y-6">
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">
-          {t("Processed NetFlow data", "NetFlow 处理数据")}
+          {t("NetFlow observations", "NetFlow 观测")}
         </h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
           {t(
@@ -330,6 +375,7 @@ export default function NetflowResults({
           )}
         </p>
         <div className="flex flex-wrap gap-4 text-sm">
+          <ComparisonReturnLink projectId={projectId} search={search} />
           <Link
             className="underline"
             to="/projects/$projectId/netflow-ledger"
@@ -353,26 +399,32 @@ export default function NetflowResults({
             className="underline"
             to="/projects/$projectId/netflow-correlation"
             params={{ projectId }}
-            search={
-              identityMatches
-                ? {
-                    analysis: identity?.analysis_id,
-                    dataset: identity?.dataset_id,
-                    context: identity?.context_revision_id,
-                    namespace: identity?.network_namespace,
-                  }
-                : {}
-            }
+            search={{}}
           >
-            {t("Source comparison", "来源比对")}
+            {t("Comparison results", "比对结果")}
+          </Link>
+          <Link
+            className="underline"
+            to="/"
+            search={{ project: projectId, view: "inputs" }}
+            hash="netflow-inputs"
+          >
+            {t("Upload and processing", "上传与处理")}
           </Link>
           {search.analysis && (
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void navigate({ search: () => ({}) })}
+              onClick={() =>
+                void navigate({
+                  search: () => ({
+                    ...comparisonReturnFields(search),
+                    history: true,
+                  }),
+                })
+              }
             >
-              {t("Choose another batch", "选择其他批次")}
+              {t("Browse processing history", "浏览处理历史")}
             </Button>
           )}
         </div>
@@ -405,6 +457,13 @@ export default function NetflowResults({
             </p>
           )}
         </section>
+      ) : !search.analysis &&
+        !search.history &&
+        !search.dataset &&
+        current.isPending ? (
+        <p role="status">
+          {t("Resolving the current processed data…", "正在解析当前处理数据…")}
+        </p>
       ) : !search.analysis ? (
         <section
           className="space-y-5"
@@ -412,11 +471,74 @@ export default function NetflowResults({
         >
           <h2 className="text-lg font-semibold">
             {t(
-              "Choose uploaded data, then a readable batch",
-              "选择上传数据，再选择可读批次",
+              "Choose a collection scope or processing history",
+              "选择采集范围或处理历史",
             )}
           </h2>
-          {datasets.isPending ? (
+          {current.data?.latest_attempt && (
+            <p className="text-sm text-muted-foreground">
+              {t("Latest processing attempt", "最近处理尝试")}:{" "}
+              {netflowText(current.data.latest_attempt.status, t)} ·{" "}
+              {date(
+                current.data.latest_attempt.completed_at ??
+                  current.data.latest_attempt.created_at,
+              )}
+            </p>
+          )}
+          {(current.data?.scopes?.length ?? 0) > 1 && (
+            <section
+              className="space-y-2"
+              aria-label={t("Collection scopes", "采集范围")}
+            >
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  "More than one confirmed collection scope is available. Choose one before reading a fixed result.",
+                  "存在多个已确认采集范围。请先选择范围，再读取固定结果。",
+                )}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {current.data?.scopes.map((row) => (
+                  <Button
+                    key={row.scope_id}
+                    variant="outline"
+                    onClick={() =>
+                      void navigate({
+                        search: (previous) => ({
+                          ...previous,
+                          collectionScope: row.scope_id,
+                        }),
+                      })
+                    }
+                  >
+                    {row.label} · {row.network_namespace}
+                  </Button>
+                ))}
+              </div>
+            </section>
+          )}
+          {!search.history && !search.dataset ? (
+            <div className="space-y-3">
+              <p>
+                {t(
+                  "No readable result is selected yet. Choose a confirmed scope above, or prepare processing data.",
+                  "尚未定位可读的处理结果。可选择上方已确认范围，或准备处理资料。",
+                )}
+              </p>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  void navigate({
+                    search: () => ({
+                      ...comparisonReturnFields(search),
+                      history: true,
+                    }),
+                  })
+                }
+              >
+                {t("Browse processing history", "浏览处理历史")}
+              </Button>
+            </div>
+          ) : datasets.isPending ? (
             <p role="status">
               {t("Loading uploaded data…", "正在读取上传数据…")}
             </p>
@@ -438,6 +560,7 @@ export default function NetflowResults({
                     onClick={() =>
                       void navigate({
                         search: () => ({
+                          ...comparisonReturnFields(search),
                           dataset: row.id,
                           datasetPage: search.datasetPage,
                         }),
@@ -493,6 +616,7 @@ export default function NetflowResults({
                         onClick={() =>
                           void navigate({
                             search: () => ({
+                              ...comparisonReturnFields(search),
                               analysis: row.analysis_id,
                               dataset: row.dataset_id,
                             }),
@@ -545,6 +669,22 @@ export default function NetflowResults({
               {t("Network scope", "网络范围")}: {identity?.network_namespace} ·{" "}
               {t("Processing completed", "处理完成时间")}:{" "}
               {date(identity?.completed_at)}
+            </p>
+            {current.data?.latest_attempt &&
+              current.data.latest_attempt.analysis_id !==
+                identity?.analysis_id && (
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "A newer processing attempt is available.",
+                    "有新的处理结果可供查看。",
+                  )}
+                </p>
+              )}
+            <p className="text-sm">
+              {t("Observation window", "实际观测窗口")}:{" "}
+              {identity?.observation_window?.state === "NOT_PROVIDED"
+                ? t("Not provided", "未提供")
+                : t("Unknown", "未知")}
             </p>
             {identity?.test_fixture && (
               <p className="text-sm text-muted-foreground">

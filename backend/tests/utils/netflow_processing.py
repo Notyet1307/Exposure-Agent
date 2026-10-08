@@ -89,12 +89,20 @@ class ControlPlane:
 
 
 def context_request(
-    parent: str | None = None, *, state: str = "CONFIRMED"
+    parent: str | None = None,
+    *,
+    state: str = "CONFIRMED",
+    collection_scope: str | None = None,
+    network_namespace: str = NAMESPACE,
 ) -> dict[str, Any]:
     return {
         "expected_parent_id": parent,
-        "network_namespace": NAMESPACE,
+        "network_namespace": network_namespace,
         "state": state,
+        "collection_scope": collection_scope,
+        "collection_scope_evidence": "Synthetic fixed collector scope."
+        if collection_scope
+        else None,
         "endpoint_selection": "declared_source",
         "source_position_evidence": "Public synthetic fixture: SRC is local, DST external.",
         "nat_context": "none",

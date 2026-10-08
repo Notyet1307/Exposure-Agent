@@ -33,6 +33,20 @@ def _private(response: Response) -> None:
     response.headers["Cache-Control"] = "private, no-store"
 
 
+@router.get("/netflow-results/current", response_model=service.CurrentNetFlowPublic)
+def read_current_netflow(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    response: Response,
+    project_id: uuid.UUID,
+    collection_scope: str | None = Query(default=None, min_length=1, max_length=128),
+) -> service.CurrentNetFlowPublic:
+    _private(response)
+    project = project_for(session, current_user, project_id)
+    return service.current_netflow(session, project, collection_scope)
+
+
 @router.get(
     "/netflow-datasets/{dataset_id}/processing-contexts",
     response_model=service.ContextPage,

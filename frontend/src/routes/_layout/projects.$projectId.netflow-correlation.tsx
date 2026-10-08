@@ -1,5 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useEffect } from "react"
+import CoreComparisonResults, {
+  type CoreComparisonSearch,
+  coreComparisonSearch,
+} from "@/components/CoreComparisonResults"
 import NetflowCorrelation, {
   type NetflowCorrelationSearch,
 } from "@/components/NetflowCorrelation"
@@ -73,8 +77,30 @@ export const Route = createFileRoute(
 )({
   validateSearch: (
     search: Record<string, unknown>,
-  ): NetflowCorrelationSearch => {
+  ): NetflowCorrelationSearch & CoreComparisonSearch => {
     const identityErrors: string[] = []
+    const core = coreComparisonSearch(search)
+    const explicitV1 = [
+      "revision",
+      "dataset",
+      "context",
+      "analysis",
+      "namespace",
+      "customerUpload",
+      "customerRevision",
+      "customerOriginal",
+      "historyRun",
+      "cloudMode",
+      "cloudSnapshot",
+      "cloudLedgerRevision",
+      "cloudScopeRevision",
+      "cloudSource",
+      "cloudIpVersion",
+      "cloudPortVersion",
+      "feedbackRevision",
+    ].some((key) => search[key] !== undefined)
+    const coreConflict =
+      search.result !== undefined && (explicitV1 || core.legacy)
     const mode = cloudMode(search.cloudMode)
     const customerOriginal =
       search.customerOriginal === undefined
@@ -90,6 +116,12 @@ export const Route = createFileRoute(
     if (customerOriginal && search.customerRevision !== undefined)
       identityErrors.push("customerRevision")
     return {
+      ...core,
+      legacy:
+        search.result === undefined &&
+        !core.core_invalid &&
+        (core.legacy || explicitV1),
+      core_invalid: core.core_invalid || coreConflict,
       dataset: uuid("dataset", search.dataset, identityErrors),
       context: uuid("context", search.context, identityErrors),
       analysis: uuid("analysis", search.analysis, identityErrors),
@@ -194,8 +226,20 @@ function NetflowCorrelationRoute() {
   const { user } = useAuth()
   const { t } = useI18n()
   useEffect(() => {
-    document.title = t("Source comparison - Exposure", "来源比对 - Exposure")
-  }, [t])
+    document.title = search.legacy
+      ? t("Source comparison - Exposure", "来源比对 - Exposure")
+      : t("Comparison results - Exposure", "比对结果 - Exposure")
+  }, [t, search.legacy])
+  if (user && !search.legacy)
+    return (
+      <CoreComparisonResults
+        key={`${user.id}:${projectId}:${search.result ?? "current"}:${search.scope ?? "default"}`}
+        actor={user.id}
+        projectId={projectId}
+        search={search}
+        navigate={navigate}
+      />
+    )
   return user ? (
     <NetflowCorrelation
       key={JSON.stringify([

@@ -1,3 +1,8 @@
+import {
+  type ComparisonReturn,
+  comparisonReturnFields,
+} from "@/lib/comparisonReturn"
+
 // Decide from explicit query keys, before either view injects pagination defaults.
 const historyKeys = [
   "cloud_source",
@@ -33,8 +38,18 @@ const syncedKeys = [
   "external_page",
   "external_match_page",
   "external_task",
+  "external_manage",
 ] as const
 const text = (value: unknown) => (typeof value === "string" ? value : undefined)
+const management = (
+  value: unknown,
+): "sources" | "sync" | "tasks" | "versions" | undefined =>
+  value === "sources" ||
+  value === "sync" ||
+  value === "tasks" ||
+  value === "versions"
+    ? value
+    : undefined
 export const externalDomains = [
   "ip",
   "port",
@@ -70,6 +85,7 @@ const number = (value: unknown) =>
 
 export function historicalAssetSearch(s: Record<string, unknown>) {
   return {
+    ...comparisonReturnFields(s),
     asset_view: "history" as const,
     cloud_source: text(s.cloud_source),
     cloud_snapshot: text(s.cloud_snapshot),
@@ -87,6 +103,7 @@ export function historicalAssetSearch(s: Record<string, unknown>) {
 
 export function syncedAssetSearch(s: Record<string, unknown>) {
   return {
+    ...comparisonReturnFields(s),
     asset_view: "synced" as const,
     external_source: text(s.external_source) || undefined,
     external_domain: externalDomain(s.external_domain) ?? "ip",
@@ -114,10 +131,11 @@ export function syncedAssetSearch(s: Record<string, unknown>) {
     external_page: number(s.external_page) ?? 0,
     external_match_page: number(s.external_match_page) ?? 0,
     external_task: text(s.external_task) || undefined,
+    external_manage: management(s.external_manage),
   }
 }
 
-export type AssetSearch = {
+export type AssetSearch = ComparisonReturn & {
   cloud_source?: string
   cloud_snapshot?: string
   cloud_revision?: number
@@ -149,6 +167,7 @@ export type AssetSearch = {
   external_page?: number
   external_match_page?: number
   external_task?: string
+  external_manage?: "sources" | "sync" | "tasks" | "versions"
   asset_view?: "synced" | "history"
   asset_error?: "invalid" | "conflict"
 }
@@ -156,6 +175,8 @@ export type AssetSearch = {
 export function validateAssetSearch(s: Record<string, unknown>): AssetSearch {
   const history = historyKeys.some((key) => s[key] !== undefined)
   const synced = syncedKeys.some((key) => s[key] !== undefined)
+  if (s.external_manage !== undefined && !management(s.external_manage))
+    return { asset_error: "invalid" }
   if (s.external_domain !== undefined && !externalDomain(s.external_domain))
     return { asset_error: "invalid" }
   if (

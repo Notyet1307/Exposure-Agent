@@ -74,6 +74,8 @@ class ContextCreate(BaseModel):
     expected_parent_id: uuid.UUID | None
     network_namespace: Namespace
     state: Literal["CONFIRMED", "UNKNOWN", "CONFLICT", "REVOKED"]
+    collection_scope: Text | None = Field(default=None, max_length=128)
+    collection_scope_evidence: Text | None = Field(default=None, max_length=2048)
     endpoint_selection: Literal["declared_source"] = "declared_source"
     source_position_evidence: Text = Field(min_length=1, max_length=2048)
     nat_context: Literal["none", "mapped", "unknown"]
@@ -85,6 +87,15 @@ class ContextCreate(BaseModel):
     def evidence_required(self) -> ContextCreate:
         if not self.source_position_evidence.strip() or (
             self.nat_context != "unknown" and not (self.nat_evidence or "").strip()
+        ):
+            raise ValueError("netflow_context_invalid")
+        if bool((self.collection_scope or "").strip()) != bool(
+            (self.collection_scope_evidence or "").strip()
+        ):
+            raise ValueError("netflow_context_invalid")
+        if any(
+            value is not None and not value.strip()
+            for value in (self.collection_scope, self.collection_scope_evidence)
         ):
             raise ValueError("netflow_context_invalid")
         return self
@@ -125,6 +136,8 @@ class ContextPublic(BaseModel):
     revision: int
     network_namespace: str
     state: str
+    collection_scope: str | None
+    collection_scope_evidence: str | None
     current_context_revision_id: uuid.UUID
     current_state: str
     raw_sha256: str
@@ -165,6 +178,7 @@ class AnalysisPublic(BaseModel):
     quality: dict[str, Any]
     provenance: dict[str, Any]
     context: dict[str, Any]
+    observation_window: dict[str, str]
     current_context_state: str
     feedback_revision_id: uuid.UUID | None
     retry_of_analysis_id: uuid.UUID | None
@@ -185,6 +199,23 @@ class AnalysisPage(BaseModel):
     count: int
     skip: int
     limit: int
+
+
+class CurrentNetFlowScope(BaseModel):
+    scope_id: str
+    network_namespace: str
+    collection_scope: str | None
+    label: str
+    evidence: str | None
+
+
+class CurrentNetFlowPublic(BaseModel):
+    contract_version: Literal["netflow-correlation-v1"] = CONTRACT_VERSION
+    project_id: uuid.UUID
+    scope_id: str | None
+    scopes: list[CurrentNetFlowScope]
+    current: AnalysisPublic | None
+    latest_attempt: AnalysisPublic | None
 
 
 def dataset_for(
@@ -274,6 +305,8 @@ def context_public(
         revision=row.revision,
         network_namespace=row.network_namespace,
         state=row.state,
+        collection_scope=row.collection_scope,
+        collection_scope_evidence=row.collection_scope_evidence,
         current_context_revision_id=current.id,
         current_state=current.state,
         raw_sha256=row.raw_sha256,
@@ -295,6 +328,10 @@ def save_context(
     if not actor.is_superuser:
         deny("netflow_context_admin_required", 403)
     payload = request.model_dump(mode="json")
+    if request.collection_scope is None and request.collection_scope_evidence is None:
+        # Adding optional display scope must not change pre-V2 idempotency hashes.
+        payload.pop("collection_scope")
+        payload.pop("collection_scope_evidence")
     operation = f"context:{dataset_id}"
     existing = operation_result(session, project, actor.id, operation, key, payload)
     if existing:
@@ -334,6 +371,12 @@ def save_context(
         revision=parent.revision + 1 if parent else 1,
         network_namespace=request.network_namespace,
         state=request.state,
+        collection_scope=request.collection_scope.strip()
+        if request.collection_scope
+        else None,
+        collection_scope_evidence=request.collection_scope_evidence.strip()
+        if request.collection_scope_evidence
+        else None,
         raw_sha256=dataset.raw_sha256,
         normalized_sha256=dataset.normalized_sha256,
         payload=payload
@@ -580,6 +623,10 @@ def analysis_public(
         quality=row.quality,
         provenance=row.identity,
         context=context.payload,
+        observation_window={
+            "state": "NOT_PROVIDED",
+            "reason": "The sealed processing result has no verified observation window.",
+        },
         current_context_state=current.state if current else "UNKNOWN",
         feedback_revision_id=row.initial_feedback_revision_id,
         retry_of_analysis_id=row.retry_of_analysis_id,
@@ -590,6 +637,131 @@ def analysis_public(
         created_at=row.created_at,
         started_at=row.started_at,
         completed_at=row.completed_at,
+    )
+
+
+def current_netflow(
+    session: Session,
+    project: Project,
+    collection_scope: str | None = None,
+) -> CurrentNetFlowPublic:
+    """Resolve one confirmed scope; legacy datasets remain separate scopes."""
+    candidates = session.exec(
+        select(NetFlowContextRevision).where(
+            NetFlowContextRevision.project_id == project.id,
+            NetFlowContextRevision.tenant_id == project.tenant_id,
+            NetFlowContextRevision.state == "CONFIRMED",
+        )
+    ).all()
+    contexts = [
+        row
+        for row in candidates
+        if (current_revision := current_context(session, project, row.dataset_id))
+        is not None
+        and current_revision.id == row.id
+    ]
+
+    def scope_id(row: NetFlowContextRevision) -> str:
+        return request_hash(
+            [
+                row.network_namespace,
+                "declared" if row.collection_scope is not None else "dataset",
+                row.collection_scope or str(row.dataset_id),
+            ]
+        )
+
+    scopes = {scope_id(row): row for row in contexts}
+    chosen = collection_scope
+    if chosen is None and project.current_netflow_dataset_id is not None:
+        selected = next(
+            (
+                row
+                for row in contexts
+                if row.dataset_id == project.current_netflow_dataset_id
+            ),
+            None,
+        )
+        if selected is not None:
+            chosen = scope_id(selected)
+    if chosen is None and len(scopes) == 1:
+        chosen = next(iter(scopes))
+    if chosen is None:
+        return CurrentNetFlowPublic(
+            project_id=project.id,
+            scope_id=None,
+            scopes=[
+                CurrentNetFlowScope(
+                    scope_id=name,
+                    network_namespace=row.network_namespace,
+                    collection_scope=row.collection_scope,
+                    label=row.collection_scope or f"Dataset {row.dataset_id}",
+                    evidence=row.collection_scope_evidence,
+                )
+                for name, row in sorted(scopes.items())
+            ],
+            current=None,
+            latest_attempt=None,
+        )
+    selected = scopes.get(chosen)
+    if selected is None:
+        deny("netflow_input_not_found", 404)
+    member_dataset_ids = {
+        row.dataset_id
+        for row in contexts
+        if row.network_namespace == selected.network_namespace
+        and row.collection_scope == selected.collection_scope
+    }
+    matching_context_ids = [
+        row.id
+        for row in candidates
+        if row.dataset_id in member_dataset_ids
+        and row.network_namespace == selected.network_namespace
+        and (
+            row.collection_scope == selected.collection_scope
+            if selected.collection_scope is not None
+            else row.dataset_id == selected.dataset_id
+        )
+    ]
+    rows = session.exec(
+        select(NetFlowAnalysis)
+        .where(
+            NetFlowAnalysis.project_id == project.id,
+            NetFlowAnalysis.tenant_id == project.tenant_id,
+            col(NetFlowAnalysis.context_revision_id).in_(matching_context_ids),
+            NetFlowAnalysis.network_namespace == selected.network_namespace,
+        )
+        .order_by(
+            col(NetFlowAnalysis.created_at).desc(), col(NetFlowAnalysis.id).desc()
+        )
+    ).all()
+    latest = rows[0] if rows else None
+    current: AnalysisPublic | None = None
+    for row in sorted(
+        (row for row in rows if row.status in SUCCESS and row.completed_at is not None),
+        key=lambda row: (row.completed_at, row.id),
+        reverse=True,
+    ):
+        public = analysis_public(session, project, row)
+        if public.can_read_result:
+            current = public
+            break
+    return CurrentNetFlowPublic(
+        project_id=project.id,
+        scope_id=chosen,
+        scopes=[
+            CurrentNetFlowScope(
+                scope_id=name,
+                network_namespace=row.network_namespace,
+                collection_scope=row.collection_scope,
+                label=row.collection_scope or f"Dataset {row.dataset_id}",
+                evidence=row.collection_scope_evidence,
+            )
+            for name, row in sorted(scopes.items())
+        ],
+        current=current,
+        latest_attempt=analysis_public(session, project, latest, include_result=False)
+        if latest is not None
+        else None,
     )
 
 

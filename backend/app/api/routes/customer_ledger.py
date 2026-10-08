@@ -1,7 +1,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from sqlmodel import col, select
 
 from app.api.deps import CurrentUser, SessionDep
@@ -117,6 +117,88 @@ def read_customer_ledger_revisions(
         .limit(limit)
     ).all()
     return [service.public_revision(row) for row in rows]
+
+
+@router.post("/replacements/preview", response_model=service.ReplacementPreview)
+def preview_customer_upload_replacement(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    body: service.ReplacementRequest,
+    response: Response,
+) -> service.ReplacementPreview:
+    response.headers["Cache-Control"] = "private, no-store"
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=PROJECT_READ_ROLES,
+    )
+    try:
+        return service.replacement_preview(session, project, body)
+    except service.LedgerError as error:
+        raise _error(error) from None
+
+
+@router.post(
+    "/replacements", response_model=service.ReplacementReceipt, status_code=201
+)
+def apply_customer_upload_replacement(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    request: Request,
+    idempotency_key: Key,
+    body: service.ReplacementRequest,
+) -> service.ReplacementReceipt:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=(ProjectRole.OPERATOR,),
+        writable=True,
+    )
+    try:
+        return service.public_replacement(
+            service.apply_replacement(
+                session,
+                project,
+                actor_id=current_user.id,
+                key=idempotency_key,
+                request=body,
+                ip_address=get_request_ip_address(request),
+            )
+        )
+    except service.LedgerError as error:
+        raise _error(error) from None
+
+
+@router.get("/replacements/{operation_key}", response_model=service.ReplacementReceipt)
+def read_customer_upload_replacement(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    operation_key: str,
+    response: Response,
+) -> service.ReplacementReceipt:
+    response.headers["Cache-Control"] = "private, no-store"
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=PROJECT_READ_ROLES,
+    )
+    record = service.recover_replacement(
+        session, project, current_user.id, operation_key
+    )
+    if record is None:
+        raise HTTPException(
+            status_code=404, detail={"code": "ledger_replacement_not_found"}
+        )
+    return service.public_replacement(record)
 
 
 @router.post("/revisions", response_model=service.RevisionPublic, status_code=201)

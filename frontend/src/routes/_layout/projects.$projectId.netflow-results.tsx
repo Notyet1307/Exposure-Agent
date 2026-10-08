@@ -3,6 +3,7 @@ import NetflowResults, {
   type NetflowResultsSearch,
 } from "@/components/NetflowResults"
 import useAuth from "@/hooks/useAuth"
+import { comparisonReturnFields } from "@/lib/comparisonReturn"
 
 export const Route = createFileRoute(
   "/_layout/projects/$projectId/netflow-results",
@@ -34,9 +35,18 @@ export const Route = createFileRoute(
     }
     const text = (key: string) =>
       typeof search[key] === "string" ? (search[key] as string) : undefined
+    if (
+      search.collectionScope !== undefined &&
+      (typeof search.collectionScope !== "string" ||
+        !/^[a-f0-9]{64}$/.test(search.collectionScope))
+    )
+      invalid = true
     const result: NetflowResultsSearch = {
+      ...comparisonReturnFields(search),
       analysis: id("analysis"),
       dataset: id("dataset"),
+      collectionScope: text("collectionScope"),
+      history: search.history === true || search.history === "true",
       tab: search.tab === "peers" ? "peers" : "observations",
       resultPage: number("resultPage") ?? 0,
       datasetPage: number("datasetPage") ?? 0,
@@ -62,7 +72,7 @@ function ResultsRoute() {
   const { user } = useAuth()
   return user ? (
     <NetflowResults
-      key={`${user.id}:${projectId}:${search.analysis ?? "none"}:${search.dataset ?? "none"}`}
+      key={`${user.id}:${projectId}:${search.analysis ?? "none"}:${search.dataset ?? "none"}:${search.collectionScope ?? "none"}:${search.history ?? false}`}
       actor={user.id}
       projectId={projectId}
       search={search}

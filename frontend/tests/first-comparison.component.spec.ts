@@ -116,6 +116,28 @@ async function base(
           can_select: state.admin,
         },
       })
+    if (/\/netflow-datasets\/[^/]+\/processing-contexts$/.test(path))
+      return route.fulfill({
+        json: {
+          project_id: project.id,
+          dataset_id: "00000000-0000-4000-8000-000000000002",
+          data: [],
+          count: 0,
+          skip: 0,
+          limit: 25,
+        },
+      })
+    if (/\/netflow-datasets\/[^/]+\/analyses$/.test(path))
+      return route.fulfill({
+        json: {
+          project_id: project.id,
+          dataset_id: "00000000-0000-4000-8000-000000000002",
+          data: [],
+          count: 0,
+          skip: 0,
+          limit: 25,
+        },
+      })
     if (path.endsWith("/cloudatlas-source-instances"))
       return route.fulfill({
         json: { data: [], count: 0, can_manage: state.admin },
@@ -153,10 +175,10 @@ test("zero-project creation survives a lost response and refresh with the same k
   await page.getByRole("button", { name: "Resume creation" }).click()
   await expect(page).toHaveURL(new RegExp(`project=${project.id}.*view=inputs`))
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeVisible()
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeFocused()
   expect(keys).toHaveLength(2)
   expect(keys[0]).toBe(keys[1])
@@ -282,7 +304,7 @@ test("viewer is read-only and preparation remains usable at 390px", async ({
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto(`/?project=${project.id}&view=inputs`)
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeVisible()
   await expect(
     page.getByRole("link", { name: "New comparison project" }),
@@ -332,8 +354,14 @@ test("an unavailable CloudAtlas source cannot inherit a stale ready badge", asyn
       }),
   )
   await page.goto(`/?project=${project.id}&view=inputs`)
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
   await expect(
-    page.getByText("Connection unavailable", { exact: true }),
+    page.getByRole("cell", { name: "Unavailable", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText("Validation check unavailable", { exact: true }),
   ).toBeVisible()
   await expect(
     page.getByText("Validated and enabled", { exact: true }),
@@ -418,7 +446,7 @@ test("switching accounts in another tab hides the previous creation intent immed
     localStorage.setItem("access_token", "different-account-token"),
   )
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Comparison results", exact: true }),
   ).toBeVisible()
   await page.goto("/?view=create")
   await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("")
@@ -508,7 +536,7 @@ test("delivery measures five zero-project creation feedback samples", async ({
       ),
     )
     await expect(
-      page.getByRole("heading", { name: "Prepare this comparison" }),
+      page.getByRole("heading", { name: "Data access", exact: true }),
     ).toBeVisible()
   }
   recordFeedback("create", samples)
@@ -628,6 +656,6 @@ test("delivery pending action remains named and stops motion without losing busy
   ).toBe("none")
   finish()
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeVisible()
 })

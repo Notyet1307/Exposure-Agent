@@ -396,7 +396,7 @@ test.describe("Project result views", () => {
   test.beforeEach(async ({ page }) => {
     await installBaseMocks(page)
     await installResultMocks(page)
-    await page.goto("/")
+    await page.goto(`/?project=${projectId}&view=assets`)
   })
   test("saves without AI, retains rejected corrections, and resets the draft for a Finding scope", async ({
     page,
@@ -1540,7 +1540,7 @@ test.describe("Finding NetFlow context presentation", () => {
   test.beforeEach(async ({ page }) => {
     await installBaseMocks(page)
     await installResultMocks(page)
-    await page.goto("/")
+    await page.goto(`/?project=${projectId}&view=assets`)
     await clickHistoricalLink(page, "Findings")
   })
 

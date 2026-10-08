@@ -9,6 +9,7 @@ import {
   ProjectsService,
   type app__domain__customer_ledger__RevisionPublic as RevisionPublic,
 } from "@/client"
+import { ComparisonReturnLink } from "@/components/ComparisonReturnLink"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -25,6 +26,10 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import useAuth from "@/hooks/useAuth"
+import {
+  type ComparisonReturn,
+  comparisonReturnFields,
+} from "@/lib/comparisonReturn"
 import { useI18n } from "@/lib/i18n"
 import { requestDigest } from "@/lib/ledgerIntent"
 
@@ -47,15 +52,37 @@ const display = (value: LedgerEntry["fields"][string]) =>
     : typeof value === "object"
       ? value.value
       : String(value)
+const ledgerScope = (upload?: string, revision?: string, original = false) =>
+  `${upload ?? "current"}/${revision ?? "original"}/${original}`
 const PAGE_SIZE = 25
 const text = (value: unknown) => (typeof value === "string" ? value : undefined)
+type LedgerSearch = ComparisonReturn & {
+  ledger_upload?: string
+  ledger_revision?: string
+  ledger_original?: boolean
+  ledger_invalid?: boolean
+  ledger_query?: string
+  ledger_ip?: string
+  ledger_page: number
+  ledger_archived: boolean
+}
 export const Route = createFileRoute(
   "/_layout/projects/$projectId/customer-ledger",
 )({
   component: CustomerLedger,
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): LedgerSearch => ({
+    ...comparisonReturnFields(search),
     ledger_upload: text(search.ledger_upload),
     ledger_revision: text(search.ledger_revision),
+    ledger_original:
+      search.ledger_original === true || search.ledger_original === "true",
+    ledger_invalid:
+      (search.ledger_original !== undefined &&
+        ![true, false, "true", "false"].includes(
+          search.ledger_original as boolean | string,
+        )) ||
+      ((search.ledger_original === true || search.ledger_original === "true") &&
+        search.ledger_revision !== undefined),
     ledger_query: text(search.ledger_query),
     ledger_ip: text(search.ledger_ip),
     ledger_page:
@@ -123,7 +150,11 @@ function LedgerView({
     }
   }, [])
   const recoveryName = `exposure:ledger:${actorId}:${projectId}`
-  const viewScope = `${search.ledger_upload ?? "current"}/${search.ledger_revision ?? "original"}`
+  const viewScope = ledgerScope(
+    search.ledger_upload,
+    search.ledger_revision,
+    search.ledger_original,
+  )
   const scopeRef = useRef(viewScope)
   scopeRef.current = viewScope
   const isCurrent = (scope: string) =>
@@ -144,10 +175,12 @@ function LedgerView({
     }
   })
   const pendingKey = pending?.key
-  const pendingScope = pending
-    ? `${pending.base.expected_upload_id}/${pending.base.expected_revision_id ?? "original"}`
-    : undefined
-  const pendingHere = pendingScope === viewScope
+  const pendingHere =
+    !!pending &&
+    !search.back_result &&
+    pending.base.expected_upload_id === search.ledger_upload &&
+    (pending.base.expected_revision_id ?? undefined) ===
+      (search.ledger_revision ?? undefined)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState("")
   const [query, setQuery] = useState(search.ledger_query ?? "")
@@ -178,6 +211,8 @@ function LedgerView({
       projectId,
       search.ledger_upload,
       search.ledger_revision,
+      search.ledger_original,
+      search.ledger_invalid,
       search.ledger_query,
       search.ledger_ip,
       search.ledger_page,
@@ -188,6 +223,7 @@ function LedgerView({
         projectId,
         uploadId: search.ledger_upload,
         revisionId: search.ledger_revision,
+        original: search.ledger_original,
         query: search.ledger_query,
         ip: search.ledger_ip,
         archived: search.ledger_archived,
@@ -195,8 +231,10 @@ function LedgerView({
         limit: PAGE_SIZE,
       }),
     retry: false,
+    enabled: !search.ledger_invalid,
   })
   const history = useQuery({
+    enabled: !search.ledger_invalid,
     queryKey: ["customer-ledger-history", actorId, projectId, historyPage],
     queryFn: () =>
       CustomerLedgerService.readCustomerLedgerRevisions({
@@ -207,6 +245,7 @@ function LedgerView({
     retry: false,
   })
   const originals = useQuery({
+    enabled: !search.ledger_invalid,
     queryKey: ["customer-ledger-inputs", actorId, projectId, historyPage],
     queryFn: () =>
       ProjectsService.readCustomerUploads({
@@ -217,7 +256,7 @@ function LedgerView({
     retry: false,
   })
   const data = ledger.data?.project_id === projectId ? ledger.data : undefined
-  const canEdit = !!data?.can_edit && !ledger.isError
+  const canEdit = !!data?.can_edit && !ledger.isError && !search.back_result
   useEffect(() => {
     if (
       ledger.isSuccess &&
@@ -250,6 +289,7 @@ function LedgerView({
         ...old,
         ledger_upload: uploadId,
         ledger_revision: revisionId,
+        ledger_original: Boolean(uploadId && !revisionId),
         ledger_page: 1,
       }),
     })
@@ -319,10 +359,11 @@ function LedgerView({
         ...old,
         ledger_upload: revision.upload_id,
         ledger_revision: revision.id,
+        ledger_original: false,
         ledger_page: 1,
       }),
     })
-    if (!isCurrent(`${revision.upload_id}/${revision.id}`)) return
+    if (!isCurrent(ledgerScope(revision.upload_id, revision.id))) return
     setNotice("saved")
     heading.current?.focus()
   }
@@ -418,6 +459,7 @@ function LedgerView({
         projectId,
         uploadId: base.expected_upload_id,
         revisionId: base.expected_revision_id ?? undefined,
+        original: base.expected_revision_id === null,
         query: base.entry_id ?? undefined,
         limit: 1,
       })
@@ -430,12 +472,17 @@ function LedgerView({
           ...old,
           ledger_upload: base.expected_upload_id,
           ledger_revision: base.expected_revision_id ?? undefined,
+          ledger_original: base.expected_revision_id === null,
           ledger_page: 1,
         }),
       })
       if (
         !isCurrent(
-          `${base.expected_upload_id}/${base.expected_revision_id ?? "original"}`,
+          ledgerScope(
+            base.expected_upload_id,
+            base.expected_revision_id ?? undefined,
+            base.expected_revision_id === null,
+          ),
         )
       )
         return
@@ -514,6 +561,18 @@ function LedgerView({
     })
   }
   const locked = busy || !!pendingKey || !canEdit
+  if (search.ledger_invalid)
+    return (
+      <div className="space-y-3">
+        <ComparisonReturnLink projectId={projectId} search={search} />
+        <p role="alert">
+          {t(
+            "The fixed customer version parameters conflict. No other version was substituted.",
+            "固定客户版本参数冲突，未替换为其他版本。",
+          )}
+        </p>
+      </div>
+    )
   return (
     <div className="min-w-0 space-y-6">
       <header className="space-y-3">
@@ -531,14 +590,23 @@ function LedgerView({
           )}
         </p>
         <div className="flex flex-wrap gap-2">
+          <ComparisonReturnLink projectId={projectId} search={search} />
           <Button asChild variant="outline">
-            <Link to="/" search={{ project: projectId, view: "inputs" }}>
-              {t("Import / select input", "导入 / 选择输入")}
+            <Link
+              to="/"
+              search={{ project: projectId, view: "inputs" }}
+              hash="customer-inputs"
+            >
+              {t("Upload / replace register", "上传 / 替换台账")}
             </Link>
           </Button>
           <Button asChild variant="outline">
-            <Link to="/" search={{ project: projectId, view: "runs" }}>
-              {t("Confirm a new Run", "确认新批次")}
+            <Link
+              to="/projects/$projectId/netflow-correlation"
+              params={{ projectId }}
+              search={{}}
+            >
+              {t("Comparison results", "比对结果")}
             </Link>
           </Button>
           <Button

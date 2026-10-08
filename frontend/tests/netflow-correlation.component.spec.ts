@@ -232,12 +232,11 @@ test("navigation leads to source comparison and keeps legacy readers outside the
   )
   const sidebar = page.locator('[data-slot="sidebar"]')
   for (const name of [
-    "Source comparison",
-    "Customer ledger",
-    "CloudAtlas data",
-    "Processed NetFlow data",
-    "Inputs",
-    "CloudAtlas",
+    "Comparison results",
+    "CloudAtlas assets",
+    "Customer asset ledger",
+    "NetFlow observations",
+    "Data access",
   ])
     await expect(sidebar.getByRole("link", { name, exact: true })).toBeVisible()
   await expect(
@@ -250,7 +249,7 @@ test("navigation leads to source comparison and keeps legacy readers outside the
     sidebar.getByRole("link", { name: "Reports", exact: true }),
   ).toHaveCount(0)
   await sidebar
-    .getByRole("link", { name: "Source comparison", exact: true })
+    .getByRole("link", { name: "Comparison results", exact: true })
     .click()
   await expect(page).toHaveURL(new RegExp(`revision=${revision}`))
   await page
@@ -892,7 +891,7 @@ test("a selector pages to item 101 and restores it by exact ID", async ({
       json: { data: rows, count: 101, current_netflow_dataset_id: null },
     })
   })
-  await page.goto(`/projects/${project}/netflow-correlation`)
+  await page.goto(`/projects/${project}/netflow-correlation?legacy=true`)
   for (let index = 0; index < 4; index++)
     await page.getByRole("button", { name: "Datasets next page" }).click()
   await page
@@ -1055,7 +1054,7 @@ test("fixed inputs collapse for a revision and stay open for first use", async (
   await expect(
     fixed.getByRole("combobox", { name: "Dataset", exact: true }),
   ).toBeVisible()
-  await page.goto(`/projects/${project}/netflow-correlation`)
+  await page.goto(`/projects/${project}/netflow-correlation?legacy=true`)
   await expect(
     page
       .getByRole("region", { name: "Fixed inputs" })

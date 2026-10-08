@@ -76,7 +76,7 @@ jobs:
     - run: docker compose build
     - run: docker compose down -v --remove-orphans
     - name: Run Playwright tests
-      run: docker compose run --rm playwright bunx playwright test --workers=1 --retries=0 --fail-on-flaky-tests --trace=retain-on-failure
+      run: docker compose run --rm playwright bunx playwright test --workers=1 --retries=0 --fail-on-flaky-tests --trace=retain-on-failure --max-failures=3 --reporter=line,blob
     - run: docker compose down -v --remove-orphans
     - name: Upload blob report to GitHub Actions Artifacts
       if: ${{ !cancelled() }}
@@ -92,7 +92,7 @@ jobs:
       - test-playwright
       - changes
     # Merge reports after playwright-tests, even if some shards have failed
-    if: ${{ !cancelled() && needs.changes.outputs.changed == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.changed == 'true' && needs.test-playwright.result != 'cancelled' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

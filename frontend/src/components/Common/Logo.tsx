@@ -80,7 +80,7 @@ export function Logo({
   return (
     <Link
       to="/"
-      search={{ view: "inputs" }}
+      search={{}}
       aria-label={t("Exposure-Agent home", "Exposure-Agent 首页")}
     >
       {content}

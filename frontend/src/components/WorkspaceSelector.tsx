@@ -35,6 +35,13 @@ export default function WorkspaceSelector() {
   })
   const { search, projectId, runId, project, projects, reports, latest } =
     useWorkspaceContext()
+  const historicalRoot =
+    rootPage &&
+    ((search.view === undefined && search.run !== undefined) ||
+      ["overview", "reports", "assets", "findings", "runs"].includes(
+        search.view ?? "",
+      ))
+  const historicalPage = historicalRoot || (!rootPage && runId !== undefined)
   const assetView = useSearch({ strict: false }).asset_view
   const cloudAssetPage =
     cloudLedgerPage ||
@@ -71,7 +78,7 @@ export default function WorkspaceSelector() {
   ])
   useEffect(() => {
     if (
-      rootPage &&
+      historicalRoot &&
       !["create", "inputs", "runs", "cloudatlas", "cloudatlas-ledger"].includes(
         search.view ?? "",
       ) &&
@@ -92,7 +99,7 @@ export default function WorkspaceSelector() {
       })
     }
   }, [
-    rootPage,
+    historicalRoot,
     latest.data,
     latest.isSuccess,
     latest.isFetching,
@@ -191,7 +198,8 @@ export default function WorkspaceSelector() {
           ))}
         </select>
       </label>
-      {!ledgerPage &&
+      {historicalPage &&
+        !ledgerPage &&
         !cloudAssetPage &&
         !netflowCorrelationPage &&
         !netflowResultsPage && (
@@ -234,7 +242,8 @@ export default function WorkspaceSelector() {
             </select>
           </label>
         )}
-      {!ledgerPage &&
+      {historicalPage &&
+        !ledgerPage &&
         !cloudAssetPage &&
         !netflowCorrelationPage &&
         !netflowResultsPage &&

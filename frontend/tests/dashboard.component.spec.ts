@@ -1,5 +1,6 @@
 import type { FileChooser } from "@playwright/test"
 import type { CloudAtlasSourcePublic } from "../src/client"
+import { requestDigest } from "../src/lib/ledgerIntent"
 import { expect, type Page, type Route, test } from "./fixtures"
 import { feedback, recordFeedback } from "./utils/interaction-feedback"
 import { clickHistoricalLink } from "./utils/legacy-assets"
@@ -294,6 +295,42 @@ async function mockDashboardApi(page: Page) {
       })
       return
     }
+    if (
+      /projects\/[^/]+\/netflow-datasets\/[^/]+\/processing-contexts$/.test(
+        url.pathname,
+      ) &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill({
+        json: {
+          project_id: projects[0].id,
+          dataset_id: "21000000-0000-0000-0000-000000000001",
+          data: [],
+          count: 0,
+          skip: 0,
+          limit: 25,
+        },
+      })
+      return
+    }
+    if (
+      /projects\/[^/]+\/netflow-datasets\/[^/]+\/analyses$/.test(
+        url.pathname,
+      ) &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill({
+        json: {
+          project_id: projects[0].id,
+          dataset_id: "21000000-0000-0000-0000-000000000001",
+          data: [],
+          count: 0,
+          skip: 0,
+          limit: 25,
+        },
+      })
+      return
+    }
     if (url.pathname === "/api/v1/projects/") {
       await route.fulfill({ json: { data: projects, count: projects.length } })
       return
@@ -370,7 +407,9 @@ test("preserves an unknown source validation status across language changes", as
       }),
   )
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
   await expect(
     page.getByRole("cell", { name: "constructor", exact: true }),
   ).toBeVisible()
@@ -601,13 +640,61 @@ test("selects an accepted upload as the current Project input", async ({
   page,
 }) => {
   let currentUploadId: string | null = null
-  let selectionRequests = 0
+  let replacementRequests = 0
   await page.route(
-    `**/api/v1/projects/${projects[0].id}/customer-uploads/${uploads[projects[0].id].data[0].id}/select`,
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          project_id: projects[0].id,
+          current_upload_id: currentUploadId,
+          current_revision_id: null,
+          current_profile_id: profiles[projects[0].id].id,
+          data: [],
+          count: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      const candidate = uploads[projects[0].id].data[0]
+      return route.fulfill({
+        json: {
+          candidate_upload_id: candidate.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: candidate.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: candidate.record_count,
+          candidate_unique_ips: candidate.unique_ip_count,
+          added_ips: candidate.unique_ip_count,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
     async (route) => {
-      selectionRequests += 1
+      replacementRequests += 1
       currentUploadId = uploads[projects[0].id].data[0].id
-      await route.fulfill({ json: uploads[projects[0].id].data[0] })
+      const candidate = uploads[projects[0].id].data[0]
+      return route.fulfill({
+        json: {
+          id: "91000000-0000-0000-0000-000000000002",
+          project_id: projects[0].id,
+          created_by: "30000000-0000-0000-0000-000000000001",
+          candidate_upload_id: candidate.id,
+          expected_upload_id: null,
+          expected_revision_id: null,
+          expected_profile_id: candidate.profile_id,
+          request_sha256: await requestDigest(route.request().postDataJSON()),
+          created_at: projects[0].created_at,
+        },
+      })
     },
   )
   await page.route(
@@ -623,7 +710,8 @@ test("selects an accepted upload as the current Project input", async ({
   await page.goto("/?view=inputs")
 
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
-  await page.getByRole("button", { name: "Set as current input" }).click()
+  await page.getByRole("button", { name: "Preview replacement" }).click()
+  await page.getByRole("button", { name: "Apply replacement" }).click()
 
   const currentDetails = page
     .locator("details")
@@ -640,7 +728,7 @@ test("selects an accepted upload as the current Project input", async ({
     }),
   ).toBeVisible()
   await expect(page.getByText("Current", { exact: true }).first()).toBeVisible()
-  expect(selectionRequests).toBe(1)
+  expect(replacementRequests).toBe(1)
 })
 
 test("keeps read-only and Archived Projects visible without input controls", async ({
@@ -677,7 +765,7 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).toBeVisible()
   await expect(page.getByLabel("XLSX file")).not.toBeVisible()
   await expect(
-    page.getByRole("button", { name: "Set as current input" }),
+    page.getByRole("button", { name: "Preview replacement" }),
   ).not.toBeVisible()
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })
@@ -1042,7 +1130,9 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   await page.route(sourceUrl, handleSourceRequest)
   await page.route(`${sourceUrl}/**`, handleSourceRequest)
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
 
   const tokenInput = page.getByLabel("Capset token")
   await expect(tokenInput).toHaveAttribute("type", "password")
@@ -1050,9 +1140,9 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   await page.getByRole("button", { name: "Validate source" }).click()
   await expect(page.getByText("Validated", { exact: true })).toBeVisible()
   await expect(tokenInput).toHaveValue("")
-  const sourceDetails = page.locator("details").filter({
-    has: page.getByText("Source details", { exact: true }),
-  })
+  const sourceDetails = page
+    .getByText("Source details", { exact: true })
+    .locator("..")
   const fingerprint = "abcdef0123456789".repeat(4)
   await expect(
     sourceDetails.getByText(fingerprint, { exact: true }),
@@ -1084,7 +1174,9 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
     validated_fingerprint: "abcdef0123456789".repeat(4),
   }
   await page.reload()
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
   await page.getByRole("button", { name: "Disable source" }).click()
   await expect(page.getByText("Disabled", { exact: true })).toBeVisible()
 
@@ -1130,7 +1222,9 @@ test("keeps the local session after a structured CloudAtlas authentication failu
     }),
   )
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
 
   const tokenInput = page.getByLabel("Capset token")
   await tokenInput.fill("transient-test-token")
@@ -1190,7 +1284,9 @@ test("lets an Admin manage an older enabled source from disabled history", async
     await route.fulfill({ json: olderEnabled })
   })
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
 
   await expect(page.getByLabel("OctoBus Instance ID")).toHaveValue(
     "cloudatlas-older-enabled",

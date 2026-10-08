@@ -114,7 +114,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   await page.waitForURL((url) => url.pathname === "/")
   const projectSelect = page.getByRole("combobox", { name: "Project" })
   await projectSelect.selectOption(project.id)
-  await page.getByRole("link", { name: "Inputs", exact: true }).click()
+  await page.getByRole("link", { name: "Data access", exact: true }).click()
   await page.getByLabel("XLSX file").setInputFiles(validWorkbook)
   await page
     .locator("form")
@@ -124,7 +124,11 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   const uploadRow = page
     .getByRole("row")
     .filter({ hasText: "customer-upload-v1.xlsx" })
-  await uploadRow.getByRole("button", { name: "Set as current input" }).click()
+  await uploadRow.getByRole("button", { name: "Preview replacement" }).click()
+  await page
+    .getByRole("button", { name: "Apply replacement", exact: true })
+    .click()
+  await expect(uploadRow.getByText("Current", { exact: true })).toBeVisible()
 
   await clickHistoricalLink(page, "Runs")
   await expect(page.getByText("Inputs ready")).toBeVisible()
@@ -305,7 +309,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   // Stop the Runs view polling before arming the one-shot Session probe. A
   // background read can otherwise consume the fixture's probe and make the
   // explicit retry appear recoverable (202) instead of fail-closed (409).
-  await page.getByRole("link", { name: "Inputs", exact: true }).click()
+  await page.getByRole("link", { name: "Data access", exact: true }).click()
   const missNextSession = await request.post(
     "http://cloudatlas-fixture:18080/fixture/miss-next-session-query",
   )
@@ -450,7 +454,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     await page.waitForURL((url) => url.pathname === "/")
     const projectSelect = page.getByRole("combobox", { name: "Project" })
     await projectSelect.selectOption(project.id)
-    await page.getByRole("link", { name: "Inputs", exact: true }).click()
+    await page.getByRole("link", { name: "Data access", exact: true }).click()
   }
 
   async function waitForLatestStatus(status: string, previousRunId?: string) {
@@ -494,8 +498,14 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     .getByRole("row")
     .filter({ hasText: "customer-upload-stage4-first.xlsx" })
   await firstUploadRow
-    .getByRole("button", { name: "Set as current input" })
+    .getByRole("button", { name: "Preview replacement" })
     .click()
+  await page
+    .getByRole("button", { name: "Apply replacement", exact: true })
+    .click()
+  await expect(
+    firstUploadRow.getByText("Current", { exact: true }),
+  ).toBeVisible()
 
   await request.post(`${stage4FixtureUrl}/fixture/set-assets`, {
     data: {
@@ -565,7 +575,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   ).toBeVisible()
   await page.getByRole("button", { name: "Close", exact: true }).click()
 
-  await page.getByRole("link", { name: "Inputs", exact: true }).click()
+  await page.getByRole("link", { name: "Data access", exact: true }).click()
   await page.getByLabel("XLSX file").setInputFiles(stage4SecondWorkbook)
   await page
     .locator("form")
@@ -576,8 +586,14 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     .getByRole("row")
     .filter({ hasText: "customer-upload-stage4-second.xlsx" })
   await secondUploadRow
-    .getByRole("button", { name: "Set as current input" })
+    .getByRole("button", { name: "Preview replacement" })
     .click()
+  await page
+    .getByRole("button", { name: "Apply replacement", exact: true })
+    .click()
+  await expect(
+    secondUploadRow.getByText("Current", { exact: true }),
+  ).toBeVisible()
   await request.post(`${stage4FixtureUrl}/fixture/set-assets`, {
     data: {
       items: [
