@@ -1194,3 +1194,135 @@ def test_fixed_metadata_filters_never_substitute_another_version(
         params={"domain": "ip", "version_id": str(c["versions"]["port"].id)},
     )
     assert response.status_code == 200 and response.json()["count"] == 0
+
+
+def _comparison_scope_body(c: dict[str, Any], *, customer_upload_id: str, namespace: str) -> dict[str, Any]:
+    return {
+        "network_namespace": namespace,
+        "customer_upload_id": customer_upload_id,
+        "customer_revision_id": None,
+        "source_instance_id": str(c["source"].id),
+        "ip_version_id": str(c["versions"]["ip"].id),
+        "port_version_id": str(c["versions"]["port"].id),
+        "evidence": "Synthetic current C/A same-space confirmation",
+    }
+
+
+def _replacement_workbook() -> bytes:
+    book = Workbook()
+    sheet = book.active
+    assert sheet is not None
+    sheet.append(list(customer_ledger.HEADERS))
+    sheet.append(
+        [
+            "192.0.2.88", 443, 443, "是", "example.net", "HTTPS",
+            "Synthetic owner", "Synthetic department", "Synthetic port owner",
+            "Synthetic department", 1,
+        ]
+    )
+    stream = io.BytesIO()
+    book.save(stream)
+    book.close()
+    return stream.getvalue()
+
+
+def test_core_comparison_current_contract_and_fixed_history(
+    client: TestClient, db: Session, correlation: dict[str, Any]
+) -> None:
+    """Exercise the V2 API over real HTTP, including current-input drift and scope revocation."""
+    from app.domain.external_asset_models import ExternalAssetHead
+
+    c = correlation
+    root = f"{settings.API_V1_STR}/projects/{c['project'].id}"
+    base = root + "/comparison-results"
+    for domain, version in c["versions"].items():
+        db.merge(ExternalAssetHead(source_id=c["source"].id, domain=domain, version_id=version.id))
+    db.commit()
+    selected_initial = client.post(
+        root + f"/customer-uploads/{c['body']['customer']['upload_id']}/select",
+        headers=c["headers"],
+    )
+    assert selected_initial.status_code == 200, selected_initial.text
+
+    first_scope = _post(
+        client,
+        base + "/scope-confirmations",
+        c["headers"],
+        _comparison_scope_body(
+            c,
+            customer_upload_id=str(c["body"]["customer"]["upload_id"]),
+            namespace=c["namespace"],
+        ),
+        "core-current-scope",
+    )
+    no_result = _get(client, base + "/current", c["headers"])
+    assert no_result["state"] == "NO_RESULT"
+    ready = no_result["readiness"]
+    request = {
+        "scope_confirmation_id": first_scope["id"],
+        "expected_input_sha256": ready["input_sha256"],
+        "expected_current_result_id": None,
+    }
+    regular = _post(client, base, c["headers"], request, "core-current-regular")
+    assert regular["contract_version"] == "core-comparison-v2"
+    assert regular["project_id"] == str(c["project"].id)
+    current = _get(client, base + "/current", c["headers"])
+    assert current["state"] == "AVAILABLE" and current["result"]["id"] == regular["id"]
+
+    custom = _post(
+        client,
+        base,
+        c["headers"],
+        {**request, "purpose": "custom"},
+        "core-current-custom",
+    )
+    assert custom["purpose"] == "custom"
+    assert _get(client, base + "/current", c["headers"])["result"]["id"] == regular["id"]
+    replay = _post(client, base, c["headers"], request, "core-current-regular")
+    assert replay["id"] == regular["id"]
+    conflict = client.post(
+        base,
+        headers={**c["headers"], "Idempotency-Key": "core-current-regular"},
+        json={**request, "purpose": "custom"},
+    )
+    assert conflict.status_code == 409
+
+    uploaded = client.post(
+        root + "/customer-uploads",
+        headers=c["headers"],
+        files={"file": ("replacement.xlsx", _replacement_workbook())},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    selected = client.post(
+        root + f"/customer-uploads/{uploaded.json()['id']}/select", headers=c["headers"]
+    )
+    assert selected.status_code == 200, selected.text
+    drifted = _get(client, base + "/current", c["headers"])
+    assert drifted["state"] == "SCOPE_CONFIRMATION_REQUIRED"
+    assert client.get(base + f"/{regular['id']}/summary", headers=c["headers"]).status_code == 200
+
+    revoked = client.post(
+        c["base"] + f"/{first_scope['id']}/scope-revisions",
+        headers={**c["headers"], "Idempotency-Key": "core-current-revoke"},
+        json={
+            "expected_parent_id": first_scope["id"],
+            "scope_state": "REVOKED",
+            "evidence": "Synthetic scope revoked after historical result",
+        },
+    )
+    assert revoked.status_code == 201, revoked.text
+    old_summary = client.get(base + f"/{regular['id']}/summary", headers=c["headers"])
+    assert old_summary.status_code == 409
+    assert old_summary.json()["detail"]["code"] == "correlation_scope_unconfirmed"
+
+    for key, namespace in (("core-current-a", c["namespace"]), ("core-current-b", "alternate")):
+        _post(
+            client,
+            base + "/scope-confirmations",
+            c["headers"],
+            _comparison_scope_body(c, customer_upload_id=uploaded.json()["id"], namespace=namespace),
+            key,
+        )
+    multiple = _get(client, base + "/current", c["headers"])
+    assert multiple["state"] == "MULTIPLE_SCOPES"
+    assert len(multiple["readiness"]["scope_choices"]) == 2

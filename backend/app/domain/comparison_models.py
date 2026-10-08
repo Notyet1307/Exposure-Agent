@@ -20,6 +20,7 @@ class CoreComparisonResult(SQLModel, table=True):
         ForeignKeyConstraint(["scope_confirmation_id"], ["source_correlation_revisions.id"], ondelete="RESTRICT"),
         CheckConstraint("purpose IN ('regular','custom')", name="ck_core_result_purpose"),
         CheckConstraint("status IN ('PUBLISHED','FAILED','UNKNOWN')", name="ck_core_result_status"),
+        CheckConstraint("(status = 'PUBLISHED' AND published_at IS NOT NULL) OR (status IN ('FAILED','UNKNOWN') AND published_at IS NULL)", name="ck_core_result_publication"),
         CheckConstraint("input_sha256 ~ '^[0-9a-f]{64}$'", name="ck_core_result_input_hash"),
         Index("ix_core_result_scope_published", "project_id", "scope_key", "published_at", "id"),
     )
@@ -54,6 +55,7 @@ class CoreComparisonSupplement(SQLModel, table=True):
     revision: int
     analysis_id: uuid.UUID | None = None
     qualification_confirmation_id: uuid.UUID | None = None
+    qualification_evidence: str | None = Field(default=None, max_length=2048)
     valid_until: datetime | None = None
     observation_window: dict[str, Any] = Field(default_factory=dict, sa_type=JSONB)
     created_by: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")

@@ -28,15 +28,14 @@ def readiness(*, session: SessionDep, current_user: CurrentUser, project_id: uui
     return service.readiness(session, project_for(session, current_user, project_id), scope_confirmation_id)
 
 
-@router.get("/current", response_model=service.ResultPublic)
-def current(*, session: SessionDep, current_user: CurrentUser, project_id: uuid.UUID, response: Response, scope_confirmation_id: uuid.UUID | None = None) -> service.ResultPublic:
+@router.get("/current", response_model=service.CurrentResult)
+def current(*, session: SessionDep, current_user: CurrentUser, project_id: uuid.UUID, response: Response, scope_confirmation_id: uuid.UUID | None = None) -> service.CurrentResult:
     _private(response)
     project = project_for(session, current_user, project_id)
     ready = service.readiness(session, project, scope_confirmation_id)
-    if ready.state != "READY" or ready.expected_current_result_id is None:
-        from app.domain.netflow_common import deny
-        deny("comparison_current_not_available", 404)
-    return service._public(service._result(session, project, ready.expected_current_result_id))
+    state = "AVAILABLE" if ready.state == "READY" else ready.state
+    result = service._public(service._result(session, project, ready.expected_current_result_id)) if ready.expected_current_result_id else None
+    return service.CurrentResult(project_id=project.id, state=state, result=result, readiness=ready)
 
 
 @router.post("", response_model=service.ResultPublic, status_code=201)
@@ -65,3 +64,14 @@ def summary(*, session: SessionDep, current_user: CurrentUser, project_id: uuid.
 def addresses(*, session: SessionDep, current_user: CurrentUser, project_id: uuid.UUID, result_id: uuid.UUID, response: Response, classification: Literal["all", "both", "cloud_only", "customer_only"] = "all", ip: str | None = None, skip: Skip = 0, limit: Limit = 25) -> service.AddressPage:
     _private(response)
     return service.addresses(session, project_for(session, current_user, project_id), result_id, classification, ip, skip, limit)
+
+
+@router.post("/{result_id}/supplements", response_model=service.SupplementPublic, status_code=201)
+def bind_supplement(*, session: SessionDep, current_user: CurrentUser, project_id: uuid.UUID, result_id: uuid.UUID, body: service.SupplementCreate, idempotency_key: Key) -> service.SupplementPublic:
+    return service.bind(session, project_for(session, current_user, project_id, write=True), current_user, result_id, body, idempotency_key)
+
+
+@router.get("/{result_id}/supplements", response_model=list[service.SupplementPublic])
+def list_supplements(*, session: SessionDep, current_user: CurrentUser, project_id: uuid.UUID, result_id: uuid.UUID, response: Response) -> list[service.SupplementPublic]:
+    _private(response)
+    return service.supplements(session, project_for(session, current_user, project_id), result_id)
