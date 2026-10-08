@@ -33,6 +33,8 @@ export function NetflowContextForm({
     "CONFIRMED" | "UNKNOWN" | "CONFLICT" | "REVOKED"
   >("UNKNOWN")
   const [sourceEvidence, setSourceEvidence] = useState("")
+  const [collectionScope, setCollectionScope] = useState("")
+  const [collectionScopeEvidence, setCollectionScopeEvidence] = useState("")
   const [nat, setNat] = useState<"none" | "mapped" | "unknown">("unknown")
   const [natEvidence, setNatEvidence] = useState("")
   const [observationId, setObservationId] = useState("")
@@ -109,6 +111,8 @@ export function NetflowContextForm({
               expected_parent_id: current?.current_context_revision_id ?? null,
               network_namespace: namespace.trim(),
               state,
+              collection_scope: collectionScope.trim() || null,
+              collection_scope_evidence: collectionScopeEvidence.trim() || null,
               endpoint_selection: "declared_source",
               source_position_evidence: sourceEvidence.trim(),
               nat_context: nat,
@@ -227,6 +231,26 @@ export function NetflowContextForm({
           disabled={busy || Boolean(pending)}
         />
       </Label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Label>
+          {t("Collection scope (optional)", "采集范围（可选）")}
+          <Input
+            value={collectionScope}
+            maxLength={128}
+            onChange={(e) => setCollectionScope(e.target.value)}
+            disabled={busy || Boolean(pending)}
+          />
+        </Label>
+        <Label>
+          {t("Collection scope evidence", "采集范围确认依据")}
+          <Input
+            value={collectionScopeEvidence}
+            maxLength={2048}
+            onChange={(e) => setCollectionScopeEvidence(e.target.value)}
+            disabled={busy || Boolean(pending)}
+          />
+        </Label>
+      </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <Label>
           {t("NAT situation", "NAT 情况")}

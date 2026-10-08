@@ -83,6 +83,8 @@ class NetFlowContextRevision(SQLModel, table=True):
     revision: int
     network_namespace: str = Field(max_length=64)
     state: str = Field(max_length=16)
+    collection_scope: str | None = Field(default=None, max_length=128)
+    collection_scope_evidence: str | None = Field(default=None, max_length=2048)
     raw_sha256: str = Field(max_length=64)
     normalized_sha256: str = Field(max_length=64)
     payload: dict[str, Any] = Field(sa_type=JSONB)

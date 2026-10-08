@@ -68,6 +68,16 @@ async function setup(page: Page) {
       })
     if (path === `${root}/netflow-analyses/${analysis}`)
       return route.fulfill({ json: batch })
+    if (path === `${root}/netflow-results/current`)
+      return route.fulfill({
+        json: {
+          project_id: project,
+          collection_scope: null,
+          scopes: [],
+          current: null,
+          latest_attempt: null,
+        },
+      })
     if (path.endsWith("/observations")) {
       const skip = Number(url.searchParams.get("skip") ?? 0)
       const filtered = url.searchParams.has("ip")
@@ -399,6 +409,33 @@ test("ordinary entry waits for explicit upload and readable batch selection", as
   expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
 })
 
+test("ordinary entry fixes a resolved current result before reading observations", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.route(`**${root}/netflow-results/current`, (route) =>
+    route.fulfill({
+      json: {
+        project_id: project,
+        collection_scope: "branch-edge-a",
+        scopes: [
+          {
+            collection_scope: "branch-edge-a",
+            evidence: "Synthetic fixed collection scope.",
+          },
+        ],
+        current: batch,
+        latest_attempt: batch,
+      },
+    }),
+  )
+  await page.goto(`/projects/${project}/netflow-results`)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
+})
+
 test("project switch stays in processed data and rejects the old late response", async ({
   page,
 }) => {
@@ -456,7 +493,7 @@ test("project switch stays in processed data and rejects the old late response",
   release()
   await expect(
     page.getByRole("heading", {
-      name: "Choose uploaded data, then a readable batch",
+      name: "Choose a collection scope or processing history",
       exact: true,
     }),
   ).toBeVisible()

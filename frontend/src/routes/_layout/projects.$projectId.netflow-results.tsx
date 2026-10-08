@@ -37,6 +37,7 @@ export const Route = createFileRoute(
     const result: NetflowResultsSearch = {
       analysis: id("analysis"),
       dataset: id("dataset"),
+      collectionScope: text("collectionScope"),
       tab: search.tab === "peers" ? "peers" : "observations",
       resultPage: number("resultPage") ?? 0,
       datasetPage: number("datasetPage") ?? 0,

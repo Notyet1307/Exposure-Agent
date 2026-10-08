@@ -215,6 +215,63 @@ def test_empty_all_isolated_and_partial_are_distinct(
             assert result["result"]["input_state"] == "empty"
 
 
+def test_current_result_uses_confirmed_collection_scope_and_pins_success(
+    client: TestClient, db: Session, setup: dict[str, Any]
+) -> None:
+    revised = client.post(
+        setup["dataset_url"] + "/processing-contexts",
+        headers=setup["headers"] | {"Idempotency-Key": "collection-scope"},
+        json=context_request(
+            setup["context_revision_id"], collection_scope="branch-edge-a"
+        ),
+    )
+    assert revised.status_code == 201, revised.text
+    setup["context_revision_id"] = revised.json()["context_revision_id"]
+    queued = reserve(client, setup, key="scoped-analysis")
+    execute(db, setup, queued["analysis_id"])
+    response = client.get(setup["root"] + "/netflow-results/current", headers=setup["headers"])
+    assert response.status_code == 200, response.text
+    current = response.json()
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert current["collection_scope"] == "branch-edge-a"
+    assert current["current"]["analysis_id"] == queued["analysis_id"]
+    assert current["latest_attempt"]["analysis_id"] == queued["analysis_id"]
+
+
+def test_current_result_does_not_turn_failed_attempt_into_empty_result(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup = prepared_dataset(
+        client,
+        db,
+        superuser_token_headers,
+        tmp_path,
+        monkeypatch,
+        raw_text=HEADER + INVALID,
+    )
+    revised = client.post(
+        setup["dataset_url"] + "/processing-contexts",
+        headers=setup["headers"] | {"Idempotency-Key": "collection-scope"},
+        json=context_request(
+            setup["context_revision_id"], collection_scope="branch-edge-a"
+        ),
+    )
+    assert revised.status_code == 201, revised.text
+    setup["context_revision_id"] = revised.json()["context_revision_id"]
+    queued = reserve(client, setup, key="scoped-failure")
+    row = execute(db, setup, queued["analysis_id"])
+    assert row.status == "FAILED"
+    response = client.get(setup["root"] + "/netflow-results/current", headers=setup["headers"])
+    assert response.status_code == 200, response.text
+    current = response.json()
+    assert current["current"] is None
+    assert current["latest_attempt"]["status"] == "FAILED"
+
+
 def test_lost_start_response_never_reexecutes_for_same_or_new_key(
     client: TestClient, db: Session, setup: dict[str, Any]
 ) -> None:

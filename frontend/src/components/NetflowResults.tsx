@@ -21,6 +21,7 @@ const EVIDENCE_SIZE = 10
 export type NetflowResultsSearch = {
   analysis?: string
   dataset?: string
+  collectionScope?: string
   tab?: "observations" | "peers"
   resultPage?: number
   datasetPage?: number
@@ -60,8 +61,9 @@ export default function NetflowResults({
       projectId,
       search.analysis ?? "none",
       search.dataset ?? "none",
+      search.collectionScope ?? "none",
     ],
-    [actor, projectId, search.analysis, search.dataset],
+    [actor, projectId, search.analysis, search.dataset, search.collectionScope],
   )
   const [denied, setDenied] = useState(false)
   const [ip, setIp] = useState(search.ip ?? "")
@@ -112,6 +114,28 @@ export default function NetflowResults({
         analysisId: search.analysis!,
       }),
   })
+  const current = useQuery({
+    ...options,
+    queryKey: [...scope, "current"],
+    enabled: available && !search.analysis,
+    queryFn: () =>
+      NetflowProcessingService.readCurrentNetflow({
+        projectId,
+        collectionScope: search.collectionScope,
+      }),
+  })
+  useEffect(() => {
+    const resolved = current.data?.current
+    if (!resolved || search.analysis) return
+    void navigate({
+      replace: true,
+      search: (previous) => ({
+        ...previous,
+        analysis: resolved.analysis_id,
+        dataset: resolved.dataset_id,
+      }),
+    })
+  }, [current.data?.current, navigate, search.analysis])
   const identity = batch.data
   const identityMatches = Boolean(
     identity &&
@@ -271,6 +295,7 @@ export default function NetflowResults({
     detail,
     peers,
     evidence,
+    current,
     datasets,
     batches,
   ].find((query) => query.isError)?.error
@@ -372,7 +397,7 @@ export default function NetflowResults({
               variant="outline"
               onClick={() => void navigate({ search: () => ({}) })}
             >
-              {t("Choose another batch", "选择其他批次")}
+              {t("Browse processing history", "浏览处理历史")}
             </Button>
           )}
         </div>
@@ -405,6 +430,10 @@ export default function NetflowResults({
             </p>
           )}
         </section>
+      ) : !search.analysis && current.isPending ? (
+        <p role="status">
+          {t("Resolving the current processed data…", "正在解析当前处理数据…")}
+        </p>
       ) : !search.analysis ? (
         <section
           className="space-y-5"
@@ -412,10 +441,51 @@ export default function NetflowResults({
         >
           <h2 className="text-lg font-semibold">
             {t(
-              "Choose uploaded data, then a readable batch",
-              "选择上传数据，再选择可读批次",
+              "Choose a collection scope or processing history",
+              "选择采集范围或处理历史",
             )}
           </h2>
+          {current.data?.latest_attempt && (
+            <p className="text-sm text-muted-foreground">
+              {t("Latest processing attempt", "最近处理尝试")}:{" "}
+              {netflowText(current.data.latest_attempt.status, t)} ·{" "}
+              {date(
+                current.data.latest_attempt.completed_at ??
+                  current.data.latest_attempt.created_at,
+              )}
+            </p>
+          )}
+          {(current.data?.scopes?.length ?? 0) > 1 && (
+            <div
+              className="space-y-2"
+              aria-label={t("Collection scopes", "采集范围")}
+            >
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  "More than one confirmed collection scope is available. Choose one before reading a fixed result.",
+                  "存在多个已确认采集范围。请先选择范围，再读取固定结果。",
+                )}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {current.data?.scopes.map((row) => (
+                  <Button
+                    key={row.collection_scope}
+                    variant="outline"
+                    onClick={() =>
+                      void navigate({
+                        search: (previous) => ({
+                          ...previous,
+                          collectionScope: row.collection_scope,
+                        }),
+                      })
+                    }
+                  >
+                    {row.collection_scope}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
           {datasets.isPending ? (
             <p role="status">
               {t("Loading uploaded data…", "正在读取上传数据…")}

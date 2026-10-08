@@ -538,6 +538,8 @@ export type ContextCreate = {
     expected_parent_id: (string | null);
     network_namespace: string;
     state: 'CONFIRMED' | 'UNKNOWN' | 'CONFLICT' | 'REVOKED';
+    collection_scope?: (string | null);
+    collection_scope_evidence?: (string | null);
     endpoint_selection?: "declared_source";
     source_position_evidence: string;
     nat_context: 'none' | 'mapped' | 'unknown';
@@ -569,6 +571,8 @@ export type ContextPublic = {
     revision: number;
     network_namespace: string;
     state: string;
+    collection_scope: (string | null);
+    collection_scope_evidence: (string | null);
     current_context_revision_id: string;
     current_state: string;
     raw_sha256: string;
@@ -578,6 +582,20 @@ export type ContextPublic = {
     };
     created_by: string;
     created_at: string;
+};
+
+export type CurrentNetFlowPublic = {
+    contract_version?: "netflow-correlation-v1";
+    project_id: string;
+    collection_scope: (string | null);
+    scopes: Array<CurrentNetFlowScope>;
+    current: (AnalysisPublic | null);
+    latest_attempt: (AnalysisPublic | null);
+};
+
+export type CurrentNetFlowScope = {
+    collection_scope: string;
+    evidence: string;
 };
 
 export type CustomerSelection = {
@@ -2751,6 +2769,13 @@ export type NetflowLedgerReadNetflowLedgerProfileData = {
 };
 
 export type NetflowLedgerReadNetflowLedgerProfileResponse = (Profile);
+
+export type NetflowProcessingReadCurrentNetflowData = {
+    collectionScope?: (string | null);
+    projectId: string;
+};
+
+export type NetflowProcessingReadCurrentNetflowResponse = (CurrentNetFlowPublic);
 
 export type NetflowProcessingReadContextsData = {
     contextRevisionId?: (string | null);

@@ -2109,6 +2109,30 @@ export const ContextCreateSchema = {
             enum: ['CONFIRMED', 'UNKNOWN', 'CONFLICT', 'REVOKED'],
             title: 'State'
         },
+        collection_scope: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 128
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Collection Scope'
+        },
+        collection_scope_evidence: {
+            anyOf: [
+                {
+                    type: 'string',
+                    maxLength: 2048
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Collection Scope Evidence'
+        },
         endpoint_selection: {
             type: 'string',
             const: 'declared_source',
@@ -2241,6 +2265,28 @@ export const ContextPublicSchema = {
             type: 'string',
             title: 'State'
         },
+        collection_scope: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Collection Scope'
+        },
+        collection_scope_evidence: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Collection Scope Evidence'
+        },
         current_context_revision_id: {
             type: 'string',
             format: 'uuid',
@@ -2275,8 +2321,81 @@ export const ContextPublicSchema = {
         }
     },
     type: 'object',
-    required: ['project_id', 'dataset_id', 'context_revision_id', 'parent_id', 'revision', 'network_namespace', 'state', 'current_context_revision_id', 'current_state', 'raw_sha256', 'normalized_sha256', 'declarations', 'created_by', 'created_at'],
+    required: ['project_id', 'dataset_id', 'context_revision_id', 'parent_id', 'revision', 'network_namespace', 'state', 'collection_scope', 'collection_scope_evidence', 'current_context_revision_id', 'current_state', 'raw_sha256', 'normalized_sha256', 'declarations', 'created_by', 'created_at'],
     title: 'ContextPublic'
+} as const;
+
+export const CurrentNetFlowPublicSchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'netflow-correlation-v1',
+            title: 'Contract Version',
+            default: 'netflow-correlation-v1'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        collection_scope: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Collection Scope'
+        },
+        scopes: {
+            items: {
+                '$ref': '#/components/schemas/CurrentNetFlowScope'
+            },
+            type: 'array',
+            title: 'Scopes'
+        },
+        current: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/AnalysisPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        latest_attempt: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/AnalysisPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'collection_scope', 'scopes', 'current', 'latest_attempt'],
+    title: 'CurrentNetFlowPublic'
+} as const;
+
+export const CurrentNetFlowScopeSchema = {
+    properties: {
+        collection_scope: {
+            type: 'string',
+            title: 'Collection Scope'
+        },
+        evidence: {
+            type: 'string',
+            title: 'Evidence'
+        }
+    },
+    type: 'object',
+    required: ['collection_scope', 'evidence'],
+    title: 'CurrentNetFlowScope'
 } as const;
 
 export const CustomerSelectionSchema = {
