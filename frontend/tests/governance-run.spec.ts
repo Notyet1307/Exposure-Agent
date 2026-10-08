@@ -16,6 +16,7 @@ import {
   testApiUrl,
 } from "./config"
 import { expect, type Page, test } from "./fixtures"
+import { clickHistoricalLink, openLegacyAssets } from "./utils/legacy-assets"
 import { randomEmail, randomPassword } from "./utils/random"
 
 const validWorkbook = fileURLToPath(
@@ -125,7 +126,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     .filter({ hasText: "customer-upload-v1.xlsx" })
   await uploadRow.getByRole("button", { name: "Set as current input" }).click()
 
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await expect(page.getByText("Inputs ready")).toBeVisible()
   await page.goto(`/?project=${project.id}&view=runs`)
   await page.getByLabel("Use these versions for this comparison").check()
@@ -136,7 +137,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     ),
   ).toBeVisible()
   await expect(page).toHaveURL(/view=overview/, { timeout: 120_000 })
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await expect(
     publishedRunCard(page).getByText("COMPLETED", { exact: true }),
   ).toBeVisible({
@@ -220,7 +221,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
     .toBe(true)
 
   await page.reload()
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await page.getByRole("button", { name: "Retry same Session" }).click()
   await expect
     .poll(
@@ -336,7 +337,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   )
 
   await page.reload()
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await expect(
     page.getByText(
       "The original Session cannot be recovered. Use an explicit Rerun.",
@@ -504,13 +505,13 @@ test("Project readers see published IP lifecycle results and safe failure fallba
       ],
     },
   })
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await expect(page.getByText("Inputs ready")).toBeVisible()
   await page.goto(`/?project=${project.id}&view=runs`)
   await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(page).toHaveURL(/view=overview/, { timeout: 120_000 })
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await expect(
     publishedRunCard(page).getByText("COMPLETED", { exact: true }),
   ).toBeVisible({
@@ -519,11 +520,11 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   const firstRun = await waitForLatestStatus("COMPLETED")
   expect(firstRun).toBeDefined()
 
-  await page.getByRole("link", { name: "Current assets", exact: true }).click()
+  await openLegacyAssets(page)
   await expect(page.getByText(stage4MatchedIp, { exact: true })).toBeVisible()
   await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
   await expect(page.getByText(stage4CloudOnlyIp, { exact: true })).toBeVisible()
-  await page.getByRole("link", { name: "Findings", exact: true }).click()
+  await clickHistoricalLink(page, "Findings")
   for (const ip of [stage4MissingIp, stage4CloudOnlyIp]) {
     const row = page.getByRole("row").filter({ hasText: ip })
     await row.locator("summary").focus()
@@ -585,12 +586,12 @@ test("Project readers see published IP lifecycle results and safe failure fallba
       ],
     },
   })
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await page.goto(`/?project=${project.id}&view=runs`)
   await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(page).toHaveURL(/view=overview/, { timeout: 120_000 })
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await expect(
     publishedRunCard(page).getByText("COMPLETED", { exact: true }),
   ).toBeVisible({
@@ -599,7 +600,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   const secondRun = await waitForLatestStatus("COMPLETED", firstRun.id)
   expect(secondRun.id).not.toBe(firstRun?.id)
 
-  await page.getByRole("link", { name: "Findings", exact: true }).click()
+  await clickHistoricalLink(page, "Findings")
   await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
   await page.getByRole("combobox", { name: "Finding status" }).click()
   await page.getByRole("option", { name: "CLOSED", exact: true }).click()
@@ -632,7 +633,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   ).toBe(1)
 
   await request.post(`${stage4FixtureUrl}/fixture/fail-next`)
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await page.goto(`/?project=${project.id}&view=runs`)
   await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
@@ -650,7 +651,7 @@ test("Project readers see published IP lifecycle results and safe failure fallba
       .getByText("COMPLETED", { exact: true }),
   ).toBeVisible()
 
-  await page.getByRole("link", { name: "Current assets", exact: true }).click()
+  await openLegacyAssets(page)
   const publishedAssetRow = page
     .getByRole("row")
     .filter({ hasText: stage4CloudOnlyIp })
@@ -660,20 +661,18 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     publishedAssetRow.getByText(secondRun.id, { exact: true }),
   ).toBeVisible()
   await expect(page.getByText(stage4CloudOnlyIp, { exact: true })).toBeVisible()
-  await page.getByRole("link", { name: "Findings", exact: true }).click()
+  await clickHistoricalLink(page, "Findings")
   await page.getByRole("combobox", { name: "Finding status" }).click()
   await page.getByRole("option", { name: "OPEN", exact: true }).click()
   await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
 
   for (const role of ["viewer", "approver"] as const) {
     await loginInBrowser(credentials[role])
-    await page
-      .getByRole("link", { name: "Current assets", exact: true })
-      .click()
+    await openLegacyAssets(page)
     await expect(
       page.getByText(stage4CloudOnlyIp, { exact: true }),
     ).toBeVisible()
-    await page.getByRole("link", { name: "Findings", exact: true }).click()
+    await clickHistoricalLink(page, "Findings")
     await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
   }
 
@@ -686,8 +685,8 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await expect(
     page.getByText("Archived Project", { exact: true }),
   ).toBeVisible()
-  await page.getByRole("link", { name: "Current assets", exact: true }).click()
+  await openLegacyAssets(page)
   await expect(page.getByText(stage4CloudOnlyIp, { exact: true })).toBeVisible()
-  await page.getByRole("link", { name: "Findings", exact: true }).click()
+  await clickHistoricalLink(page, "Findings")
   await expect(page.getByText(stage4MissingIp, { exact: true })).toBeVisible()
 })

@@ -15,7 +15,7 @@ export type Item = {
   icon: LucideIcon
   title: string
   path: string
-  search?: WorkspaceSearch
+  search?: WorkspaceSearch | true
   active?: boolean
 }
 

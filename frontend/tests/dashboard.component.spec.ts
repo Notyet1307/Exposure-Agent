@@ -2,6 +2,7 @@ import type { FileChooser } from "@playwright/test"
 import type { CloudAtlasSourcePublic } from "../src/client"
 import { expect, type Page, type Route, test } from "./fixtures"
 import { feedback, recordFeedback } from "./utils/interaction-feedback"
+import { clickHistoricalLink } from "./utils/legacy-assets"
 
 const projects = [
   {
@@ -322,7 +323,7 @@ test("explains a known unavailable Run input without enabling its trigger", asyn
       }),
   )
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await expect(
     page.getByRole("button", { name: "Trigger Run", exact: true }),
   ).toBeDisabled()
@@ -497,7 +498,7 @@ test("shows a fresh Trigger action after a terminal pre-Run launch", async ({
   )
 
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
   await page.getByLabel("Use these versions for this comparison").check()
   await page.getByRole("button", { name: "Trigger Run" }).click()
   await expect(page.getByRole("status")).toHaveText(
@@ -1336,7 +1337,7 @@ test("shows the six Run steps and triggers with a caller-owned stable ID", async
     },
   )
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
 
   await expect(page.getByText("Inputs ready")).toBeVisible()
   for (const step of [
@@ -1483,7 +1484,7 @@ test("Operator can Retry or explicitly Rerun a failed Governance Run", async ({
       }),
   )
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
 
   await expect(page.getByText("FAILED_DATA", { exact: true })).toBeVisible()
   await expect(page.getByText("Snapshots reused: 1")).toBeVisible()
@@ -1568,7 +1569,7 @@ test("hides Rerun while a same-Session Retry is in progress", async ({
       }),
   )
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "Runs", exact: true }).click()
+  await clickHistoricalLink(page, "Runs")
 
   await expect(page.getByText("RUNNING", { exact: true })).toBeVisible()
   await expect(page.getByText("Snapshots reused: 0")).toBeVisible()
@@ -1640,7 +1641,7 @@ for (const role of ["Viewer", "Approver"] as const) {
         }),
     )
     await page.goto("/?view=inputs")
-    await page.getByRole("link", { name: "Runs", exact: true }).click()
+    await clickHistoricalLink(page, "Runs")
 
     await expect(page.getByText("Recovery status")).toBeVisible()
     await expect(

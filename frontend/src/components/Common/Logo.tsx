@@ -1,4 +1,9 @@
-import { Link, useParams } from "@tanstack/react-router"
+import {
+  Link,
+  useParams,
+  useRouterState,
+  useSearch,
+} from "@tanstack/react-router"
 
 import { useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
@@ -16,6 +21,11 @@ export function Logo({
 }: LogoProps) {
   const { t } = useI18n()
   const params = useParams({ strict: false })
+  const search = useSearch({ strict: false })
+  const project = params.projectId ?? search.project
+  const comparisonPage = useRouterState({
+    select: (state) => state.location.pathname.endsWith("/netflow-correlation"),
+  })
   const fullLogo = (
     <span
       className={cn(
@@ -54,15 +64,23 @@ export function Logo({
     return content
   }
 
+  if (project) {
+    return (
+      <Link
+        to="/projects/$projectId/netflow-correlation"
+        params={{ projectId: project }}
+        search={comparisonPage ? true : {}}
+        aria-label={t("Exposure-Agent home", "Exposure-Agent 首页")}
+      >
+        {content}
+      </Link>
+    )
+  }
+
   return (
     <Link
       to="/"
-      search={(previous) => ({
-        ...previous,
-        project: params.projectId ?? previous.project,
-        run: params.runId ?? previous.run,
-        view: "overview",
-      })}
+      search={{ view: "inputs" }}
       aria-label={t("Exposure-Agent home", "Exposure-Agent 首页")}
     >
       {content}

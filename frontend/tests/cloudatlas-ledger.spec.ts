@@ -101,9 +101,7 @@ test("native CloudAtlas ledger preserves source history, recovers an unknown sav
     )
       readSidePosts++
   })
-  await page
-    .getByRole("link", { name: "Internet exposure assets", exact: true })
-    .click()
+  await page.getByRole("link", { name: "CloudAtlas data", exact: true }).click()
   await page
     .getByRole("link", { name: "Historical Run snapshots", exact: true })
     .click()

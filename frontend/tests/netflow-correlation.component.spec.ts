@@ -123,6 +123,334 @@ const workbenchSummary = {
   },
 }
 
+test("refresh keeps a visible fixed-result loading state until the same revision is read", async ({
+  page,
+}) => {
+  await setup(page)
+  let release = () => {}
+  let ready = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const writes: string[] = []
+  page.on("request", (request) => {
+    if (request.url().includes("/api/") && request.method() !== "GET")
+      writes.push(request.method())
+  })
+  await page.route(
+    `**${root}/source-correlations/${revision}`,
+    async (route) => {
+      await ready
+      await route.fulfill({ json: workbenchSummary })
+    },
+  )
+  await page.goto(
+    `/projects/${project}/netflow-correlation?revision=${revision}`,
+  )
+  const loading = page.getByRole("status").filter({
+    hasText: "Loading this saved comparison",
+  })
+  await expect(loading).toBeVisible()
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveCount(0)
+  release()
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveText("27")
+  await expect(
+    page.getByRole("link", { name: "View flow observations", exact: true }),
+  ).toHaveAttribute(
+    "href",
+    `/projects/${project}/netflow-results?analysis=${analysis}`,
+  )
+  ready = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.reload()
+  await expect(loading).toBeVisible()
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveCount(0)
+  release()
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveText("27")
+  await expect(page).toHaveURL(new RegExp(`revision=${revision}`))
+  expect(writes).toEqual([])
+})
+
+test("a fixed-result read failure can retry the same revision without changing inputs", async ({
+  page,
+}) => {
+  await setup(page)
+  let failed = true
+  const reads: string[] = []
+  await page.route(
+    `**${root}/source-correlations/${revision}`,
+    async (route) => {
+      reads.push(new URL(route.request().url()).pathname)
+      await route.fulfill(
+        failed
+          ? {
+              status: 503,
+              json: { detail: { code: "netflow_execution_unavailable" } },
+            }
+          : { json: workbenchSummary },
+      )
+    },
+  )
+  await page.goto(
+    `/projects/${project}/netflow-correlation?revision=${revision}`,
+  )
+  const results = page.getByRole("region", {
+    name: "Comparison results",
+    exact: true,
+  })
+  await expect(results.getByRole("alert")).toBeVisible()
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveCount(0)
+  failed = false
+  await results
+    .getByRole("button", { name: "Retry loading comparison", exact: true })
+    .click()
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveText("27")
+  expect(
+    reads.every((url) => url === `${root}/source-correlations/${revision}`),
+  ).toBe(true)
+  await expect(page).toHaveURL(new RegExp(`revision=${revision}`))
+})
+
+test("navigation leads to source comparison and keeps legacy readers outside the main flow", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.goto(
+    `/projects/${project}/netflow-correlation?revision=${revision}`,
+  )
+  const sidebar = page.locator('[data-slot="sidebar"]')
+  for (const name of [
+    "Source comparison",
+    "Customer ledger",
+    "CloudAtlas data",
+    "Processed NetFlow data",
+    "Inputs",
+    "CloudAtlas",
+  ])
+    await expect(sidebar.getByRole("link", { name, exact: true })).toBeVisible()
+  await expect(
+    sidebar.getByRole("link", { name: "Current assets", exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    sidebar.getByRole("link", { name: "Lineage", exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    sidebar.getByRole("link", { name: "Reports", exact: true }),
+  ).toHaveCount(0)
+  await sidebar
+    .getByRole("link", { name: "Source comparison", exact: true })
+    .click()
+  await expect(page).toHaveURL(new RegExp(`revision=${revision}`))
+  await page
+    .getByRole("link", { name: "Exposure-Agent home", exact: true })
+    .click()
+  await expect(page).toHaveURL(new RegExp(`revision=${revision}`))
+  await sidebar.getByText("Historical governance", { exact: true }).click()
+  await expect(
+    sidebar.getByRole("link", { name: "Reports", exact: true }),
+  ).toBeVisible()
+  await page.goto(
+    `/?project=${project}&view=reports&run=80000000-0000-4000-8000-000000000274`,
+  )
+  await page
+    .getByRole("link", { name: "Exposure-Agent home", exact: true })
+    .click()
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/${project}/netflow-correlation`),
+  )
+  expect(new URL(page.url()).searchParams.has("run")).toBe(false)
+  expect(new URL(page.url()).searchParams.has("view")).toBe(false)
+})
+
+test("an explicit feedback pin waits for summary and feedback reads across refresh", async ({
+  page,
+}) => {
+  await setup(page)
+  const feedbackRevision = "80000000-0000-4000-8000-000000000274"
+  let releaseSummary = () => {}
+  let summaryReady = new Promise<void>((resolve) => {
+    releaseSummary = resolve
+  })
+  let releaseFeedback = () => {}
+  const feedbackReady = new Promise<void>((resolve) => {
+    releaseFeedback = resolve
+  })
+  await page.route(
+    `**${root}/source-correlations/${revision}`,
+    async (route) => {
+      await summaryReady
+      await route.fulfill({ json: workbenchSummary })
+    },
+  )
+  await page.route(
+    `**${root}/netflow-analyses/${analysis}/feedback?*`,
+    async (route) => {
+      await feedbackReady
+      await route.fulfill({
+        json: {
+          project_id: project,
+          analysis_id: analysis,
+          dataset_id: summary.pins.NETFLOW.dataset_id,
+          context_revision_id: summary.pins.NETFLOW.context_revision_id,
+          network_namespace: "synthetic",
+          feedback_revision_id: feedbackRevision,
+        },
+      })
+    },
+  )
+  await page.goto(
+    `/projects/${project}/netflow-correlation?revision=${revision}&feedbackRevision=${feedbackRevision}`,
+  )
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Loading this saved comparison" }),
+  ).toBeVisible()
+  await expect(page.getByRole("alert")).toHaveCount(0)
+  releaseSummary()
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Verifying the fixed feedback revision" }),
+  ).toBeVisible()
+  await expect(page.getByRole("alert")).toHaveCount(0)
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveCount(0)
+  releaseFeedback()
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveText("27")
+  summaryReady = new Promise<void>((resolve) => {
+    releaseSummary = resolve
+  })
+  await page.reload()
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "Loading this saved comparison" }),
+  ).toBeVisible()
+  await expect(page.getByRole("alert")).toHaveCount(0)
+  releaseSummary()
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveText("27")
+  await expect(page).toHaveURL(
+    new RegExp(`feedbackRevision=${feedbackRevision}`),
+  )
+})
+
+test("a fixed comparison without an Analysis rejects an explicit feedback pin", async ({
+  page,
+}) => {
+  await setup(page)
+  let feedbackReads = 0
+  await page.route(`**${root}/source-correlations/${revision}`, (route) =>
+    route.fulfill({
+      json: {
+        ...workbenchSummary,
+        selection: { ...workbenchSummary.selection, netflow: null },
+        pins: {},
+        sources: workbenchSummary.sources.map((source) =>
+          source.source === "NETFLOW"
+            ? {
+                ...source,
+                state: "NOT_PROVIDED",
+                read_state: "NOT_PROVIDED",
+                coverage_state: "NOT_APPLICABLE",
+                source_records: null,
+                source_addresses: null,
+              }
+            : source,
+        ),
+        comparison: {
+          state: "AVAILABLE",
+          sources: ["CUSTOMER", "CLOUD"],
+          common_addresses: 13,
+          different_addresses: 14,
+        },
+      },
+    }),
+  )
+  await page.route(`**${root}/netflow-analyses/*/feedback?*`, (route) => {
+    feedbackReads++
+    return route.fulfill({ json: {} })
+  })
+  await page.goto(
+    `/projects/${project}/netflow-correlation?revision=${revision}&feedbackRevision=80000000-0000-4000-8000-000000000274`,
+  )
+  await expect(page.getByRole("alert")).toContainText("has no NetFlow Analysis")
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveCount(0)
+  expect(feedbackReads).toBe(0)
+})
+
+for (const outcome of ["mismatch", 403, 404, 410] as const) {
+  test(`an explicit feedback ${outcome} still rejects the fixed result`, async ({
+    page,
+  }) => {
+    await setup(page)
+    const feedbackRevision = "80000000-0000-4000-8000-000000000274"
+    await page.route(`**${root}/source-correlations/${revision}`, (route) =>
+      route.fulfill({ json: workbenchSummary }),
+    )
+    const requested: string[] = []
+    await page.route(
+      `**${root}/netflow-analyses/${analysis}/feedback?*`,
+      async (route) => {
+        requested.push(
+          new URL(route.request().url()).searchParams.get(
+            "feedback_revision_id",
+          ) ?? "missing",
+        )
+        await route.fulfill(
+          outcome === "mismatch"
+            ? {
+                json: {
+                  project_id: project,
+                  analysis_id: "20000000-0000-4000-8000-000000000999",
+                  dataset_id: summary.pins.NETFLOW.dataset_id,
+                  context_revision_id: summary.pins.NETFLOW.context_revision_id,
+                  network_namespace: "synthetic",
+                  feedback_revision_id: feedbackRevision,
+                },
+              }
+            : {
+                status: outcome,
+                json: { detail: { code: "netflow_feedback_unavailable" } },
+              },
+        )
+      },
+    )
+    await page.goto(
+      `/projects/${project}/netflow-correlation?revision=${revision}&feedbackRevision=${feedbackRevision}`,
+    )
+    await expect.poll(() => requested.length).toBeGreaterThan(0)
+    await expect(page.getByRole("alert")).toBeVisible()
+    if (outcome === "mismatch")
+      await expect(page.getByRole("alert")).toContainText("does not belong")
+    else
+      await expect(page.getByRole("alert")).not.toContainText("does not belong")
+    await expect(
+      page.getByLabel("All addresses count", { exact: true }),
+    ).toHaveCount(0)
+    expect(requested.every((value) => value === feedbackRevision)).toBe(true)
+  })
+}
+
 test("workbench leads with fixed IP facts and paginates all source differences", async ({
   page,
 }) => {
