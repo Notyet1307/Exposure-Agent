@@ -359,6 +359,45 @@ def test_current_result_scans_past_101_newer_failed_attempts(
     assert value["latest_attempt"]["status"] == "PENDING"
 
 
+def test_current_result_prefers_newer_successful_empty_scope_member(
+    client: TestClient, db: Session, setup: dict[str, Any]
+) -> None:
+    context = client.post(
+        setup["dataset_url"] + "/processing-contexts",
+        headers=setup["headers"] | {"Idempotency-Key": "scope-nonempty"},
+        json=context_request(
+            setup["context_revision_id"], collection_scope="branch-edge-a"
+        ),
+    )
+    assert context.status_code == 201, context.text
+    setup["context_revision_id"] = context.json()["context_revision_id"]
+    nonempty = reserve(client, setup, key="scope-nonempty-analysis")
+    execute(db, setup, nonempty["analysis_id"])
+    uploaded = _upload(
+        client, setup["headers"], setup["project_id"], HEADER.encode()
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    empty_setup = setup | {
+        "dataset_id": uploaded.json()["id"],
+        "dataset_url": setup["root"] + "/netflow-datasets/" + uploaded.json()["id"],
+        "context_revision_id": None,
+    }
+    empty_context = client.post(
+        empty_setup["dataset_url"] + "/processing-contexts",
+        headers=setup["headers"] | {"Idempotency-Key": "scope-empty"},
+        json=context_request(collection_scope="branch-edge-a"),
+    )
+    assert empty_context.status_code == 201, empty_context.text
+    empty_setup["context_revision_id"] = empty_context.json()["context_revision_id"]
+    empty = reserve(client, empty_setup, key="scope-empty-analysis")
+    execute(db, empty_setup, empty["analysis_id"])
+    response = client.get(setup["root"] + "/netflow-results/current", headers=setup["headers"])
+    assert response.status_code == 200, response.text
+    current = response.json()["current"]
+    assert current["analysis_id"] == empty["analysis_id"]
+    assert current["result"]["counts"]["valid_records"] == 0
+
+
 def test_lost_start_response_never_reexecutes_for_same_or_new_key(
     client: TestClient, db: Session, setup: dict[str, Any]
 ) -> None:
