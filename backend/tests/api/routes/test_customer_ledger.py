@@ -352,7 +352,7 @@ def test_concurrent_full_replacements_have_one_winner(
         candidates.append(response.json()["id"])
 
     def replace(candidate_id: str) -> int:
-        return client.post(
+        response = client.post(
             root + "/customer-ledger/replacements",
             headers={**headers, "Idempotency-Key": f"replace-{candidate_id}"},
             json={
@@ -361,7 +361,8 @@ def test_concurrent_full_replacements_have_one_winner(
                 "expected_revision_id": None,
                 "expected_profile_id": page["current_profile_id"],
             },
-        ).status_code
+        )
+        return int(response.status_code)
 
     with ThreadPoolExecutor(max_workers=2) as workers:
         assert sorted(workers.map(replace, candidates)) == [201, 409]
