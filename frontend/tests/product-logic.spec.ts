@@ -463,3 +463,151 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
     }),
   ).toHaveCount(0)
 })
+
+test("real evidence revocation rejects a delayed response without clearing C+A", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(60_000)
+  const { readFile } = await import("node:fs/promises")
+  const fixture = JSON.parse(
+    await readFile(process.env.PRODUCT_LOGIC_FIXTURE!, "utf8"),
+  )
+  const login = await request.post(`${api}/api/v1/login/access-token`, {
+    form: {
+      username: process.env.FIRST_SUPERUSER!,
+      password: process.env.FIRST_SUPERUSER_PASSWORD!,
+    },
+  })
+  const token = (await login.json()).access_token as string
+  const headers = { Authorization: `Bearer ${token}` }
+  const root = `${api}/api/v1/projects/${fixture.project_id}`
+  const current = await (
+    await request.get(`${root}/comparison-results/current`, { headers })
+  ).json()
+  const resultId = current.result.id
+  const base = `${root}/comparison-results/${resultId}`
+  const previous = await (
+    await request.get(`${base}/supplements`, { headers })
+  ).json()
+  const bindingResponse = await request.post(`${base}/supplements`, {
+    headers: { ...headers, "Idempotency-Key": crypto.randomUUID() },
+    data: {
+      analysis_id: fixture.analysis_id,
+      expected_binding_id: previous.id,
+      valid_until: new Date(Date.now() + 3600_000).toISOString(),
+      scope_evidence: "Independent synthetic browser revocation check",
+    },
+  })
+  expect(bindingResponse.status(), await bindingResponse.text()).toBe(201)
+  const binding = await bindingResponse.json()
+  await page.addInitScript(
+    (value) => localStorage.setItem("access_token", value),
+    token,
+  )
+  const url = `/projects/${fixture.project_id}/netflow-correlation?result=${resultId}&binding=${binding.id}`
+  await page.goto(url)
+  const rows = page.getByRole("table", {
+    name: "Comparison addresses",
+    exact: true,
+  })
+  const leads = page.getByRole("table", {
+    name: "Supplemental leads",
+    exact: true,
+  })
+  await expect(leads.getByText("192.0.2.40", { exact: true })).toBeVisible()
+  let release: () => void = () => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let captured: () => void = () => {}
+  const capturedResponse = new Promise<void>((resolve) => {
+    captured = resolve
+  })
+  await page.route(
+    `**/comparison-results/${resultId}/supplements/${binding.id}/addresses**`,
+    async (route) => {
+      if (!route.request().url().includes("only_supplemental=true"))
+        return route.continue()
+      const response = await route.fetch()
+      captured()
+      await held
+      await route.fulfill({ response }).catch(() => {})
+    },
+  )
+  await page.getByRole("button", { name: "Refresh page", exact: true }).click()
+  await capturedResponse
+  const contexts = `${root}/netflow-datasets/${fixture.dataset_id}/processing-contexts`
+  const selected = (
+    await (
+      await request.get(
+        `${contexts}?context_revision_id=${fixture.context_revision_id}`,
+        { headers },
+      )
+    ).json()
+  ).data[0]
+  const revoked = await request.post(contexts, {
+    headers: { ...headers, "Idempotency-Key": crypto.randomUUID() },
+    data: {
+      expected_parent_id: fixture.context_revision_id,
+      state: "REVOKED",
+      network_namespace: selected.network_namespace,
+      collection_scope: selected.collection_scope,
+      collection_scope_evidence: selected.collection_scope_evidence,
+      endpoint_selection: selected.declarations.endpoint_selection,
+      source_position_evidence: selected.declarations.source_position_evidence,
+      nat_context: selected.declarations.nat_context,
+      nat_evidence: selected.declarations.nat_evidence,
+      observation_point: selected.declarations.observation_point,
+      sampling: selected.declarations.sampling,
+    },
+  })
+  expect(revoked.status(), await revoked.text()).toBe(201)
+  await expect(
+    page.getByText(
+      "Evidence is unavailable under its current permissions or context.",
+      { exact: false },
+    ),
+  ).toBeVisible({ timeout: 15_000 })
+  release()
+  await expect(leads).toHaveCount(0)
+  await expect(rows).toBeVisible()
+  await page.reload()
+  await expect(leads).toHaveCount(0)
+  await expect(rows).toBeVisible()
+  const summary = await (
+    await request.get(`${base}/summary`, { headers })
+  ).json()
+  expect(summary).toMatchObject(fixture.expected)
+  const evidence = process.env.PRODUCT_LOGIC_EVIDENCE
+  if (evidence) {
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.screenshot({
+      path: path.join(evidence, "core-after-evidence-revocation.png"),
+      fullPage: true,
+    })
+  }
+  const writes: string[] = []
+  page.on("request", (req) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(req.method()))
+      writes.push(req.method())
+  })
+  const fixedFlow = `/projects/${fixture.project_id}/netflow-results?analysis=${fixture.analysis_id}&dataset=${fixture.dataset_id}`
+  await page.goto(fixedFlow)
+  await expect(
+    page.getByRole("heading", {
+      name: "This fixed batch cannot be read",
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`analysis=${fixture.analysis_id}`))
+  await expect(page.getByText("192.0.2.40", { exact: true })).toHaveCount(0)
+  await page.reload()
+  await expect(
+    page.getByRole("heading", {
+      name: "This fixed batch cannot be read",
+      exact: true,
+    }),
+  ).toBeVisible()
+  expect(writes).toEqual([])
+})

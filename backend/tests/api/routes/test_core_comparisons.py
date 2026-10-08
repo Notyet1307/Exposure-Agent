@@ -139,9 +139,9 @@ def _setup_core(
         capset_id=source.capset_id,
         status="RUNNING",
         record_count=len(cloud_ips),
-        expected_total=len(cloud_ips) if complete else len(cloud_ips) + 1,
-        complete=complete,
-        filter={},
+        expected_total=len(cloud_ips),
+        complete=True,
+        filter={} if complete else {"ip": "192.0.2.20"},
         fingerprint="d" * 64,
         fetched_at=now,
         published_at=now,
@@ -600,9 +600,11 @@ def test_current_input_update_permissions_integrity_and_unsafe_downgrade(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import importlib
+
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
     from fastapi import HTTPException
+
     from app.domain import comparison_results
     from tests.api.routes.test_customer_uploads import _create_member
 
@@ -627,7 +629,7 @@ def test_current_input_update_permissions_integrity_and_unsafe_downgrade(
         client.post(
             endpoint, headers=viewer | {"Idempotency-Key": "viewer"}, json=payload
         ).status_code
-        == 404
+        == 403
     )
     other = _project(client, core["headers"])
     assert (
@@ -679,7 +681,7 @@ def test_current_input_update_permissions_integrity_and_unsafe_downgrade(
     )
     with monkeypatch.context() as patch:
 
-        def damaged(*args: Any, **kwargs: Any) -> Any:
+        def damaged(*_args: Any, **_kwargs: Any) -> Any:
             raise HTTPException(
                 409, detail={"code": "netflow_artifact_integrity_failed"}
             )

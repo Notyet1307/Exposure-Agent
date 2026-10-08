@@ -29,6 +29,17 @@ import { useI18n } from "@/lib/i18n"
 import { requestDigest } from "@/lib/ledgerIntent"
 
 const SIZE = 25
+// Browsers cap one timer at about 24.8 days; recheck long explicit cutoffs.
+function expireAt(deadline: number, onExpire: () => void) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const check = () => {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) onExpire()
+    else timer = setTimeout(check, Math.min(remaining, 2147483647))
+  }
+  check()
+  return () => clearTimeout(timer)
+}
 type Summary = Awaited<ReturnType<typeof API.summary>>
 type Ready = Awaited<ReturnType<typeof API.readiness>>
 type Creation = Parameters<typeof API.create>[0]["requestBody"]
@@ -191,6 +202,7 @@ export default function CoreComparisonResults({
   const [busy, setBusy] = useState(false)
   const submitting = useRef(false)
   const [expiredBinding, setExpiredBinding] = useState<string>()
+  const [unreadableBinding, setUnreadableBinding] = useState<string>()
   const [expiredCore, setExpiredCore] = useState(false)
   const [attach, setAttach] = useState(false)
   const [flowScope, setFlowScope] = useState<string>()
@@ -463,7 +475,9 @@ export default function CoreComparisonResults({
   })
   const ready = readiness.isError ? undefined : readiness.data
   const statusReady = updates.data?.readiness ?? current.data?.readiness
-  const error = [summary, rows, proof].find((query) => query.isError)?.error
+  const error = [summary, rows, proof, detail].find(
+    (query) => query.isError,
+  )?.error
   useEffect(() => {
     if (
       error instanceof ApiError &&
@@ -490,17 +504,13 @@ export default function CoreComparisonResults({
     : Number.POSITIVE_INFINITY
   useEffect(() => {
     if (!Number.isFinite(coreDeadline)) return
-    const handle = setTimeout(
-      () => {
-        setExpiredCore(true)
-        void cache.cancelQueries({ queryKey: prefix })
-        cache.removeQueries({ queryKey: prefix })
-        void cache.cancelQueries({ queryKey: ePrefix })
-        cache.removeQueries({ queryKey: ePrefix })
-      },
-      Math.max(0, Math.min(coreDeadline - Date.now(), 2147483647)),
-    )
-    return () => clearTimeout(handle)
+    return expireAt(coreDeadline, () => {
+      setExpiredCore(true)
+      void cache.cancelQueries({ queryKey: prefix })
+      cache.removeQueries({ queryKey: prefix })
+      void cache.cancelQueries({ queryKey: ePrefix })
+      cache.removeQueries({ queryKey: ePrefix })
+    })
   }, [coreDeadline, cache, prefix, ePrefix])
   const eMeta = useQuery({
     ...options,
@@ -543,21 +553,18 @@ export default function CoreComparisonResults({
     eMeta.isSuccess &&
     !eMeta.isError &&
     eMeta.data.state === "ACTIVE" &&
-    expiredBinding !== search.binding
+    expiredBinding !== search.binding &&
+    unreadableBinding !== search.binding
   useEffect(() => {
     const deadline = eMeta.data?.valid_until,
       id = eMeta.data?.id
     if (!deadline || !id) return
-    const handle = setTimeout(
-      () => {
-        setExpiredBinding(id)
-        void cache.cancelQueries({ queryKey: ePrefix })
-        cache.removeQueries({ queryKey: ePrefix })
-        void eMeta.refetch()
-      },
-      Math.max(0, Math.min(Date.parse(deadline) - Date.now() + 10, 2147483647)),
-    )
-    return () => clearTimeout(handle)
+    return expireAt(Date.parse(deadline) + 10, () => {
+      setExpiredBinding(id)
+      void cache.cancelQueries({ queryKey: ePrefix })
+      cache.removeQueries({ queryKey: ePrefix })
+      void eMeta.refetch()
+    })
   }, [eMeta.data?.valid_until, eMeta.data?.id, cache, ePrefix, eMeta.refetch])
   useEffect(() => {
     if (!eReadable) {
@@ -615,6 +622,14 @@ export default function CoreComparisonResults({
       return value
     },
   })
+  const evidenceError = flows.isError || extra.isError
+  useEffect(() => {
+    if (evidenceError && search.binding) {
+      setUnreadableBinding(search.binding)
+      void cache.cancelQueries({ queryKey: ePrefix })
+      cache.removeQueries({ queryKey: ePrefix })
+    }
+  }, [evidenceError, search.binding, cache, ePrefix])
   const currentFlow = useQuery({
     ...options,
     queryKey: [...prefix, "attach-current-flow", flowScope],
@@ -1092,6 +1107,7 @@ export default function CoreComparisonResults({
               onClick={() => {
                 setDenied(false)
                 setExpiredCore(false)
+                setUnreadableBinding(undefined)
                 void cache.invalidateQueries({ queryKey: prefix })
                 void cache.invalidateQueries({ queryKey: ePrefix })
               }}

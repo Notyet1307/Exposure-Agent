@@ -703,11 +703,9 @@ def test_replacement_cannot_reset_current_manual_revision(
     client: TestClient, setup_ledger: LedgerSetup
 ) -> None:
     first = read(client, setup_ledger)
-    changed = post(
-        client,
-        setup_ledger,
-        edit(first, operation="manage", fields={}, management={"tags": ["retain-me"]}),
-    )
+    managed = edit(first, operation="manage", management={"tags": ["retain-me"]})
+    managed["fields"] = {}
+    changed = post(client, setup_ledger, managed)
     assert changed.status_code == 201, changed.text
     current = read(client, setup_ledger)
     root, headers, *_ = setup_ledger

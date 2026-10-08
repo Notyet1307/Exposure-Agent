@@ -138,7 +138,7 @@ test("independent processed observations keep batch, full pages, counts and evid
   })
   await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
   await expect(
-    page.getByRole("heading", { name: "Processed NetFlow data", exact: true }),
+    page.getByRole("heading", { name: "NetFlow observations", exact: true }),
   ).toBeVisible()
   await expect(
     page.getByRole("combobox", { name: "Published run", exact: true }),
@@ -356,7 +356,7 @@ test("invalid or conflicting explicit identity never falls back to another batch
   expect(contents).toEqual([])
 })
 
-test("ordinary entry waits for explicit upload and readable batch selection", async ({
+test("empty ordinary entry offers explicit history without selecting a batch", async ({
   page,
 }) => {
   await setup(page)
@@ -391,6 +391,7 @@ test("ordinary entry waits for explicit upload and readable batch selection", as
     if (request.url().includes(`/netflow-analyses/${analysis}`)) batchReads++
   })
   await page.goto(`/projects/${project}/netflow-results`)
+  await page.getByRole("button", { name: "Browse processing history", exact: true }).click()
   await page.getByRole("button", { name: "capture.csv", exact: true }).click()
   await expect(
     page.getByRole("button", { name: "Open batch", exact: true }),
@@ -417,10 +418,10 @@ test("ordinary entry fixes a resolved current result before reading observations
     route.fulfill({
       json: {
         project_id: project,
-        scope_id: "synthetic:branch-edge-a",
+        scope_id: "a".repeat(64),
         scopes: [
           {
-            scope_id: "synthetic:branch-edge-a",
+            scope_id: "a".repeat(64),
             network_namespace: "synthetic",
             collection_scope: "branch-edge-a",
             label: "branch-edge-a",
