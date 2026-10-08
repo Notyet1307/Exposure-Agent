@@ -1,6 +1,6 @@
 # 当前工作
 
-- 当前本地跟进为维护者 2026-10-07 提出的应用导航精简与固定比对刷新问题，分支 `codex/navigation-refresh-fix`，基于 `e8bbdc01b54b28719ddeb707ad7fd20bbb3ad3d3`。范围、复现、验证和发布边界见 [本地候选记录](navigation-refresh-validation.md)。本轮新候选尚未创建远端 Issue/PR 或部署。
+- 当前本地跟进为维护者 2026-10-07 提出的应用导航精简与固定比对刷新问题，分支 `codex/navigation-refresh-fix`，基于 `e8bbdc01b54b28719ddeb707ad7fd20bbb3ad3d3`。范围、复现、验证和发布边界见 [本地候选记录](navigation-refresh-validation.md)。维护者于 2026-10-08 明确授权建单、push/PR、必需 CI 通过后合并及 8081 前端部署；正式跟踪为 [#289](https://github.com/Notyet1307/Exposure-Agent/issues/289)。远端验收状态以该 Issue 为准。
 - 既有交付为 [源码 PR #288](https://github.com/Notyet1307/Exposure-Agent/pull/288)；[#284](https://github.com/Notyet1307/Exposure-Agent/issues/284) 与 [#286](https://github.com/Notyet1307/Exposure-Agent/issues/286) 已在合并和 8081 部署验收后关闭。任务状态、依赖及授权仍以 GitHub 为准。本地后续候选不得冒称已由该 PR 发布。
 - 固定行为：[三源比对工作台 V1 @c15be89](https://github.com/Notyet1307/Exposure-Agent/blob/c15be890eac8bf5044b891c9feccfa3ce7da6f68/docs/specs/three-source-workbench-v1.md) 及同版 [ADR-0023](https://github.com/Notyet1307/Exposure-Agent/blob/c15be890eac8bf5044b891c9feccfa3ce7da6f68/docs/adr/0023-versioned-result-retention.md)。本次导航变更保留旧 Run、报告、血缘及资产详情的路由和语义，刷新修复不放宽身份、权限或失败封闭。
 - 客户清单替换 [#285](https://github.com/Notyet1307/Exposure-Agent/issues/285) 与新结果保留 [#287](https://github.com/Notyet1307/Exposure-Agent/issues/287) 尚未实施；其依赖状态以 GitHub 原生关系为准，不由导航调整或演示配置宣称完成。
