@@ -65,7 +65,6 @@ class Settings(BaseSettings):
     NETFLOW_MAX_BYTES: int = Field(gt=0, le=50 * 1024 * 1024)
     NETFLOW_ALLOW_TEST_FIXTURES: bool = False
     OCTOBUS_URL: str = "http://octobus:9000"
-    AI_ANALYSIS_REPORT_INTERNAL_URL: str = "http://backend:8000"
     OCTOBUS_TIMEOUT_SECONDS: float = 65.0
     CLOUDATLAS_CAPSET_TOKEN: SecretStr = SecretStr("")
     CLOUDATLAS_ASSETS_CAPSET_TOKEN: SecretStr = SecretStr("")

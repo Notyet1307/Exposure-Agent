@@ -91,6 +91,36 @@ def main() -> int:
     successful_calls = bytes_read = attempted_calls = 0
     citation_ids: set[str] = set()
 
+    def bridge(path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        capability = os.environ.get("AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", capability):
+            raise service.AnalysisReportError("v2_report_material_unavailable")
+        try:
+            response = httpx.post(
+                settings.MODEL_CONNECTION_INTERNAL_URL.rstrip("/")
+                + settings.API_V1_STR
+                + f"/projects/{record.project_id}/analysis-reports/internal/{record.id}/{path}",
+                headers={
+                    "X-Analysis-Report-Run": record.agent_compose_run_id,
+                    "X-Analysis-Report-Session": record.session_id or "",
+                    "X-Analysis-Report-Capability": capability,
+                },
+                json=payload,
+                trust_env=False,
+                timeout=min(
+                    10, max(1, record.timeout_seconds - (time.monotonic() - started))
+                ),
+            )
+            response.raise_for_status()
+            result = response.json()
+            if not isinstance(result, dict):
+                raise ValueError
+            return result
+        except httpx.HTTPError, TypeError, ValueError:
+            raise service.AnalysisReportError(
+                "v2_report_material_unavailable"
+            ) from None
+
     def load_fixed_material() -> tuple[dict[str, Any], list[dict[str, Any]], Any]:
         if record.subject_kind != "core_comparison_v2":
             return service.load_material(
@@ -100,24 +130,7 @@ def main() -> int:
                 record=record,
             )
         try:
-            capability = os.environ.get("AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY", "")
-            if not re.fullmatch(r"[0-9a-f]{64}", capability):
-                raise ValueError("v2_report_material_invalid")
-            response = httpx.post(
-                settings.AI_ANALYSIS_REPORT_INTERNAL_URL.rstrip("/")
-                + settings.API_V1_STR
-                + f"/projects/{record.project_id}/analysis-reports/internal/{record.id}/material",
-                headers={
-                    "X-Analysis-Report-Run": record.agent_compose_run_id,
-                    "X-Analysis-Report-Session": record.session_id or "",
-                    "X-Analysis-Report-Capability": capability,
-                },
-                timeout=min(
-                    10, max(1, record.timeout_seconds - (time.monotonic() - started))
-                ),
-            )
-            response.raise_for_status()
-            material = response.json()["material"]
+            material = bridge("material")["material"]
             if not isinstance(material, dict):
                 raise ValueError("v2_report_material_invalid")
             if service.material_hash(material) != record.material_sha256:
@@ -187,12 +200,24 @@ def main() -> int:
                 citation_ids=citation_ids,
                 max_output_bytes=record.max_output_bytes,
             )
-        service.finish(
-            analysis_report_id=record.id,
-            output=validated,
-            successful_tool_calls=successful_calls,
-            material_bytes_read=bytes_read,
-        )
+        if record.subject_kind == "core_comparison_v2":
+            completed = bridge(
+                "completion",
+                {
+                    "output": validated,
+                    "successful_tool_calls": successful_calls,
+                    "material_bytes_read": bytes_read,
+                },
+            )
+            if completed.get("status") != "DRAFT":
+                raise service.AnalysisReportError("v2_report_material_unavailable")
+        else:
+            service.finish(
+                analysis_report_id=record.id,
+                output=validated,
+                successful_tool_calls=successful_calls,
+                material_bytes_read=bytes_read,
+            )
         return 0
     except Exception as error:
         code = (

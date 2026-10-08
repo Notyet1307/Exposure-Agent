@@ -184,7 +184,6 @@ def runner_environment() -> tuple[dict[str, str], dict[str, str]]:
         "AGENT_COMPOSE_URL",
         "AGENT_COMPOSE_PROJECT_NAME",
         "MODEL_CONNECTION_INTERNAL_URL",
-        "AI_ANALYSIS_REPORT_INTERNAL_URL",
         "MODEL_QUALIFICATION_ALLOW_BAIZHI_TEST",
         "AI_INVESTIGATION_ALLOW_BAIZHI_TEST",
         "AI_ANALYSIS_REPORT_ALLOW_BAIZHI_TEST",

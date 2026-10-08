@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Query, Response
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
 from sqlmodel import col, select
 
@@ -19,6 +20,7 @@ from app.core.config import settings
 from app.core.time import get_datetime_utc
 from app.domain import ai_analysis_reports as service
 from app.domain import v2_analysis_reports as v2
+from app.domain.ai_investigations import canonical_bytes
 from app.domain.model_connections import ConnectionBinding, client_for_binding
 from app.domain.models import (
     DEPLOYMENT_TENANT_ID,
@@ -36,17 +38,15 @@ router = APIRouter(
 )
 
 
-@router.post("/internal/{analysis_report_id}/material", include_in_schema=False)
-def read_runner_material(
+def _runner_record(
     *,
     session: SessionDep,
     project_id: uuid.UUID,
     analysis_report_id: uuid.UUID,
-    agent_run_id: Annotated[str, Header(alias="X-Analysis-Report-Run")],
-    session_id: Annotated[str, Header(alias="X-Analysis-Report-Session")],
-    capability: Annotated[str, Header(alias="X-Analysis-Report-Capability")],
-) -> dict[str, object]:
-    """Return only a freshly reauthorized fixed V2 DTO to its bound runner."""
+    agent_run_id: str,
+    session_id: str,
+    capability: str,
+) -> AnalysisReport:
     record = session.get(AnalysisReport, analysis_report_id)
     if (
         record is None
@@ -61,6 +61,28 @@ def read_runner_material(
         or not hmac.compare_digest(capability, service.runner_material_token(record))
     ):
         raise HTTPException(status_code=403, detail={"code": "runner_material_denied"})
+    return record
+
+
+@router.post("/internal/{analysis_report_id}/material", include_in_schema=False)
+def read_runner_material(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    analysis_report_id: uuid.UUID,
+    agent_run_id: Annotated[str, Header(alias="X-Analysis-Report-Run")],
+    session_id: Annotated[str, Header(alias="X-Analysis-Report-Session")],
+    capability: Annotated[str, Header(alias="X-Analysis-Report-Capability")],
+) -> dict[str, object]:
+    """Return only a freshly reauthorized fixed V2 DTO to its bound runner."""
+    record = _runner_record(
+        session=session,
+        project_id=project_id,
+        analysis_report_id=analysis_report_id,
+        agent_run_id=agent_run_id,
+        session_id=session_id,
+        capability=capability,
+    )
     try:
         material, _sources, _binding = service.load_material(
             project_id=record.project_id,
@@ -71,6 +93,72 @@ def read_runner_material(
     except service.AnalysisReportError as error:
         raise _error(error) from None
     return {"material": material}
+
+
+class RunnerCompletion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    output: v2.Output
+    successful_tool_calls: int = Field(strict=True, ge=1)
+    material_bytes_read: int = Field(strict=True, ge=1)
+
+
+@router.post("/internal/{analysis_report_id}/completion", include_in_schema=False)
+def complete_runner_report(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    analysis_report_id: uuid.UUID,
+    request_body: RunnerCompletion,
+    agent_run_id: Annotated[str, Header(alias="X-Analysis-Report-Run")],
+    session_id: Annotated[str, Header(alias="X-Analysis-Report-Session")],
+    capability: Annotated[str, Header(alias="X-Analysis-Report-Capability")],
+) -> dict[str, str]:
+    record = _runner_record(
+        session=session,
+        project_id=project_id,
+        analysis_report_id=analysis_report_id,
+        agent_run_id=agent_run_id,
+        session_id=session_id,
+        capability=capability,
+    )
+    try:
+        if request_body.successful_tool_calls > record.max_tool_calls:
+            raise service.AnalysisReportError("tool_call_limit")
+        if request_body.material_bytes_read > record.max_material_bytes:
+            raise service.AnalysisReportError("material_limit")
+        if (
+            request_body.material_bytes_read
+            != len(canonical_bytes(record.material))
+            * request_body.successful_tool_calls
+        ):
+            raise service.AnalysisReportError("v2_report_material_invalid")
+        proposal = request_body.output.model_dump(mode="json")
+        # The runner already appended these trusted limits; check model prose again.
+        proposal["text"]["limitations"] = [
+            limit
+            for limit in proposal["text"]["limitations"]
+            if limit not in record.material["limitations"]
+        ]
+        output = v2.validate_output(
+            proposal,
+            record.material,
+            {item["citation_id"] for item in record.material["items"]},
+            record.max_output_bytes,
+        )
+        # Only the backend can recheck Artifact integrity before persisting output.
+        completed = service.finish(
+            analysis_report_id=record.id,
+            output=output,
+            successful_tool_calls=request_body.successful_tool_calls,
+            material_bytes_read=request_body.material_bytes_read,
+        )
+        if completed.status != "DRAFT":
+            raise service.AnalysisReportError(
+                completed.failure_code or "model_run_failed"
+            )
+    except service.AnalysisReportError as error:
+        raise _error(error) from None
+    return {"status": completed.status}
 
 
 def _error(error: service.AnalysisReportError) -> HTTPException:

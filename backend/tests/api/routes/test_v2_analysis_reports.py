@@ -1,7 +1,6 @@
 import uuid
 from datetime import timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -143,8 +142,10 @@ def generate(
     monkeypatch.setattr(
         httpx,
         "post",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            raise_for_status=lambda: None, json=lambda: {"material": report["material"]}
+        lambda url, **kwargs: client.post(
+            url,
+            headers=kwargs["headers"],
+            json=kwargs.get("json"),
         ),
     )
     assert (
@@ -427,9 +428,9 @@ def test_v2_runner_uses_opaque_capability_and_real_bridge_endpoint(
     monkeypatch.setenv("AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY", capability)
     forwarded: list[dict[str, str]] = []
 
-    def bridge(_url: str, *, headers: dict[str, str], **_kwargs: Any) -> Any:
+    def bridge(request_url: str, *, headers: dict[str, str], **kwargs: Any) -> Any:
         forwarded.append(headers)
-        return client.post(url, headers=headers)
+        return client.post(request_url, headers=headers, json=kwargs.get("json"))
 
     monkeypatch.setattr(httpx, "post", bridge)
     assert (
@@ -446,6 +447,60 @@ def test_v2_runner_uses_opaque_capability_and_real_bridge_endpoint(
     report = client.get(context["url"] + "/" + report_id, headers=context["headers"])
     assert report.json()["status"] == "DRAFT"
     assert client.post(url, headers=forwarded[-1]).status_code == 403
+
+
+def test_v2_completion_rejects_false_metrics_and_untrusted_output(
+    client: TestClient,
+    context: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _pending(monkeypatch)
+    created = client.post(
+        context["url"],
+        headers=context["headers"] | {"Idempotency-Key": "completion-boundaries"},
+        json=context["body"],
+    )
+    assert created.status_code == 201
+    with Session(engine) as session:
+        record = session.get(AnalysisReport, uuid.UUID(created.json()["id"]))
+        assert record is not None
+        record.execution_started_at = get_datetime_utc()
+        session.add(record)
+        session.commit()
+        headers = {
+            "X-Analysis-Report-Run": record.agent_compose_run_id,
+            "X-Analysis-Report-Session": record.session_id or "",
+            "X-Analysis-Report-Capability": reports.runner_material_token(record),
+        }
+        url = context["root"] + f"/analysis-reports/internal/{record.id}/completion"
+        payload = {
+            "output": proposal(record.material),
+            "successful_tool_calls": 1,
+            "material_bytes_read": len(canonical_bytes(record.material)),
+        }
+        max_calls, max_bytes = record.max_tool_calls, record.max_material_bytes
+    assert (
+        client.post(
+            url,
+            headers=headers | {"X-Analysis-Report-Capability": "f" * 64},
+            json=payload,
+        ).status_code
+        == 403
+    )
+    for patch, code in (
+        ({"successful_tool_calls": max_calls + 1}, "tool_call_limit"),
+        ({"material_bytes_read": max_bytes + 1}, "material_limit"),
+        ({"material_bytes_read": 1}, "v2_report_material_invalid"),
+    ):
+        response = client.post(url, headers=headers, json=payload | patch)
+        assert response.status_code == 409 and response.json()["detail"]["code"] == code
+    untrusted = proposal(record.material)
+    untrusted["text"]["claims"][1]["text"] = "这些是已证实的高危漏洞。"
+    denied = client.post(url, headers=headers, json=payload | {"output": untrusted})
+    assert denied.status_code == 409
+    assert denied.json()["detail"]["code"] == "v2_report_unsupported_claim"
+    assert client.post(url, headers=headers, json=payload).json() == {"status": "DRAFT"}
+    assert client.post(url, headers=headers, json=payload).status_code == 403
 
 
 def test_v2_acl_strict_binding_and_unknown_operation_replay(
