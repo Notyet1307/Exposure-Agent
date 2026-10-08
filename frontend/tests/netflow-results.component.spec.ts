@@ -391,7 +391,9 @@ test("empty ordinary entry offers explicit history without selecting a batch", a
     if (request.url().includes(`/netflow-analyses/${analysis}`)) batchReads++
   })
   await page.goto(`/projects/${project}/netflow-results`)
-  await page.getByRole("button", { name: "Browse processing history", exact: true }).click()
+  await page
+    .getByRole("button", { name: "Browse processing history", exact: true })
+    .click()
   await page.getByRole("button", { name: "capture.csv", exact: true }).click()
   await expect(
     page.getByRole("button", { name: "Open batch", exact: true }),

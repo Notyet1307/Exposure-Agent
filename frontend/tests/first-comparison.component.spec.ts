@@ -354,8 +354,14 @@ test("an unavailable CloudAtlas source cannot inherit a stale ready badge", asyn
       }),
   )
   await page.goto(`/?project=${project.id}&view=inputs`)
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
   await expect(
-    page.getByText("Connection unavailable", { exact: true }),
+    page.getByRole("cell", { name: "Unavailable", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText("Validation check unavailable", { exact: true }),
   ).toBeVisible()
   await expect(
     page.getByText("Validated and enabled", { exact: true }),
@@ -440,7 +446,7 @@ test("switching accounts in another tab hides the previous creation intent immed
     localStorage.setItem("access_token", "different-account-token"),
   )
   await expect(
-    page.getByRole("heading", { name: "Data access", exact: true }),
+    page.getByRole("heading", { name: "Comparison results", exact: true }),
   ).toBeVisible()
   await page.goto("/?view=create")
   await expect(page.getByLabel("Project name", { exact: true })).toHaveValue("")

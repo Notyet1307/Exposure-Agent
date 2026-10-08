@@ -1,5 +1,6 @@
 import type { FileChooser } from "@playwright/test"
 import type { CloudAtlasSourcePublic } from "../src/client"
+import { requestDigest } from "../src/lib/ledgerIntent"
 import { expect, type Page, type Route, test } from "./fixtures"
 import { feedback, recordFeedback } from "./utils/interaction-feedback"
 import { clickHistoricalLink } from "./utils/legacy-assets"
@@ -282,48 +283,6 @@ async function mockDashboardApi(page: Page) {
     if (uploadsMatch && request.method() === "GET") {
       await route.fulfill({
         json: uploads[uploadsMatch[1] as keyof typeof uploads],
-      })
-      return
-    }
-    if (
-      url.pathname.endsWith("/customer-ledger/replacements/preview") &&
-      request.method() === "POST"
-    ) {
-      const candidate = uploads[projects[0].id].data[0]
-      await route.fulfill({
-        json: {
-          candidate_upload_id: candidate.id,
-          current_upload_id: null,
-          current_revision_id: null,
-          profile_id: candidate.profile_id,
-          current_record_count: 0,
-          current_unique_ips: 0,
-          candidate_record_count: candidate.record_count,
-          candidate_unique_ips: candidate.unique_ip_count,
-          added_ips: candidate.unique_ip_count,
-          removed_ips: 0,
-          changed_ip_declarations: 0,
-        },
-      })
-      return
-    }
-    if (
-      url.pathname.endsWith("/customer-ledger/replacements") &&
-      request.method() === "POST"
-    ) {
-      const candidate = uploads[projects[0].id].data[0]
-      await route.fulfill({
-        json: {
-          id: "91000000-0000-0000-0000-000000000001",
-          project_id: projects[0].id,
-          created_by: "30000000-0000-0000-0000-000000000001",
-          candidate_upload_id: candidate.id,
-          expected_upload_id: null,
-          expected_revision_id: null,
-          expected_profile_id: candidate.profile_id,
-          request_sha256: "a".repeat(64),
-          created_at: projects[0].created_at,
-        },
       })
       return
     }
@@ -683,6 +642,20 @@ test("selects an accepted upload as the current Project input", async ({
   let currentUploadId: string | null = null
   let replacementRequests = 0
   await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          project_id: projects[0].id,
+          current_upload_id: currentUploadId,
+          current_revision_id: null,
+          current_profile_id: profiles[projects[0].id].id,
+          data: [],
+          count: 0,
+        },
+      }),
+  )
+  await page.route(
     `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
     (route) => {
       const candidate = uploads[projects[0].id].data[0]
@@ -705,7 +678,7 @@ test("selects an accepted upload as the current Project input", async ({
   )
   await page.route(
     `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
-    (route) => {
+    async (route) => {
       replacementRequests += 1
       currentUploadId = uploads[projects[0].id].data[0].id
       const candidate = uploads[projects[0].id].data[0]
@@ -718,7 +691,7 @@ test("selects an accepted upload as the current Project input", async ({
           expected_upload_id: null,
           expected_revision_id: null,
           expected_profile_id: candidate.profile_id,
-          request_sha256: "b".repeat(64),
+          request_sha256: await requestDigest(route.request().postDataJSON()),
           created_at: projects[0].created_at,
         },
       })
@@ -1249,7 +1222,9 @@ test("keeps the local session after a structured CloudAtlas authentication failu
     }),
   )
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
 
   const tokenInput = page.getByLabel("Capset token")
   await tokenInput.fill("transient-test-token")
@@ -1309,7 +1284,9 @@ test("lets an Admin manage an older enabled source from disabled history", async
     await route.fulfill({ json: olderEnabled })
   })
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
 
   await expect(page.getByLabel("OctoBus Instance ID")).toHaveValue(
     "cloudatlas-older-enabled",

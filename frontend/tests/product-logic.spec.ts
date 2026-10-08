@@ -138,6 +138,7 @@ test("customer replacement uses the real preview, preserves old versions and rec
   if (evidence) {
     await mkdir(evidence, { recursive: true })
     await page.setViewportSize({ width: 1366, height: 900 })
+    await page.evaluate(() => window.scrollTo(0, 0))
     await page.screenshot({
       path: path.join(evidence, "data-access-en-1366.png"),
       fullPage: true,
@@ -223,6 +224,10 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
     )
   let result: { id: string } | undefined
   let creates = 0
+  let replyLost: () => void = () => {}
+  const committedThenLost = new Promise<void>((resolve) => {
+    replyLost = resolve
+  })
   await page.route(
     `**/api/v1/projects/${fixture.project_id}/comparison-results`,
     async (route) => {
@@ -232,11 +237,13 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
       expect(response.status(), await response.text()).toBe(201)
       result = await response.json()
       await route.abort("connectionfailed")
+      replyLost()
     },
   )
   await page
     .getByRole("button", { name: "Confirm and generate results", exact: true })
     .click()
+  await committedThenLost
   await expect(
     page.getByRole("region", {
       name: "Recover original operation",
