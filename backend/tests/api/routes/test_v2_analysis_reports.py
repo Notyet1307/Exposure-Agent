@@ -1,6 +1,7 @@
 import uuid
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -12,6 +13,8 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.db import engine
 from app.core.time import get_datetime_utc
+from app import ai_analysis_report_runner as runner
+from app.domain import ai_analysis_reports as reports
 from app.domain import comparison_results as comparisons
 from app.domain import v2_analysis_reports as v2
 from app.domain.models import (
@@ -125,6 +128,13 @@ def generate(
     )
     assert created.status_code == 201, created.text
     report = created.json()
+    monkeypatch.setattr(
+        runner.httpx,
+        "post",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: {"material": report["material"]}
+        ),
+    )
     assert (
         _run(
             monkeypatch,

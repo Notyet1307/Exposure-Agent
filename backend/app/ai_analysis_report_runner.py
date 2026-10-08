@@ -9,6 +9,7 @@ import time
 import uuid
 from typing import Any
 
+import httpx
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
@@ -90,13 +91,38 @@ def main() -> int:
     successful_calls = bytes_read = attempted_calls = 0
     citation_ids: set[str] = set()
 
+    def load_fixed_material() -> tuple[dict[str, Any], list[dict[str, Any]], Any]:
+        if record.subject_kind != "core_comparison_v2":
+            return service.load_material(
+                project_id=record.project_id,
+                user_id=record.created_by_id,
+                run_id=record.run_id,
+                record=record,
+            )
+        try:
+            response = httpx.post(
+                settings.AI_ANALYSIS_REPORT_INTERNAL_URL.rstrip("/")
+                + settings.API_V1_STR
+                + f"/projects/{record.project_id}/analysis-reports/internal/{record.id}/material",
+                headers={
+                    "X-Analysis-Report-Run": record.agent_compose_run_id,
+                    "X-Analysis-Report-Session": record.session_id or "",
+                    "X-Analysis-Report-Capability": service.runner_material_token(record),
+                },
+                timeout=min(10, max(1, record.timeout_seconds - (time.monotonic() - started))),
+            )
+            response.raise_for_status()
+            material = response.json()["material"]
+            if not isinstance(material, dict):
+                raise ValueError("v2_report_material_invalid")
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            raise service.AnalysisReportError("v2_report_material_unavailable") from None
+        with Session(engine) as session:
+            binding = service.require_model(session, record)
+        return material, record.sources, binding
+
     def authorize() -> None:
-        service.load_material(
-            project_id=record.project_id,
-            user_id=record.created_by_id,
-            run_id=record.run_id,
-            record=record,
-        )
+        load_fixed_material()
 
     def read_tool(arguments: dict[str, Any]) -> dict[str, Any]:
         nonlocal successful_calls, bytes_read, attempted_calls
@@ -105,12 +131,7 @@ def main() -> int:
             raise service.AnalysisReportError("tool_scope_denied")
         if attempted_calls > record.max_tool_calls:
             raise service.AnalysisReportError("tool_call_limit")
-        material, _, _ = service.load_material(
-            project_id=record.project_id,
-            user_id=record.created_by_id,
-            run_id=record.run_id,
-            record=record,
-        )
+        material, _, _ = load_fixed_material()
         size = len(canonical_bytes(material))
         if bytes_read + size > record.max_material_bytes:
             raise service.AnalysisReportError("material_limit")
@@ -124,12 +145,7 @@ def main() -> int:
     try:
         if _runner_build_version() != settings.RUNNER_BUILD_VERSION:
             raise service.AnalysisReportError("model_binding_changed")
-        _, _, binding = service.load_material(
-            project_id=record.project_id,
-            user_id=record.created_by_id,
-            run_id=record.run_id,
-            record=record,
-        )
+        _, _, binding = load_fixed_material()
         api_key = settings.MODEL_API_KEY.get_secret_value()
         transport = binding
         if record.connection_version_id is not None:

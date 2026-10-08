@@ -1,5 +1,6 @@
 """Explicit report generation and independent human confirmation."""
 
+import hmac
 import uuid
 from typing import Annotated
 
@@ -32,6 +33,40 @@ from app.integrations.agent_compose import AgentComposeClient
 router = APIRouter(
     prefix="/projects/{project_id}/analysis-reports", tags=["analysis-reports"]
 )
+
+
+@router.post("/internal/{analysis_report_id}/material")
+def read_runner_material(
+    *,
+    session: SessionDep,
+    project_id: uuid.UUID,
+    analysis_report_id: uuid.UUID,
+    agent_run_id: Annotated[str, Header(alias="X-Analysis-Report-Run")],
+    session_id: Annotated[str, Header(alias="X-Analysis-Report-Session")],
+    capability: Annotated[str, Header(alias="X-Analysis-Report-Capability")],
+) -> dict[str, object]:
+    """Return only a freshly reauthorized fixed V2 DTO to its bound runner."""
+    record = session.get(AnalysisReport, analysis_report_id)
+    if (
+        record is None
+        or record.subject_kind != "core_comparison_v2"
+        or record.project_id != project_id
+        or record.status != "GENERATING"
+        or record.agent_compose_run_id != agent_run_id
+        or record.session_id != session_id
+        or not hmac.compare_digest(capability, service.runner_material_token(record))
+    ):
+        raise HTTPException(status_code=403, detail={"code": "runner_material_denied"})
+    try:
+        material, _sources, _binding = service.load_material(
+            project_id=record.project_id,
+            user_id=record.created_by_id,
+            run_id=record.run_id,
+            record=record,
+        )
+    except service.AnalysisReportError as error:
+        raise _error(error) from None
+    return {"material": material}
 
 
 def _error(error: service.AnalysisReportError) -> HTTPException:

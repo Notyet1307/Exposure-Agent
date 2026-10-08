@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
 import uuid
 from datetime import datetime
@@ -423,6 +425,15 @@ def require_model(
     ):
         raise AnalysisReportError("model_not_qualified")
     return binding
+
+
+def runner_material_token(record: AnalysisReport) -> str:
+    if record.session_id is None:
+        raise AnalysisReportError("analysis_report_scope_denied")
+    message = ":".join(
+        (str(record.id), record.agent_compose_run_id, record.session_id)
+    ).encode()
+    return hmac.new(settings.SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()
 
 
 def authorize_material(
