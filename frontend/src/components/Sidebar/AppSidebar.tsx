@@ -1,4 +1,4 @@
-import { useParams, useRouterState } from "@tanstack/react-router"
+import { useParams, useRouterState, useSearch } from "@tanstack/react-router"
 import {
   Boxes,
   FileSpreadsheet,
@@ -31,6 +31,7 @@ export function AppSidebar() {
   const { t } = useI18n()
   const { user: currentUser } = useAuth()
   const search = useWorkspaceSearch()
+  const legacyComparison = useSearch({ strict: false }).legacy
   const params = useParams({ strict: false })
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -54,10 +55,9 @@ export function AppSidebar() {
       icon: Network,
       title: t("Comparison results", "比对结果"),
       path: project ? `/projects/${project}/netflow-correlation` : "/",
-      search: pathname.endsWith("/netflow-correlation")
-        ? true
-        : project
-          ? undefined
+      search:
+        pathname.endsWith("/netflow-correlation") && !legacyComparison
+          ? true
           : {},
       active: pathname.endsWith("/netflow-correlation"),
     },

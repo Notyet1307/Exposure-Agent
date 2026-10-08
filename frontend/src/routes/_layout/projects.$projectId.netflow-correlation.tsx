@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect } from "react"
 import CoreComparisonResults, {
   type CoreComparisonSearch,
@@ -241,31 +241,52 @@ function NetflowCorrelationRoute() {
       />
     )
   return user ? (
-    <NetflowCorrelation
-      key={JSON.stringify([
-        user.id,
-        projectId,
-        search.dataset,
-        search.context,
-        search.analysis,
-        search.revision,
-        search.namespace,
-        search.customerUpload,
-        search.customerRevision,
-        search.customerOriginal,
-        search.historyRun,
-        search.cloudMode,
-        search.cloudSnapshot,
-        search.cloudLedgerRevision,
-        search.cloudScopeRevision,
-        search.cloudSource,
-        search.cloudIpVersion,
-        search.cloudPortVersion,
-      ])}
-      actor={user.id}
-      projectId={projectId}
-      search={search}
-      navigate={navigate}
-    />
+    <div className="space-y-6">
+      <section
+        className="space-y-3 rounded-md border p-4"
+        aria-label={t("Legacy comparison", "旧版来源比对")}
+      >
+        <p className="text-sm">
+          {t(
+            "This link keeps the legacy input selection and reading flow. Open the current comparison page to compare the customer register with CloudAtlas data.",
+            "此链接保留旧版的资料选择与阅读方式。客户台账与云图的两源比对，请从新版比对结果进入。",
+          )}
+        </p>
+        <Link
+          className="text-sm font-medium underline"
+          to="/projects/$projectId/netflow-correlation"
+          params={{ projectId }}
+          search={{}}
+        >
+          {t("Open current comparison results", "打开新版比对结果")}
+        </Link>
+      </section>
+      <NetflowCorrelation
+        key={JSON.stringify([
+          user.id,
+          projectId,
+          search.dataset,
+          search.context,
+          search.analysis,
+          search.revision,
+          search.namespace,
+          search.customerUpload,
+          search.customerRevision,
+          search.customerOriginal,
+          search.historyRun,
+          search.cloudMode,
+          search.cloudSnapshot,
+          search.cloudLedgerRevision,
+          search.cloudScopeRevision,
+          search.cloudSource,
+          search.cloudIpVersion,
+          search.cloudPortVersion,
+        ])}
+        actor={user.id}
+        projectId={projectId}
+        search={search}
+        navigate={navigate}
+      />
+    </div>
   ) : null
 }

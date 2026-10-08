@@ -77,6 +77,28 @@ async function setup(page: Page) {
       })
     } else if (path.endsWith("/cloudatlas-ledger/snapshots")) {
       await route.fulfill({ json: [] })
+    } else if (path === `${root}/comparison-results/current`) {
+      await route.fulfill({
+        json: {
+          contract_version: "core-comparison-v2",
+          project_id: project,
+          state: "NO_RESULT",
+          result: null,
+          readiness: {
+            contract_version: "core-comparison-v2",
+            project_id: project,
+            state: "SCOPE_REQUIRED",
+            clouds: [],
+            scope_choices: [],
+            sources: [],
+            can_generate: false,
+            can_write: false,
+            can_confirm_scope: false,
+          },
+          scope_choices: [],
+          latest_attempt: null,
+        },
+      })
     } else {
       await route.fulfill({ json: { data: [], count: 0, can_manage: false } })
     }
@@ -223,7 +245,7 @@ test("a fixed-result read failure can retry the same revision without changing i
   await expect(page).toHaveURL(new RegExp(`revision=${revision}`))
 })
 
-test("navigation leads to source comparison and keeps legacy readers outside the main flow", async ({
+test("primary navigation leaves legacy comparison while browser back keeps its fixed revision", async ({
   page,
 }) => {
   await setup(page)
@@ -251,11 +273,23 @@ test("navigation leads to source comparison and keeps legacy readers outside the
   await sidebar
     .getByRole("link", { name: "Comparison results", exact: true })
     .click()
+  await expect(
+    page.getByRole("heading", { name: "Comparison results", exact: true }),
+  ).toBeVisible()
+  expect(new URL(page.url()).searchParams.has("revision")).toBe(false)
+  expect(new URL(page.url()).searchParams.get("legacy")).toBe("false")
+  await page.goBack()
   await expect(page).toHaveURL(new RegExp(`revision=${revision}`))
+  await expect(
+    page.getByRole("region", { name: "Legacy comparison", exact: true }),
+  ).toBeVisible()
   await page
     .getByRole("link", { name: "Exposure-Agent home", exact: true })
     .click()
-  await expect(page).toHaveURL(new RegExp(`revision=${revision}`))
+  await expect(
+    page.getByRole("heading", { name: "Comparison results", exact: true }),
+  ).toBeVisible()
+  expect(new URL(page.url()).searchParams.has("revision")).toBe(false)
   await sidebar.getByText("Historical governance", { exact: true }).click()
   await expect(
     sidebar.getByRole("link", { name: "Reports", exact: true }),
@@ -271,6 +305,79 @@ test("navigation leads to source comparison and keeps legacy readers outside the
   )
   expect(new URL(page.url()).searchParams.has("run")).toBe(false)
   expect(new URL(page.url()).searchParams.has("view")).toBe(false)
+})
+
+test("legacy selection has a visible current entry that clears all old input pins without writing", async ({
+  page,
+}) => {
+  await setup(page)
+  const writes: string[] = []
+  page.on("request", (request) => {
+    if (request.url().includes("/api/") && request.method() !== "GET")
+      writes.push(request.method())
+  })
+  await page.goto(
+    `/projects/${project}/netflow-correlation?legacy=true&customerUpload=50000000-0000-4000-8000-000000000274&cloudMode=legacy`,
+  )
+  const notice = page.getByRole("region", {
+    name: "Legacy comparison",
+    exact: true,
+  })
+  await expect(notice).toContainText("legacy input selection and reading flow")
+  await notice
+    .getByRole("link", { name: "Open current comparison results" })
+    .click()
+  await expect(
+    page.getByRole("heading", { name: "Comparison results", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText("No readable comparison has been generated", {
+      exact: true,
+    }),
+  ).toBeVisible()
+  const query = new URL(page.url()).searchParams
+  expect(query.get("legacy")).toBe("false")
+  expect(query.has("customerUpload")).toBe(false)
+  expect(query.has("cloudMode")).toBe(false)
+  expect(writes).toEqual([])
+})
+
+test("primary navigation preserves a pinned current result and its reading position", async ({
+  page,
+}) => {
+  await setup(page)
+  let latestReads = 0
+  page.on("request", (request) => {
+    if (
+      new URL(request.url()).pathname === `${root}/comparison-results/current`
+    )
+      latestReads += 1
+  })
+  await page.route(
+    `**${root}/comparison-results/${revision}/summary`,
+    (route) =>
+      route.fulfill({
+        status: 503,
+        json: { detail: { code: "netflow_execution_unavailable" } },
+      }),
+  )
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${revision}&binding=none&core_class=cloud_only&core_page=2&core_ip=10.0.0.1&core_sort=ip_desc`,
+  )
+  await expect(
+    page.getByRole("heading", { name: "Comparison results", exact: true }),
+  ).toBeVisible()
+  const fixed = page.url()
+  await page
+    .locator('[data-slot="sidebar"]')
+    .getByRole("link", { name: "Comparison results", exact: true })
+    .click()
+  await expect(page).toHaveURL(fixed)
+  await page
+    .getByRole("link", { name: "Exposure-Agent home", exact: true })
+    .click()
+  await expect(page).toHaveURL(fixed)
+  expect(latestReads).toBe(0)
 })
 
 test("an explicit feedback pin waits for summary and feedback reads across refresh", async ({
