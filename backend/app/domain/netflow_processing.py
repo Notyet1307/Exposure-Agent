@@ -200,6 +200,7 @@ class CurrentNetFlowScope(BaseModel):
     scope_id: str
     network_namespace: str
     collection_scope: str | None
+    label: str
     evidence: str | None
 
 
@@ -650,7 +651,13 @@ def current_netflow(
         and current.id == row.id
     ]
     def scope_id(row: NetFlowContextRevision) -> str:
-        return f"{row.network_namespace}:{row.collection_scope or f'dataset:{row.dataset_id}'}"
+        return request_hash(
+            [
+                row.network_namespace,
+                "declared" if row.collection_scope is not None else "dataset",
+                row.collection_scope or str(row.dataset_id),
+            ]
+        )
 
     scopes = {scope_id(row): row for row in contexts}
     chosen = collection_scope
@@ -672,6 +679,7 @@ def current_netflow(
                     scope_id=name,
                     network_namespace=row.network_namespace,
                     collection_scope=row.collection_scope,
+                    label=row.collection_scope or f"Dataset {row.dataset_id}",
                     evidence=row.collection_scope_evidence,
                 )
                 for name, row in sorted(scopes.items())
@@ -682,10 +690,17 @@ def current_netflow(
     selected = scopes.get(chosen)
     if selected is None:
         deny("netflow_input_not_found", 404)
+    member_dataset_ids = {
+        row.dataset_id
+        for row in contexts
+        if row.network_namespace == selected.network_namespace
+        and row.collection_scope == selected.collection_scope
+    }
     matching_context_ids = [
         row.id
         for row in candidates
-        if row.network_namespace == selected.network_namespace
+        if row.dataset_id in member_dataset_ids
+        and row.network_namespace == selected.network_namespace
         and (
             row.collection_scope == selected.collection_scope
             if selected.collection_scope is not None
@@ -721,6 +736,7 @@ def current_netflow(
                 scope_id=name,
                 network_namespace=row.network_namespace,
                 collection_scope=row.collection_scope,
+                label=row.collection_scope or f"Dataset {row.dataset_id}",
                 evidence=row.collection_scope_evidence,
             )
             for name, row in sorted(scopes.items())

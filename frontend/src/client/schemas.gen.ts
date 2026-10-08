@@ -2410,6 +2410,10 @@ export const CurrentNetFlowScopeSchema = {
             ],
             title: 'Collection Scope'
         },
+        label: {
+            type: 'string',
+            title: 'Label'
+        },
         evidence: {
             anyOf: [
                 {
@@ -2423,7 +2427,7 @@ export const CurrentNetFlowScopeSchema = {
         }
     },
     type: 'object',
-    required: ['scope_id', 'network_namespace', 'collection_scope', 'evidence'],
+    required: ['scope_id', 'network_namespace', 'collection_scope', 'label', 'evidence'],
     title: 'CurrentNetFlowScope'
 } as const;
 

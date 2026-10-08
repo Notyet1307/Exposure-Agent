@@ -120,7 +120,10 @@ export default function NetflowResults({
     queryKey: [...scope, "current"],
     enabled:
       available &&
-      (Boolean(search.analysis) || (!search.history && !search.dataset)),
+      ((Boolean(search.analysis) &&
+        Boolean(search.collectionScope) &&
+        !search.history) ||
+        (!search.history && !search.dataset)),
     queryFn: () =>
       NetflowProcessingService.readCurrentNetflow({
         projectId,
@@ -136,6 +139,7 @@ export default function NetflowResults({
         ...previous,
         analysis: resolved.analysis_id,
         dataset: resolved.dataset_id,
+        collectionScope: current.data?.scope_id ?? undefined,
       }),
     })
   }, [
@@ -144,6 +148,7 @@ export default function NetflowResults({
     search.analysis,
     search.dataset,
     search.history,
+    current.data?.scope_id,
   ])
   const identity = batch.data
   const identityMatches = Boolean(
@@ -304,7 +309,7 @@ export default function NetflowResults({
     detail,
     peers,
     evidence,
-    current,
+    ...(search.analysis ? [] : [current]),
     datasets,
     batches,
   ].find((query) => query.isError)?.error
@@ -494,7 +499,7 @@ export default function NetflowResults({
                       })
                     }
                   >
-                    {row.collection_scope}
+                    {row.label} · {row.network_namespace}
                   </Button>
                 ))}
               </div>
@@ -630,6 +635,16 @@ export default function NetflowResults({
               {t("Processing completed", "处理完成时间")}:{" "}
               {date(identity?.completed_at)}
             </p>
+            {current.data?.latest_attempt &&
+              current.data.latest_attempt.analysis_id !==
+                identity?.analysis_id && (
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    "A newer processing attempt is available.",
+                    "有新的处理结果可供查看。",
+                  )}
+                </p>
+              )}
             <p className="text-sm">
               {t("Observation window", "实际观测窗口")}:{" "}
               {identity?.observation_window?.state === "NOT_PROVIDED"

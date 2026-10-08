@@ -600,6 +600,7 @@ export type CurrentNetFlowScope = {
     scope_id: string;
     network_namespace: string;
     collection_scope: (string | null);
+    label: string;
     evidence: (string | null);
 };
 

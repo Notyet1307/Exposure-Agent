@@ -273,7 +273,7 @@ def test_current_result_does_not_turn_failed_attempt_into_empty_result(
     assert current["latest_attempt"]["status"] == "FAILED"
 
 
-def test_current_result_keeps_prior_success_when_newer_same_scope_attempt_fails(
+def test_current_result_keeps_prior_success_when_newer_same_scope_dataset_fails(
     client: TestClient, db: Session, setup: dict[str, Any]
 ) -> None:
     first_context = client.post(
