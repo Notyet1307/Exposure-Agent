@@ -681,13 +681,47 @@ test("selects an accepted upload as the current Project input", async ({
   page,
 }) => {
   let currentUploadId: string | null = null
-  let selectionRequests = 0
+  let replacementRequests = 0
   await page.route(
-    `**/api/v1/projects/${projects[0].id}/customer-uploads/${uploads[projects[0].id].data[0].id}/select`,
-    async (route) => {
-      selectionRequests += 1
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      const candidate = uploads[projects[0].id].data[0]
+      return route.fulfill({
+        json: {
+          candidate_upload_id: candidate.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: candidate.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: candidate.record_count,
+          candidate_unique_ips: candidate.unique_ip_count,
+          added_ips: candidate.unique_ip_count,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      replacementRequests += 1
       currentUploadId = uploads[projects[0].id].data[0].id
-      await route.fulfill({ json: uploads[projects[0].id].data[0] })
+      const candidate = uploads[projects[0].id].data[0]
+      return route.fulfill({
+        json: {
+          id: "91000000-0000-0000-0000-000000000002",
+          project_id: projects[0].id,
+          created_by: "30000000-0000-0000-0000-000000000001",
+          candidate_upload_id: candidate.id,
+          expected_upload_id: null,
+          expected_revision_id: null,
+          expected_profile_id: candidate.profile_id,
+          request_sha256: "b".repeat(64),
+          created_at: projects[0].created_at,
+        },
+      })
     },
   )
   await page.route(
@@ -721,7 +755,7 @@ test("selects an accepted upload as the current Project input", async ({
     }),
   ).toBeVisible()
   await expect(page.getByText("Current", { exact: true }).first()).toBeVisible()
-  expect(selectionRequests).toBe(1)
+  expect(replacementRequests).toBe(1)
 })
 
 test("keeps read-only and Archived Projects visible without input controls", async ({
@@ -1133,9 +1167,9 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   await page.getByRole("button", { name: "Validate source" }).click()
   await expect(page.getByText("Validated", { exact: true })).toBeVisible()
   await expect(tokenInput).toHaveValue("")
-  const sourceDetails = page.locator("details").filter({
-    has: page.getByText("Source details", { exact: true }),
-  })
+  const sourceDetails = page
+    .getByText("Source details", { exact: true })
+    .locator("..")
   const fingerprint = "abcdef0123456789".repeat(4)
   await expect(
     sourceDetails.getByText(fingerprint, { exact: true }),
