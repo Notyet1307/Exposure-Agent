@@ -10,7 +10,7 @@
 - #284/#286 已关闭，PR #288 已交付；#289 已关闭，PR #290 已合并。此处只核对 GitHub 回执与当前源码，未重新证明其部署/历史测试。
 - #285 OPEN，批准合同为三源 V1 U3/AC-3S-04/05/09/12/13 @`c15be890eac8bf5044b891c9feccfa3ce7da6f68`；#284 依赖已关闭。本轮客户替换只有此归属，可按旧批准合同独立实施。
 - #287 OPEN；90天/清理尚未实施，不纳入本轮。NetFlowAnalysis 当前模型没有结果 TTL 字段，不以 ADR 已接受冒称实现完成。
-- 新候选：[V2 Spec](../specs/product-logic-convergence-v2.md)、[ADR-0024](../adr/0024-core-comparison-and-optional-netflow-evidence.md)、[实施 Issue 草稿](../plans/product-logic-convergence-issue.md)。均未批准/未发布；新核心行为须先完成固定规格与任务。
+- 本轮规格：[V2 Spec](../specs/product-logic-convergence-v2.md)、[ADR-0024](../adr/0024-core-comparison-and-optional-netflow-evidence.md)、[实施 Issue 草稿](../plans/product-logic-convergence-issue.md)。V2/ADR已获维护者批准；此文档分支尚未合并，正式Issue尚未建立，新核心实施仍须完成固定规格与正式任务衔接。
 
 ## 代码差距与复用
 
@@ -33,7 +33,7 @@
 
 ## 阶段和验证回执
 
-阶段 A 的只读核验已完成，候选文档待批准；B/C/D的新核心行为尚未实施。#285与新合同无行为冲突，可在同一会话按既有固定合同独立完成本地实现与验证。源码同树只由一个写入者修改。
+阶段 A 的只读核验与维护者规格批准已完成，尚待文档正常合并和正式Issue固定；B/C/D的新核心行为尚未实施。#285与新合同无行为冲突，可在同一会话按既有固定合同独立完成本地实现与验证。源码同树只由一个写入者修改。
 
 本轮20项业务验收的初始记录均为 **NOT_RUN**：AC-01、02、03、04、05、06、07、08、09、10、11、12、13、14、15、16、17、18、19、20。规格待固定不等于功能FAIL；旧测试/部署回执不改记本轮PASS。实际实施后逐项在本文件追加命令/操作/证据与失败和复测，不能仅改勾选。
 
