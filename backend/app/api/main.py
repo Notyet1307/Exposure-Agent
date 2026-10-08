@@ -6,6 +6,7 @@ from app.api.routes import (
     audit_events,
     cloudatlas_ledger,
     cloudatlas_source_instances,
+    comparison_results,
     customer_ledger,
     external_assets,
     governance_reports,
@@ -48,3 +49,4 @@ api_router.include_router(netflow_ledger.router)
 api_router.include_router(netflow_processing.router)
 api_router.include_router(netflow_reviews.router)
 api_router.include_router(source_correlations.router)
+api_router.include_router(comparison_results.router)
