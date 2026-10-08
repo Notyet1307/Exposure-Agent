@@ -1,6 +1,6 @@
 # 产品使用逻辑收敛 V2：本地实现与合成验收
 
-本文件记录本地候选与验证证据，不代替 GitHub Issue 状态、部署回执或真实客户验收。
+本文件记录候选与验证证据，不代替 GitHub Issue 状态、部署回执或真实客户验收。维护者随后确认源码发布阶段授权，已推送并创建 [PR #293](https://github.com/Notyet1307/Exposure-Agent/pull/293)；CI当前状态以PR对应head的检查为准，合并/部署/关闭仍未授权。
 
 ## 身份与授权
 
@@ -9,7 +9,7 @@
 - 文档 PR #291 已经独立 Standards/Spec 审阅并正常合并，固定提交 `b603b45c853de764e47f99ccd1ed3ba98dec7c7e`；GitHub 原生依赖 #292 blocked_by #285 已建立。此文档发布不等于业务源码发布。
 - 实现分支：`codex/product-logic-convergence`；隔离树：`/Users/yang/.codex/worktrees/product-logic-convergence/Exposure-Agent`。最终源码候选与检查结果在下方固定。
 - 原工作树 `/Users/yang/Test-drive-sales/Exposure-Agent` 的 main@16e451d 和三个原有 WIP 路径保持不变：`docs/specs/asset-governance-release-1.md`、`docs/work/current.md`、未跟踪 `docs/plans/`。未 reset、stash、clean 或覆盖。
-- 本轮仅本地业务实现、提交、依赖安装、合成隔离验证。业务源码未 push/PR/merge，未部署/生产迁移，未调用真实来源或模型，未清理历史对象，未关闭 Issue。#287 未实施。
+- 初始交付仅本地业务实现、提交、依赖安装、合成隔离验证。维护者随后明确确认推送、建PR、观察CI：初始候选 `46fbfb9` 已推送至源码PR #293。未merge、部署/生产迁移、调用真实来源或模型、清理历史对象或关闭Issue；#287未实施。
 
 ## 实际变化
 
@@ -117,7 +117,7 @@ Standards 与固定 Spec 由独立只读 reviewer 分轴审阅。`23a227a` 基�
 
 ### 尚未执行的独立阶段
 
-真实客户数据、真实OctoBus/agent-compose/模型、生产迁移/部署、业务源码push/PR/merge及Issue关闭均为 **NOT_RUN（不在本轮授权）**。#285/#292的远端依赖与任务关闭仍由对应Issue承载；本地集成通过不关闭任何票。#287保留/清理未实施；底层历史Analysis没有新增TTL。
+真实客户数据、真实OctoBus/agent-compose/模型、生产迁移/部署、业务源码merge及Issue关闭均为 **NOT_RUN（不在本轮授权）**。业务源码push/PR已获后续明确授权并完成，必需CI按PR head独立验收。#285/#292的远端依赖与任务关闭仍由对应Issue承载；本地集成通过不关闭任何票。#287保留/清理未实施；底层历史Analysis没有新增TTL。
 
 旧 `RUN_GOVERNANCE_E2E` / `RUN_NETFLOW_USABILITY_E2E` 专用完整栈本轮未重新启动（NOT_RUN）；仅适配显式legacy/history、数据接入和preview/apply入口，保留原断言，测试收集通过。旧Run/报告已由本轮完整后端与63项固定阅读/兼容组件检查覆盖，不将此结果冒充上述专用栈端到端回执。
 
