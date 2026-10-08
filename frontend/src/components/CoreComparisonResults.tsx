@@ -1861,6 +1861,16 @@ export default function CoreComparisonResults({
                   {detail.data.address.cloud_records}
                 </p>
               )}
+              {detail.data && (
+                <V2AnalysisReportsPanel
+                  key={`${actor}:${projectId}:${result.id}:${search.binding}:${detail.data.address.address_key}`}
+                  actor={actor}
+                  projectId={projectId}
+                  resultId={result.id}
+                  bindingId={search.binding === "none" ? null : search.binding}
+                  addressKey={detail.data.address.address_key}
+                />
+              )}
               <section
                 className="space-y-2"
                 aria-label={t("NetFlow corroboration", "NetFlow 佐证说明")}
