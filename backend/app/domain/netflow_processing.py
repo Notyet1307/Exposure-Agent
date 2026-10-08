@@ -173,6 +173,7 @@ class AnalysisPublic(BaseModel):
     quality: dict[str, Any]
     provenance: dict[str, Any]
     context: dict[str, Any]
+    observation_window: dict[str, str]
     current_context_state: str
     feedback_revision_id: uuid.UUID | None
     retry_of_analysis_id: uuid.UUID | None
@@ -196,14 +197,16 @@ class AnalysisPage(BaseModel):
 
 
 class CurrentNetFlowScope(BaseModel):
-    collection_scope: str
-    evidence: str
+    scope_id: str
+    network_namespace: str
+    collection_scope: str | None
+    evidence: str | None
 
 
 class CurrentNetFlowPublic(BaseModel):
     contract_version: Literal["netflow-correlation-v1"] = CONTRACT_VERSION
     project_id: uuid.UUID
-    collection_scope: str | None
+    scope_id: str | None
     scopes: list[CurrentNetFlowScope]
     current: AnalysisPublic | None
     latest_attempt: AnalysisPublic | None
@@ -610,6 +613,10 @@ def analysis_public(
         quality=row.quality,
         provenance=row.identity,
         context=context.payload,
+        observation_window={
+            "state": "NOT_PROVIDED",
+            "reason": "The sealed processing result has no verified observation window.",
+        },
         current_context_state=current.state if current else "UNKNOWN",
         feedback_revision_id=row.initial_feedback_revision_id,
         retry_of_analysis_id=row.retry_of_analysis_id,
@@ -628,14 +635,12 @@ def current_netflow(
     project: Project,
     collection_scope: str | None = None,
 ) -> CurrentNetFlowPublic:
-    """Resolve one confirmed collection scope without guessing from uploads."""
+    """Resolve one confirmed scope; legacy datasets remain separate scopes."""
     candidates = session.exec(
         select(NetFlowContextRevision).where(
             NetFlowContextRevision.project_id == project.id,
             NetFlowContextRevision.tenant_id == project.tenant_id,
             NetFlowContextRevision.state == "CONFIRMED",
-            col(NetFlowContextRevision.collection_scope).is_not(None),
-            col(NetFlowContextRevision.collection_scope_evidence).is_not(None),
         )
     ).all()
     contexts = [
@@ -644,33 +649,56 @@ def current_netflow(
         if (current := current_context(session, project, row.dataset_id)) is not None
         and current.id == row.id
     ]
-    scopes = sorted(
-        {
-            (row.collection_scope, row.collection_scope_evidence)
-            for row in contexts
-            if row.collection_scope and row.collection_scope_evidence
-        }
-    )
+    def scope_id(row: NetFlowContextRevision) -> str:
+        return f"{row.network_namespace}:{row.collection_scope or f'dataset:{row.dataset_id}'}"
+
+    scopes = {scope_id(row): row for row in contexts}
     chosen = collection_scope
+    if chosen is None and project.current_netflow_dataset_id is not None:
+        selected = next(
+            (row for row in contexts if row.dataset_id == project.current_netflow_dataset_id),
+            None,
+        )
+        if selected is not None:
+            chosen = scope_id(selected)
     if chosen is None and len(scopes) == 1:
-        chosen = scopes[0][0]
+        chosen = next(iter(scopes))
     if chosen is None:
         return CurrentNetFlowPublic(
             project_id=project.id,
-            collection_scope=None,
-            scopes=[CurrentNetFlowScope(collection_scope=name, evidence=evidence) for name, evidence in scopes],
+            scope_id=None,
+            scopes=[
+                CurrentNetFlowScope(
+                    scope_id=name,
+                    network_namespace=row.network_namespace,
+                    collection_scope=row.collection_scope,
+                    evidence=row.collection_scope_evidence,
+                )
+                for name, row in sorted(scopes.items())
+            ],
             current=None,
             latest_attempt=None,
         )
-    if chosen not in {name for name, _ in scopes}:
+    selected = scopes.get(chosen)
+    if selected is None:
         deny("netflow_input_not_found", 404)
-    matching_context_ids = [row.id for row in contexts if row.collection_scope == chosen]
+    matching_context_ids = [
+        row.id
+        for row in candidates
+        if row.network_namespace == selected.network_namespace
+        and (
+            row.collection_scope == selected.collection_scope
+            if selected.collection_scope is not None
+            else row.dataset_id == selected.dataset_id
+        )
+    ]
     rows = session.exec(
         select(NetFlowAnalysis)
         .where(
             NetFlowAnalysis.project_id == project.id,
             NetFlowAnalysis.tenant_id == project.tenant_id,
             col(NetFlowAnalysis.context_revision_id).in_(matching_context_ids),
+            NetFlowAnalysis.network_namespace == selected.network_namespace,
         )
         .order_by(col(NetFlowAnalysis.created_at).desc(), col(NetFlowAnalysis.id).desc())
     ).all()
@@ -687,8 +715,16 @@ def current_netflow(
             break
     return CurrentNetFlowPublic(
         project_id=project.id,
-        collection_scope=chosen,
-        scopes=[CurrentNetFlowScope(collection_scope=name, evidence=evidence) for name, evidence in scopes],
+        scope_id=chosen,
+        scopes=[
+            CurrentNetFlowScope(
+                scope_id=name,
+                network_namespace=row.network_namespace,
+                collection_scope=row.collection_scope,
+                evidence=row.collection_scope_evidence,
+            )
+            for name, row in sorted(scopes.items())
+        ],
         current=current,
         latest_attempt=analysis_public(session, project, latest, include_result=False)
         if latest is not None

@@ -22,6 +22,7 @@ export type NetflowResultsSearch = {
   analysis?: string
   dataset?: string
   collectionScope?: string
+  history?: boolean
   tab?: "observations" | "peers"
   resultPage?: number
   datasetPage?: number
@@ -117,7 +118,9 @@ export default function NetflowResults({
   const current = useQuery({
     ...options,
     queryKey: [...scope, "current"],
-    enabled: available && !search.analysis,
+    enabled:
+      available &&
+      (Boolean(search.analysis) || (!search.history && !search.dataset)),
     queryFn: () =>
       NetflowProcessingService.readCurrentNetflow({
         projectId,
@@ -126,7 +129,7 @@ export default function NetflowResults({
   })
   useEffect(() => {
     const resolved = current.data?.current
-    if (!resolved || search.analysis) return
+    if (!resolved || search.analysis || search.history || search.dataset) return
     void navigate({
       replace: true,
       search: (previous) => ({
@@ -135,7 +138,13 @@ export default function NetflowResults({
         dataset: resolved.dataset_id,
       }),
     })
-  }, [current.data?.current, navigate, search.analysis])
+  }, [
+    current.data?.current,
+    navigate,
+    search.analysis,
+    search.dataset,
+    search.history,
+  ])
   const identity = batch.data
   const identityMatches = Boolean(
     identity &&
@@ -395,7 +404,9 @@ export default function NetflowResults({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void navigate({ search: () => ({}) })}
+              onClick={() =>
+                void navigate({ search: () => ({ history: true }) })
+              }
             >
               {t("Browse processing history", "浏览处理历史")}
             </Button>
@@ -430,7 +441,10 @@ export default function NetflowResults({
             </p>
           )}
         </section>
-      ) : !search.analysis && current.isPending ? (
+      ) : !search.analysis &&
+        !search.history &&
+        !search.dataset &&
+        current.isPending ? (
         <p role="status">
           {t("Resolving the current processed data…", "正在解析当前处理数据…")}
         </p>
@@ -456,7 +470,7 @@ export default function NetflowResults({
             </p>
           )}
           {(current.data?.scopes?.length ?? 0) > 1 && (
-            <div
+            <section
               className="space-y-2"
               aria-label={t("Collection scopes", "采集范围")}
             >
@@ -475,7 +489,7 @@ export default function NetflowResults({
                       void navigate({
                         search: (previous) => ({
                           ...previous,
-                          collectionScope: row.collection_scope,
+                          collectionScope: row.scope_id,
                         }),
                       })
                     }
@@ -484,7 +498,7 @@ export default function NetflowResults({
                   </Button>
                 ))}
               </div>
-            </div>
+            </section>
           )}
           {datasets.isPending ? (
             <p role="status">
@@ -615,6 +629,12 @@ export default function NetflowResults({
               {t("Network scope", "网络范围")}: {identity?.network_namespace} ·{" "}
               {t("Processing completed", "处理完成时间")}:{" "}
               {date(identity?.completed_at)}
+            </p>
+            <p className="text-sm">
+              {t("Observation window", "实际观测窗口")}:{" "}
+              {identity?.observation_window?.state === "NOT_PROVIDED"
+                ? t("Not provided", "未提供")
+                : t("Unknown", "未知")}
             </p>
             {identity?.test_fixture && (
               <p className="text-sm text-muted-foreground">

@@ -38,6 +38,7 @@ export const Route = createFileRoute(
       analysis: id("analysis"),
       dataset: id("dataset"),
       collectionScope: text("collectionScope"),
+      history: search.history === true || search.history === "true",
       tab: search.tab === "peers" ? "peers" : "observations",
       resultPage: number("resultPage") ?? 0,
       datasetPage: number("datasetPage") ?? 0,

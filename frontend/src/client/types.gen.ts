@@ -98,6 +98,9 @@ export type AnalysisPublic = {
     context: {
         [key: string]: unknown;
     };
+    observation_window: {
+        [key: string]: (string);
+    };
     current_context_state: string;
     feedback_revision_id: (string | null);
     retry_of_analysis_id: (string | null);
@@ -587,15 +590,17 @@ export type ContextPublic = {
 export type CurrentNetFlowPublic = {
     contract_version?: "netflow-correlation-v1";
     project_id: string;
-    collection_scope: (string | null);
+    scope_id: (string | null);
     scopes: Array<CurrentNetFlowScope>;
     current: (AnalysisPublic | null);
     latest_attempt: (AnalysisPublic | null);
 };
 
 export type CurrentNetFlowScope = {
-    collection_scope: string;
-    evidence: string;
+    scope_id: string;
+    network_namespace: string;
+    collection_scope: (string | null);
+    evidence: (string | null);
 };
 
 export type CustomerSelection = {

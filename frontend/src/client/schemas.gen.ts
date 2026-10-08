@@ -450,6 +450,13 @@ export const AnalysisPublicSchema = {
             type: 'object',
             title: 'Context'
         },
+        observation_window: {
+            additionalProperties: {
+                type: 'string'
+            },
+            type: 'object',
+            title: 'Observation Window'
+        },
         current_context_state: {
             type: 'string',
             title: 'Current Context State'
@@ -533,7 +540,7 @@ export const AnalysisPublicSchema = {
         }
     },
     type: 'object',
-    required: ['project_id', 'analysis_id', 'dataset_id', 'context_revision_id', 'network_namespace', 'status', 'pipeline_complete', 'result', 'quality', 'provenance', 'context', 'current_context_state', 'feedback_revision_id', 'retry_of_analysis_id', 'test_fixture', 'error_code', 'can_read_result', 'created_by', 'created_at', 'started_at', 'completed_at'],
+    required: ['project_id', 'analysis_id', 'dataset_id', 'context_revision_id', 'network_namespace', 'status', 'pipeline_complete', 'result', 'quality', 'provenance', 'context', 'observation_window', 'current_context_state', 'feedback_revision_id', 'retry_of_analysis_id', 'test_fixture', 'error_code', 'can_read_result', 'created_by', 'created_at', 'started_at', 'completed_at'],
     title: 'AnalysisPublic'
 } as const;
 
@@ -2338,7 +2345,7 @@ export const CurrentNetFlowPublicSchema = {
             format: 'uuid',
             title: 'Project Id'
         },
-        collection_scope: {
+        scope_id: {
             anyOf: [
                 {
                     type: 'string'
@@ -2347,7 +2354,7 @@ export const CurrentNetFlowPublicSchema = {
                     type: 'null'
                 }
             ],
-            title: 'Collection Scope'
+            title: 'Scope Id'
         },
         scopes: {
             items: {
@@ -2378,23 +2385,45 @@ export const CurrentNetFlowPublicSchema = {
         }
     },
     type: 'object',
-    required: ['project_id', 'collection_scope', 'scopes', 'current', 'latest_attempt'],
+    required: ['project_id', 'scope_id', 'scopes', 'current', 'latest_attempt'],
     title: 'CurrentNetFlowPublic'
 } as const;
 
 export const CurrentNetFlowScopeSchema = {
     properties: {
-        collection_scope: {
+        scope_id: {
             type: 'string',
+            title: 'Scope Id'
+        },
+        network_namespace: {
+            type: 'string',
+            title: 'Network Namespace'
+        },
+        collection_scope: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Collection Scope'
         },
         evidence: {
-            type: 'string',
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Evidence'
         }
     },
     type: 'object',
-    required: ['collection_scope', 'evidence'],
+    required: ['scope_id', 'network_namespace', 'collection_scope', 'evidence'],
     title: 'CurrentNetFlowScope'
 } as const;
 

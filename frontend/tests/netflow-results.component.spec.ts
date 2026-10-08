@@ -417,9 +417,11 @@ test("ordinary entry fixes a resolved current result before reading observations
     route.fulfill({
       json: {
         project_id: project,
-        collection_scope: "branch-edge-a",
+        scope_id: "synthetic:branch-edge-a",
         scopes: [
           {
+            scope_id: "synthetic:branch-edge-a",
+            network_namespace: "synthetic",
             collection_scope: "branch-edge-a",
             evidence: "Synthetic fixed collection scope.",
           },

@@ -233,7 +233,7 @@ def test_current_result_uses_confirmed_collection_scope_and_pins_success(
     assert response.status_code == 200, response.text
     current = response.json()
     assert response.headers["Cache-Control"] == "private, no-store"
-    assert current["collection_scope"] == "branch-edge-a"
+    assert current["scope_id"] == "synthetic-nf273:branch-edge-a"
     assert current["current"]["analysis_id"] == queued["analysis_id"]
     assert current["latest_attempt"]["analysis_id"] == queued["analysis_id"]
 
