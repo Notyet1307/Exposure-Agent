@@ -52,6 +52,8 @@ const display = (value: LedgerEntry["fields"][string]) =>
     : typeof value === "object"
       ? value.value
       : String(value)
+const ledgerScope = (upload?: string, revision?: string, original = false) =>
+  `${upload ?? "current"}/${revision ?? "original"}/${original}`
 const PAGE_SIZE = 25
 const text = (value: unknown) => (typeof value === "string" ? value : undefined)
 type LedgerSearch = ComparisonReturn & {
@@ -148,7 +150,11 @@ function LedgerView({
     }
   }, [])
   const recoveryName = `exposure:ledger:${actorId}:${projectId}`
-  const viewScope = `${search.ledger_upload ?? "current"}/${search.ledger_revision ?? "original"}/${search.ledger_original}`
+  const viewScope = ledgerScope(
+    search.ledger_upload,
+    search.ledger_revision,
+    search.ledger_original,
+  )
   const scopeRef = useRef(viewScope)
   scopeRef.current = viewScope
   const isCurrent = (scope: string) =>
@@ -353,10 +359,11 @@ function LedgerView({
         ...old,
         ledger_upload: revision.upload_id,
         ledger_revision: revision.id,
+        ledger_original: false,
         ledger_page: 1,
       }),
     })
-    if (!isCurrent(`${revision.upload_id}/${revision.id}`)) return
+    if (!isCurrent(ledgerScope(revision.upload_id, revision.id))) return
     setNotice("saved")
     heading.current?.focus()
   }
@@ -452,6 +459,7 @@ function LedgerView({
         projectId,
         uploadId: base.expected_upload_id,
         revisionId: base.expected_revision_id ?? undefined,
+        original: base.expected_revision_id === null,
         query: base.entry_id ?? undefined,
         limit: 1,
       })
@@ -464,12 +472,17 @@ function LedgerView({
           ...old,
           ledger_upload: base.expected_upload_id,
           ledger_revision: base.expected_revision_id ?? undefined,
+          ledger_original: base.expected_revision_id === null,
           ledger_page: 1,
         }),
       })
       if (
         !isCurrent(
-          `${base.expected_upload_id}/${base.expected_revision_id ?? "original"}`,
+          ledgerScope(
+            base.expected_upload_id,
+            base.expected_revision_id ?? undefined,
+            base.expected_revision_id === null,
+          ),
         )
       )
         return

@@ -128,6 +128,7 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   await page
     .getByRole("button", { name: "Apply replacement", exact: true })
     .click()
+  await expect(uploadRow.getByText("Current", { exact: true })).toBeVisible()
 
   await clickHistoricalLink(page, "Runs")
   await expect(page.getByText("Inputs ready")).toBeVisible()
@@ -502,6 +503,9 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await page
     .getByRole("button", { name: "Apply replacement", exact: true })
     .click()
+  await expect(
+    firstUploadRow.getByText("Current", { exact: true }),
+  ).toBeVisible()
 
   await request.post(`${stage4FixtureUrl}/fixture/set-assets`, {
     data: {
@@ -587,6 +591,9 @@ test("Project readers see published IP lifecycle results and safe failure fallba
   await page
     .getByRole("button", { name: "Apply replacement", exact: true })
     .click()
+  await expect(
+    secondUploadRow.getByText("Current", { exact: true }),
+  ).toBeVisible()
   await request.post(`${stage4FixtureUrl}/fixture/set-assets`, {
     data: {
       items: [

@@ -33,7 +33,11 @@ test("customer ledger preserves input history through correction and real new Ru
   const row = page.getByRole("row").filter({ hasText: "customer-ledger.xlsx" })
   await row.getByRole("button", { name: "Preview replacement" }).click()
   await page.getByRole("button", { name: "Apply replacement" }).click()
-  await page.getByRole("link", { name: "Customer ledger", exact: true }).click()
+  await expect(row.getByText("Current", { exact: true })).toBeVisible()
+  await page
+    .getByRole("link", { name: "Customer asset ledger", exact: true })
+    .first()
+    .click()
   await expect(
     page.getByRole("heading", { name: "Customer asset ledger" }),
   ).toBeVisible()
@@ -76,6 +80,9 @@ test("customer ledger preserves input history through correction and real new Ru
       ).ok(),
     ).toBe(true)
     await page.goto(`/?project=${project.id}&view=cloudatlas`)
+    await page
+      .getByText("Historical Run source settings", { exact: true })
+      .click()
     await page.getByLabel("OctoBus Instance ID").fill("cloudatlas-fixture")
     await page.getByLabel("Read-only Capset ID").fill("cloudatlas-readonly")
     await page

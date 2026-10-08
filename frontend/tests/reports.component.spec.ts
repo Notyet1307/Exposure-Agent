@@ -1463,7 +1463,7 @@ test("waits for fresh reports before pinning a cached project's latest Run", asy
       },
     })
   })
-  await page.goto(`/?project=${projectId}`)
+  await page.goto(`/?project=${projectId}&view=overview`)
   await expect(page).toHaveURL(new RegExp(`run=${runIds[0]}`))
   await expect(
     page.getByRole("heading", { name: "Published overview" }),
@@ -1472,7 +1472,7 @@ test("waits for fresh reports before pinning a cached project's latest Run", asy
     preparationReads,
     "pinning an existing result must not mount input preparation",
   ).toBe(0)
-  await page.goto(`/?project=${projectId}&run=`)
+  await page.goto(`/?project=${projectId}&view=overview&run=`)
   await expect(
     page.getByText("Published Run unavailable", { exact: true }),
   ).toBeVisible()
@@ -1483,7 +1483,7 @@ test("waits for fresh reports before pinning a cached project's latest Run", asy
     .getByRole("combobox", { name: "Project", exact: true })
     .selectOption(otherProjectId)
   await expect(
-    page.getByRole("heading", { name: "Prepare this comparison" }),
+    page.getByRole("heading", { name: "Data access", exact: true }),
   ).toBeVisible()
   newestPublished = true
   const refresh = page.waitForRequest(
