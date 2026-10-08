@@ -7,6 +7,7 @@ import stat
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from pathlib import Path
 from threading import Barrier
 from typing import Any
@@ -21,7 +22,7 @@ from app.domain.models import Artifact, NetFlowDataset
 from app.domain.netflow_models import NetFlowAnalysis, NetFlowContextRevision
 from app.integrations import netflow_processor as processor
 from app.integrations.agent_compose import AgentComposeSessionObservation as Observation
-from tests.api.routes.test_netflow_datasets import _member
+from tests.api.routes.test_netflow_datasets import _member, _upload
 from tests.utils.netflow_processing import (
     context_request,
     execute,
@@ -270,6 +271,92 @@ def test_current_result_does_not_turn_failed_attempt_into_empty_result(
     current = response.json()
     assert current["current"] is None
     assert current["latest_attempt"]["status"] == "FAILED"
+
+
+def test_current_result_keeps_prior_success_when_newer_same_scope_attempt_fails(
+    client: TestClient, db: Session, setup: dict[str, Any]
+) -> None:
+    first_context = client.post(
+        setup["dataset_url"] + "/processing-contexts",
+        headers=setup["headers"] | {"Idempotency-Key": "scope-first"},
+        json=context_request(
+            setup["context_revision_id"], collection_scope="branch-edge-a"
+        ),
+    )
+    assert first_context.status_code == 201, first_context.text
+    setup["context_revision_id"] = first_context.json()["context_revision_id"]
+    success = reserve(client, setup, key="scope-success")
+    execute(db, setup, success["analysis_id"])
+    uploaded = _upload(
+        client,
+        setup["headers"],
+        setup["project_id"],
+        (HEADER + INVALID).encode(),
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    failed_setup = setup | {
+        "dataset_id": uploaded.json()["id"],
+        "dataset_url": setup["root"] + "/netflow-datasets/" + uploaded.json()["id"],
+        "context_revision_id": None,
+    }
+    newer_context = client.post(
+        failed_setup["dataset_url"] + "/processing-contexts",
+        headers=setup["headers"] | {"Idempotency-Key": "scope-newer"},
+        json=context_request(collection_scope="branch-edge-a"),
+    )
+    assert newer_context.status_code == 201, newer_context.text
+    failed_setup["context_revision_id"] = newer_context.json()["context_revision_id"]
+    failed = reserve(client, failed_setup, key="scope-failure")
+    row = execute(db, failed_setup, failed["analysis_id"])
+    assert row.status == "FAILED"
+    response = client.get(setup["root"] + "/netflow-results/current", headers=setup["headers"])
+    assert response.status_code == 200, response.text
+    value = response.json()
+    assert value["current"]["analysis_id"] == success["analysis_id"]
+    assert value["latest_attempt"]["analysis_id"] == failed["analysis_id"]
+
+
+def test_current_result_scans_past_101_newer_failed_attempts(
+    client: TestClient, db: Session, setup: dict[str, Any]
+) -> None:
+    context = client.post(
+        setup["dataset_url"] + "/processing-contexts",
+        headers=setup["headers"] | {"Idempotency-Key": "scope-first"},
+        json=context_request(
+            setup["context_revision_id"], collection_scope="branch-edge-a"
+        ),
+    )
+    assert context.status_code == 201, context.text
+    setup["context_revision_id"] = context.json()["context_revision_id"]
+    success = reserve(client, setup, key="scope-success")
+    published = execute(db, setup, success["analysis_id"])
+    for index in range(101):
+        db.add(
+            NetFlowAnalysis(
+                tenant_id=published.tenant_id,
+                project_id=published.project_id,
+                dataset_id=published.dataset_id,
+                context_revision_id=published.context_revision_id,
+                network_namespace=published.network_namespace,
+                processing_identity_sha256=f"{index + 1:064x}",
+                identity=published.identity,
+                request=published.request,
+                quality=published.quality,
+                test_fixture=published.test_fixture,
+                created_by=published.created_by,
+                status="PENDING",
+                agent_run_id=f"{index + 1000:064x}",
+                agent_project_id=published.agent_project_id,
+                runner_build_version=published.runner_build_version,
+                created_at=published.created_at + timedelta(seconds=index + 1),
+            )
+        )
+    db.commit()
+    response = client.get(setup["root"] + "/netflow-results/current", headers=setup["headers"])
+    assert response.status_code == 200, response.text
+    value = response.json()
+    assert value["current"]["analysis_id"] == success["analysis_id"]
+    assert value["latest_attempt"]["status"] == "PENDING"
 
 
 def test_lost_start_response_never_reexecutes_for_same_or_new_key(
