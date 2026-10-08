@@ -1,6 +1,6 @@
 # 产品使用逻辑收敛 V2：本地实现与合成验收
 
-本文件记录候选与验证证据，不代替 GitHub Issue 状态、部署回执或真实客户验收。维护者随后确认源码发布阶段授权，已推送并创建 [PR #293](https://github.com/Notyet1307/Exposure-Agent/pull/293)；CI当前状态以PR对应head的检查为准，合并/部署/关闭仍未授权。
+本文件保留实施与源码PR阶段的候选、验证证据和当时授权边界，不代替 GitHub Issue 状态或真实客户验收。维护者后续已明确授权合并、部署和关闭；[PR #293](https://github.com/Notyet1307/Exposure-Agent/pull/293) 已合并，8081部署结果见 [上线回执](product-logic-v2-deployment.md)。下文各阶段“未授权/NOT_RUN”不表示后续部署未完成。
 
 ## 身份与授权
 
@@ -121,7 +121,7 @@ Standards 与固定 Spec 由独立只读 reviewer 分轴审阅。`23a227a` 基�
 - [固定地址与两条客户原始依据](evidence/product-logic-v2/fixed-evidence-en-1366.png)
 - [辅证撤权后的核心](evidence/product-logic-v2/core-after-evidence-revocation.png)
 
-### 尚未执行的独立阶段
+### 实施阶段停止点（后续状态见上线回执）
 
 真实客户数据、真实OctoBus/agent-compose/模型、生产迁移/部署、业务源码merge及Issue关闭均为 **NOT_RUN（不在本轮授权）**。业务源码push/PR已获后续明确授权并完成，必需CI按PR head独立验收。#285/#292的远端依赖与任务关闭仍由对应Issue承载；本地集成通过不关闭任何票。#287保留/清理未实施；底层历史Analysis没有新增TTL。
 
