@@ -54,6 +54,8 @@ NetFlow 普通入口跨 Dataset 在已确认采集范围内定位最新成功可
 
 ## 首次失败与修复
 
+- 远端后端1457项在约93%时触及15分钟job上限，日志无断言失败；结合本地完整18分钟耗时，将该job上限设为25分钟，测试集与coverage门槛保留。浏览器旧历史结果测试的两处无参数根入口会进入V2，改为显式历史资产入口并保留原断言，23项本地通过；CI增加逐用例日志与三次失败后立即返回失败，取消任务不再合并不存在的报告。
+
 - 源码PR首轮CI在生成客户端后的clean-tree检查失败：生成本身成功，随后Biome自动格式化了5个测试/配置文件。按仓库生成脚本固化格式化输出；未更改客户端合同、后端或已共享迁移。远端CI按修复后的PR head重新执行。
 
 - 浏览器最初两次等待误用了后端地址匹配 UI 代理响应、未展开“查看本次资料”；修正测试操作，真实主线通过。
@@ -101,7 +103,7 @@ Standards 与固定 Spec 由独立只读 reviewer 分轴审阅。`23a227a` 基�
 
 - 最终真实浏览器：`product-logic.spec.ts` **3 passed，52.7s**；生产构建62383＋实际API62381＋独立PostgreSQL。日志 `evidence/product-browser/portable-fixture-final.log`。先前同源码生产构建主线亦3 passed（`final-browser.log`）。
 - 核心/客户额外PG回归：**8 passed，87.12s**，`evidence/core-regression.log`。此前客户与基础核心62项通过；NetFlow/旧关联/报告/迁移定向192项通过。
-- 前端兼容：V1+旧Run **63 passed**；云图18类相关 **34 passed**；NetFlow当前/固定阅读 **12 passed**；接入、创建、账号与权限恢复 **43 passed**。共152项，使用生产构建预览，未放宽原性能/权限/固定身份断言。
+- 前端兼容：V1+旧Run **63 passed**；云图18类相关 **34 passed**；NetFlow当前/固定阅读 **12 passed**；接入、创建、账号与权限恢复 **43 passed**。初始共152项，随后CI定位并修复旧历史结果入口，额外23项通过。均使用生产构建预览，未放宽原性能/权限/固定身份断言。
 - 完整后端套件：**1457 passed，3 warnings，1078.48s，coverage 90%**。标准 `scripts/tests-start.sh` 已正常退出0；日志 `evidence/backend-full.log`。随后补充验证E移除不改3/1/1/1及E到期后原Analysis仍按旧规则可读，单项2.33s通过，`evidence/evidence-removal.log`。
 - 后端ruff/mypy/ty、前端Biome/build通过；Biome配置版本提示为既有信息，没有修改无关配置。context hygiene最终文档校验通过。
 
