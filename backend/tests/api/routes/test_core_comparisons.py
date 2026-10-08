@@ -352,6 +352,13 @@ def test_supplement_expiry_and_context_revocation_do_not_change_core(
         == 410
     )
     assert client.get(summary_url, headers=core["headers"]).status_code == 200
+    assert (
+        client.get(
+            core["root"] + f"/netflow-analyses/{queued['analysis_id']}",
+            headers=core["headers"],
+        ).status_code
+        == 200
+    )
     monkeypatch.setattr("app.domain.comparison_results.get_datetime_utc", real_now)
 
     revoked = client.post(
@@ -385,6 +392,21 @@ def test_supplement_expiry_and_context_revocation_do_not_change_core(
         legacy.status_code == 409
         and legacy.json()["detail"]["code"] == "netflow_context_revoked"
     )
+    removed = _post(
+        client,
+        core["root"] + f"/comparison-results/{result['id']}/supplements",
+        core["headers"],
+        {"analysis_id": None, "expected_binding_id": binding["id"]},
+        "core-supplement-remove",
+    )
+    assert removed["state"] == "REMOVED"
+    fixed = client.get(summary_url, headers=core["headers"]).json()
+    assert (
+        fixed["total_addresses"],
+        fixed["both"],
+        fixed["customer_only"],
+        fixed["cloud_only"],
+    ) == (3, 1, 1, 1)
 
 
 def test_failed_attempt_history_does_not_replace_regular_current(

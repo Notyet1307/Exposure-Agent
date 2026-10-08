@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url"
 import type { FileChooser, Locator } from "@playwright/test"
 import { cloudatlasCapsetToken, testApiUrl } from "./config"
 import { expect, type Page, test } from "./fixtures"
+import { clickHistoricalLink } from "./utils/legacy-assets"
 
 test.skip(
   process.env.RUN_GOVERNANCE_E2E !== "1",
@@ -42,7 +43,7 @@ async function uploadByKeyboard(
   await page.keyboard.press("Enter")
 }
 
-test("administrator completes the first comparison through the UI with present, absent and empty NetFlow", async ({
+test("administrator completes a historical Run through explicit compatibility controls with present, absent and empty NetFlow", async ({
   page,
   request,
 }, info) => {
@@ -75,7 +76,7 @@ test("administrator completes the first comparison through the UI with present, 
     const projectId = new URL(page.url()).searchParams.get("project")!
     await expect(page.getByRole("heading", { name })).toBeVisible()
     await expect(
-      page.getByRole("heading", { name: "Prepare this comparison" }),
+      page.getByRole("heading", { name: "Data access", exact: true }),
     ).toBeFocused()
     if (mode === "present") {
       const rejection = page.waitForResponse(
@@ -95,7 +96,8 @@ test("administrator completes the first comparison through the UI with present, 
     const row = page
       .getByRole("row")
       .filter({ hasText: "first-comparison.xlsx" })
-    await activate(row.getByRole("button", { name: "Set as current input" }))
+    await activate(row.getByRole("button", { name: "Preview replacement" }))
+    await activate(page.getByRole("button", {name:"Apply replacement",exact:true}))
     await expect(
       page.getByRole("heading", { name: "Current Project input", exact: true }),
     ).toBeFocused()
@@ -118,7 +120,7 @@ test("administrator completes the first comparison through the UI with present, 
         page.getByRole("heading", { name: "NetFlowDatasets", exact: true }),
       ).toBeFocused()
     }
-    await activate(page.getByRole("link", { name: "CloudAtlas", exact: true }))
+    await activate(page.getByText("Historical Run source settings", {exact:true}))
     await page.getByLabel("OctoBus Instance ID").fill("cloudatlas-fixture")
     await page.getByLabel("Read-only Capset ID").fill("cloudatlas-readonly")
     await activate(
@@ -133,16 +135,16 @@ test("administrator completes the first comparison through the UI with present, 
     await activate(
       page.getByRole("button", { name: "Enable source", exact: true }),
     )
-    await activate(page.getByRole("link", { name: "Inputs", exact: true }))
+    await activate(page.getByRole("link", { name: "Data access", exact: true }))
     await expect(
-      page.getByText("Validated and enabled", { exact: true }),
+      page.getByRole("cell", { name: "Validated", exact: true }),
     ).toBeVisible()
     if (mode === "present") {
       await page
         .getByRole("combobox", { name: "Language / 语言" })
         .selectOption("zh-CN")
       await expect(
-        page.getByRole("heading", { name: "准备本轮比对" }),
+        page.getByRole("heading", { name: "数据接入", exact: true }),
       ).toBeVisible()
       expect(new URL(page.url()).searchParams.get("project")).toBe(projectId)
       await page
@@ -161,7 +163,7 @@ test("administrator completes the first comparison through the UI with present, 
       await page.emulateMedia({ reducedMotion: "reduce" })
       expect(
         await page
-          .getByRole("link", { name: "Review inputs and start" })
+          .getByRole("link", { name: "View comparison results" })
           .evaluate((element) =>
             parseFloat(getComputedStyle(element).transitionDuration),
           ),
@@ -183,7 +185,7 @@ test("administrator completes the first comparison through the UI with present, 
       }
       await page.setViewportSize({ width: 1366, height: 768 })
     }
-    await activate(page.getByRole("link", { name: "Review inputs and start" }))
+    await clickHistoricalLink(page, "Runs")
     await expect(
       page.getByRole("heading", { name: "Confirm these input versions" }),
     ).toBeFocused()

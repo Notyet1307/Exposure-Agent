@@ -57,7 +57,7 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
   const projectSelect = page.getByRole("combobox", { name: "Project" })
   await projectSelect.selectOption(project.id)
   await expect(projectSelect).toHaveValue(project.id)
-  await page.getByRole("link", { name: "Inputs", exact: true }).click()
+  await page.getByRole("link", { name: "Data access", exact: true }).click()
   await page.getByLabel("XLSX file").setInputFiles(validWorkbook)
   await page
     .locator("form")

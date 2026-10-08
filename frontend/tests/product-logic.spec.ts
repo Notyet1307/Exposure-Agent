@@ -3,6 +3,11 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "./fixtures"
 
+test.skip(
+  !process.env.PRODUCT_LOGIC_FIXTURE || !process.env.PRODUCT_LOGIC_EVIDENCE,
+  "Requires explicit isolated product_browser_* fixture and evidence paths",
+)
+
 const api = process.env.TEST_API_URL!
 const workbook = (name: string) =>
   fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
@@ -173,19 +178,7 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
   const { execFileSync } = await import("node:child_process")
   const repo = path.resolve(fileURLToPath(new URL("../..", import.meta.url)))
   const seed = (stage: string) =>
-    execFileSync(
-      "python3",
-      [
-        "../evidence/run-browser.py",
-        "backend",
-        "uv",
-        "run",
-        "python",
-        "../scripts/seed-product-logic-acceptance.py",
-        stage,
-      ],
-      { cwd: repo, stdio: "pipe" },
-    )
+    execFileSync("uv", ["run", "python", "../scripts/seed-product-logic-acceptance.py", stage], { cwd: path.join(repo, "backend"), stdio: "pipe" })
   seed("core")
   let fixture = JSON.parse(
     await readFile(process.env.PRODUCT_LOGIC_FIXTURE!, "utf8"),
@@ -461,6 +454,13 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
     .selectOption("en")
   await page.goto(fixedUrl)
   await expect(detail).toBeVisible()
+  await expect(rows.getByRole("row")).toHaveCount(2)
+  await expect(
+    detail.getByText("Customer records 2", { exact: false }),
+  ).toBeVisible()
+  await expect(
+    detail.locator("summary").filter({ hasText: "Original source record" }),
+  ).toHaveCount(2)
   await page.screenshot({
     path: path.join(evidence, "fixed-evidence-en-1366.png"),
     fullPage: true,

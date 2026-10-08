@@ -52,7 +52,7 @@ test("fresh project to real worker, three sources, review history and local-only
     localStorage.setItem("exposure:language", "en")
   }, token)
   await page.emulateMedia({ reducedMotion: "reduce" })
-  await page.goto(`${root}/netflow-correlation`)
+  await page.goto(`${root}/netflow-correlation?legacy=true`)
   await page
     .getByRole("link", { name: "Import NetFlow data", exact: true })
     .click()
@@ -69,7 +69,8 @@ test("fresh project to real worker, three sources, review history and local-only
   await page
     .getByRole("link", { name: "Configure processing context for this upload" })
     .click()
-  const dataset = new URL(page.url()).searchParams.get("dataset")!
+  const dataset = new URL(page.url()).searchParams.get("processing_dataset")!
+  await page.goto(`${root}/netflow-correlation?legacy=true&dataset=${dataset}`)
   expect(
     (await get(`${root}/netflow-datasets/${dataset}/processing-contexts`))
       .count,
@@ -141,6 +142,7 @@ test("fresh project to real worker, three sources, review history and local-only
   await page
     .getByRole("link", { name: "Processed NetFlow data", exact: true })
     .click()
+  await page.getByRole("button", {name:"Browse processing history",exact:true}).click()
   await page.getByRole("button", { name: "synthetic.csv", exact: true }).click()
   await page.getByRole("button", { name: "Open batch", exact: true }).click()
   await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
