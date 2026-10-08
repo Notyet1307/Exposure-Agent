@@ -7,18 +7,21 @@ import {
   NetflowReviewsService,
   ProjectsService,
 } from "@/client"
+import { ComparisonReturnLink } from "@/components/ComparisonReturnLink"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import type { ComparisonReturn } from "@/lib/comparisonReturn"
+import { comparisonReturnFields } from "@/lib/comparisonReturn"
 import { useI18n } from "@/lib/i18n"
 import { netflowErrorCode } from "@/lib/netflow-errors"
 import { netflowProtocol, netflowText } from "@/lib/netflow-labels"
 
 const SIZE = 25
 const EVIDENCE_SIZE = 10
-export type NetflowResultsSearch = {
+export type NetflowResultsSearch = ComparisonReturn & {
   analysis?: string
   dataset?: string
   collectionScope?: string
@@ -372,6 +375,7 @@ export default function NetflowResults({
           )}
         </p>
         <div className="flex flex-wrap gap-4 text-sm">
+          <ComparisonReturnLink projectId={projectId} search={search} />
           <Link
             className="underline"
             to="/projects/$projectId/netflow-ledger"
@@ -412,7 +416,12 @@ export default function NetflowResults({
               size="sm"
               variant="outline"
               onClick={() =>
-                void navigate({ search: () => ({ history: true }) })
+                void navigate({
+                  search: () => ({
+                    ...comparisonReturnFields(search),
+                    history: true,
+                  }),
+                })
               }
             >
               {t("Browse processing history", "浏览处理历史")}
@@ -518,7 +527,12 @@ export default function NetflowResults({
               <Button
                 variant="outline"
                 onClick={() =>
-                  void navigate({ search: () => ({ history: true }) })
+                  void navigate({
+                    search: () => ({
+                      ...comparisonReturnFields(search),
+                      history: true,
+                    }),
+                  })
                 }
               >
                 {t("Browse processing history", "浏览处理历史")}
@@ -546,6 +560,7 @@ export default function NetflowResults({
                     onClick={() =>
                       void navigate({
                         search: () => ({
+                          ...comparisonReturnFields(search),
                           dataset: row.id,
                           datasetPage: search.datasetPage,
                         }),
@@ -601,6 +616,7 @@ export default function NetflowResults({
                         onClick={() =>
                           void navigate({
                             search: () => ({
+                              ...comparisonReturnFields(search),
                               analysis: row.analysis_id,
                               dataset: row.dataset_id,
                             }),

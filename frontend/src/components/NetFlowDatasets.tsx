@@ -528,7 +528,7 @@ export default function NetFlowDatasets({
       {uploadMutation.data?.projectId === projectId && (
         <a
           className="inline-block text-primary underline"
-          href={`/projects/${projectId}/netflow-correlation?dataset=${uploadMutation.data.dataset.id}`}
+          href={`/?project=${projectId}&view=inputs&processing_dataset=${uploadMutation.data.dataset.id}#netflow-processing`}
         >
           {t(
             "Configure processing context for this upload",

@@ -166,7 +166,7 @@ class CurrentResult(Envelope):
     latest_attempt: AttemptPublic | None = None
 
 
-class OperationPublic(Envelope):
+class ComparisonOperationPublic(Envelope):
     status: Literal["PUBLISHED", "FAILED"]
     result: ResultPublic | None = None
     error_code: str | None = None
@@ -197,6 +197,11 @@ class AddressPage(Envelope):
     skip: int
     limit: int
     total_addresses: int
+
+
+class ComparisonAddressDetail(Envelope):
+    result_id: uuid.UUID
+    address: Address
 
 
 class EvidencePage(Envelope):
@@ -979,12 +984,12 @@ def create(
 
 def operation(
     session: Session, project: Project, actor: User, key: str
-) -> OperationPublic:
+) -> ComparisonOperationPublic:
     identity = operation_result(session, project, actor.id, "comparison:create", key)
     if identity is None:
         deny("comparison_operation_not_found", 404)
     row = _result(session, project, identity)
-    return OperationPublic(
+    return ComparisonOperationPublic(
         project_id=project.id,
         status=cast(Literal["PUBLISHED", "FAILED"], row.status),
         result=_public(session, project, row) if row.status == "PUBLISHED" else None,
@@ -1079,6 +1084,21 @@ def addresses(
         skip=skip,
         limit=limit,
         total_addresses=len(values),
+    )
+
+
+def address_detail(
+    session: Session, project: Project, identity: uuid.UUID, address_key: str
+) -> ComparisonAddressDetail:
+    row = _result(session, project, identity)
+    _loaded, values, comparison = _addresses(session, project, row)
+    value = next((entry for entry in values if entry.address_key == address_key), None)
+    if value is None:
+        deny("comparison_address_not_found", 404)
+    return ComparisonAddressDetail(
+        project_id=project.id,
+        result_id=row.id,
+        address=_address(value, comparison.state == "AVAILABLE"),
     )
 
 

@@ -10,6 +10,7 @@ import {
   type CloudRevisionPublic,
 } from "@/client"
 import AssetViews from "@/components/AssetViews"
+import { ComparisonReturnLink } from "@/components/ComparisonReturnLink"
 import ExternalAssets from "@/components/ExternalAssets"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
@@ -58,6 +59,7 @@ function AssetLedgerEntry() {
   )
   return (
     <div className="min-w-0 space-y-6">
+      <ComparisonReturnLink projectId={projectId} search={search} />
       <AssetViews projectId={projectId} search={search} />
       {!search.asset_error &&
         (search.asset_view === "history" ? (

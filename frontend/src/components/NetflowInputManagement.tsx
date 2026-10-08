@@ -3,7 +3,6 @@ import { Link } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
 import {
   type AnalysisPublic,
-  type ContextPublic,
   NetflowProcessingService,
   ProjectsService,
 } from "@/client"
@@ -23,7 +22,7 @@ export function NetflowInputManagement({
   datasetId,
   onDatasetChange,
   isAdmin,
-  canWrite = isAdmin,
+  canWrite = true,
 }: {
   actor: string
   projectId: string
@@ -58,6 +57,9 @@ export function NetflowInputManagement({
     }
   }, [cache, key])
   const datasets = useQuery({
+    retry: false,
+    staleTime: 0,
+    refetchInterval: 5000,
     queryKey: [...key, "datasets", page],
     enabled: validExplicit,
     queryFn: () =>
@@ -71,26 +73,80 @@ export function NetflowInputManagement({
     ? datasetId
     : (datasets.data?.current_netflow_dataset?.id ??
       datasets.data?.current_netflow_dataset_id)
+  useEffect(() => {
+    if (
+      !explicit &&
+      validExplicit &&
+      selectedId &&
+      datasets.isSuccess &&
+      !datasets.isError
+    )
+      onDatasetChange(selectedId)
+  }, [
+    explicit,
+    validExplicit,
+    selectedId,
+    datasets.isSuccess,
+    datasets.isError,
+    onDatasetChange,
+  ])
+  const fixedDataset = useQuery({
+    retry: false,
+    staleTime: 0,
+    refetchInterval: 5000,
+    queryKey: [...key, "fixed-dataset", selectedId],
+    enabled: validExplicit && Boolean(selectedId) && !datasets.isError,
+    queryFn: async () => {
+      const value = await ProjectsService.readNetflowDatasets({
+        projectId,
+        datasetId: selectedId!,
+        limit: 1,
+      })
+      const row = value.data[0]
+      if (!row || row.id !== selectedId)
+        throw new Error("Dataset identity mismatch")
+      return row
+    },
+  })
   const selected = selectedId
     ? (datasets.data?.data.find((row) => row.id === selectedId) ??
       (datasets.data?.current_netflow_dataset?.id === selectedId
         ? datasets.data.current_netflow_dataset
-        : undefined))
+        : fixedDataset.data))
     : undefined
   const contexts = useQuery({
+    retry: false,
+    staleTime: 0,
+    refetchInterval: 5000,
     queryKey: [...key, "contexts", selectedId],
-    enabled: validExplicit && Boolean(selectedId),
-    queryFn: () =>
-      NetflowProcessingService.readContexts({
+    enabled:
+      validExplicit &&
+      Boolean(selectedId) &&
+      fixedDataset.isSuccess &&
+      !fixedDataset.isError,
+    queryFn: async () => {
+      const value = await NetflowProcessingService.readContexts({
         projectId,
         datasetId: selectedId!,
-        limit: SIZE,
-      }),
+        limit: 1,
+      })
+      if (value.project_id !== projectId || value.dataset_id !== selectedId)
+        throw new Error("Context identity mismatch")
+      return value
+    },
   })
   const currentId = contexts.data?.data[0]?.current_context_revision_id
   const currentContext = useQuery({
+    retry: false,
+    staleTime: 0,
+    refetchInterval: 5000,
     queryKey: [...key, "context", selectedId, currentId],
-    enabled: Boolean(selectedId && currentId),
+    enabled:
+      validExplicit &&
+      Boolean(selectedId && currentId) &&
+      !contexts.isError &&
+      !datasets.isError &&
+      !fixedDataset.isError,
     queryFn: async () => {
       const value = await NetflowProcessingService.readContexts({
         projectId,
@@ -99,28 +155,51 @@ export function NetflowInputManagement({
         limit: 1,
       })
       const row = value.data[0]
-      if (!row || row.context_revision_id !== currentId)
+      if (
+        !row ||
+        row.context_revision_id !== currentId ||
+        row.project_id !== projectId ||
+        row.dataset_id !== selectedId
+      )
         throw new Error("Context identity mismatch")
       return row
     },
   })
   const analyses = useQuery({
+    retry: false,
+    staleTime: 0,
+    refetchInterval: 5000,
     queryKey: [...key, "analyses", selectedId, analysisPage],
-    enabled: Boolean(selectedId),
-    queryFn: () =>
-      NetflowProcessingService.readAnalyses({
+    enabled:
+      validExplicit &&
+      Boolean(selectedId) &&
+      fixedDataset.isSuccess &&
+      !fixedDataset.isError &&
+      !datasets.isError,
+    queryFn: async () => {
+      const value = await NetflowProcessingService.readAnalyses({
         projectId,
         datasetId: selectedId!,
         skip: analysisPage * SIZE,
         limit: SIZE,
-      }),
+      })
+      if (value.project_id !== projectId || value.dataset_id !== selectedId)
+        throw new Error("Analysis directory identity mismatch")
+      return value
+    },
   })
   const refresh = () => {
     void cache.invalidateQueries({ queryKey: [...key, "contexts"] })
     void cache.invalidateQueries({ queryKey: [...key, "context"] })
     void cache.invalidateQueries({ queryKey: [...key, "analyses"] })
   }
-  const current = currentContext.data
+  const failed =
+    datasets.isError ||
+    fixedDataset.isError ||
+    contexts.isError ||
+    currentContext.isError
+  const allowed = canWrite && !!datasets.data?.can_select && !failed
+  const current = failed ? undefined : currentContext.data
   const actionAnalysis =
     selectedAnalysis &&
     selectedAnalysis.context_revision_id === current?.context_revision_id
@@ -133,6 +212,15 @@ export function NetflowInputManagement({
           "The selected NetFlow upload is invalid.",
           "所选 NetFlow 上传无效。",
         )}{" "}
+      </p>
+    )
+  if (failed)
+    return (
+      <p role="alert">
+        {t(
+          "The selected processing input cannot be read. No other file or context was substituted.",
+          "所选处理资料不可读，未替换为其他文件或上下文。",
+        )}
       </p>
     )
   return (
@@ -204,25 +292,35 @@ export function NetflowInputManagement({
             </p>
           ) : null}
           <NetflowContextForm
+            key={`${selectedId}:${current?.context_revision_id ?? "new"}`}
             actor={actor}
             projectId={projectId}
             datasetId={selectedId}
-            current={current as ContextPublic | undefined}
+            current={current}
             currentResolved={
-              !contexts.isPending && (!currentId || currentContext.isSuccess)
+              contexts.isSuccess &&
+              !contexts.isError &&
+              (!currentId ||
+                (currentContext.isSuccess && !currentContext.isError))
             }
-            isAdmin={isAdmin && canWrite}
+            isAdmin={isAdmin && allowed}
             onCreated={() => refresh()}
             onRefresh={refresh}
           />
           {current?.state === "CONFIRMED" && (
             <NetflowAnalysisActions
+              key={`${selectedId}:${current.context_revision_id}:${actionAnalysis?.analysis_id ?? "new"}`}
               actor={actor}
               projectId={projectId}
               datasetId={selectedId}
               contextId={current.context_revision_id}
               analysis={actionAnalysis}
-              canWrite={canWrite}
+              canWrite={
+                allowed &&
+                (!selectedAnalysis ||
+                  selectedAnalysis.context_revision_id ===
+                    current.context_revision_id)
+              }
               onAnalysis={(value) => {
                 setSelectedAnalysis(value)
                 refresh()
@@ -241,39 +339,40 @@ export function NetflowInputManagement({
                 )}
               </p>
             ) : null}
-            {analyses.data?.data.map((row) => (
-              <div
-                key={row.analysis_id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm"
-              >
-                <span>
-                  {netflowText(row.status, t)} ·{" "}
-                  {formatDate(row.completed_at ?? row.created_at)}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelectedAnalysis(row)}
-                  >
-                    {t("Select", "选择")}
-                  </Button>
-                  {row.pipeline_complete && row.can_read_result && (
-                    <Link
-                      className="underline"
-                      to="/projects/$projectId/netflow-results"
-                      params={{ projectId }}
-                      search={{
-                        analysis: row.analysis_id,
-                        dataset: row.dataset_id,
-                      }}
+            {!analyses.isError &&
+              analyses.data?.data.map((row) => (
+                <div
+                  key={row.analysis_id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm"
+                >
+                  <span>
+                    {netflowText(row.status, t)} ·{" "}
+                    {formatDate(row.completed_at ?? row.created_at)}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedAnalysis(row)}
                     >
-                      {t("Read result", "查看结果")}
-                    </Link>
-                  )}
+                      {t("Select", "选择")}
+                    </Button>
+                    {row.pipeline_complete && row.can_read_result && (
+                      <Link
+                        className="underline"
+                        to="/projects/$projectId/netflow-results"
+                        params={{ projectId }}
+                        search={{
+                          analysis: row.analysis_id,
+                          dataset: row.dataset_id,
+                        }}
+                      >
+                        {t("Read result", "查看结果")}
+                      </Link>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
             <ResultPagination
               label={t("Processing history", "处理历史")}
               count={analyses.data?.count ?? 0}

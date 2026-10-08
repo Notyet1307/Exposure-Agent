@@ -1,3 +1,8 @@
+import {
+  type ComparisonReturn,
+  comparisonReturnFields,
+} from "@/lib/comparisonReturn"
+
 // Decide from explicit query keys, before either view injects pagination defaults.
 const historyKeys = [
   "cloud_source",
@@ -80,6 +85,7 @@ const number = (value: unknown) =>
 
 export function historicalAssetSearch(s: Record<string, unknown>) {
   return {
+    ...comparisonReturnFields(s),
     asset_view: "history" as const,
     cloud_source: text(s.cloud_source),
     cloud_snapshot: text(s.cloud_snapshot),
@@ -97,6 +103,7 @@ export function historicalAssetSearch(s: Record<string, unknown>) {
 
 export function syncedAssetSearch(s: Record<string, unknown>) {
   return {
+    ...comparisonReturnFields(s),
     asset_view: "synced" as const,
     external_source: text(s.external_source) || undefined,
     external_domain: externalDomain(s.external_domain) ?? "ip",
@@ -128,7 +135,7 @@ export function syncedAssetSearch(s: Record<string, unknown>) {
   }
 }
 
-export type AssetSearch = {
+export type AssetSearch = ComparisonReturn & {
   cloud_source?: string
   cloud_snapshot?: string
   cloud_revision?: number

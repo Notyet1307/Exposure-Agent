@@ -121,10 +121,10 @@ def create(
     )
 
 
-@router.get("/operations/{key}", response_model=service.OperationPublic)
+@router.get("/operations/{key}", response_model=service.ComparisonOperationPublic)
 def operation(
     *, session: SessionDep, current_user: CurrentUser, project_id: uuid.UUID, key: str
-) -> service.OperationPublic:
+) -> service.ComparisonOperationPublic:
     return service.operation(
         session, project_for(session, current_user, project_id), current_user, key
     )
@@ -178,6 +178,23 @@ def addresses(
         skip,
         limit,
         sort,
+    )
+
+
+@router.get(
+    "/{result_id}/addresses/{address_key}",
+    response_model=service.ComparisonAddressDetail,
+)
+def address_detail(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    result_id: uuid.UUID,
+    address_key: str,
+) -> service.ComparisonAddressDetail:
+    return service.address_detail(
+        session, project_for(session, current_user, project_id), result_id, address_key
     )
 
 

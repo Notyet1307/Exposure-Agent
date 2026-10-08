@@ -697,3 +697,37 @@ def test_invalid_database_text_is_rejected_before_an_intent(
     )
     assert result.status_code == 422
     assert read(client, setup_ledger)["revision_id"] == first["revision_id"]
+
+
+def test_replacement_cannot_reset_current_manual_revision(
+    client: TestClient, setup_ledger: LedgerSetup
+) -> None:
+    first = read(client, setup_ledger)
+    changed = post(
+        client,
+        setup_ledger,
+        edit(first, operation="manage", fields={}, management={"tags": ["retain-me"]}),
+    )
+    assert changed.status_code == 201, changed.text
+    current = read(client, setup_ledger)
+    root, headers, *_ = setup_ledger
+    body = {
+        "candidate_upload_id": current["current_upload_id"],
+        "expected_upload_id": current["current_upload_id"],
+        "expected_revision_id": current["current_revision_id"],
+        "expected_profile_id": current["current_profile_id"],
+    }
+    for suffix in [
+        "/customer-ledger/replacements/preview",
+        "/customer-ledger/replacements",
+    ]:
+        rejected = client.post(
+            root + suffix,
+            headers=headers | {"Idempotency-Key": "same-current-upload"},
+            json=body,
+        )
+        assert rejected.status_code == 422, rejected.text
+        assert rejected.json()["detail"]["code"] == "ledger_replacement_same_upload"
+    after = read(client, setup_ledger)
+    assert after["current_revision_id"] == current["current_revision_id"]
+    assert after["data"] == current["data"]

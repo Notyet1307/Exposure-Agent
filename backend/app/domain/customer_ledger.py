@@ -367,6 +367,8 @@ def _replacement_rows(
         or request.expected_revision_id != project.current_customer_ledger_revision_id
     ):
         raise LedgerError("ledger_version_conflict")
+    if request.candidate_upload_id == request.expected_upload_id:
+        raise LedgerError("ledger_replacement_same_upload", 422)
     candidate = _upload(session, project, request.candidate_upload_id)
     if candidate.profile_id != request.expected_profile_id:
         raise LedgerError("ledger_profile_changed")

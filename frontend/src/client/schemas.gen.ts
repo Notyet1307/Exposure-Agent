@@ -1835,6 +1835,78 @@ export const ComparisonSchema = {
     title: 'Comparison'
 } as const;
 
+export const ComparisonAddressDetailSchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'core-comparison-v2',
+            title: 'Contract Version',
+            default: 'core-comparison-v2'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        result_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Result Id'
+        },
+        address: {
+            '$ref': '#/components/schemas/Address'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'result_id', 'address'],
+    title: 'ComparisonAddressDetail'
+} as const;
+
+export const ComparisonOperationPublicSchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'core-comparison-v2',
+            title: 'Contract Version',
+            default: 'core-comparison-v2'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        status: {
+            type: 'string',
+            enum: ['PUBLISHED', 'FAILED'],
+            title: 'Status'
+        },
+        result: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/ResultPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        error_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Code'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'status'],
+    title: 'ComparisonOperationPublic'
+} as const;
+
 export const ComparisonOverviewSchema = {
     properties: {
         state: {
@@ -2009,7 +2081,7 @@ export const ConfirmationPublicSchema = {
 export const ConnectionActionPublicSchema = {
     properties: {
         operation: {
-            '$ref': '#/components/schemas/app__domain__model_connections__OperationPublic'
+            '$ref': '#/components/schemas/OperationPublic'
         },
         state: {
             '$ref': '#/components/schemas/ConnectionStatePublic'
@@ -8141,6 +8213,76 @@ export const ObservationPointSchema = {
     title: 'ObservationPoint'
 } as const;
 
+export const OperationPublicSchema = {
+    properties: {
+        expected_generation: {
+            type: 'integer',
+            title: 'Expected Generation'
+        },
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        connection_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Connection Id'
+        },
+        action: {
+            type: 'string',
+            title: 'Action'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        error_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Code'
+        },
+        evidence: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Evidence'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        }
+    },
+    type: 'object',
+    required: ['expected_generation', 'id', 'connection_id', 'action', 'status', 'error_code', 'evidence', 'created_at', 'completed_at'],
+    title: 'OperationPublic'
+} as const;
+
 export const PageSchema = {
     properties: {
         project_id: {
@@ -11166,51 +11308,6 @@ export const app__domain__comparison_results__EvidencePageSchema = {
     title: 'EvidencePage'
 } as const;
 
-export const app__domain__comparison_results__OperationPublicSchema = {
-    properties: {
-        contract_version: {
-            type: 'string',
-            const: 'core-comparison-v2',
-            title: 'Contract Version',
-            default: 'core-comparison-v2'
-        },
-        project_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Project Id'
-        },
-        status: {
-            type: 'string',
-            enum: ['PUBLISHED', 'FAILED'],
-            title: 'Status'
-        },
-        result: {
-            anyOf: [
-                {
-                    '$ref': '#/components/schemas/ResultPublic'
-                },
-                {
-                    type: 'null'
-                }
-            ]
-        },
-        error_code: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Error Code'
-        }
-    },
-    type: 'object',
-    required: ['project_id', 'status'],
-    title: 'OperationPublic'
-} as const;
-
 export const app__domain__customer_ledger__RevisionPublicSchema = {
     properties: {
         id: {
@@ -11262,76 +11359,6 @@ export const app__domain__customer_ledger__RevisionPublicSchema = {
     type: 'object',
     required: ['id', 'parent_revision_id', 'base_upload_id', 'upload_id', 'created_by', 'created_at', 'reason', 'input_changed'],
     title: 'RevisionPublic'
-} as const;
-
-export const app__domain__model_connections__OperationPublicSchema = {
-    properties: {
-        expected_generation: {
-            type: 'integer',
-            title: 'Expected Generation'
-        },
-        id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Id'
-        },
-        connection_id: {
-            type: 'string',
-            format: 'uuid',
-            title: 'Connection Id'
-        },
-        action: {
-            type: 'string',
-            title: 'Action'
-        },
-        status: {
-            type: 'string',
-            title: 'Status'
-        },
-        error_code: {
-            anyOf: [
-                {
-                    type: 'string'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Error Code'
-        },
-        evidence: {
-            anyOf: [
-                {
-                    additionalProperties: true,
-                    type: 'object'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Evidence'
-        },
-        created_at: {
-            type: 'string',
-            format: 'date-time',
-            title: 'Created At'
-        },
-        completed_at: {
-            anyOf: [
-                {
-                    type: 'string',
-                    format: 'date-time'
-                },
-                {
-                    type: 'null'
-                }
-            ],
-            title: 'Completed At'
-        }
-    },
-    type: 'object',
-    required: ['expected_generation', 'id', 'connection_id', 'action', 'status', 'error_code', 'evidence', 'created_at', 'completed_at'],
-    title: 'OperationPublic'
 } as const;
 
 export const app__domain__netflow_ledger__RevisionPublicSchema = {

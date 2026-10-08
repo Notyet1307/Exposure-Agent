@@ -3,6 +3,7 @@ import NetflowResults, {
   type NetflowResultsSearch,
 } from "@/components/NetflowResults"
 import useAuth from "@/hooks/useAuth"
+import { comparisonReturnFields } from "@/lib/comparisonReturn"
 
 export const Route = createFileRoute(
   "/_layout/projects/$projectId/netflow-results",
@@ -41,6 +42,7 @@ export const Route = createFileRoute(
     )
       invalid = true
     const result: NetflowResultsSearch = {
+      ...comparisonReturnFields(search),
       analysis: id("analysis"),
       dataset: id("dataset"),
       collectionScope: text("collectionScope"),

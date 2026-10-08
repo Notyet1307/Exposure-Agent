@@ -213,16 +213,6 @@ export type app__domain__comparison_results__EvidencePage = {
 
 export type source = 'customer' | 'cloud';
 
-export type app__domain__comparison_results__OperationPublic = {
-    contract_version?: "core-comparison-v2";
-    project_id: string;
-    status: 'PUBLISHED' | 'FAILED';
-    result?: (ResultPublic | null);
-    error_code?: (string | null);
-};
-
-export type status3 = 'PUBLISHED' | 'FAILED';
-
 export type app__domain__customer_ledger__RevisionPublic = {
     id: string;
     parent_revision_id: (string | null);
@@ -232,20 +222,6 @@ export type app__domain__customer_ledger__RevisionPublic = {
     created_at: string;
     reason: string;
     input_changed: boolean;
-};
-
-export type app__domain__model_connections__OperationPublic = {
-    expected_generation: number;
-    id: string;
-    connection_id: string;
-    action: string;
-    status: string;
-    error_code: (string | null);
-    evidence: ({
-    [key: string]: unknown;
-} | null);
-    created_at: string;
-    completed_at: (string | null);
 };
 
 export type app__domain__netflow_ledger__RevisionPublic = {
@@ -552,6 +528,23 @@ export type port_relation = 'IN_RANGE' | 'OUT_OF_RANGE' | 'EQUAL' | 'DIFFERENT' 
 
 export type time_relation = 'OVERLAP' | 'DISJOINT' | 'UNKNOWN';
 
+export type ComparisonAddressDetail = {
+    contract_version?: "core-comparison-v2";
+    project_id: string;
+    result_id: string;
+    address: Address;
+};
+
+export type ComparisonOperationPublic = {
+    contract_version?: "core-comparison-v2";
+    project_id: string;
+    status: 'PUBLISHED' | 'FAILED';
+    result?: (ResultPublic | null);
+    error_code?: (string | null);
+};
+
+export type status3 = 'PUBLISHED' | 'FAILED';
+
 export type ComparisonOverview = {
     state: 'AVAILABLE' | 'SCOPE_UNCONFIRMED' | 'SOURCES_UNAVAILABLE' | 'INSUFFICIENT_COVERAGE' | 'INSUFFICIENT_SOURCES';
     sources: Array<('CUSTOMER' | 'CLOUD' | 'NETFLOW')>;
@@ -588,7 +581,7 @@ export type ConfirmScope = {
 };
 
 export type ConnectionActionPublic = {
-    operation: app__domain__model_connections__OperationPublic;
+    operation: OperationPublic;
     state: ConnectionStatePublic;
 };
 
@@ -1832,6 +1825,20 @@ export type ObservationPoint = {
 
 export type view2 = 'PUBLIC_EDGE' | 'INTERNAL' | 'UNKNOWN';
 
+export type OperationPublic = {
+    expected_generation: number;
+    id: string;
+    connection_id: string;
+    action: string;
+    status: string;
+    error_code: (string | null);
+    evidence: ({
+    [key: string]: unknown;
+} | null);
+    created_at: string;
+    completed_at: (string | null);
+};
+
 export type Page = {
     project_id: string;
     dataset_id?: (string | null);
@@ -2672,7 +2679,7 @@ export type ComparisonResultsOperationData = {
     projectId: string;
 };
 
-export type ComparisonResultsOperationResponse = (app__domain__comparison_results__OperationPublic);
+export type ComparisonResultsOperationResponse = (ComparisonOperationPublic);
 
 export type ComparisonResultsSummaryData = {
     projectId: string;
@@ -2699,6 +2706,14 @@ export type ComparisonResultsAddressesData = {
 };
 
 export type ComparisonResultsAddressesResponse = (app__domain__comparison_results__AddressPage);
+
+export type ComparisonResultsAddressDetailData = {
+    addressKey: string;
+    projectId: string;
+    resultId: string;
+};
+
+export type ComparisonResultsAddressDetailResponse = (ComparisonAddressDetail);
 
 export type ComparisonResultsEvidenceData = {
     addressKey: string;

@@ -31,10 +31,12 @@ from app.domain.models import (
     AuditEvent,
     CustomerUpload,
     CustomerUploadProfile,
+    CustomerUploadReplacement,
     GovernanceRun,
     Project,
     SourceSnapshot,
 )
+from app.domain.netflow_models import SourceCorrelationRevision
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MAX_MULTIPART_OVERHEAD_BYTES = 64 * 1024
@@ -384,7 +386,21 @@ def delete_customer_upload(
         )
         .limit(1)
     ).first()
-    if has_governance_reference is not None or has_snapshot_reference is not None:
+    has_correlation_reference = session.exec(
+        select(SourceCorrelationRevision.id).where(
+            SourceCorrelationRevision.project_id == project.id,
+            SourceCorrelationRevision.tenant_id == project.tenant_id,
+            SourceCorrelationRevision.selection["customer"]["upload_id"].astext == str(upload.id),
+        ).limit(1)
+    ).first()
+    has_replacement_reference = session.exec(
+        select(CustomerUploadReplacement.id).where(
+            CustomerUploadReplacement.project_id == project.id,
+            CustomerUploadReplacement.tenant_id == project.tenant_id,
+            (CustomerUploadReplacement.candidate_upload_id == upload.id) | (CustomerUploadReplacement.expected_upload_id == upload.id),
+        ).limit(1)
+    ).first()
+    if any(reference is not None for reference in (has_governance_reference, has_snapshot_reference, has_correlation_reference, has_replacement_reference)):
         raise CustomerUploadDeletionError("customer_upload_in_use")
 
     artifact = session.exec(

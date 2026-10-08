@@ -19,6 +19,7 @@ export default function ProjectPreparation({
       "customer-inputs",
       "cloudatlas-inputs",
       "netflow-inputs",
+      "netflow-processing",
     ].includes(id)
       ? document.getElementById(id)
       : heading.current

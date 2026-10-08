@@ -36,6 +36,7 @@ export type WorkspaceSearch = {
   resource_id?: string
   upload_page?: number
   netflow_page?: number
+  processing_dataset?: string
   assets_page?: number
   asset_id?: string
   asset_page?: number
@@ -82,6 +83,10 @@ export function validateWorkspaceSearch(
           : "",
     upload_page: pageNumber(search.upload_page, 10),
     netflow_page: pageNumber(search.netflow_page, 10),
+    processing_dataset:
+      typeof search.processing_dataset === "string"
+        ? search.processing_dataset
+        : undefined,
     assets_page: pageNumber(search.assets_page, 25),
     asset_id: typeof search.asset_id === "string" ? search.asset_id : undefined,
     asset_page: pageNumber(search.asset_page, 25),

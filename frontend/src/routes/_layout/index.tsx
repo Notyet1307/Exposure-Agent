@@ -21,6 +21,7 @@ import GovernanceReports from "@/components/GovernanceReports"
 import GovernanceRuns from "@/components/GovernanceRuns"
 import IPAssets from "@/components/IPAssets"
 import NetFlowDatasets from "@/components/NetFlowDatasets"
+import { NetflowInputManagement } from "@/components/NetflowInputManagement"
 import ProjectPreparation from "@/components/ProjectPreparation"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -924,6 +925,7 @@ function ProjectInputs({
 function Dashboard() {
   const { t } = useI18n()
   const { user } = useAuth()
+  const navigate = useWorkspaceNavigate()
   const {
     search,
     projectId,
@@ -1085,6 +1087,30 @@ function Dashboard() {
               projectId={project.id}
               archived={project.archived_at !== null}
             />
+            <div
+              id="netflow-processing"
+              tabIndex={-1}
+              className="mt-5 scroll-mt-32"
+            >
+              <NetflowInputManagement
+                key={`${user.id}:${project.id}:${search.processing_dataset ?? "current"}`}
+                actor={user.id}
+                projectId={project.id}
+                datasetId={search.processing_dataset}
+                isAdmin={!!user.is_superuser}
+                canWrite={!project.archived_at}
+                onDatasetChange={(id) => {
+                  void navigate({
+                    search: (previous) => ({
+                      ...previous,
+                      processing_dataset: id,
+                    }),
+                    hash: "netflow-processing",
+                    replace: true,
+                  })
+                }}
+              />
+            </div>
           </div>
         </>
       )

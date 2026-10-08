@@ -161,3 +161,305 @@ test("customer replacement uses the real preview, preserves old versions and rec
   ).toBeVisible()
   expect(writes).toEqual([])
 })
+
+test("real C+A result stays fixed across browsing, optional evidence and expiry", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(180_000)
+  page.setDefaultTimeout(15_000)
+  const { readFile } = await import("node:fs/promises")
+  const { execFileSync } = await import("node:child_process")
+  const repo = path.resolve(fileURLToPath(new URL("../..", import.meta.url)))
+  const seed = (stage: string) =>
+    execFileSync(
+      "python3",
+      [
+        "../evidence/run-browser.py",
+        "backend",
+        "uv",
+        "run",
+        "python",
+        "../scripts/seed-product-logic-acceptance.py",
+        stage,
+      ],
+      { cwd: repo, stdio: "pipe" },
+    )
+  seed("core")
+  let fixture = JSON.parse(
+    await readFile(process.env.PRODUCT_LOGIC_FIXTURE!, "utf8"),
+  )
+  const login = await request.post(`${api}/api/v1/login/access-token`, {
+    form: {
+      username: process.env.FIRST_SUPERUSER!,
+      password: process.env.FIRST_SUPERUSER_PASSWORD!,
+    },
+  })
+  expect(login.ok()).toBeTruthy()
+  const token = (await login.json()).access_token as string
+  const headers = { Authorization: `Bearer ${token}` }
+  const root = `${api}/api/v1/projects/${fixture.project_id}`
+  const route = `/projects/${fixture.project_id}/netflow-correlation`
+  await page.addInitScript(
+    (value) => localStorage.setItem("access_token", value),
+    token,
+  )
+  await page.goto(route)
+  await expect(
+    page.getByRole("heading", {
+      name: "No readable comparison has been generated",
+    }),
+  ).toBeVisible()
+  await page
+    .getByRole("button", { name: "Generate comparison results", exact: true })
+    .click()
+  await page
+    .getByLabel("Confirmed network namespace", { exact: true })
+    .fill(fixture.namespace)
+  await page
+    .getByLabel("Same-space confirmation evidence", { exact: true })
+    .fill(
+      "Synthetic customer and CloudAtlas scope confirmed for the same test network",
+    )
+  const generated = page.waitForResponse(
+    (r) =>
+      r.request().method() === "POST" &&
+      new URL(r.url()).pathname ===
+        `/api/v1/projects/${fixture.project_id}/comparison-results`,
+  )
+  await page
+    .getByRole("button", { name: "Confirm and generate results", exact: true })
+    .click()
+  const created = await generated
+  expect(created.status(), await created.text()).toBe(201)
+  const result = await created.json()
+  await expect(page).toHaveURL(new RegExp(`result=${result.id}`))
+  const summary = async () => {
+    const response = await request.get(
+      `${root}/comparison-results/${result.id}/summary`,
+      { headers },
+    )
+    expect(response.ok()).toBeTruthy()
+    return response.json()
+  }
+  const initial = await summary()
+  expect(initial).toMatchObject(fixture.expected)
+  expect(initial.selection.netflow).toBeNull()
+  const rows = page.getByRole("table", {
+    name: "Comparison addresses",
+    exact: true,
+  })
+  await expect(rows).toBeVisible()
+  await expect(rows.getByRole("row")).toHaveCount(26)
+  const writes: string[] = []
+  const observe = (req: import("@playwright/test").Request) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(req.method()))
+      writes.push(`${req.method()} ${new URL(req.url()).pathname}`)
+  }
+  page.on("request", observe)
+  await page
+    .getByRole("navigation", { name: "Comparison addresses pagination" })
+    .getByRole("button", { name: "Next" })
+    .click()
+  await expect(page).toHaveURL(/core_page=1/)
+  await page
+    .locator("summary")
+    .filter({ hasText: "View the materials used here" })
+    .click()
+  await page
+    .getByRole("link", {
+      name: "Read the customer version used here",
+      exact: true,
+    })
+    .click()
+  await expect(page).toHaveURL(
+    new RegExp(`ledger_upload=${fixture.customer_upload_id}`),
+  )
+  await expect(
+    page.getByRole("heading", { name: "Customer asset ledger", exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole("link", { name: "Return to comparison results", exact: true })
+    .click()
+  await expect(page).toHaveURL(new RegExp(`result=${result.id}`))
+  await expect(page).toHaveURL(/core_page=1/)
+  await page
+    .locator("summary")
+    .filter({ hasText: "View the materials used here" })
+    .click()
+  await page
+    .getByRole("link", {
+      name: "Read the CloudAtlas version used here",
+      exact: true,
+    })
+    .click()
+  await expect(page).toHaveURL(
+    new RegExp(`external_version=${fixture.cloud_version_id}`),
+  )
+  await page
+    .getByRole("link", { name: "Return to comparison results", exact: true })
+    .click()
+  await expect(page).toHaveURL(/core_page=1/)
+  await page.getByLabel("IP address", { exact: true }).fill("192.0.2.20")
+  await page.getByRole("button", { name: "Filter", exact: true }).click()
+  await expect(rows.getByRole("row")).toHaveCount(2)
+  await rows.getByRole("button", { name: "View evidence", exact: true }).click()
+  const detail = page.getByRole("region", {
+    name: "Fixed address evidence",
+    exact: true,
+  })
+  await expect(detail).toBeVisible()
+  await expect(
+    detail.getByText("Customer records 2", { exact: false }),
+  ).toBeVisible()
+  const fixedUrl = page.url()
+  await page
+    .getByRole("button", { name: "Close evidence", exact: true })
+    .click()
+  await page.getByRole("button", { name: "Clear filters", exact: true }).click()
+  for (const name of [
+    "Recorded on both sides",
+    "CloudAtlas record, not registered in this customer version",
+    "Customer record, not observed in this CloudAtlas batch",
+  ]) {
+    await page.getByRole("button", { name: new RegExp(`^${name}`) }).click()
+    await expect(rows).toBeVisible()
+  }
+  await page.getByRole("button", { name: /^All addresses/ }).click()
+  await page.getByRole("button", { name: "Refresh page", exact: true }).click()
+  await page.goto(route)
+  await expect(page).toHaveURL(new RegExp(`result=${result.id}`))
+  await expect(rows).toBeVisible()
+  expect(writes).toEqual([])
+  page.off("request", observe)
+
+  // Initialization is outside the read-only browsing observation window.
+  seed("netflow")
+  fixture = JSON.parse(
+    await readFile(process.env.PRODUCT_LOGIC_FIXTURE!, "utf8"),
+  )
+  await page.goto(`/projects/${fixture.project_id}/netflow-results`)
+  await expect(page).toHaveURL(new RegExp(`analysis=${fixture.analysis_id}`))
+  await expect(
+    page.getByLabel("Observation objects", { exact: true }),
+  ).toHaveText("2")
+  await expect(page.getByText("192.0.2.40", { exact: true })).toBeVisible()
+  const evidence = process.env.PRODUCT_LOGIC_EVIDENCE!
+  await mkdir(evidence, { recursive: true })
+  await page.setViewportSize({ width: 1366, height: 950 })
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await page.screenshot({
+    path: path.join(evidence, "netflow-en-1366.png"),
+    fullPage: true,
+  })
+  await page.goto(route)
+  await expect(rows).toBeVisible()
+  await page
+    .getByRole("button", { name: "Attach existing observations", exact: true })
+    .click()
+  const cutoff = new Date(Date.now() + 20_000)
+  const local = new Date(cutoff.getTime() - cutoff.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 19)
+  await page
+    .getByLabel("Evidence valid until (local time)", { exact: true })
+    .fill(local)
+  await page
+    .getByLabel("Same-space evidence for this result and these observations", {
+      exact: true,
+    })
+    .fill("Synthetic same network and explicit short evidence cutoff")
+  const bindReply = page.waitForResponse(
+    (r) =>
+      r.request().method() === "POST" &&
+      new URL(r.url()).pathname ===
+        `/api/v1/projects/${fixture.project_id}/comparison-results/${result.id}/supplements`,
+  )
+  await page
+    .getByRole("button", { name: "Confirm evidence binding", exact: true })
+    .click()
+  expect((await bindReply).status()).toBe(201)
+  const leads = page.getByRole("table", {
+    name: "Supplemental leads",
+    exact: true,
+  })
+  await expect(leads.getByText("192.0.2.40", { exact: true })).toBeVisible()
+  expect(await summary()).toMatchObject(fixture.expected)
+  const boundUrl = page.url()
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await page.screenshot({
+    path: path.join(evidence, "comparison-with-evidence-en-1366.png"),
+    fullPage: true,
+  })
+  await expect(
+    page.getByText("Evidence expired", { exact: true }).first(),
+  ).toBeVisible({ timeout: 30_000 })
+  await expect(leads).toHaveCount(0)
+  await expect(rows.getByText("192.0.2.40", { exact: true })).toHaveCount(0)
+  expect(await summary()).toMatchObject(fixture.expected)
+  await page.reload()
+  await expect(rows).toBeVisible()
+  await expect(leads).toHaveCount(0)
+  await expect(page).toHaveURL(boundUrl)
+
+  for (const [width, language, theme] of [
+    [1366, "en", "light"],
+    [1920, "zh-CN", "dark"],
+    [390, "zh-CN", "light"],
+  ] as const) {
+    await page.setViewportSize({ width: 1366, height: 950 })
+    await page
+      .getByRole("combobox", { name: "Language / 语言" })
+      .selectOption(language)
+    await page.getByTestId("theme-button").click()
+    await page.getByTestId(`${theme}-mode`).click()
+    await page.setViewportSize({ width, height: 950 })
+    await page.evaluate(() => window.scrollTo(0, 0))
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false)
+    await page.screenshot({
+      path: path.join(evidence, `comparison-${width}-${language}-${theme}.png`),
+      fullPage: true,
+    })
+  }
+  await page.setViewportSize({ width: 1366, height: 950 })
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("en")
+  await page.goto(fixedUrl)
+  await expect(detail).toBeVisible()
+  await page.screenshot({
+    path: path.join(evidence, "fixed-evidence-en-1366.png"),
+    fullPage: true,
+  })
+  await page
+    .getByRole("button", { name: "Close evidence", exact: true })
+    .focus()
+  await page.keyboard.press("Enter")
+  await expect(detail).toHaveCount(0)
+  await page.route(
+    `**/api/v1/projects/${fixture.project_id}/comparison-results/current`,
+    (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          detail: { code: "temporary_metadata_failure" },
+        }),
+      }),
+  )
+  await page.goto(route)
+  await expect(
+    page.getByText("Current result metadata could not be read.", {
+      exact: false,
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("heading", {
+      name: "No readable comparison has been generated",
+    }),
+  ).toHaveCount(0)
+})
