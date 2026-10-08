@@ -1,6 +1,6 @@
 # 当前工作
 
-- 2026-10-08 产品使用逻辑收敛的本轮候选入口：[阶段 A 接管、差距与交付回执](product-logic-convergence-20261008.md)。[V2 Spec](../specs/product-logic-convergence-v2.md) 与 [ADR-0024](../adr/0024-core-comparison-and-optional-netflow-evidence.md) 仍为候选，尚无新正式 Issue；不能据此替代下方已固定 V1。客户清单替换仍归 [#285](https://github.com/Notyet1307/Exposure-Agent/issues/285)，#287 不纳入。以下导航记录为已交付前序，当前状态和授权以各自 GitHub Issue 为准。
+- 2026-10-08 产品使用逻辑收敛入口：[阶段 A 接管、差距与交付回执](product-logic-convergence-20261008.md)。维护者已批准 [V2 Spec](../specs/product-logic-convergence-v2.md)、[ADR-0024](../adr/0024-core-comparison-and-optional-netflow-evidence.md) 及仅规格文档发布/固定版本建单；新正式 Issue 待正常文档合并后建立。客户替换仍归 [#285](https://github.com/Notyet1307/Exposure-Agent/issues/285)，#287 不纳入。新V2不改下方旧V1历史含义。以下导航记录为已交付前序，当前状态和授权以各自 GitHub Issue 为准。
 
 - 当前本地跟进为维护者 2026-10-07 提出的应用导航精简与固定比对刷新问题，分支 `codex/navigation-refresh-fix`，基于 `e8bbdc01b54b28719ddeb707ad7fd20bbb3ad3d3`。范围、复现、验证和发布边界见 [本地候选记录](navigation-refresh-validation.md)。维护者于 2026-10-08 明确授权建单、push/PR、必需 CI 通过后合并及 8081 前端部署；正式跟踪为 [#289](https://github.com/Notyet1307/Exposure-Agent/issues/289)。远端验收状态以该 Issue 为准。
 - 既有交付为 [源码 PR #288](https://github.com/Notyet1307/Exposure-Agent/pull/288)；[#284](https://github.com/Notyet1307/Exposure-Agent/issues/284) 与 [#286](https://github.com/Notyet1307/Exposure-Agent/issues/286) 已在合并和 8081 部署验收后关闭。任务状态、依赖及授权仍以 GitHub 为准。本地后续候选不得冒称已由该 PR 发布。

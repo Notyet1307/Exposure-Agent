@@ -1,12 +1,12 @@
 # 产品使用逻辑收敛 V2：两源核心结果与独立流量辅证
 
-状态：**候选，待维护者批准并由正式 Issue 固定 commit**。2026-10-08 的实施请求与《Exposure 产品逻辑收敛：Codex 完整执行 Prompt》是需求输入，不把本文件或新的 ADR 标为已批准。本文件不授予远端发布、部署、真实来源/模型调用、生产迁移、清理或关闭权限。
+状态：**已批准，正式实施 Issue 待文档发布后固定 commit**。维护者于 2026-10-08 明确批准本地候选 `554e80e8ce172f6b208e2dae85deeec7daf17816` 的本 Spec、ADR-0024 与任务拆分（包含新辅证绑定显式截止），授权仅规格文档 push/PR、必需 CI/Review 后 merge 和建立引用固定 commit 的新实施 Issue。该确认不含业务源码 push/PR/merge、部署、真实来源/模型调用、生产迁移、清理或关闭权限。
 
 核验基线：`6c0f9f78a85f3162c3b128ca48fbc59184a69b49`，含 PR #290；实施前重新核验最新 main。任务草稿及差距见 [阶段 A 回执](../work/product-logic-convergence-20261008.md)。已批准的客户替换由 [#285](https://github.com/Notyet1307/Exposure-Agent/issues/285) 及其固定 [V1 U3 @c15be890](https://github.com/Notyet1307/Exposure-Agent/blob/c15be890eac8bf5044b891c9feccfa3ce7da6f68/docs/specs/three-source-workbench-v1.md) 单独承载，不另建替换任务。
 
 ## 1. 窄替代范围
 
-本候选与 [ADR-0024 候选](../adr/0024-core-comparison-and-optional-netflow-evidence.md) 一同批准、固定后才约束新 V2 行为。旧规格正文、已固定的 Issue、测试和历史证据不回写。
+本 Spec 与 [ADR-0024](../adr/0024-core-comparison-and-optional-netflow-evidence.md) 同版固定后约束新 V2 行为。旧规格正文、已固定的 Issue、测试和历史证据不回写。
 
 | 原合同 | V2 的最小替代 | 保留范围 |
 |---|---|---|
@@ -64,7 +64,7 @@ E_j 固定核心 R_k、Analysis、Dataset/Context/namespace/所用反馈版本�
 
 沿用每对象实际期限；旧 Analysis 无期限时显示历史规则，不虚构已实施 TTL。本轮不实施 #287、不续期、不自动回填/迁移/清理历史。将旧 V1 转为 V2 必须显式用当下合法可读 C/A 创建新身份，旧记录不变。
 
-基线 Analysis 没有结果TTL，本轮不得称其为“Analysis已到期”。为实际实现新辅证的独立期限，新增 E_j 自身的显式 `valid_until`：附加时由操作者明确给出未来截止并固定，不提供隐含90天默认；存在已实现、可验证的上游截止时，绑定不可超过该截止。到期只拒绝该 E_j 的辅证正文/派生统计，清除页面对应缓存，核心不受影响；底层 Analysis 是否仍可独立阅读继续按它真实的原合同。此项不修改 Analysis 或原始 Dataset 的存储期限，不提供物理清理。验收明确区分“绑定到期”和“Analysis到期”，后者在#287未实现时不能冒称通过。
+基线 Analysis 没有结果TTL，本轮不得称其为“Analysis已到期”。为实际实现新辅证的独立期限，新增 E_j 自身的显式 `valid_until`：附加时由操作者明确给出未来绝对截止并固定，不提供隐含90天默认；存在已实现、可验证的上游截止时，绑定不可超过该截止。读/反馈不续期，改变绑定须创建新身份，旧绑定及其截止不改。每次读取先鉴权和检查绑定截止，再调用原Analysis reader验证其当前上下文/权限/收据；上游拒读不能被尚未到期的绑定遮蔽。到期只拒绝该 E_j 的辅证正文/派生统计/补充线索/证据或导出，清除对应缓存，核心不受影响；底层 Analysis 是否仍可独立阅读继续按它真实的原合同，不删除或标记 Analysis/Dataset/Artifact 到期。此项不修改 Analysis 或原始 Dataset 的存储期限，不提供物理清理。验收明确区分“绑定到期”和“Analysis到期”，后者在#287未实现时不能冒称通过。
 
 ## 5. 接入、客户版本与返回
 
