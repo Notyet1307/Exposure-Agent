@@ -285,12 +285,90 @@ async function mockDashboardApi(page: Page) {
       })
       return
     }
+    if (
+      url.pathname.endsWith("/customer-ledger/replacements/preview") &&
+      request.method() === "POST"
+    ) {
+      const candidate = uploads[projects[0].id].data[0]
+      await route.fulfill({
+        json: {
+          candidate_upload_id: candidate.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: candidate.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: candidate.record_count,
+          candidate_unique_ips: candidate.unique_ip_count,
+          added_ips: candidate.unique_ip_count,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+      return
+    }
+    if (
+      url.pathname.endsWith("/customer-ledger/replacements") &&
+      request.method() === "POST"
+    ) {
+      const candidate = uploads[projects[0].id].data[0]
+      await route.fulfill({
+        json: {
+          id: "91000000-0000-0000-0000-000000000001",
+          project_id: projects[0].id,
+          created_by: "30000000-0000-0000-0000-000000000001",
+          candidate_upload_id: candidate.id,
+          expected_upload_id: null,
+          expected_revision_id: null,
+          expected_profile_id: candidate.profile_id,
+          request_sha256: "a".repeat(64),
+          created_at: projects[0].created_at,
+        },
+      })
+      return
+    }
     const netflowMatch = url.pathname.match(
       /projects\/([^/]+)\/netflow-datasets$/,
     )
     if (netflowMatch && request.method() === "GET") {
       await route.fulfill({
         json: netflowDatasets[netflowMatch[1] as keyof typeof netflowDatasets],
+      })
+      return
+    }
+    if (
+      /projects\/[^/]+\/netflow-datasets\/[^/]+\/processing-contexts$/.test(
+        url.pathname,
+      ) &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill({
+        json: {
+          project_id: projects[0].id,
+          dataset_id: "21000000-0000-0000-0000-000000000001",
+          data: [],
+          count: 0,
+          skip: 0,
+          limit: 25,
+        },
+      })
+      return
+    }
+    if (
+      /projects\/[^/]+\/netflow-datasets\/[^/]+\/analyses$/.test(
+        url.pathname,
+      ) &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill({
+        json: {
+          project_id: projects[0].id,
+          dataset_id: "21000000-0000-0000-0000-000000000001",
+          data: [],
+          count: 0,
+          skip: 0,
+          limit: 25,
+        },
       })
       return
     }
@@ -370,7 +448,9 @@ test("preserves an unknown source validation status across language changes", as
       }),
   )
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
   await expect(
     page.getByRole("cell", { name: "constructor", exact: true }),
   ).toBeVisible()
@@ -1043,7 +1123,9 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   await page.route(sourceUrl, handleSourceRequest)
   await page.route(`${sourceUrl}/**`, handleSourceRequest)
   await page.goto("/?view=inputs")
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
 
   const tokenInput = page.getByLabel("Capset token")
   await expect(tokenInput).toHaveAttribute("type", "password")
@@ -1085,7 +1167,9 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
     validated_fingerprint: "abcdef0123456789".repeat(4),
   }
   await page.reload()
-  await page.getByRole("link", { name: "CloudAtlas", exact: true }).click()
+  await page
+    .getByText("Historical Run source settings", { exact: true })
+    .click()
   await page.getByRole("button", { name: "Disable source" }).click()
   await expect(page.getByText("Disabled", { exact: true })).toBeVisible()
 

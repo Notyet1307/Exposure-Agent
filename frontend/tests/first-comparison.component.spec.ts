@@ -116,6 +116,28 @@ async function base(
           can_select: state.admin,
         },
       })
+    if (/\/netflow-datasets\/[^/]+\/processing-contexts$/.test(path))
+      return route.fulfill({
+        json: {
+          project_id: project.id,
+          dataset_id: "00000000-0000-4000-8000-000000000002",
+          data: [],
+          count: 0,
+          skip: 0,
+          limit: 25,
+        },
+      })
+    if (/\/netflow-datasets\/[^/]+\/analyses$/.test(path))
+      return route.fulfill({
+        json: {
+          project_id: project.id,
+          dataset_id: "00000000-0000-4000-8000-000000000002",
+          data: [],
+          count: 0,
+          skip: 0,
+          limit: 25,
+        },
+      })
     if (path.endsWith("/cloudatlas-source-instances"))
       return route.fulfill({
         json: { data: [], count: 0, can_manage: state.admin },
