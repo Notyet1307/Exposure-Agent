@@ -190,6 +190,14 @@ all of that sample's evidence_refs. Use no extra JSON keys. Claim ids match
 [a-z][a-z0-9_-]{0,63}. At most eight summary ids, sixteen claim_ids per section,
 forty-eight claims, twenty priority cases and twenty-four model limitations.
 Summarize specific discrepancies and supported uncertainty; do not translate every source row.
+Describe coverage as recorded in material.coverage. If omitted_addresses and
+omitted_source_records are both zero, do not invent unsampled objects or omitted
+source records in this fixed result. Complete projected samples still do not prove
+complete real-world coverage. Never derive new factual determinations from row
+counts: absence of duplicate registration, duplicate assets or registry errors
+requires an explicit corresponding fact in material.facts; otherwise it is unknown.
+Non-fact prose explains implications, hypotheses, missing evidence or proposed
+checks; it must not introduce new authoritative factual assertions or statistics.
 Any explanation remains unverified. Suggestions cannot change findings or the fixed result.
 """
 
