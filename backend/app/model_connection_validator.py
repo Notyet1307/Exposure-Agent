@@ -8,12 +8,15 @@ import os
 import secrets
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from sqlmodel import Session
 
+from app.core.config import settings
 from app.core.db import engine
 from app.domain import model_connections as service
+from app.domain import v2_analysis_reports as v2
 from app.domain.model_connection_proxy import transport_binding
 from app.domain.model_qualification import QualificationRunResult
 from app.domain.models import ModelConnectionLease, ModelConnectionOperation
@@ -28,6 +31,34 @@ from app.model_qualification_runner import (
 FIXTURE_CITATION = "model-connection:fixture-v1"
 
 
+def _v2_capability_material() -> dict[str, Any]:
+    result_id = "00000000-0000-4000-8000-000000000017"
+    citation = "model-connection:fixture-v2"
+    counts = {"total_addresses": 0, "both": 0, "customer_only": 0, "cloud_only": 0}
+    return v2.Material(
+        captured_at=datetime(2026, 10, 9, tzinfo=UTC),
+        subject={
+            "subject_kind": "core_comparison_v2",
+            "result_id": result_id,
+            "supplement_binding_id": None,
+            "address_key": None,
+            "audience": "management",
+            "language": "zh",
+        },
+        identity={"input_sha256": "0" * 64},
+        summary=counts,
+        facts={
+            f"fact:{result_id}:counts": v2.Fact(
+                kind="counts", value=counts, evidence_refs=[citation]
+            )
+        },
+        items=[{"citation_id": citation, "kind": "SYNTHETIC", "synthetic": True}],
+        samples=[],
+        coverage={"sampled_addresses": 0, "omitted_addresses": 0},
+        limitations=["仅使用固定的非客户能力检查资料。"],
+    ).model_dump(mode="json")
+
+
 def main() -> int:
     operation_id = uuid.UUID(os.environ.get("MODEL_VALIDATION_OPERATION_ID", ""))
     run_id = os.environ.get("MODEL_VALIDATION_RUN_ID", "")
@@ -37,6 +68,7 @@ def main() -> int:
         "qualification": "NOT_RUN",
         "investigation": "NOT_RUN",
         "analysis_report": "NOT_RUN",
+        "analysis_report_v2": "NOT_RUN",
         "runtime": "NOT_RUN",
         "project_data_permission": "NOT_GRANTED",
     }
@@ -150,6 +182,11 @@ def main() -> int:
                     },
                 }
             )
+            output_budget = (
+                settings.AI_ANALYSIS_REPORT_MAX_OUTPUT_BYTES
+                if purpose == "analysis_report"
+                else settings.AI_INVESTIGATION_MAX_OUTPUT_BYTES
+            )
             result = run_pi_investigation(
                 binding=transport,
                 api_key=token,
@@ -159,15 +196,41 @@ def main() -> int:
                 timeout_seconds=80,
                 max_tool_calls=2,
                 max_material_bytes=4096,
-                max_output_bytes=8192,
+                max_output_bytes=output_budget,
             )
             if purpose == "analysis_report":
                 from app.domain.ai_analysis_reports import validate_output
             else:
                 from app.domain.ai_investigations import validate_output
             validate_output(
-                result, citation_ids={FIXTURE_CITATION}, max_output_bytes=8192
+                result, citation_ids={FIXTURE_CITATION}, max_output_bytes=output_budget
             )
+            if purpose == "analysis_report":
+                fixed_v2 = _v2_capability_material()
+
+                def v2_material(_: dict[str, Any]) -> dict[str, Any]:
+                    guard()
+                    return _v2_capability_material()
+
+                v2_result = run_pi_investigation(
+                    binding=transport,
+                    api_key=token,
+                    tools={"read_report_material": v2_material},
+                    task=purpose,
+                    report_format="v2",
+                    before_model_call=guard,
+                    timeout_seconds=80,
+                    max_tool_calls=2,
+                    max_material_bytes=4096,
+                    max_output_bytes=output_budget,
+                )
+                v2.validate_output(
+                    v2_result,
+                    fixed_v2,
+                    {item["citation_id"] for item in fixed_v2["items"]},
+                    output_budget,
+                )
+                evidence["analysis_report_v2"] = "PASS"
             evidence[purpose] = "PASS"
             checkpoint()
         with Session(engine) as session:

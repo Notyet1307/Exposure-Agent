@@ -8,6 +8,13 @@ export default function (pi: ExtensionAPI) {
   const maxOutput = Number(process.env.INVESTIGATION_MAX_OUTPUT_BYTES);
   let outputBytes = 0;
 
+  function contentBytes(content: Array<{ type: string; thinkingSignature?: string }>) {
+    // Responses repeats reasoning in its opaque replay signature.
+    return Buffer.byteLength(JSON.stringify(content.map(block =>
+      block.type === "thinking" ? { ...block, thinkingSignature: undefined } : block,
+    )), "utf8");
+  }
+
   async function request(path: string, value: unknown, signal?: AbortSignal) {
     try {
       const response = await fetch(`${bridge}${path}`, {
@@ -31,7 +38,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("message_update", async (event, ctx) => {
     if (event.message.role !== "assistant") return;
-    const size = Buffer.byteLength(JSON.stringify(event.message.content), "utf8");
+    const size = contentBytes(event.message.content);
     if (outputBytes + size > maxOutput) {
       await request("/output-limit", {}, ctx.signal);
     }
@@ -42,14 +49,14 @@ export default function (pi: ExtensionAPI) {
     // AgentSession drains this event before tool_call execution: authorize ALL
     // model tool names and uncoerced arguments before any material is read.
     await request("/assistant", event.message.content, ctx.signal);
-    outputBytes += Buffer.byteLength(JSON.stringify(event.message.content), "utf8");
+    outputBytes += contentBytes(event.message.content);
   });
 
   const tools = process.env.INVESTIGATION_TASK === "analysis_report" ? [
     {
       name: "read_report_material",
       label: "Read authorized fixed report material",
-      description: "Read the complete deterministic summary and bounded already-obtained investigation, history and human records for the server-fixed Run, with citation identities, times and explicit gaps. Required first. Exactly empty arguments; scope cannot change.",
+      description: "Read the deterministic summary and bounded already-obtained evidence for the server-fixed report subject, with citation identities, times and explicit gaps. Required first. Exactly empty arguments; scope cannot change.",
     },
   ] : [
     {

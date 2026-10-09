@@ -495,6 +495,40 @@ def test_assistant_output_budget_is_cumulative_across_rounds(
         _run([], max_output_bytes=200)
 
 
+def test_reasoning_signature_does_not_duplicate_generated_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    thinking = {
+        "type": "thinking",
+        "thinking": "bounded reasoning",
+        "thinkingSignature": json.dumps({"content": "bounded reasoning" * 200}),
+    }
+    _child(
+        tmp_path,
+        monkeypatch,
+        f"assert request('/assistant', [{thinking!r}]) is not None\n"
+        f"request('/assistant', [{_CALL!r}])\n"
+        "request('/read_asset_facts', {'id':'call-1','arguments':{}})\n"
+        f"print({json.dumps(_OUTPUT)!r})\n",
+    )
+    assert _run([], max_output_bytes=1024) == _OUTPUT
+
+
+def test_reasoning_text_still_consumes_cumulative_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    thinking = {"type": "thinking", "thinking": "x" * 150}
+    _child(
+        tmp_path,
+        monkeypatch,
+        f"request('/assistant', [{thinking!r}])\n"
+        f"request('/assistant', [{thinking!r}])\n"
+        f"print({json.dumps(_OUTPUT)!r})\n",
+    )
+    with pytest.raises(ValueError, match="^output_limit$"):
+        _run([], max_output_bytes=250)
+
+
 @pytest.mark.parametrize(
     ("provider_status", "rounds", "expected_error"),
     [(307, 1, "model_run_failed"), (200, 4, "tool_call_limit")],

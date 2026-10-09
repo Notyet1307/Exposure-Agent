@@ -312,7 +312,10 @@ def binding_for_version(
         raise ModelConnectionError("model_connection_revoked")
     if (
         version.runner_build_version
-        != (settings.MODEL_CONNECTION_RUNNER_BUILD_VERSION or settings.RUNNER_BUILD_VERSION)
+        != (
+            settings.MODEL_CONNECTION_RUNNER_BUILD_VERSION
+            or settings.RUNNER_BUILD_VERSION
+        )
         or version.runtime_version != settings.AGENT_COMPOSE_RUNTIME_VERSION
     ):
         raise ModelConnectionError("model_binding_changed")
@@ -646,8 +649,8 @@ def begin_action(
                 purpose,
                 op.id,
                 op.agent_run_id,
-                300,
-                1 if purpose == "qualification" else 3,
+                420,
+                {"qualification": 1, "investigation": 3, "analysis_report": 6}[purpose],
             )
     elif action == "ACTIVATE":
         version.validation_status = "ACTIVATING"
