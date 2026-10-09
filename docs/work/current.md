@@ -1,5 +1,7 @@
 # 当前工作
 
+- V2阅读/报告/地址解释 #297/#298/#299 本地实施与必要验收完成，见[验证回执](v2-ai-interpretation-validation.md)。批准Spec/ADR固定`1c42406`；分阶段源码与后续修复在`codex/v2-interpretation-implementation`。当前正按维护者已授权的正常源码PR/CI/merge→既有8081备份/恢复演练/迁移/部署验收→关闭推进，远端状态以Issue/PR为准。下方保留此前阶段授权/交付快照。
+
 - 2026-10-09维护者明确授权按附件完成V2后正常源码push/PR、必需CI/Review后merge、既有8081备份/恢复演练/追加迁移与部署验收、完成后关闭297/298/299；各Issue已记录该后续授权。固定Spec/ADR1c42406不变，当前在B实现/验证，A候选a17dd09已本地提交。此前仅本地阶段条目保留为历史，不覆盖本授权；真实来源/模型出域、清理和保留期限扩展仍未包含。
 
 - V2阶段A[#297](https://github.com/Notyet1307/Exposure-Agent/issues/297)本地实现/隔离阅读验收已完成，见[回执](v2-reading-validation.md)；固定Spec/ADR为`1c42406`（文档PR#296已合并），阶段B[#298](https://github.com/Notyet1307/Exposure-Agent/issues/298)与C[#299](https://github.com/Notyet1307/Exposure-Agent/issues/299)按本地候选验收顺序继续。当前仅分阶段本地实现/验证/提交，业务源码发布、部署、真实调用及关闭仍未获许可；Issue状态以GitHub为准。下方是此前规格发布前及已交付快照。
