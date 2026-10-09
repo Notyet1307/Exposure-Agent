@@ -1,5 +1,7 @@
 # 当前工作
 
+- V2真实模型兼容修复[#298](https://github.com/Notyet1307/Exposure-Agent/issues/298)：源码[PR#302](https://github.com/Notyet1307/Exposure-Agent/pull/302)正常合并9e99d19，8081受保护部署/默认V1+V2资格及管理/运营原生可读草稿验收完成，见[回执](v2-model-contract-validation.md)。仅固定合成C+A出域；管理稿人工修订保留原稿，均未自动确认，真实客户验收仍未执行。下方NOT_CONFIGURED等条目保留此前快照；实际任务状态以GitHub为准。
+
 - V2阅读/AI报告/地址解释 #297/#298/#299 已经[源码PR#300](https://github.com/Notyet1307/Exposure-Agent/pull/300)必需CI/独立审阅后正常合并为`7dadbbb`，8081备份、实际恢复/追加迁移、上线及阅读验收PASS，见[交付回执](v2-ai-interpretation-deployment.md)。正式模型仍NOT_CONFIGURED，未真实调用来源/模型。按维护者授权关闭三票，实际状态以GitHub为准；其余票/WIP/历史/期限保留。下方为各此前阶段快照。
 
 - V2阅读/报告/地址解释 #297/#298/#299 本地实施与必要验收完成，见[验证回执](v2-ai-interpretation-validation.md)。批准Spec/ADR固定`1c42406`；分阶段源码与后续修复在`codex/v2-interpretation-implementation`。当前正按维护者已授权的正常源码PR/CI/merge→既有8081备份/恢复演练/迁移/部署验收→关闭推进，远端状态以Issue/PR为准。下方保留此前阶段授权/交付快照。
