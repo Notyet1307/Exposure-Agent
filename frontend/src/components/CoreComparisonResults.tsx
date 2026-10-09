@@ -1607,7 +1607,7 @@ export default function CoreComparisonResults({
                     }
                     aria-pressed={(search.core_class ?? "all") === kind}
                     disabled={value === null}
-                    className="h-auto whitespace-normal py-2 text-left"
+                    className="h-auto min-w-0 max-w-full whitespace-normal py-2 text-left"
                     onClick={() =>
                       change({
                         core_class: kind,

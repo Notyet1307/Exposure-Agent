@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { AnalysisReportsService as API, ApiError } from "@/client"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Button } from "@/components/ui/button"
@@ -700,7 +701,7 @@ export function V2AnalysisReportsPanel({
         </p>
       ) : (
         <>
-          <Label>
+          <Label className="block min-w-0 space-y-2">
             {t("Saved report version", "已保存报告版本")}
             <select
               className="block max-w-full rounded border bg-background p-2"
@@ -938,37 +939,26 @@ export function V2AnalysisReportsPanel({
           )}
         </div>
       )}
+      {printReport &&
+        createPortal(
+          <article id={printId} className="hidden print:block">
+            <h1 className="mb-5 text-2xl font-bold">{heading}</h1>
+            <p className="mb-4">{t(...statusLabels[printReport.status])}</p>
+            <V2ReportContent report={printReport} print />
+          </article>,
+          document.body,
+        )}
       {printReport && (
-        <article id={printId} className="hidden print:block">
-          <h1 className="mb-5 text-2xl font-bold">{heading}</h1>
-          <p className="mb-4">{t(...statusLabels[printReport.status])}</p>
-          <V2ReportContent report={printReport} print />
-        </article>
-      )}
-      {printReport && (
-        <style>
-          {'@media print {body[data-v2-print="' +
-            printReport.id +
-            '"] * {visibility:hidden} body[data-v2-print="' +
-            printReport.id +
-            '"] #' +
-            printId +
-            ', body[data-v2-print="' +
-            printReport.id +
-            '"] #' +
-            printId +
-            ' * {visibility:visible;color:#000!important;background:transparent!important;box-shadow:none!important} body[data-v2-print="' +
-            printReport.id +
-            '"] #' +
-            printId +
-            " {display:block;position:absolute;left:0;top:0;width:100%;padding:16px} #" +
-            printId +
-            " details {display:none} #" +
-            printId +
-            " section {break-inside:avoid} #" +
-            printId +
-            " a {text-decoration:none}}"}
-        </style>
+        <style>{`@media print {
+          body[data-v2-print="${printReport.id}"] {background:#fff!important;color:#000!important}
+          body[data-v2-print="${printReport.id}"] > :not(#${printId}) {display:none!important}
+          body[data-v2-print="${printReport.id}"] #${printId},
+          body[data-v2-print="${printReport.id}"] #${printId} * {visibility:visible;color:#000!important;background:transparent!important;box-shadow:none!important}
+          body[data-v2-print="${printReport.id}"] #${printId} {display:block;position:static;width:100%;padding:16px}
+          #${printId} details {display:none}
+          #${printId} section {break-inside:avoid}
+          #${printId} a {text-decoration:none}
+        }`}</style>
       )}
     </section>
   )
