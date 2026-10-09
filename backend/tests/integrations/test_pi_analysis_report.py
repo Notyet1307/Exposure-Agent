@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from app.domain import v2_analysis_reports as v2
 from app.integrations import pi_investigation as runtime
 from tests.integrations.test_pi_investigation import _child
 
@@ -68,6 +69,56 @@ def test_report_uses_only_fixed_material_tool_in_isolated_child(
     )
     with pytest.raises(ValueError, match="^tool_scope_denied$"):
         runtime.run_pi_investigation(**_options())
+
+
+def test_v2_prompt_supplies_complete_output_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fact = "fact:fixed:counts"
+    material = {
+        "subject": {"result_id": "fixed", "address_key": None},
+        "facts": {fact: {"evidence_refs": ["report:fixed"]}},
+        "items": [{"citation_id": "report:fixed"}],
+        "samples": [],
+        "limitations": [],
+    }
+    output = {
+        "contract_version": "v2-ai-output-v1",
+        "text": {
+            "summary": ["counts"],
+            "sections": [
+                {"id": section, "claim_ids": ["counts"]}
+                for section in v2.REPORT_SECTIONS
+            ],
+            "claims": [
+                {
+                    "id": "counts",
+                    "type": "fact",
+                    "fact_refs": [fact],
+                    "evidence_refs": ["report:fixed"],
+                }
+            ],
+            "priority_cases": [],
+            "limitations": [],
+        },
+    }
+    schema = v2.Output.model_json_schema()
+    _child(
+        tmp_path,
+        monkeypatch,
+        "prompt = sys.argv[sys.argv.index('--system-prompt') + 1]\n"
+        f"assert json.loads(prompt.split('Output JSON Schema: ', 1)[1]) == {schema!r}\n"
+        "assert 'at most 2 tool calls' in prompt\n"
+        "request('/assistant', [{'type':'toolCall','id':'one','name':'read_report_material','arguments':{}}])\n"
+        "request('/read_report_material', {'id':'one','arguments':{}})\n"
+        f"print({json.dumps(output)!r})\n",
+    )
+    result = runtime.run_pi_investigation(
+        **_options(
+            report_format="v2", tools={"read_report_material": lambda _: material}
+        )
+    )
+    assert v2.validate_output(result, material, {"report:fixed"}, 4096) == output
 
 
 def test_report_reauthorizes_before_every_outbound_turn(

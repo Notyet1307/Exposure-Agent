@@ -189,6 +189,8 @@ def runner_environment() -> tuple[dict[str, str], dict[str, str]]:
         "AI_ANALYSIS_REPORT_ALLOW_BAIZHI_TEST",
         "AI_INVESTIGATION_SYNTHETIC_MANIFEST",
         "AI_ANALYSIS_REPORT_SYNTHETIC_MANIFEST",
+        "AI_INVESTIGATION_MAX_OUTPUT_BYTES",
+        "AI_ANALYSIS_REPORT_MAX_OUTPUT_BYTES",
     )
     env = {name: str(getattr(settings, name)) for name in names}
     env.update(
