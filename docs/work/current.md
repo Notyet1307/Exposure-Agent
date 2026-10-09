@@ -1,5 +1,7 @@
 # 当前工作
 
+- V2阅读/AI报告/地址解释 #297/#298/#299 已经[源码PR#300](https://github.com/Notyet1307/Exposure-Agent/pull/300)必需CI/独立审阅后正常合并为`7dadbbb`，8081备份、实际恢复/追加迁移、上线及阅读验收PASS，见[交付回执](v2-ai-interpretation-deployment.md)。正式模型仍NOT_CONFIGURED，未真实调用来源/模型。按维护者授权关闭三票，实际状态以GitHub为准；其余票/WIP/历史/期限保留。下方为各此前阶段快照。
+
 - V2阅读/报告/地址解释 #297/#298/#299 本地实施与必要验收完成，见[验证回执](v2-ai-interpretation-validation.md)。批准Spec/ADR固定`1c42406`；分阶段源码与后续修复在`codex/v2-interpretation-implementation`。当前正按维护者已授权的正常源码PR/CI/merge→既有8081备份/恢复演练/迁移/部署验收→关闭推进，远端状态以Issue/PR为准。下方保留此前阶段授权/交付快照。
 
 - 2026-10-09维护者明确授权按附件完成V2后正常源码push/PR、必需CI/Review后merge、既有8081备份/恢复演练/追加迁移与部署验收、完成后关闭297/298/299；各Issue已记录该后续授权。固定Spec/ADR1c42406不变，当前在B实现/验证，A候选a17dd09已本地提交。此前仅本地阶段条目保留为历史，不覆盖本授权；真实来源/模型出域、清理和保留期限扩展仍未包含。
