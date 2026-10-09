@@ -656,8 +656,12 @@ def test_runtime_validation_attests_and_uses_connection_runner_version(
     monkeypatch.setattr(
         settings, "MODEL_CONNECTION_RUNNER_BUILD_VERSION", "connection-new"
     )
-    connection = save(client, superuser_token_headers).json()["operation"]["connection_id"]
-    op_id = act(client, superuser_token_headers, connection, "validate").json()["operation"]["id"]
+    connection = save(client, superuser_token_headers).json()["operation"][
+        "connection_id"
+    ]
+    op_id = act(client, superuser_token_headers, connection, "validate").json()[
+        "operation"
+    ]["id"]
     captured: dict[str, Any] = {}
 
     class Native:
@@ -703,8 +707,12 @@ def test_runtime_reconcile_terminal_validation_marks_missing_result_failed(
     superuser_token_headers: dict[str, str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    connection = save(client, superuser_token_headers).json()["operation"]["connection_id"]
-    op_id = act(client, superuser_token_headers, connection, "validate").json()["operation"]["id"]
+    connection = save(client, superuser_token_headers).json()["operation"][
+        "connection_id"
+    ]
+    op_id = act(client, superuser_token_headers, connection, "validate").json()[
+        "operation"
+    ]["id"]
     monkeypatch.setattr(
         runtime,
         "client_for_version",
@@ -720,10 +728,29 @@ def test_runtime_reconcile_terminal_validation_marks_missing_result_failed(
 
 
 @pytest.mark.parametrize(
-    ("family", "purpose", "agent", "module"),
+    ("family", "purpose", "agent", "module", "subject_kind"),
     [
-        ("investigation", "investigation", "ai-investigation", "app.ai_investigation_runner"),
-        ("report", "analysis_report", "ai-analysis-report", "app.ai_analysis_report_runner"),
+        (
+            "investigation",
+            "investigation",
+            "ai-investigation",
+            "app.ai_investigation_runner",
+            None,
+        ),
+        (
+            "report",
+            "analysis_report",
+            "ai-analysis-report",
+            "app.ai_analysis_report_runner",
+            "governance_run",
+        ),
+        (
+            "report",
+            "analysis_report",
+            "ai-analysis-report",
+            "app.ai_analysis_report_runner",
+            "core_comparison_v2",
+        ),
     ],
 )
 def test_runtime_business_task_creates_scoped_lease_and_runner_override(
@@ -734,17 +761,21 @@ def test_runtime_business_task_creates_scoped_lease_and_runner_override(
     purpose: str,
     agent: str,
     module: str,
+    subject_kind: str | None,
 ) -> None:
     from app.integrations.agent_compose import AgentComposeRunStart
 
     monkeypatch.setattr(settings, "MODEL_CONNECTION_RUNNER_BUILD_VERSION", "specific")
-    connection = save(client, superuser_token_headers).json()["operation"]["connection_id"]
+    connection = save(client, superuser_token_headers).json()["operation"][
+        "connection_id"
+    ]
     record = SimpleNamespace(
         id=uuid.uuid4(),
         connection_version_id=uuid.UUID(connection),
         agent_compose_run_id="a" * 64,
         timeout_seconds=20,
         max_tool_calls=2,
+        subject_kind=subject_kind,
     )
     captured: dict[str, Any] = {}
     monkeypatch.setattr(service, "binding_for_task", lambda *_: object())
@@ -756,8 +787,10 @@ def test_runtime_business_task_creates_scoped_lease_and_runner_override(
         runtime,
         "client_for_version",
         lambda _: SimpleNamespace(
-            _start_run=lambda **kwargs: captured.update(kwargs)
-            or AgentComposeRunStart("b" * 64, True, "RUN_STATUS_RUNNING")
+            _start_run=lambda **kwargs: (
+                captured.update(kwargs)
+                or AgentComposeRunStart("b" * 64, True, "RUN_STATUS_RUNNING")
+            )
         ),
     )
     result = REAL_START_BUSINESS_TASK(record, family)
@@ -767,11 +800,27 @@ def test_runtime_business_task_creates_scoped_lease_and_runner_override(
     assert captured["command"].endswith(module)
     assert captured["environment"]["RUNNER_BUILD_VERSION"] == "specific"
     assert "MODEL_LEASE_" + purpose.upper() in captured["secret_environment"]
+    assert "SECRET_KEY" not in captured["environment"]
+    assert "SECRET_KEY" not in captured["secret_environment"]
+    if subject_kind == "core_comparison_v2":
+        from app.domain.ai_analysis_reports import runner_material_token
+        from app.domain.models import AnalysisReport
+
+        assert captured["secret_environment"][
+            "AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY"
+        ] == runner_material_token(cast(AnalysisReport, record))
+        assert "AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY" not in captured["environment"]
     with Session(engine) as session:
         lease = session.exec(
-            select(ModelConnectionLease).where(ModelConnectionLease.task_id == record.id)
+            select(ModelConnectionLease).where(
+                ModelConnectionLease.task_id == record.id
+            )
         ).one()
-        assert lease.family == family and lease.purpose == purpose and lease.max_requests == 3
+        assert (
+            lease.family == family
+            and lease.purpose == purpose
+            and lease.max_requests == 3
+        )
 
 
 def test_proxy_task_and_transport_bindings_are_scoped_and_hide_provider_key(
@@ -780,7 +829,9 @@ def test_proxy_task_and_transport_bindings_are_scoped_and_hide_provider_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     lease_id, token, _ = proxy_context(client, superuser_token_headers, monkeypatch)
-    monkeypatch.setattr(settings, "MODEL_CONNECTION_INTERNAL_URL", "http://127.0.0.1:8000")
+    monkeypatch.setattr(
+        settings, "MODEL_CONNECTION_INTERNAL_URL", "http://127.0.0.1:8000"
+    )
     with Session(engine) as session:
         lease = session.get(ModelConnectionLease, lease_id)
         assert lease
@@ -794,7 +845,9 @@ def test_proxy_task_and_transport_bindings_are_scoped_and_hide_provider_key(
         assert forwarded.endpoint != binding.endpoint
 
     monkeypatch.delenv("MODEL_LEASE_QUALIFICATION")
-    with pytest.raises(service.ModelConnectionError, match="model_connection_proxy_denied"):
+    with pytest.raises(
+        service.ModelConnectionError, match="model_connection_proxy_denied"
+    ):
         proxy.transport_binding(binding, "qualification")
     assert "MODEL_LEASE_QUALIFICATION" not in os.environ
 

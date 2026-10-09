@@ -9,6 +9,7 @@ import time
 import uuid
 from typing import Any
 
+import httpx
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session
 
@@ -17,6 +18,7 @@ try:
     from app.core.db import engine
     from app.core.time import get_datetime_utc
     from app.domain import ai_analysis_reports as service
+    from app.domain import v2_analysis_reports as v2
     from app.domain.ai_investigations import canonical_bytes
     from app.integrations.pi_investigation import run_pi_investigation
     from app.model_qualification_runner import _runner_build_version
@@ -48,6 +50,10 @@ _FAILURE_CODES = frozenset(
         "synthetic_manifest_invalid",
         "analysis_report_scope_denied",
         "analysis_report_material_changed",
+        "v2_report_material_unavailable",
+        "v2_report_material_expired",
+        "v2_report_material_invalid",
+        "v2_report_unsupported_claim",
     }
 )
 
@@ -85,13 +91,60 @@ def main() -> int:
     successful_calls = bytes_read = attempted_calls = 0
     citation_ids: set[str] = set()
 
+    def bridge(path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        capability = os.environ.get("AI_ANALYSIS_REPORT_MATERIAL_CAPABILITY", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", capability):
+            raise service.AnalysisReportError("v2_report_material_unavailable")
+        try:
+            response = httpx.post(
+                settings.MODEL_CONNECTION_INTERNAL_URL.rstrip("/")
+                + settings.API_V1_STR
+                + f"/projects/{record.project_id}/analysis-reports/internal/{record.id}/{path}",
+                headers={
+                    "X-Analysis-Report-Run": record.agent_compose_run_id,
+                    "X-Analysis-Report-Session": record.session_id or "",
+                    "X-Analysis-Report-Capability": capability,
+                },
+                json=payload,
+                trust_env=False,
+                timeout=min(
+                    10, max(1, record.timeout_seconds - (time.monotonic() - started))
+                ),
+            )
+            response.raise_for_status()
+            result = response.json()
+            if not isinstance(result, dict):
+                raise ValueError
+            return result
+        except httpx.HTTPError, TypeError, ValueError:
+            raise service.AnalysisReportError(
+                "v2_report_material_unavailable"
+            ) from None
+
+    def load_fixed_material() -> tuple[dict[str, Any], list[dict[str, Any]], Any]:
+        if record.subject_kind != "core_comparison_v2":
+            return service.load_material(
+                project_id=record.project_id,
+                user_id=record.created_by_id,
+                run_id=record.run_id,
+                record=record,
+            )
+        try:
+            material = bridge("material")["material"]
+            if not isinstance(material, dict):
+                raise ValueError("v2_report_material_invalid")
+            if service.material_hash(material) != record.material_sha256:
+                raise ValueError("v2_report_material_invalid")
+        except httpx.HTTPError, KeyError, TypeError, ValueError:
+            raise service.AnalysisReportError(
+                "v2_report_material_unavailable"
+            ) from None
+        with Session(engine) as session:
+            binding = service.require_model(session, record)
+        return material, record.sources, binding
+
     def authorize() -> None:
-        service.load_material(
-            project_id=record.project_id,
-            user_id=record.created_by_id,
-            run_id=record.run_id,
-            record=record,
-        )
+        load_fixed_material()
 
     def read_tool(arguments: dict[str, Any]) -> dict[str, Any]:
         nonlocal successful_calls, bytes_read, attempted_calls
@@ -100,12 +153,7 @@ def main() -> int:
             raise service.AnalysisReportError("tool_scope_denied")
         if attempted_calls > record.max_tool_calls:
             raise service.AnalysisReportError("tool_call_limit")
-        material, _, _ = service.load_material(
-            project_id=record.project_id,
-            user_id=record.created_by_id,
-            run_id=record.run_id,
-            record=record,
-        )
+        material, _, _ = load_fixed_material()
         size = len(canonical_bytes(material))
         if bytes_read + size > record.max_material_bytes:
             raise service.AnalysisReportError("material_limit")
@@ -119,22 +167,19 @@ def main() -> int:
     try:
         if _runner_build_version() != settings.RUNNER_BUILD_VERSION:
             raise service.AnalysisReportError("model_binding_changed")
-        _, _, binding = service.load_material(
-            project_id=record.project_id,
-            user_id=record.created_by_id,
-            run_id=record.run_id,
-            record=record,
-        )
+        _, _, binding = load_fixed_material()
         api_key = settings.MODEL_API_KEY.get_secret_value()
         transport = binding
         if record.connection_version_id is not None:
             from app.domain.model_connection_proxy import transport_binding
+
             transport, api_key = transport_binding(binding, "analysis_report")
         output = run_pi_investigation(
             binding=transport,
             api_key=api_key,
             tools={"read_report_material": read_tool},
             task="analysis_report",
+            report_format="v2" if record.subject_kind == "core_comparison_v2" else "v1",
             before_model_call=authorize,
             timeout_seconds=record.timeout_seconds - (time.monotonic() - started),
             max_tool_calls=record.max_tool_calls,
@@ -145,15 +190,34 @@ def main() -> int:
             raise service.AnalysisReportError("tool_required")
         if time.monotonic() - started > record.timeout_seconds:
             raise service.AnalysisReportError("investigation_timeout")
-        validated = service.validate_output(
-            output, citation_ids=citation_ids, max_output_bytes=record.max_output_bytes
-        )
-        service.finish(
-            analysis_report_id=record.id,
-            output=validated,
-            successful_tool_calls=successful_calls,
-            material_bytes_read=bytes_read,
-        )
+        if record.subject_kind == "core_comparison_v2":
+            validated = v2.validate_output(
+                output, record.material, citation_ids, record.max_output_bytes
+            )
+        else:
+            validated = service.validate_output(
+                output,
+                citation_ids=citation_ids,
+                max_output_bytes=record.max_output_bytes,
+            )
+        if record.subject_kind == "core_comparison_v2":
+            completed = bridge(
+                "completion",
+                {
+                    "output": validated,
+                    "successful_tool_calls": successful_calls,
+                    "material_bytes_read": bytes_read,
+                },
+            )
+            if completed.get("status") != "DRAFT":
+                raise service.AnalysisReportError("v2_report_material_unavailable")
+        else:
+            service.finish(
+                analysis_report_id=record.id,
+                output=validated,
+                successful_tool_calls=successful_calls,
+                material_bytes_read=bytes_read,
+            )
         return 0
     except Exception as error:
         code = (

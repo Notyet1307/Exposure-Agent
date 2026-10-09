@@ -675,11 +675,11 @@ const structuredFields: Record<string, string[]> = Object.fromEntries(
   ]),
 )
 
-function RecordFields({
+export function RecordFields({
   record,
   domain,
 }: {
-  record: ExternalRecordPublic
+  record: Pick<ExternalRecordPublic, "fields">
   domain: string
 }) {
   const { t } = useI18n()

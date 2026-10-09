@@ -3268,6 +3268,32 @@ class AnalysisReport(SQLModel, table=True):
             ondelete="RESTRICT",
             name="fk_analysis_reports_run_scope",
         ),
+        ForeignKeyConstraint(
+            ["core_result_id", "project_id", "tenant_id"],
+            [
+                "core_comparison_results.id",
+                "core_comparison_results.project_id",
+                "core_comparison_results.tenant_id",
+            ],
+            ondelete="RESTRICT",
+            name="fk_analysis_reports_core_scope",
+        ),
+        ForeignKeyConstraint(
+            ["supplement_binding_id", "core_result_id", "project_id", "tenant_id"],
+            [
+                "core_comparison_supplements.id",
+                "core_comparison_supplements.result_id",
+                "core_comparison_supplements.project_id",
+                "core_comparison_supplements.tenant_id",
+            ],
+            ondelete="RESTRICT",
+            name="fk_analysis_reports_supplement_scope",
+        ),
+        CheckConstraint(
+            "(subject_kind = 'governance_run' AND run_id IS NOT NULL AND core_result_id IS NULL AND supplement_binding_id IS NULL AND audience IS NULL AND language IS NULL AND address_key IS NULL AND request_sha256 IS NULL) OR "
+            "(subject_kind = 'core_comparison_v2' AND run_id IS NULL AND core_result_id IS NOT NULL AND audience IS NOT NULL AND language IS NOT NULL AND request_sha256 IS NOT NULL AND audience IN ('management','operations') AND language IN ('zh','en') AND request_sha256 ~ '^[a-f0-9]{64}$' AND (address_key IS NULL OR address_key ~ '^addr:[a-f0-9]{64}$'))",
+            name="ck_analysis_report_subject",
+        ),
         UniqueConstraint(
             "tenant_id",
             "project_id",
@@ -3301,7 +3327,14 @@ class AnalysisReport(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     tenant_id: uuid.UUID = Field(index=True)
     project_id: uuid.UUID = Field(index=True)
-    run_id: uuid.UUID = Field(index=True)
+    run_id: uuid.UUID | None = Field(default=None, index=True)
+    subject_kind: str = Field(default="governance_run", max_length=32)
+    core_result_id: uuid.UUID | None = Field(default=None, index=True)
+    supplement_binding_id: uuid.UUID | None = None
+    audience: str | None = Field(default=None, max_length=16)
+    language: str | None = Field(default=None, max_length=8)
+    address_key: str | None = Field(default=None, max_length=69)
+    request_sha256: str | None = Field(default=None, max_length=64)
     created_by_id: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
     edited_by_id: uuid.UUID | None = Field(
         default=None, foreign_key="user.id", ondelete="RESTRICT"
@@ -3344,6 +3377,26 @@ class AnalysisReport(SQLModel, table=True):
     completed_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
     edited_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
     confirmed_at: datetime | None = Field(default=None, sa_type=_DRAFT_TIME)
+
+
+class AnalysisReportRevisionRecord(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "analysis_report_revisions"
+    __table_args__ = (
+        UniqueConstraint("report_id", "revision", name="uq_analysis_report_revision"),
+        CheckConstraint(
+            "revision > 0 AND status IN ('DRAFT','CONFIRMED')",
+            name="ck_analysis_report_revision",
+        ),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    report_id: uuid.UUID = Field(
+        foreign_key="analysis_reports.id", ondelete="RESTRICT", index=True
+    )
+    revision: int
+    status: str = Field(max_length=16)
+    text: dict[str, Any] = Field(sa_column=Column(JSONB, nullable=False))
+    actor_id: uuid.UUID = Field(foreign_key="user.id", ondelete="RESTRICT")
+    recorded_at: datetime = Field(default_factory=get_datetime_utc, sa_type=_DRAFT_TIME)
 
 
 class AiGovernanceDraftFindingBinding(SQLModel, table=True):

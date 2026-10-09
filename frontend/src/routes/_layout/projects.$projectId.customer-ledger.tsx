@@ -10,6 +10,11 @@ import {
   type app__domain__customer_ledger__RevisionPublic as RevisionPublic,
 } from "@/client"
 import { ComparisonReturnLink } from "@/components/ComparisonReturnLink"
+import {
+  CustomerRecordFields,
+  customerFieldValue as display,
+  customerFields as FIELDS,
+} from "@/components/CustomerRecordFields"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -33,25 +38,6 @@ import {
 import { useI18n } from "@/lib/i18n"
 import { requestDigest } from "@/lib/ledgerIntent"
 
-const FIELDS = [
-  ["asset_ip", "Asset IP", "资产 IP"],
-  ["start_port", "Start port", "起始端口"],
-  ["end_port", "End port", "结束端口"],
-  ["is_web", "Web interface", "是否 Web 界面"],
-  ["web_url", "Web URL", "Web 界面 URL"],
-  ["service_type", "Service", "服务类型"],
-  ["asset_owner", "Declared owner", "原声明负责人"],
-  ["asset_department", "Asset department", "资产所属部门"],
-  ["port_owner", "Port owner", "端口负责人"],
-  ["department", "Department", "部门"],
-  ["serial", "Source number", "原序号"],
-] as const
-const display = (value: LedgerEntry["fields"][string]) =>
-  value === null || value === undefined
-    ? ""
-    : typeof value === "object"
-      ? value.value
-      : String(value)
 const ledgerScope = (upload?: string, revision?: string, original = false) =>
   `${upload ?? "current"}/${revision ?? "original"}/${original}`
 const PAGE_SIZE = 25
@@ -963,18 +949,7 @@ function LedgerView({
                   {t("View with CloudAtlas source", "结合云图来源查看画像")}
                 </Link>
               </Button>
-              <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {FIELDS.map(([name, en, zh]) => (
-                  <div key={name}>
-                    <dt className="text-sm text-muted-foreground">
-                      {t(en, zh)}
-                    </dt>
-                    <dd className="break-words">
-                      {display(selected.fields[name]) || "—"}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
+              <CustomerRecordFields fields={selected.fields} />
               {canEdit && !selected.archived && (
                 <Button
                   variant="outline"
