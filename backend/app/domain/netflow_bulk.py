@@ -203,6 +203,8 @@ def reserve(
     )
     if existing:
         return legacy.analysis_for(session, project, existing), False
+    if settings.NETFLOW_BULK_ROOT is None:
+        deny("bulk_not_configured", 422)
     dataset = legacy.dataset_for(session, project, dataset_id)
     bulk = session.get(BulkDataset, dataset.id)
     if bulk is None or bulk.invalidated:
@@ -271,7 +273,7 @@ def reserve(
     session.exec(select(func.pg_advisory_xact_lock(304, 1)))
     pending = session.exec(
         select(BulkJob.analysis_id)
-        .join(NetFlowAnalysis, BulkJob.analysis_id == NetFlowAnalysis.id)
+        .join(NetFlowAnalysis, col(BulkJob.analysis_id) == col(NetFlowAnalysis.id))
         .where(col(NetFlowAnalysis.status).in_(legacy.UNFINISHED))
     ).first()
     if pending is not None:
