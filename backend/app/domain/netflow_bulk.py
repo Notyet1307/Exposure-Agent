@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -53,7 +54,14 @@ from app.netflow_bulk.contracts import (
     Strict,
     digest,
 )
-from app.netflow_bulk.storage import atomic_json, file_hash, read_ready, safe_file
+from app.netflow_bulk.storage import (
+    atomic_json,
+    durable_directory,
+    file_hash,
+    read_ready,
+    safe_file,
+    sync_directory,
+)
 
 
 class Register(Strict):
@@ -115,7 +123,7 @@ def register(
         directory = (
             settings.ARTIFACT_ROOT / "netflow-bulk" / str(project.id) / str(identity)
         )
-        directory.mkdir(parents=True, mode=0o750)
+        durable_directory(directory)
         artifacts: list[Artifact] = []
         # These are explicitly manifest/normalization-plan artifacts, never CSVs.
         for name, content in (
@@ -482,7 +490,7 @@ def run_engine(session: Session, analysis_id: uuid.UUID, fence: int) -> None:
         / str(analysis_id)
         / str(fence)
     )
-    root.mkdir(parents=True, exist_ok=True)
+    durable_directory(root)
     started = time.monotonic()
     stop = threading.Event()
     errors: list[str] = []
@@ -604,7 +612,7 @@ def run_engine(session: Session, analysis_id: uuid.UUID, fence: int) -> None:
             / str(analysis_dataset)
             / "normalized"
         )
-        normalized.mkdir(parents=True, exist_ok=True)
+        durable_directory(normalized)
         last: tuple[str, int] | None = None
         shard_total = 0
         while True:
@@ -630,9 +638,10 @@ def run_engine(session: Session, analysis_id: uuid.UUID, fence: int) -> None:
                         or file_hash(path) != shard.sha256
                     ):
                         raise BulkError("bulk_checkpoint_integrity")
-                    target.parent.mkdir(exist_ok=True)
+                    durable_directory(target.parent)
                     if not target.exists():
                         os.link(path, target)
+                        sync_directory(target.parent)
                     if target.is_symlink() or file_hash(target) != shard.sha256:
                         raise BulkError("bulk_checkpoint_integrity")
                     state = target.stat()
@@ -689,6 +698,7 @@ def run_engine(session: Session, analysis_id: uuid.UUID, fence: int) -> None:
             fence,
             output,
             metrics | {"elapsed_seconds": time.monotonic() - started},
+            pulse=pulse,
         )
     except Exception as error:
         session.rollback()
@@ -731,6 +741,8 @@ def publish(
     fence: int,
     output: dict[str, Any],
     metrics: dict[str, Any],
+    *,
+    pulse: Callable[[], None] = lambda: None,
 ) -> None:
     # Projections are staged in bounded batches; readability requires final commit.
     publication_started = time.monotonic()
@@ -768,9 +780,10 @@ def publish(
                 params=[{"analysis_id": analysis_id, **value} for value in batch],
             )
             session.commit()
-    project, analysis = legacy._locked(session, analysis_id)
-    job = _job(session, analysis_id, fence)
-    _actor_context(session, project, analysis)
+    # All scans and hashes run without a lease row lock, so heartbeat can renew.
+    session.commit()
+    job = session.get(BulkJob, analysis_id)
+    assert job is not None
     counts = output["counts"]
     member_counts = session.exec(
         select(
@@ -791,9 +804,16 @@ def publish(
     receipt["files"] = {}
     for name, descriptor in output["files"].items():
         path = Path(descriptor["path"])
-        if file_hash(path) != descriptor["sha256"]:
+        before = path.stat()
+        if file_hash(path, pulse=pulse) != descriptor["sha256"]:
             raise BulkError("bulk_result_integrity")
         st = path.stat()
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+            st.st_size,
+            st.st_mtime_ns,
+            st.st_ctime_ns,
+        ):
+            raise BulkError("bulk_result_integrity")
         receipt["files"][name] = {
             **descriptor,
             "path": path.relative_to(settings.ARTIFACT_ROOT).as_posix(),
@@ -801,8 +821,27 @@ def publish(
             "mtime_ns": st.st_mtime_ns,
             "ctime_ns": st.st_ctime_ns,
         }
-    if job.lease_until is None or job.lease_until <= get_datetime_utc():
-        raise BulkError("bulk_lease_lost_or_cancelled")
+    session.commit()
+    analysis = session.get(NetFlowAnalysis, analysis_id)
+    assert analysis is not None
+    observed_id, observed = legacy.session_observation(analysis)
+    if (
+        observed_id != analysis.session_id
+        or observed != AgentComposeSessionObservation.RUNNING
+    ):
+        raise BulkError("bulk_execution_identity")
+    session.commit()
+    project, analysis = legacy._locked(session, analysis_id)
+    job = _job(session, analysis_id, fence)
+    _actor_context(session, project, analysis)
+    for descriptor in receipt["files"].values():
+        state = safe_file(settings.ARTIFACT_ROOT, descriptor["path"]).stat()
+        if (state.st_size, state.st_mtime_ns, state.st_ctime_ns) != (
+            descriptor["size"],
+            descriptor["mtime_ns"],
+            descriptor["ctime_ns"],
+        ):
+            raise BulkError("bulk_result_integrity")
     receipt["identity_sha256"] = analysis.processing_identity_sha256
     receipt["receipt_sha256"] = digest(receipt)
     initial = NetFlowFeedbackRevision(

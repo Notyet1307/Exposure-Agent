@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -39,11 +40,18 @@ def safe_file(root: Path, relative: str) -> Path:
     return current
 
 
-def file_hash(path: Path) -> str:
+def file_hash(path: Path, *, pulse: Callable[[], None] | None = None) -> str:
     value = hashlib.sha256()
+    since_check = 0
     with path.open("rb") as stream:
         while block := stream.read(1024 * 1024):
             value.update(block)
+            since_check += len(block)
+            if pulse is not None and since_check >= 64 * 1024 * 1024:
+                pulse()
+                since_check = 0
+    if pulse is not None:
+        pulse()
     return value.hexdigest()
 
 
@@ -55,13 +63,25 @@ def sync_directory(path: Path) -> None:
         os.close(fd)
 
 
+def durable_directory(path: Path, mode: int = 0o750) -> None:
+    missing = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        current = current.parent
+    path.mkdir(parents=True, exist_ok=True, mode=mode)
+    for created in reversed(missing):
+        sync_directory(created)
+        sync_directory(created.parent)
+
+
 def atomic_json(path: Path, value: Any) -> None:
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     with temporary.open("x", encoding="utf-8") as stream:
         stream.write(canonical_json(value))
         stream.flush()
+        os.fchmod(stream.fileno(), 0o440)
         os.fsync(stream.fileno())
-    temporary.chmod(0o440)
     os.replace(temporary, path)
     sync_directory(path.parent)
 
@@ -90,13 +110,13 @@ def seal(
         files=[Member(sha256="0" * 64, size=1, name="validation.csv")],
     )
     parent = root / tenant / project / source_id
-    parent.mkdir(parents=True, exist_ok=True, mode=0o750)
+    durable_directory(parent)
     if any(
         p.is_symlink() for p in (root, root / tenant, root / tenant / project, parent)
     ):
         raise BulkError("bulk_unsafe_path")
     temporary = parent / f".{uuid.uuid4()}.staging"
-    temporary.mkdir(mode=0o700)
+    durable_directory(temporary, mode=0o700)
     members: list[Member] = []
     try:
         entries = sorted(source.iterdir())
@@ -131,6 +151,7 @@ def seal(
                         raise BulkError("bulk_input_changed_or_disk_budget")
                     outgoing.write(block)
                 outgoing.flush()
+                os.fchmod(outgoing.fileno(), 0o440)
                 os.fsync(outgoing.fileno())
             after = path.stat()
             if (
@@ -149,7 +170,6 @@ def seal(
             destination = temporary / sha
             if destination.exists():
                 raise BulkError("bulk_duplicate_file")
-            copied.chmod(0o440)
             copied.rename(destination)
             members.append(
                 Member(
@@ -177,6 +197,7 @@ def seal(
         else:
             temporary.chmod(0o550)
             temporary.rename(target)
+            sync_directory(target)
             sync_directory(parent)
         return identity, ready
     except BaseException:

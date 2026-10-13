@@ -770,9 +770,9 @@ def current_netflow(
         key=lambda row: (input_order[row.dataset_id], row.created_at, row.id),
         reverse=True,
     ):
-        public = analysis_public(session, project, row)
+        public = analysis_public(session, project, row, include_result=False)
         if public.can_read_result:
-            current = public
+            current = analysis_public(session, project, row)
             break
     return CurrentNetFlowPublic(
         project_id=project.id,

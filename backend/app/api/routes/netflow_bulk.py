@@ -1,9 +1,10 @@
 """Controlled server-side admission. HTTP never transports or parses bulk files."""
 
 import uuid
+from collections.abc import Callable, Coroutine
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, Query, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlmodel import select
 
@@ -17,10 +18,35 @@ from app.domain.netflow_bulk_models import BulkDataset, BulkJob, BulkMember
 from app.domain.netflow_common import deny, project_for
 from app.netflow_bulk.contracts import BulkError
 
+
+class BulkRoute(NetFlowRoute):
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def bounded(request: Request) -> Response:
+            received = 0
+
+            async def receive() -> dict[str, Any]:
+                nonlocal received
+                message = await request.receive()
+                received += len(message.get("body", b""))
+                if received > 2 * 1024 * 1024:
+                    raise HTTPException(
+                        status_code=413,
+                        detail={"code": "bulk_request_limit"},
+                        headers={"Cache-Control": "private, no-store"},
+                    )
+                return message
+
+            return await handler(Request(request.scope, receive=receive))
+
+        return bounded
+
+
 router = APIRouter(
     prefix="/projects/{project_id}/netflow-bulk",
     tags=["netflow-bulk"],
-    route_class=NetFlowRoute,
+    route_class=BulkRoute,
 )
 Key = Annotated[str, Header(alias="Idempotency-Key", pattern=r"^[A-Za-z0-9_-]{1,128}$")]
 

@@ -115,6 +115,7 @@ def public_analysis(
     )
     current = legacy.current_context(session, project, row.dataset_id)
     job = session.get(BulkJob, row.id)
+    dataset = session.get(BulkDataset, row.dataset_id)
     readable = (
         row.status in legacy.SUCCESS
         and current is not None
@@ -122,6 +123,9 @@ def public_analysis(
         and current.network_namespace == row.network_namespace
         and job is not None
         and not job.invalidated
+        and dataset is not None
+        and dataset.complete
+        and not dataset.invalidated
     )
     receipt = None
     if include_result and row.status in legacy.SUCCESS:
@@ -588,6 +592,11 @@ def record(
         deny("netflow_input_not_found", 404)
     path = safe_file(settings.ARTIFACT_ROOT, shard.storage_key)
     if file_hash(path) != shard.sha256:
+        dataset = session.get(BulkDataset, row.dataset_id)
+        assert dataset is not None
+        dataset.invalidated = True
+        session.add(dataset)
+        session.commit()
         deny("bulk_integrity_invalidated")
     parquet = pq.ParquetFile(path)
     offset = number - shard.first_row

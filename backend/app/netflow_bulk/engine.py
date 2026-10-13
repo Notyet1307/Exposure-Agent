@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 from zoneinfo import ZoneInfo
 
 import duckdb
@@ -32,7 +32,7 @@ from app.netflow_bulk.contracts import (
     Member,
     canonical_json,
 )
-from app.netflow_bulk.storage import file_hash, sync_directory
+from app.netflow_bulk.storage import durable_directory, file_hash, sync_directory
 
 COLUMNS = pa.schema(
     [
@@ -196,6 +196,33 @@ class HashingReader(io.RawIOBase):
         return int(size or 0)
 
 
+class BoundedLines:
+    """Bound logical CSV bytes before csv.reader can allocate an entire row.
+
+    csv.reader requests additional physical lines only inside a quoted record.
+    Reset after each returned logical row, preserving legal embedded newlines.
+    """
+
+    def __init__(self, stream: TextIO):
+        self.stream = stream
+        self.record_bytes = 0
+
+    def __iter__(self) -> BoundedLines:
+        return self
+
+    def __next__(self) -> str:
+        line = self.stream.readline(MAX_RECORD - self.record_bytes + 1)
+        if not line:
+            raise StopIteration
+        self.record_bytes += len(line.encode("utf-8"))
+        if self.record_bytes > MAX_RECORD:
+            raise BulkError("bulk_record_limit")
+        return line
+
+    def reset(self) -> None:
+        self.record_bytes = 0
+
+
 def normalize_file(
     path: Path,
     member: Member,
@@ -206,13 +233,13 @@ def normalize_file(
     committed: Callable[[int], dict[str, Any] | None],
     pulse: Callable[[], None],
 ) -> dict[str, int]:
-    destination.mkdir(parents=True, exist_ok=True)
+    durable_directory(destination)
     before = path.stat()
     if before.st_size != member.size:
         raise BulkError("bulk_input_changed")
     count = invalid = shard = bytes_in_batch = 0
     batch: list[dict[str, Any]] = []
-    csv.field_size_limit(MAX_FIELD)
+    prior_field_limit = csv.field_size_limit(MAX_FIELD)
 
     def flush() -> None:
         nonlocal batch, shard, bytes_in_batch
@@ -252,6 +279,8 @@ def normalize_file(
                 raise BulkError("bulk_shard_validation")
             sha = file_hash(temporary)
             temporary.chmod(0o440)
+            with temporary.open("rb") as sealed:
+                os.fsync(sealed.fileno())
             os.replace(temporary, target)
             sync_directory(destination)
             checkpoint(
@@ -279,8 +308,10 @@ def normalize_file(
                 errors="strict",
                 newline="",
             ) as text:
-                reader = csv.reader(text, strict=True)
+                lines = BoundedLines(text)
+                reader = csv.reader(lines, strict=True)
                 header = next(reader, None)
+                lines.reset()
                 if (
                     not header
                     or len(header) > 256
@@ -290,6 +321,7 @@ def normalize_file(
                 ):
                     raise BulkError("bulk_invalid_header")
                 for row in reader:
+                    lines.reset()
                     if len(row) != len(header) or any("\0" in v for v in row):
                         raise BulkError("bulk_invalid_record")
                     size = sum(len(v.encode("utf-8")) for v in row)
@@ -323,6 +355,8 @@ def normalize_file(
             raise BulkError("bulk_input_changed")
     except (UnicodeError, csv.Error) as error:
         raise BulkError("bulk_invalid_encoding_or_csv") from error
+    finally:
+        csv.field_size_limit(prior_field_limit)
     return {
         "raw": count,
         "invalid": invalid,
@@ -338,7 +372,7 @@ def connection(
     persistent: bool = True,
     allowed: list[Path] | None = None,
 ) -> Any:
-    root.mkdir(parents=True, exist_ok=True)
+    durable_directory(root)
     temporary = root / "spill"
     temporary.mkdir(exist_ok=True)
     con = duckdb.connect(
@@ -410,6 +444,8 @@ def compute(
         if raw and raw == invalid:
             raise BulkError("netflow_no_valid_records")
         predicates = ["valid"]
+        source = "normalized"
+        projection = "* EXCLUDE(original,invalid_reason,valid)"
         arguments: list[Any] = []
         if selection.protocols:
             predicates.append("protocol IN (SELECT unnest(?))")
@@ -433,12 +469,14 @@ def compute(
                     for lo, hi in values
                 ],
             )
-            predicates.append(
-                "EXISTS (SELECT 1 FROM cidrs c WHERE c.family = src_family AND src_sort BETWEEN c.lo AND c.hi)"
-            )
+            # Disjoint intervals + ASOF select one nearest lower bound per IP;
+            # this is not a per-record scan of every CIDR.
+            source = "normalized n ASOF LEFT JOIN cidrs c ON n.src_family=c.family AND n.src_sort>=c.lo"
+            projection = "n.* EXCLUDE(original,invalid_reason,valid)"
+            predicates.append("n.src_sort <= c.hi")
         pulse()
         con.execute(
-            "CREATE OR REPLACE TABLE retained AS SELECT * EXCLUDE(original,invalid_reason,valid) FROM normalized WHERE "
+            f"CREATE OR REPLACE TABLE retained AS SELECT {projection} FROM {source} WHERE "
             + " AND ".join(predicates),
             arguments,
         )
@@ -506,6 +544,8 @@ def compute(
             with target.open("rb") as handle:
                 os.fsync(handle.fileno())
             target.chmod(0o440)
+            with target.open("rb") as sealed:
+                os.fsync(sealed.fileno())
             result["files"][table] = {
                 "path": str(target),
                 "sha256": file_hash(target),
@@ -514,6 +554,7 @@ def compute(
             }
             pulse()
         con.execute("CHECKPOINT")
+        sync_directory(root)
         result["elapsed_seconds"] = time.monotonic() - started
         return result
     except duckdb.Error:

@@ -85,6 +85,15 @@ class Ready(Strict):
         return self
 
 
+def canonical_network(value: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
+    network = ipaddress.ip_network(value, strict=True)
+    if isinstance(network, ipaddress.IPv6Network) and network.prefixlen >= 96:
+        mapped = network.network_address.ipv4_mapped
+        if mapped is not None:
+            return ipaddress.IPv4Network((mapped, network.prefixlen - 96))
+    return network
+
+
 class Filter(Strict):
     cidrs: list[str] = Field(default_factory=list, max_length=4096)
     protocols: list[int] = Field(default_factory=list, max_length=256)
@@ -93,9 +102,7 @@ class Filter(Strict):
 
     @model_validator(mode="after")
     def valid(self) -> Filter:
-        self.cidrs = sorted(
-            {str(ipaddress.ip_network(c, strict=True)) for c in self.cidrs}
-        )
+        self.cidrs = sorted({str(canonical_network(c)) for c in self.cidrs})
         if any(p < 0 or p > 255 for p in self.protocols):
             raise ValueError("bulk_invalid_protocol")
         self.protocols = sorted(set(self.protocols))
@@ -123,7 +130,7 @@ class CIDRs:
     def __init__(self, cidrs: list[str]):
         self.ranges: dict[int, list[tuple[int, int]]] = {4: [], 6: []}
         for value in cidrs:
-            network = ipaddress.ip_network(value)
+            network = canonical_network(value)
             self.ranges[network.version].append(
                 (int(network.network_address), int(network.broadcast_address))
             )
