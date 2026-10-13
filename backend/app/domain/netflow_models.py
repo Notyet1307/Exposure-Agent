@@ -110,6 +110,13 @@ class NetFlowAnalysis(SQLModel, table=True):
         UniqueConstraint("id", "project_id", "tenant_id", name="uq_nf_analysis_scope"),
         UniqueConstraint(
             "id",
+            "dataset_id",
+            "project_id",
+            "tenant_id",
+            name="uq_nf_analysis_dataset_scope",
+        ),
+        UniqueConstraint(
+            "id",
             "processing_identity_sha256",
             "project_id",
             "tenant_id",
