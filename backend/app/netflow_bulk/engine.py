@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, TextIO
 from zoneinfo import ZoneInfo
@@ -138,12 +139,17 @@ def normalize(values: dict[str, str], member: Member, number: int) -> dict[str, 
         parsed = _integer(values.get(name, ""), 2**64 - 1)
         if parsed is not None:
             key[name] = parsed
-    identity_complete = all(values.get(name, "").strip() for name in IDENTITY)
+    unknown_ids = {"", "unknown", "null", "none", "n/a", "-", "?"}
+    identity_complete = all(values.get(name, "").strip().casefold() not in unknown_ids for name in IDENTITY[:3])
     mode = values.get("SAMPLING_MODE")
-    if mode not in ("sampled", "unsampled") or (
-        mode == "sampled" and not values.get("SAMPLING_RATE", "").strip()
-    ):
+    if mode not in ("sampled", "unsampled"):
         identity_complete = False
+    elif mode == "sampled":
+        try:
+            rate = Decimal(values.get("SAMPLING_RATE", ""))
+            identity_complete = identity_complete and rate.is_finite() and 0 < rate <= 1
+        except InvalidOperation:
+            identity_complete = False
     if not identity_complete or start is None or end is None:
         key["__conservative_source_ref"] = ref
     # Nested arrays avoid collisions with a caller-supplied CSV column name.
