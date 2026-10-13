@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "checks": [
+    "dotenv reads blocked by audit hook",
+    "relative output path",
+    "API error produces FAIL"
+  ],
+  "cases": [
+    {
+      "mode": "success",
+      "reported_status": "PASS",
+      "exit_code": 0,
+      "statuses": [
+        200
+      ]
+    },
+    {
+      "mode": "failure",
+      "reported_status": "FAIL",
+      "exit_code": 1,
+      "statuses": [
+        200,
+        503
+      ]
+    }
+  ]
+}

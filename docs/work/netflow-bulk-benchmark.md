@@ -77,6 +77,8 @@ docker run --name nf-bulk-hard-validation --network none \
 
 [真实运行时回执](evidence/netflow-bulk/runtime-128mb.json)：128,002,652字节，134,826行；真实agent-compose、Linux arm64 guest、PostgreSQL、HTTP完成，43.896秒；worker38.431秒（标准化16.447、投影14.706），RSS632,254,464字节；unique106,271 / duplicate28,555，观测106,028 / peer106,271。该runner实际使用RSS检查，不能把它称作前述768 MiB硬容器实验。
 
+加强证据身份检查后的最终干净构建fa08480再次完成同一128 MB真实链路：49.704秒、worker44.360秒（标准化18.221、投影18.890）、RSS624,156,672字节，所有计数相同。[最终回执](evidence/netflow-bulk/runtime-delivery.json)。该构建的业务源码和锁定依赖与6d491d7完全相同，测试脚本和文档已有更新。
+
 实际SIGKILL发生在已提交checkpoint后，原版本未发布；reconcile确认Session终止后显式重试，恢复2.019秒，结果与无故障小样本一致。lease竞争/过期/fencing、rename后checkpoint失败、最终事务提交失败、模拟ENOSPC和磁盘预留不足均有故障测试。磁盘耗尽采用注入，未填满宿主磁盘；恢复时间只来自小样本，不外推TB。[测试回执](evidence/netflow-bulk/bulk-recovery.xml)。
 
 | 阶段 | 状态 | 说明 |

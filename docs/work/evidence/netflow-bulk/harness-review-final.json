@@ -1,0 +1,14 @@
+{
+  "SpecFix": {
+    "overall_correctness": "correct",
+    "explanation": "通过本次限定范围的静态 review：仅审查 795d119..e577a39 的测试/harness 增量及必要调用方，对照 ee61c8c 的 AC-B03/04/08，未发现可证实的新增或仍存、且可归因于该补丁的问题，未将未提交 docs 纳入评审。静态代码显示：输入/输出路径在切换 cwd 前 resolve；处理中采集到 HTTP 503 时，在 worker 成功且后续查询完成的路径上会写入 FAIL、processing_api_unavailable 并以退出码 1 退出；恢复测试从 CSV 在独立 baseline 目录重新标准化，比较全部五张输出表的逻辑行（保留重复行）和完整 counts，而非仅 raw/unique，且模拟控制面的 benchmark 与真实 agent-compose runtime harness 明确区分，后者新增执行前与发布 PASS 前的 checkout 身份检查。以上不构成 AC-B03/04/08 的执行验收；仅静态审阅，未执行测试、runtime、benchmark 或其他验证，TB 验收未执行。",
+    "confidence": 0.92,
+    "findings": []
+  },
+  "StandardsFix": {
+    "overall_correctness": "correct",
+    "explanation": "通过：仅静态审阅 795d119..e577a39 的测试/harness 增量及必要调用方，未发现可证实的新增或仍存在、且可归因于本次补丁的问题。API benchmark 在 app 导入前校验显式本地数据库环境，并将父、子进程 cwd 置于私有临时目录的 host 下，避开仓库 ../.env；runtime 在启动基础设施前和写入 PASS 前均检查干净工作树与记录的 HEAD，恢复结果比较也与实际结果文件契约一致。未纳入未提交 docs，未读取 .env 或凭据、未访问生产或模型服务、未执行测试或 runtime；TB 验收未执行。",
+    "confidence": 0.88,
+    "findings": []
+  }
+}

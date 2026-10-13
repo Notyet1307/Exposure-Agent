@@ -43,9 +43,13 @@
 
 OMP原生reviewer分别按Standards和固定Spec独立静态审阅。初次因非交互审批阻断没有执行检查，维护者明确授权本轮只读审阅后重新运行。最终Standards全量至3854d74无finding；Spec发现定向证据缺失/不可读应持久失效的P2，6d491d7修复，两轴增量复审均无finding。[原生回执](evidence/netflow-bulk/native-reviews.md)。静态审阅不代替执行、性能或业务验收。
 
-测试harness增量审阅另发现dotenv读取边界、固定提交证据检查、相对输出路径与API失败误报PASS四项，已在e577a39修复，增量复审单独记录。[初次静态回执](evidence/netflow-bulk/harness-review-initial.json)。当前任务原`.env`是本会话新建的合成专用库配置；没有据该发现推断曾读取生产凭据。加强后的恢复用例另用原始CSV独立生成无故障基准，比较全部输出表的逻辑行与所有计数；19项API/故障用例通过。[完整恢复比较回执](evidence/netflow-bulk/full-recovery-comparison.xml)。
+测试harness增量审阅另发现dotenv读取边界、固定提交证据检查、相对输出路径与API失败误报PASS四项，已在e577a39修复，e577a39两轴增量复审均无finding，见[最终原生回执](evidence/netflow-bulk/harness-review-final.json)。[初次静态回执](evidence/netflow-bulk/harness-review-initial.json)。当前任务原`.env`是本会话新建的合成专用库配置；没有据该发现推断曾读取生产凭据。加强后的恢复用例另用原始CSV独立生成无故障基准，比较全部输出表的逻辑行与所有计数；19项API/故障用例通过。[完整恢复比较回执](evidence/netflow-bulk/full-recovery-comparison.xml)。
 
 运行中还修复了跨macOS/Linux挂载inode差异、发布长哈希持有lease锁、CSV逻辑记录/展开字段预算、未知采样保守身份、数字端口0、失败预约释放/审计及访问资格失败清缓存。旧失败日志保留在本任务临时证据目录，最终通过不覆盖失败历史。
+
+修复后32 MB脚本验证：audit hook禁止任何dotenv读取，使用相对输出路径仍成功；处理期注入一次HTTP503后报告FAIL/退出1，正常组PASS/退出0；脏工作树在启动前拒绝。[脚本门禁回执](evidence/netflow-bulk/harness-guard-results.json)。
+
+严格入口随后在干净fa08480构建执行真实agent-compose验收，运行前与写PASS前HEAD/工作树检查通过：128,002,652字节、134,826行，49.704秒，RSS624,156,672字节，计数与先前一致。[最终运行时回执](evidence/netflow-bulk/runtime-delivery.json)。fa08480相对6d491d7的backend/app、frontend/src与锁定依赖无差异；后续提交仅归档证据/文档，不以文档HEAD冒称重新运行的构建。
 
 ## 独立业务验收
 
