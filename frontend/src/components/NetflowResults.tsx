@@ -386,8 +386,9 @@ export default function NetflowResults({
   ].find((query) => query.isError)?.error
   useEffect(() => {
     if (
-      !(failure instanceof ApiError) ||
-      (![401, 403, 404, 410].includes(failure.status) && !access.isError)
+      !access.isError &&
+      (!(failure instanceof ApiError) ||
+        ![401, 403, 404, 410].includes(failure.status))
     )
       return
     setDenied(true)

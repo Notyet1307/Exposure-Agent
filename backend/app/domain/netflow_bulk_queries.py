@@ -580,6 +580,8 @@ def record(
     if not match:
         deny("bulk_invalid_reference", 422)
     file_id, number = match[1], int(match[2])
+    if number < 1 or number > 2**63 - 1:
+        deny("bulk_invalid_reference", 422)
     shard = session.exec(
         select(BulkShard).where(
             BulkShard.dataset_id == row.dataset_id,

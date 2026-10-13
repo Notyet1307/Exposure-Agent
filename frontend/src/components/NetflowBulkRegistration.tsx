@@ -53,9 +53,17 @@ export function NetflowBulkRegistration({
               idempotencyKey: operation.current,
               requestBody: { source_id: source, ready_id: ready },
             })
+            if (!active.current) return
+            if (
+              result.project_id !== projectId ||
+              result.source_id !== source ||
+              result.ready_id !== ready
+            )
+              throw new Error("Registration identity mismatch")
             operation.current = undefined
             onRegistered(result.dataset_id)
           } catch (cause) {
+            if (!active.current) return
             if (netflowRequestRejected(cause)) operation.current = undefined
             setError(true)
           } finally {

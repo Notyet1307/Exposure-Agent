@@ -140,7 +140,10 @@ def normalize(values: dict[str, str], member: Member, number: int) -> dict[str, 
         if parsed is not None:
             key[name] = parsed
     unknown_ids = {"", "unknown", "null", "none", "n/a", "-", "?"}
-    identity_complete = all(values.get(name, "").strip().casefold() not in unknown_ids for name in IDENTITY[:3])
+    identity_complete = all(
+        values.get(name, "").strip().casefold() not in unknown_ids
+        for name in IDENTITY[:3]
+    )
     mode = values.get("SAMPLING_MODE")
     if mode not in ("sampled", "unsampled"):
         identity_complete = False
