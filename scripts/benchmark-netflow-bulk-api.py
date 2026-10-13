@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """Synthetic, isolated PG/API/worker benchmark. Run from backend with uv.
 
 The actual engine and database run; only the agent-compose control plane is a
@@ -12,11 +13,33 @@ import subprocess
 import os
 import time
 import uuid
+import tempfile
+import atexit
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--input-benchmark", type=Path, required=True)
+parser.add_argument("--output", type=Path, required=True)
+args = parser.parse_args()
+args.input_benchmark = args.input_benchmark.resolve()
+args.output = args.output.resolve()
+if tuple(
+    os.environ.get(key)
+    for key in ("ENVIRONMENT", "POSTGRES_SERVER", "POSTGRES_PORT", "POSTGRES_DB")
+) != ("local", "127.0.0.1", "15434", "bulk_test"):
+    raise SystemExit(
+        "Explicit isolated database environment is required; dotenv is not loaded"
+    )
+# Settings resolves ../.env relative to cwd; use a private empty parent for both processes.
+isolated_cwd = tempfile.TemporaryDirectory(prefix="nf-bulk-api-")
+atexit.register(isolated_cwd.cleanup)
+host_cwd = Path(isolated_cwd.name) / "host"
+host_cwd.mkdir()
+os.chdir(host_cwd)
 
 from app.core.config import settings
 from app.core.db import engine, init_db
@@ -30,10 +53,6 @@ from tests.api.routes.test_netflow_datasets import _project
 from tests.utils.netflow_processing import ControlPlane, context_request
 from tests.utils.utils import get_superuser_token_headers
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--input-benchmark", type=Path, required=True)
-parser.add_argument("--output", type=Path, required=True)
-args = parser.parse_args()
 if (
     settings.ENVIRONMENT,
     settings.POSTGRES_SERVER,
@@ -149,7 +168,7 @@ code = (
 with (args.output / "worker.log").open("wb") as log:
     process = subprocess.Popen(
         [sys.executable, "-c", code],
-        cwd=args.output,
+        cwd=host_cwd,
         env=child_env,
         stdout=log,
         stderr=subprocess.STDOUT,
@@ -210,11 +229,19 @@ for endpoint in ("observations", "peers"):
             assert response.status_code == 200, response.text
             assert len(response.json()["data"]) == 25
         report[f"{endpoint}_{mode}"] = summarize(times)
-report["status"] = "PASS"
+failed_requests = [status for _, status in during if status != 200]
+report["status"] = "FAIL" if failed_requests or not during else "PASS"
+if failed_requests or not during:
+    report["errors"] = ["processing_api_unavailable"]
 atomic_json(args.output / "api-benchmark.json", report)
 patch.undo()
 client.close()
 sys.stdout.write(
-    json.dumps({"status": "PASS", "report": str(args.output / "api-benchmark.json")})
+    json.dumps(
+        {"status": report["status"], "report": str(args.output / "api-benchmark.json")}
+    )
     + "\n"
 )
+
+if report["status"] != "PASS":
+    raise SystemExit(1)

@@ -8,6 +8,7 @@ credential, model or production database is read or changed.
 import importlib.util
 import json
 import sys
+import subprocess
 import time
 from pathlib import Path
 
@@ -32,6 +33,18 @@ class Run(base.Run):
         )
         self.v["RUNNER_IMAGE"] = f"nf-bulk-304-runner:{self.sha}"
         self.environment = base.env(self.v)
+
+    def check_identity(self):
+        dirty = subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=self.repo, text=True
+        )
+        head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=self.repo, text=True
+        ).strip()
+        if dirty or head != self.sha:
+            raise RuntimeError(
+                "Checkout changed or is dirty; no fixed-commit acceptance can be published"
+            )
 
     def agents(self):
         self.snapshots.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -252,6 +265,7 @@ class Run(base.Run):
         peers.raise_for_status()
         report["observation_count"] = observations.json()["total_observations"]
         report["peer_count"] = peers.json()["total_peers"]
+        self.check_identity()
         report["status"] = "PASS"
         (self.evidence / "runtime-result.json").write_text(json.dumps(report, indent=2))
         client.close()
@@ -263,6 +277,7 @@ def main():
         raise SystemExit("Use a new evidence directory")
     run = Run(Path(__file__).resolve().parents[1], evidence)
     try:
+        run.check_identity()
         run.prep()
         run.infra()
         run.host()

@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
@@ -83,6 +84,7 @@ def ready(
         "headers": headers,
         "control": control,
         "ready_id": ready_id,
+        "source": source,
     }
 
 
@@ -227,6 +229,51 @@ def test_revoke_and_project_isolation(
     )
 
 
+def logical_result(result: dict[str, Any] | None) -> dict[str, Any]:
+    import json
+
+    assert result is not None
+    # The fixture has only 64 rows; compare every output value, excluding file locations.
+    return {
+        "counts": result["counts"],
+        "tables": {
+            name: sorted(
+                json.dumps(row, sort_keys=True)
+                for row in pq.read_table(
+                    settings.ARTIFACT_ROOT / item["path"]
+                ).to_pylist()
+            )
+            for name, item in result["files"].items()
+        },
+    }
+
+
+def baseline_result(ready: dict[str, Any]) -> dict[str, Any]:
+    from app.netflow_bulk.contracts import Budget, Filter, Member
+    from app.netflow_bulk.engine import compute, normalize_file
+
+    root = ready["source"].parent / "baseline"
+    budget = Budget(disk_reserve_bytes=0, shard_rows=8)
+    for path in sorted(ready["source"].glob("*.csv")):
+        member = Member(
+            sha256=file_hash(path), size=path.stat().st_size, name=path.name
+        )
+        normalize_file(
+            path,
+            member,
+            root / "normalized" / member.sha256,
+            budget,
+            checkpoint=lambda _: None,
+            committed=lambda _: None,
+            pulse=lambda: None,
+        )
+    return logical_result(
+        compute(
+            root / "normalized", root / "result", Filter(), budget, pulse=lambda: None
+        )
+    )
+
+
 @pytest.mark.parametrize("failure", ["checkpoint", "publish", "disk", "enospc"])
 def test_interrupted_attempt_reuses_only_committed_shards(
     client: TestClient,
@@ -235,11 +282,10 @@ def test_interrupted_attempt_reuses_only_committed_shards(
     monkeypatch: pytest.MonkeyPatch,
     failure: str,
 ) -> None:
-    import pyarrow.parquet as pq  # type: ignore[import-untyped]
-
     from app.integrations.agent_compose import AgentComposeSessionObservation
     from app.netflow_bulk.contracts import BulkError
 
+    baseline = baseline_result(ready)
     analysis_id = start(client, ready)
     with monkeypatch.context() as patch:
         if failure == "checkpoint":
@@ -280,6 +326,7 @@ def test_interrupted_attempt_reuses_only_committed_shards(
     result = execute(db, ready, response.json()["analysis_id"])
     assert result.result is not None and result.result["counts"]["unique"] == 63
     assert result.result["counts"]["raw"] == 64
+    assert logical_result(result.result) == baseline
     assert (
         client.get(
             ready["root"] + f"/netflow-analyses/{analysis_id}/observations",
@@ -336,6 +383,7 @@ def test_actual_sigkill_then_explicit_retry(
 
     from app.integrations.agent_compose import AgentComposeSessionObservation
 
+    baseline = baseline_result(ready)
     analysis_id = uuid.UUID(start(client, ready))
     row = db.get(NetFlowAnalysis, analysis_id)
     assert row is not None and row.session_id is not None
@@ -394,6 +442,7 @@ with Session(engine) as session:
     record_property("recovery_seconds", time.monotonic() - recovery_started)
     assert recovered.result is not None and recovered.result["counts"]["raw"] == 64
     assert recovered.result["counts"]["unique"] == 63
+    assert logical_result(recovered.result) == baseline
 
 
 def test_bulk_is_optional_v2_evidence(
