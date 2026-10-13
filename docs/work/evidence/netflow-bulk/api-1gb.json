@@ -1,0 +1,67 @@
+{
+  "TB_acceptance": "TB 验收未执行",
+  "analysis_id": "8a609015-9353-43b9-8eb0-c79cc5cc0554",
+  "api_during_processing": {
+    "max_ms": 4488.744584145024,
+    "n": 1135,
+    "p50_ms": 15.721708070486784,
+    "p95_ms": 229.16004178114235,
+    "statuses": [
+      200
+    ]
+  },
+  "counts": {
+    "duplicate": 223059,
+    "filtered": 0,
+    "invalid": 0,
+    "raw": 1053312,
+    "retained": 1053312,
+    "unique": 830253
+  },
+  "end_to_end_seconds": 357.5228701250162,
+  "input_bytes": 1000001608,
+  "input_rows": 1053312,
+  "object_count": 808466,
+  "observations_cold_connection": {
+    "max_ms": 5203.8670419715345,
+    "n": 20,
+    "p50_ms": 849.5902505237609,
+    "p95_ms": 5203.8670419715345
+  },
+  "observations_hot": {
+    "max_ms": 1043.971125036478,
+    "n": 20,
+    "p50_ms": 270.7188749918714,
+    "p95_ms": 1043.971125036478
+  },
+  "peer_count": 720169,
+  "peers_cold_connection": {
+    "max_ms": 1244.3061671219766,
+    "n": 20,
+    "p50_ms": 252.63933301903307,
+    "p95_ms": 1244.3061671219766
+  },
+  "peers_hot": {
+    "max_ms": 257.8567089512944,
+    "n": 20,
+    "p50_ms": 138.59427045099437,
+    "p95_ms": 257.8567089512944
+  },
+  "project_id": "410d5a10-a4c0-4fef-abbc-1dee16a2a0a1",
+  "query_cache_definition": "cold = fresh DB connections, first query; hot = repeated queries; OS cache was not purged",
+  "raw_input_available_during_queries": false,
+  "scope": "real PG/HTTP/independent worker process; agent-compose control plane simulated",
+  "seal_seconds": 2.0791396249551326,
+  "status": "PASS",
+  "worker_isolation": "separate OS process; control-plane reservation/claim simulated",
+  "worker_metrics": {
+    "elapsed_seconds": 339.9362911249045,
+    "fence": 1,
+    "normalization_seconds": 100.09231562493369,
+    "parsed_records": 1053312,
+    "peak_rss_bytes": 436371456,
+    "projection_seconds": 174.44300033291802,
+    "read_bytes": 1000001608,
+    "reused_files": 0
+  }
+}

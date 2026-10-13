@@ -1,5 +1,7 @@
 # NetFlow bulk 代码审计
 
+以下行号固定于实施前基线。新增链路与实际验证见[运行说明](../runbooks/netflow-bulk.md)和[验证回执](netflow-bulk-validation.md)，不把下述旧链瓶颈描述当作新 bulk 实现状态。
+
 2026-10-13，基线及远端 main：`05b14d52ab6d9f3b0eb54c3a7c7fcfed69bd3751`。原 checkout 是 main@16e451d 且有用户 Spec/current/plans WIP，保持原样；本任务在独立 `codex/netflow-bulk` 工作树。以下行号固定基线，后续实现可能移动。
 
 ## 当前真实调用链
@@ -37,4 +39,4 @@
 
 独立bulk manifest/成员/分片/执行记录；复用项目授权、操作幂等审计、Context与Analysis身份及agent-compose。版本化result repository连接新版观测、证据、current和V2辅证；旧0.4.0处理/查询继续原合同。重型明细/peer留列式层，PG存版本、对象摘要和查询索引；不新增第二调度器、不把DuckDB提升为权威业务库。完整验收见[bulk合同](../specs/netflow-bulk-v1.md)。
 
-审计是静态事实与本机资源快照，不是容量验收。实际压测/故障/旧回归尚未执行，**TB 验收未执行**。
+本审计仅记录实施前静态事实与资源快照，不能代替容量验收。后续压测、故障和旧回归结果见[验证回执](netflow-bulk-validation.md)；**TB 验收未执行**。

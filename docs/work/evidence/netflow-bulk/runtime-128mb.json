@@ -1,0 +1,73 @@
+{
+  "scope": "real agent-compose / Linux arm64 guest / PostgreSQL / HTTP",
+  "build": "6d491d737f4f9f6eef60d372e507cad99a0a629b",
+  "input": {
+    "seed": 304,
+    "bytes": 128002652,
+    "rows": 134826,
+    "row_width_target": 1024,
+    "ipv6_rate": 0.35,
+    "duplicate_rate": 0.1,
+    "objects_target": 100000,
+    "peers_target": 500000,
+    "hotspot_rate": 0.1,
+    "overlap_rate": 0.1,
+    "files": [
+      {
+        "name": "synthetic-0000.csv",
+        "bytes": 32000827,
+        "rows": 33721,
+        "sha256": "2d814e80deda9aa895a688ff92d1881011a12a24cb6446f04fdcdefd128e0728"
+      },
+      {
+        "name": "synthetic-0001.csv",
+        "bytes": 32000894,
+        "rows": 33687,
+        "sha256": "3225668cecc490c898a611334d905cebd766fd46753b4cf3ddf300dde1fb030e"
+      },
+      {
+        "name": "synthetic-0002.csv",
+        "bytes": 32000224,
+        "rows": 33714,
+        "sha256": "73182c13e8f9f5be207fd1524ca0a3e3c201c35f9761bacc737469982f5053d0"
+      },
+      {
+        "name": "synthetic-0003.csv",
+        "bytes": 32000707,
+        "rows": 33704,
+        "sha256": "0ca423d5af305a98a5ff373e275f700cece0ebb1b1d56aaaa93f18da5579ae68"
+      }
+    ]
+  },
+  "analysis_id": "8d869449-87e1-4f57-b374-79b50f2867ef",
+  "project_id": "b7154d48-0d0d-4010-9160-38ce749f8a27",
+  "status": "PASS",
+  "quality": {
+    "counts_state": "KNOWN",
+    "counts": {
+      "raw": 134826,
+      "unique": 106271,
+      "invalid": 0,
+      "filtered": 0,
+      "retained": 134826,
+      "duplicate": 28555
+    },
+    "policy": "bulk-export-row-v1",
+    "phase": "SUCCEEDED",
+    "metrics": {
+      "fence": 1,
+      "read_bytes": 128002652,
+      "reused_files": 0,
+      "parsed_records": 134826,
+      "peak_rss_bytes": 632254464,
+      "elapsed_seconds": 38.43109912399996,
+      "projection_seconds": 14.706023474000176,
+      "normalization_seconds": 16.446943631999602
+    }
+  },
+  "error_code": null,
+  "seconds": 43.89560225000605,
+  "TB_acceptance": "TB 验收未执行",
+  "observation_count": 106028,
+  "peer_count": 106271
+}
