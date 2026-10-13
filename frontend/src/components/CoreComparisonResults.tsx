@@ -1920,7 +1920,11 @@ export default function CoreComparisonResults({
                       <p key={row.canonical_ip} className="text-sm">
                         {t("Observation objects", "观测对象")}{" "}
                         {row.observation_count} ·{" "}
-                        {t("Source records", "源记录")} {row.source_records}
+                        {eMeta.data?.record_count_semantics ===
+                        "unique_export_records"
+                          ? t("Unique export records", "去重后导出记录")
+                          : t("Source records", "源记录")}{" "}
+                        {row.source_records}
                       </p>
                     ))}
                 <p className="text-sm text-muted-foreground">
@@ -2223,7 +2227,12 @@ export default function CoreComparisonResults({
                           <TableHead>
                             {t("Observation objects", "观测对象")}
                           </TableHead>
-                          <TableHead>{t("Source records", "源记录")}</TableHead>
+                          <TableHead>
+                            {eMeta.data?.record_count_semantics ===
+                            "unique_export_records"
+                              ? t("Unique export records", "去重后导出记录")
+                              : t("Source records", "源记录")}
+                          </TableHead>
                           <TableHead>{t("Evidence", "依据")}</TableHead>
                         </TableRow>
                       </TableHeader>

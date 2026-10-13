@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { NetflowBulkService } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,6 +19,13 @@ export function NetflowBulkRegistration({
   const [pending, setPending] = useState(false)
   const [error, setError] = useState(false)
   const operation = useRef<string | undefined>(undefined)
+  const active = useRef(true)
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+    }
+  }, [])
   const valid =
     /^[a-z][a-z0-9_-]{0,63}$/.test(source) && /^[0-9a-f]{64}$/.test(ready)
   return (
@@ -52,7 +59,7 @@ export function NetflowBulkRegistration({
             if (netflowRequestRejected(cause)) operation.current = undefined
             setError(true)
           } finally {
-            setPending(false)
+            if (active.current) setPending(false)
           }
         }}
       >

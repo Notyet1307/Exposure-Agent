@@ -1179,6 +1179,12 @@ class SupplementCreate(Input):
 
 
 class SupplementPublic(Envelope):
+    record_count_semantics: Literal["unique_export_records"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    netflow_policy_version: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     result_id: uuid.UUID
     id: uuid.UUID | None
     parent_id: uuid.UUID | None = None
@@ -1203,6 +1209,12 @@ class SupplementAddress(BaseModel):
 
 
 class SupplementAddresses(Envelope):
+    record_count_semantics: Literal["unique_export_records"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    netflow_policy_version: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     result_id: uuid.UUID
     binding_id: uuid.UUID
     analysis_id: uuid.UUID
@@ -1334,6 +1346,8 @@ def _supplement_public(
     public.analysis_id, public.dataset_id = analysis.id, analysis.dataset_id
     public.observation_window = row.observation_window
     if analysis.identity.get("backend") == "netflow-bulk-v1":
+        public.record_count_semantics = "unique_export_records"
+        public.netflow_policy_version = analysis.identity["policy"]
         public.observation_count = bundle["files"]["observations"]["rows"]
         public.source_records = bundle["counts"]["unique"]
         public.total_addresses = bundle["files"]["addresses"]["rows"]
@@ -1521,6 +1535,8 @@ def supplement_addresses(
             .limit(limit)
         ).all()
         return SupplementAddresses(
+            record_count_semantics="unique_export_records",
+            netflow_policy_version=analysis.identity["policy"],
             project_id=project.id,
             result_id=result.id,
             binding_id=binding.id,

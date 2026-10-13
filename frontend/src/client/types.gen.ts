@@ -2414,6 +2414,8 @@ export type SupplementAddress = {
 export type SupplementAddresses = {
     contract_version?: "core-comparison-v2";
     project_id: string;
+    record_count_semantics?: ("unique_export_records" | null);
+    netflow_policy_version?: (string | null);
     result_id: string;
     binding_id: string;
     analysis_id: string;
@@ -2444,6 +2446,8 @@ export type SupplementHistory = {
 export type SupplementPublic = {
     contract_version?: "core-comparison-v2";
     project_id: string;
+    record_count_semantics?: ("unique_export_records" | null);
+    netflow_policy_version?: (string | null);
     result_id: string;
     id: (string | null);
     parent_id?: (string | null);

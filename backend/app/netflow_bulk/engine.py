@@ -73,7 +73,10 @@ def _address(value: str) -> str | None:
 def _integer(value: str, maximum: int) -> int | None:
     if not value or not value.isascii() or not value.isdecimal():
         return None
-    number = int(value)
+    digits = value.lstrip("0") or "0"
+    if len(digits) > len(str(maximum)):
+        return None
+    number = int(digits)
     return number if number <= maximum else None
 
 
@@ -110,7 +113,6 @@ def normalize(values: dict[str, str], member: Member, number: int) -> dict[str, 
         _integer(values[key], 65535) if protocol in (6, 17) else None
         for key in ("L4_SRC_PORT", "L4_DST_PORT")
     ]
-    ports = [value if value else None for value in ports]
     # Retain all exporter/NAT/sampling/unknown columns. Only known valid fields
     # are canonicalized; malformed optional values remain part of the full key.
     key: dict[str, Any] = dict(values)

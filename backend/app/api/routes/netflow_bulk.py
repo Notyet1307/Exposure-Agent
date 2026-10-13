@@ -7,6 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlmodel import select
+from starlette.types import Message
 
 from app.api.deps import CurrentUser, SessionDep
 from app.api.routes.netflow_http import NetFlowRoute
@@ -26,7 +27,7 @@ class BulkRoute(NetFlowRoute):
         async def bounded(request: Request) -> Response:
             received = 0
 
-            async def receive() -> dict[str, Any]:
+            async def receive() -> Message:
                 nonlocal received
                 message = await request.receive()
                 received += len(message.get("body", b""))

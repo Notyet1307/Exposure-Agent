@@ -10937,6 +10937,29 @@ export const SupplementAddressesSchema = {
             format: 'uuid',
             title: 'Project Id'
         },
+        record_count_semantics: {
+            anyOf: [
+                {
+                    type: 'string',
+                    const: 'unique_export_records'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Record Count Semantics'
+        },
+        netflow_policy_version: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Netflow Policy Version'
+        },
         result_id: {
             type: 'string',
             format: 'uuid',
@@ -11100,6 +11123,29 @@ export const SupplementPublicSchema = {
             type: 'string',
             format: 'uuid',
             title: 'Project Id'
+        },
+        record_count_semantics: {
+            anyOf: [
+                {
+                    type: 'string',
+                    const: 'unique_export_records'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Record Count Semantics'
+        },
+        netflow_policy_version: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Netflow Policy Version'
         },
         result_id: {
             type: 'string',
