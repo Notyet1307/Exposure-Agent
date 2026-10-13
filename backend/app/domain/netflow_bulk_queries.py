@@ -88,10 +88,12 @@ def gate(
     ):
         deny("netflow_test_fixture_forbidden", 422)
     try:
+        # Inodes are mount-local (e.g. macOS vs a Linux guest). The sealed
+        # hash and portable size/mtime/ctime remain the integrity boundary.
         for descriptor in receipt["files"].values():
             path = safe_file(settings.ARTIFACT_ROOT, descriptor["path"])
             st = path.stat()
-            if (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns) != (
+            if (st.st_size, st.st_mtime_ns, st.st_ctime_ns) != (
                 descriptor["size"],
                 descriptor["mtime_ns"],
                 descriptor["ctime_ns"],
