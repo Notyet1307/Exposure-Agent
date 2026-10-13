@@ -66,6 +66,10 @@ async function setup(page: Page) {
           count: 1,
         },
       })
+    if (path === `${root}/netflow-analyses/${analysis}/access`)
+      return route.fulfill({
+        json: { ...identity, can_read_result: true, status: "SUCCEEDED" },
+      })
     if (path === `${root}/netflow-analyses/${analysis}`)
       return route.fulfill({ json: batch })
     if (path === `${root}/netflow-results/current`)
@@ -350,9 +354,10 @@ test("invalid or conflicting explicit identity never falls back to another batch
   await page.goto(
     `/projects/${project}/netflow-results?analysis=${analysis}&dataset=${context}`,
   )
-  await expect(page.getByRole("alert")).toContainText(
-    "explicit batch identity is invalid",
-  )
+  // The access check may clear batch metadata before the detailed mismatch text renders.
+  await expect(
+    page.getByRole("heading", { name: "This fixed batch cannot be read" }),
+  ).toBeVisible()
   expect(contents).toEqual([])
 })
 
@@ -508,4 +513,114 @@ test("project switch stays in processed data and rejects the old late response",
   await expect(
     page.getByRole("button", { name: "192.0.2.26", exact: true }),
   ).toHaveCount(0)
+})
+
+test("bulk pages use cursors, keep immutable content idle, and clear on access revocation", async ({
+  page,
+}, testInfo) => {
+  await setup(page)
+  await page.clock.install()
+  let observationsRead = 0
+  let accessRead = 0
+  let revoked = false
+  let usedCursor: string | null = null
+  const bulkIdentity = {
+    ...identity,
+    provenance: { backend: "netflow-bulk-v1", policy: "bulk-export-row-v1" },
+  }
+  await page.route(`**${root}/netflow-analyses/${analysis}`, (route) =>
+    route.fulfill({
+      json: {
+        ...batch,
+        ...bulkIdentity,
+        pipeline_complete: true,
+        result: {
+          counts: {
+            raw: 52,
+            invalid: 0,
+            filtered: 0,
+            retained: 52,
+            unique: 26,
+            duplicate: 26,
+          },
+        },
+      },
+    }),
+  )
+  await page.route(`**${root}/netflow-analyses/${analysis}/access`, (route) => {
+    accessRead++
+    return route.fulfill(
+      revoked
+        ? { status: 409, json: { detail: { code: "netflow_context_revoked" } } }
+        : { json: { ...identity, status: "SUCCEEDED", can_read_result: true } },
+    )
+  })
+  await page.route(
+    `**${root}/netflow-analyses/${analysis}/observations?*`,
+    (route) => {
+      observationsRead++
+      const params = new URL(route.request().url()).searchParams
+      usedCursor = params.get("cursor")
+      const next = usedCursor === "fixed-cursor-2"
+      return route.fulfill({
+        json: {
+          ...bulkIdentity,
+          ...timing,
+          data: Array.from({ length: next ? 1 : 25 }, (_, i) => ({
+            ...observation(next ? 26 : i + 1),
+            source_record_count: 1,
+            retained_count: 1,
+            omitted_count: 0,
+          })),
+          count: 26,
+          skip: 0,
+          limit: 25,
+          next_cursor: next ? null : "fixed-cursor-2",
+          raw_record_count: 52,
+          total_observations: 26,
+          total_source_records: 26,
+          total_addresses: 26,
+        },
+      })
+    },
+  )
+  await page.goto(
+    `/projects/${project}/netflow-results?analysis=${analysis}&dataset=${dataset}`,
+  )
+  await expect(
+    page.getByRole("region", { name: "Bulk record counts" }),
+  ).toBeVisible()
+  await expect(page.getByText("192.0.2.1", { exact: true })).toBeVisible()
+  await page.clock.runFor(5001)
+  await expect.poll(() => accessRead).toBeGreaterThanOrEqual(2)
+  await page.clock.runFor(6001)
+  await expect.poll(() => accessRead).toBeGreaterThanOrEqual(3)
+  expect(observationsRead).toBe(1)
+  await page
+    .getByRole("navigation", { name: "Observations pagination" })
+    .getByRole("button", { name: "Next", exact: true })
+    .click()
+  await expect(page.getByText("192.0.2.26", { exact: true })).toBeVisible()
+  expect(usedCursor).toBe("fixed-cursor-2")
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.screenshot({
+    path: testInfo.outputPath("bulk-desktop.png"),
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({
+    path: testInfo.outputPath("bulk-mobile.png"),
+    fullPage: true,
+  })
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true)
+  revoked = true
+  await page.clock.runFor(5001)
+  await expect(
+    page.getByRole("heading", { name: "This fixed batch cannot be read" }),
+  ).toBeVisible()
+  await expect(page.getByText("192.0.2.26", { exact: true })).toHaveCount(0)
 })

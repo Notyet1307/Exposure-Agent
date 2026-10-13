@@ -1,5 +1,6 @@
 import csv
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -215,3 +216,145 @@ def test_engine_has_no_unrestricted_filesystem_access(tmp_path: Path) -> None:
             con.execute("SELECT * FROM read_csv(?)", [str(outside)])
     finally:
         con.close()
+
+
+@pytest.mark.parametrize(
+    "cidrs,expected",
+    [
+        (["192.0.2.0/24"], 1),
+        (["::ffff:192.0.2.0/120"], 1),
+        (["2001:db8::/32"], 1),
+        (["2001:db9::/32"], 0),
+    ],
+)
+def test_asof_cidr_filter_handles_both_families(
+    tmp_path: Path, cidrs: list[str], expected: int
+) -> None:
+    ipv6 = BASE.copy()
+    ipv6[0] = "2001:db8::2"
+    material(tmp_path, "input.csv", [BASE, ipv6])
+    result = compute(
+        tmp_path / "normalized",
+        tmp_path / "result",
+        Filter(cidrs=cidrs),
+        Budget(disk_reserve_bytes=0),
+        pulse=lambda: None,
+    )
+    assert result["counts"]["unique"] == expected
+
+
+def test_csv_record_limit_applies_before_csv_allocates_fields(tmp_path: Path) -> None:
+    from app.netflow_bulk.contracts import MAX_RECORD
+
+    path = tmp_path / "long.csv"
+    # Many short fields bypass a field-size-only guard; the physical input is bounded.
+    path.write_text("," * (MAX_RECORD + 100))
+    member = Member(sha256=file_hash(path), size=path.stat().st_size, name=path.name)
+    with pytest.raises(BulkError, match="bulk_record_limit"):
+        normalize_file(
+            path,
+            member,
+            tmp_path / "out",
+            Budget(disk_reserve_bytes=0),
+            checkpoint=lambda _: None,
+            committed=lambda _: None,
+            pulse=lambda: None,
+        )
+
+
+def test_new_directories_are_synced_before_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.netflow_bulk import storage
+
+    calls: list[Path] = []
+    original = storage.sync_directory
+
+    def sync(path: Path) -> None:
+        calls.append(path)
+        original(path)
+
+    monkeypatch.setattr(storage, "sync_directory", sync)
+    storage.durable_directory(tmp_path / "a" / "b")
+    assert (
+        tmp_path in calls and tmp_path / "a" in calls and tmp_path / "a" / "b" in calls
+    )
+
+
+def test_zero_ports_are_canonical_and_queryable(tmp_path: Path) -> None:
+    from app.netflow_bulk.engine import batches
+
+    a, b = BASE.copy(), BASE.copy()
+    a[3:5], b[3:5] = ["0", "0"], ["00", "000"]
+    material(tmp_path, "ports.csv", [a, b])
+    result = compute(
+        tmp_path / "normalized",
+        tmp_path / "result",
+        Filter(),
+        Budget(disk_reserve_bytes=0),
+        pulse=lambda: None,
+    )
+    assert result["counts"]["unique"] == 1
+    assert result["counts"]["duplicate"] == 1
+    assert next(batches(Path(result["files"]["observations"]["path"])))[0]["port"] == 0
+
+
+def test_oversized_decimal_is_invalid_not_a_batch_exception(tmp_path: Path) -> None:
+    row = BASE.copy()
+    row[2] = "9" * 5000
+    material(tmp_path, "oversized-number.csv", [BASE, row])
+    result = compute(
+        tmp_path / "normalized",
+        tmp_path / "result",
+        Filter(),
+        Budget(disk_reserve_bytes=0),
+        pulse=lambda: None,
+    )
+    assert result["counts"]["raw"] == 2
+    assert result["counts"]["invalid"] == 1
+    assert result["counts"]["unique"] == 1
+
+
+def test_batch_budget_includes_expanded_header_names(tmp_path: Path) -> None:
+    header = HEADERS + ["x" * 10000]
+    path = tmp_path / "wide-header.csv"
+    with path.open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(header)
+        writer.writerows([BASE + ["v"]] * 2000)
+    member = Member(sha256=file_hash(path), size=path.stat().st_size, name=path.name)
+    checkpoints: list[dict[str, Any]] = []
+    normalize_file(
+        path,
+        member,
+        tmp_path / "normalized",
+        Budget(disk_reserve_bytes=0),
+        checkpoint=checkpoints.append,
+        committed=lambda _: None,
+        pulse=lambda: None,
+    )
+    assert sum(item["rows"] for item in checkpoints) == 2000
+    assert max(item["rows"] for item in checkpoints) < 1000
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("EXPORTER", "unknown"),
+        ("OBSERVATION_DOMAIN_ID", "N/A"),
+        ("SAMPLING_RATE", "NaN"),
+        ("SAMPLING_RATE", "0"),
+    ],
+)
+def test_unknown_collection_identity_keeps_export_rows(field: str, value: str) -> None:
+    from app.netflow_bulk.engine import normalize
+
+    values = dict(zip(HEADERS, BASE, strict=True))
+    values[field] = value
+    if field == "SAMPLING_RATE":
+        values["SAMPLING_MODE"] = "sampled"
+    member = Member(sha256="a" * 64, size=1, name="fixture.csv")
+    assert (
+        normalize(values, member, 1)["canonical_key"]
+        != normalize(values, member, 2)["canonical_key"]
+    )

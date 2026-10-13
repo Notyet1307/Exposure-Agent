@@ -503,9 +503,14 @@ agents:
                 text=True,
             ).split()
             if ids:
-                guests = json.loads(
-                    subprocess.check_output(["docker", "inspect", *ids], text=True)
-                )
+                guests = []
+                for identifier in ids:
+                    inspected = subprocess.run(["docker", "inspect", identifier], text=True, capture_output=True)
+                    if inspected.returncode:
+                        if "no such object" in inspected.stderr.lower() or "no such container" in inspected.stderr.lower():
+                            continue  # Finished Sessions can remove guests between ps and inspect.
+                        raise RuntimeError("Cannot inspect this harness guest for scoped cleanup")
+                    guests.extend(json.loads(inspected.stdout))
                 for guest in guests:
                     if any(
                         str(mount.get("Source", "")).startswith(
