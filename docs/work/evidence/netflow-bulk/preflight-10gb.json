@@ -1,0 +1,8 @@
+{
+  "TB_acceptance": "TB 验收未执行",
+  "estimated_required_bytes": 130064771072,
+  "free_bytes": 113013784576,
+  "reason": "disk_preflight",
+  "status": "NOT_RUN",
+  "target_bytes": 10000000000
+}

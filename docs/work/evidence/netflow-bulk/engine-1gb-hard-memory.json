@@ -1,0 +1,148 @@
+{
+  "TB_acceptance": "TB 验收未执行",
+  "budget": {
+    "disk_reserve_bytes": 21474836480,
+    "memory_mb": 128,
+    "rss_bytes": 671088640,
+    "sample_limit": 20,
+    "shard_rows": 65536,
+    "temp_bytes": 8589934592,
+    "threads": 1,
+    "timeout_seconds": 86400
+  },
+  "code_sha256": {
+    "__main__.py": "c52c1e08dd3594443500ed7ec5b57041034b79b5f26c50c458848bb25ad73c0a",
+    "contracts.py": "b0418f4048158b937e12142886421ce9b4958af7216bcfdf35ffcb9b50c4833e",
+    "engine.py": "339f563b804a260521fb4b037152478ecb6aed21f4deff4f8b2284a14588b1ff",
+    "storage.py": "b765fb6088fa2851774ef42c6a5f8599900323eca47c9fd322d25e20b651827e"
+  },
+  "end_to_end_seconds_including_generation": 150.66351225399922,
+  "generation_seconds": 28.872085417999187,
+  "hardware": {
+    "cpu_count": 8,
+    "machine": "aarch64",
+    "platform": "Linux-7.2.9-orbstack-00391-g2b298d05fbd4-aarch64-with-glibc2.36"
+  },
+  "input": {
+    "bytes": 1000001608,
+    "duplicate_rate": 0.1,
+    "files": [
+      {
+        "bytes": 250000414,
+        "name": "synthetic-0000.csv",
+        "rows": 263330,
+        "sha256": "f8567c8ba745b39bf0f885edab023709f52d8d7cb0e2749101dbc61cc5e08856"
+      },
+      {
+        "bytes": 250000497,
+        "name": "synthetic-0001.csv",
+        "rows": 263329,
+        "sha256": "e299ab45747eccc65e01596bdbcbbf5ffe3a6e03daffa3a819f2dbdf7d9a5b11"
+      },
+      {
+        "bytes": 250000391,
+        "name": "synthetic-0002.csv",
+        "rows": 263328,
+        "sha256": "e13745de6ddc1a50613feaab8e922259028e0f30831e31fd683ff9d0063ba43e"
+      },
+      {
+        "bytes": 250000306,
+        "name": "synthetic-0003.csv",
+        "rows": 263325,
+        "sha256": "ae15c5652824f2001b2bc48b3b369d2e5bab0ca1853655f5532a6efa188dfb29"
+      }
+    ],
+    "hotspot_rate": 0.1,
+    "ipv6_rate": 0.35,
+    "objects_target": 100000,
+    "overlap_rate": 0.1,
+    "peers_target": 500000,
+    "row_width_target": 1024,
+    "rows": 1053312,
+    "seed": 304
+  },
+  "metrics": {
+    "peak_rss_bytes": 504446976,
+    "peak_work_bytes": 2039968396,
+    "sampled_peak_temp_bytes": 1253277696
+  },
+  "normalization_seconds": 61.48311440600082,
+  "normalized_bytes": 881686459,
+  "parsed_rows": 1053312,
+  "processing_seconds": 121.78870576300142,
+  "read_bytes": 1000001608,
+  "refilter": {
+    "counts": {
+      "duplicate": 0,
+      "filtered": 1053312,
+      "invalid": 0,
+      "raw": 1053312,
+      "retained": 0,
+      "unique": 0
+    },
+    "csv_parser_calls": 0,
+    "raw_csv_read_bytes": 0
+  },
+  "refilter_seconds": 0.2157839450010215,
+  "result": {
+    "counts": {
+      "duplicate": 223059,
+      "filtered": 0,
+      "invalid": 0,
+      "raw": 1053312,
+      "retained": 1053312,
+      "unique": 830253
+    },
+    "elapsed_seconds": 59.85069055799977,
+    "engine": "bulk-engine-1",
+    "files": {
+      "addresses": {
+        "path": "/bench/run/result/addresses.parquet",
+        "rows": 160546,
+        "sha256": "d1b2581d8422ca9717a8d1944a2adea03e046aedffe1dd20338ed7f62347c2c0",
+        "size": 400795
+      },
+      "observations": {
+        "path": "/bench/run/result/observations.parquet",
+        "rows": 808466,
+        "sha256": "77c83c9e47b2b07870b8ee05b703be3396e09900c547a25d3ff14963a064a943",
+        "size": 36327565
+      },
+      "peer_samples": {
+        "path": "/bench/run/result/peer_samples.parquet",
+        "rows": 830253,
+        "sha256": "a54718d236f5ff315ee278938e4b3d5dc7b6d98d82ae1ce25e2a5acc863f6a67",
+        "size": 32472851
+      },
+      "peers": {
+        "path": "/bench/run/result/peers.parquet",
+        "rows": 720169,
+        "sha256": "73ca6d255b6bfea95e705cce27cb36c1dc08af945a5ce7a99eeff0b08c70359d",
+        "size": 30813901
+      },
+      "source_samples": {
+        "path": "/bench/run/result/source_samples.parquet",
+        "rows": 830253,
+        "sha256": "e535606d72ea6a1cf175fae8e980a2462cbd02b4d72cce0dc81ae33710a0118e",
+        "size": 35319645
+      }
+    },
+    "filter": {
+      "cidrs": [],
+      "end": null,
+      "protocols": [],
+      "start": null
+    },
+    "policy": "bulk-export-row-v1"
+  },
+  "result_bytes": 135334757,
+  "rows_per_second": 8648.683746173687,
+  "scope": "offline engine; PostgreSQL/API publication measured separately",
+  "status": "PASS",
+  "target_bytes": 1000000000,
+  "versions": {
+    "duckdb": "1.5.6",
+    "pyarrow": "26.0.0",
+    "python": "3.14.8"
+  }
+}

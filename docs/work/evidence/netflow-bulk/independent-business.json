@@ -1,0 +1,35 @@
+{
+  "status": "PASS",
+  "build": "6d491d737f4f9f6eef60d372e507cad99a0a629b",
+  "dataset_id": "76a27d71-c59a-44b5-a3c8-4537f7b05a4b",
+  "analysis_id": "2bd10ce4-d075-43d4-8d86-1a6607a81fec",
+  "manifest_files": 2,
+  "expected": {
+    "raw": 7,
+    "invalid": 1,
+    "filtered": 0,
+    "retained": 6,
+    "unique": 5,
+    "duplicate": 1,
+    "observations": 2,
+    "peers": 1,
+    "source_192_record_count": 4,
+    "peer_record_count": 5
+  },
+  "actual_counts": {
+    "raw": 7,
+    "unique": 5,
+    "invalid": 1,
+    "filtered": 0,
+    "retained": 6,
+    "duplicate": 1
+  },
+  "actual_observations": 2,
+  "actual_peers": 1,
+  "revoked_read": {
+    "status": 409,
+    "code": "netflow_context_revoked"
+  },
+  "seconds": 22.88431699993089,
+  "TB_acceptance": "TB 验收未执行"
+}

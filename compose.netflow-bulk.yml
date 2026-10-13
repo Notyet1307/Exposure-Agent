@@ -1,0 +1,16 @@
+# Optional controlled snapshot mount. Use with compose.yml only after approval.
+# Create the host directory with operator-only write access; seal into it offline.
+services:
+  backend:
+    environment:
+      NETFLOW_BULK_ROOT: /app/netflow-bulk-inputs
+      NETFLOW_BULK_MEMORY_MB: ${NETFLOW_BULK_MEMORY_MB:-512}
+      NETFLOW_BULK_THREADS: ${NETFLOW_BULK_THREADS:-1}
+      NETFLOW_BULK_TEMP_BYTES: ${NETFLOW_BULK_TEMP_BYTES:-8589934592}
+      NETFLOW_BULK_DISK_RESERVE_BYTES: ${NETFLOW_BULK_DISK_RESERVE_BYTES:-2147483648}
+      NETFLOW_BULK_RSS_BYTES: ${NETFLOW_BULK_RSS_BYTES:-2147483648}
+    volumes:
+      - type: bind
+        source: ${NETFLOW_BULK_HOST_PATH:?Set an operator-owned snapshot directory}
+        target: /app/netflow-bulk-inputs
+        read_only: true

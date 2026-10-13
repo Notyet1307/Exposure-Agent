@@ -6,6 +6,7 @@ from typing import Annotated, Any, ClassVar, Literal, Self
 from pydantic import Field as PydanticField
 from pydantic import SecretStr, field_validator, model_validator
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Column,
     DateTime,
@@ -23,6 +24,7 @@ from sqlmodel import Field, SQLModel
 from app.core.time import get_datetime_utc
 from app.domain import cloudatlas_structured_contract as structured
 from app.domain import external_asset_models as external_asset_models
+from app.domain import netflow_bulk_models as netflow_bulk_models
 from app.domain import netflow_models as netflow_models
 
 DEPLOYMENT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -389,18 +391,18 @@ class NetFlowDataset(SQLModel, table=True):
     dataset_contract_version: str = Field(max_length=100)
     schema_fingerprint: str = Field(max_length=64)
     encoding: str = Field(max_length=32)
-    byte_size: int
-    raw_record_count: int
-    activity_valid_record_count: int
-    isolated_record_count: int
+    byte_size: int = Field(sa_type=BigInteger)
+    raw_record_count: int = Field(sa_type=BigInteger)
+    activity_valid_record_count: int = Field(sa_type=BigInteger)
+    isolated_record_count: int = Field(sa_type=BigInteger)
     valid_time_start_utc: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
     )
     valid_time_end_utc: datetime | None = Field(
         default=None, sa_column=Column(DateTime(timezone=True), nullable=True)
     )
-    duplicate_group_count: int
-    duplicate_record_count: int
+    duplicate_group_count: int = Field(sa_type=BigInteger)
+    duplicate_record_count: int = Field(sa_type=BigInteger)
     warnings: list[dict[str, Any]] = Field(default_factory=list, sa_type=JSONB)
     created_at: datetime = Field(
         default_factory=get_datetime_utc,
@@ -414,6 +416,7 @@ class NetFlowDataset(SQLModel, table=True):
 
 class NetFlowDatasetPublic(SQLModel):
     id: uuid.UUID
+    counts_state: str = "KNOWN"
     display_filename: str
     raw_sha256: str
     normalized_sha256: str
@@ -421,13 +424,13 @@ class NetFlowDatasetPublic(SQLModel):
     schema_fingerprint: str
     encoding: str
     byte_size: int
-    raw_record_count: int
-    activity_valid_record_count: int
-    isolated_record_count: int
+    raw_record_count: int | None
+    activity_valid_record_count: int | None
+    isolated_record_count: int | None
     valid_time_start_utc: datetime | None
     valid_time_end_utc: datetime | None
-    duplicate_group_count: int
-    duplicate_record_count: int
+    duplicate_group_count: int | None
+    duplicate_record_count: int | None
     warnings: list[dict[str, Any]]
     created_at: datetime
 

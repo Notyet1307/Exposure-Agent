@@ -1,0 +1,11 @@
+{
+  "image": "nf-bulk-304-runner:6d491d737f4f9f6eef60d372e507cad99a0a629b",
+  "memory_bytes": 805306368,
+  "memory_swap_bytes": 805306368,
+  "nano_cpus": 1000000000,
+  "pids_limit": 128,
+  "exit_code": 0,
+  "oom_killed": false,
+  "host_cpu": "Apple M1 Pro",
+  "host_memory_bytes": 17179869184
+}

@@ -9,7 +9,7 @@ from typing import Any, Literal, cast
 from fastapi import HTTPException
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.exc import SQLAlchemyError
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, func, select
 
 from app.api.project_authorization import project_access_filter
 from app.core.time import get_datetime_utc
@@ -1179,6 +1179,12 @@ class SupplementCreate(Input):
 
 
 class SupplementPublic(Envelope):
+    record_count_semantics: Literal["unique_export_records"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    netflow_policy_version: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     result_id: uuid.UUID
     id: uuid.UUID | None
     parent_id: uuid.UUID | None = None
@@ -1203,6 +1209,12 @@ class SupplementAddress(BaseModel):
 
 
 class SupplementAddresses(Envelope):
+    record_count_semantics: Literal["unique_export_records"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    netflow_policy_version: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     result_id: uuid.UUID
     binding_id: uuid.UUID
     analysis_id: uuid.UUID
@@ -1279,7 +1291,17 @@ def _binding_material(
         deny("comparison_supplement_removed", 409)
     if binding.valid_until is None or binding.valid_until <= get_datetime_utc():
         deny("comparison_supplement_expired", 410)
-    analysis, bundle = analysis_material(session, project, binding.analysis_id)
+    from app.domain import netflow_bulk_queries
+    from app.domain.netflow_processing import analysis_for
+
+    bundle: Any
+    fixed = analysis_for(session, project, binding.analysis_id)
+    if fixed.identity.get("backend") == "netflow-bulk-v1":
+        analysis, bundle = netflow_bulk_queries.gate(
+            session, project, binding.analysis_id
+        )
+    else:
+        analysis, bundle = analysis_material(session, project, binding.analysis_id)
     if analysis.network_namespace != result.selection["network_namespace"]:
         deny("comparison_supplement_scope_unconfirmed")
     if binding.qualification_confirmation_id:
@@ -1323,6 +1345,13 @@ def _supplement_public(
         return public
     public.analysis_id, public.dataset_id = analysis.id, analysis.dataset_id
     public.observation_window = row.observation_window
+    if analysis.identity.get("backend") == "netflow-bulk-v1":
+        public.record_count_semantics = "unique_export_records"
+        public.netflow_policy_version = analysis.identity["policy"]
+        public.observation_count = bundle["files"]["observations"]["rows"]
+        public.source_records = bundle["counts"]["unique"]
+        public.total_addresses = bundle["files"]["addresses"]["rows"]
+        return public
     public.observation_count = len(bundle.observations)
     public.source_records = sum(
         int(value["features"]["record_count"]) for value in bundle.observations
@@ -1379,7 +1408,19 @@ def bind(
     else:
         if body.valid_until is None or body.valid_until <= get_datetime_utc():
             deny("comparison_supplement_valid_until_required", 422)
-        analysis, _bundle = analysis_material(session, project, body.analysis_id)
+        from app.domain import netflow_bulk_queries
+        from app.domain.netflow_processing import analysis_for
+
+        _bundle: Any
+        fixed = analysis_for(session, project, body.analysis_id)
+        if fixed.identity.get("backend") == "netflow-bulk-v1":
+            if body.qualification_confirmation_id:
+                deny("bulk_admin_scope_evidence_required", 422)
+            analysis, _bundle = netflow_bulk_queries.gate(
+                session, project, body.analysis_id
+            )
+        else:
+            analysis, _bundle = analysis_material(session, project, body.analysis_id)
         if analysis.network_namespace != result.selection["network_namespace"]:
             deny("comparison_supplement_scope_unconfirmed")
         if body.qualification_confirmation_id:
@@ -1463,6 +1504,56 @@ def supplement_addresses(
         for source in CORE_SOURCES
         for record in loaded[source].records
     }
+    if analysis.identity.get("backend") == "netflow-bulk-v1":
+        from sqlalchemy import String, any_, bindparam
+        from sqlalchemy.dialects.postgresql import ARRAY
+
+        from app.domain.netflow_bulk_models import BulkAddress
+
+        where: list[Any] = [BulkAddress.analysis_id == analysis.id]
+        if only_supplemental and core:
+            where.append(
+                ~(
+                    col(BulkAddress.ip)
+                    == any_(bindparam("core_ips", sorted(core), type_=ARRAY(String)))
+                )
+            )
+        if ips is not None:
+            where.append(
+                col(BulkAddress.ip).in_([correlations.canonical(ip) for ip in ips])
+            )
+        count = session.exec(
+            select(func.count()).select_from(BulkAddress).where(*where)
+        ).one()
+        bulk_values = session.exec(
+            select(BulkAddress)
+            .where(*where)
+            .order_by(
+                col(BulkAddress.family), col(BulkAddress.ip_sort), col(BulkAddress.ip)
+            )
+            .offset(skip)
+            .limit(limit)
+        ).all()
+        return SupplementAddresses(
+            record_count_semantics="unique_export_records",
+            netflow_policy_version=analysis.identity["policy"],
+            project_id=project.id,
+            result_id=result.id,
+            binding_id=binding.id,
+            analysis_id=analysis.id,
+            data=[
+                SupplementAddress(
+                    canonical_ip=value.ip,
+                    in_core=value.ip in core,
+                    observation_count=value.observation_count,
+                    source_records=value.record_count,
+                )
+                for value in bulk_values
+            ],
+            count=count,
+            skip=skip,
+            limit=limit,
+        )
     groups: dict[str, SupplementAddress] = {}
     for observation in bundle.observations:
         ip = correlations.canonical(str(observation["ip"]))

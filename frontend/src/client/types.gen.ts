@@ -188,6 +188,12 @@ export type AnalysisReportUpdate = {
     text: AnalysisReportText;
 };
 
+export type Analyze = {
+    context_revision_id: string;
+    retry_of_analysis_id?: (string | null);
+    bulk_filter?: Filter;
+};
+
 export type app__domain__comparison_results__AddressPage = {
     contract_version?: "core-comparison-v2";
     project_id: string;
@@ -1061,6 +1067,13 @@ export type FeedbackPublic = {
     facts_changed?: false;
 };
 
+export type Filter = {
+    cidrs?: Array<(string)>;
+    protocols?: Array<(number)>;
+    start?: (string | null);
+    end?: (string | null);
+};
+
 export type FindingDetailPublic = {
     id: string;
     resource_id: string;
@@ -1801,6 +1814,7 @@ export type type = 'explanation' | 'hypothesis' | 'gap' | 'action';
 
 export type NetFlowDatasetPublic = {
     id: string;
+    counts_state?: string;
     display_filename: string;
     raw_sha256: string;
     normalized_sha256: string;
@@ -1808,13 +1822,13 @@ export type NetFlowDatasetPublic = {
     schema_fingerprint: string;
     encoding: string;
     byte_size: number;
-    raw_record_count: number;
-    activity_valid_record_count: number;
-    isolated_record_count: number;
+    raw_record_count: (number | null);
+    activity_valid_record_count: (number | null);
+    isolated_record_count: (number | null);
     valid_time_start_utc: (string | null);
     valid_time_end_utc: (string | null);
-    duplicate_group_count: number;
-    duplicate_record_count: number;
+    duplicate_group_count: (number | null);
+    duplicate_record_count: (number | null);
     warnings: Array<{
         [key: string]: unknown;
     }>;
@@ -1898,6 +1912,7 @@ export type ObservationPage = {
     provenance: {
         [key: string]: unknown;
     };
+    next_cursor?: (string | null);
     data: Array<Observation>;
     count: number;
     skip: number;
@@ -1985,6 +2000,7 @@ export type PeerPage = {
     provenance: {
         [key: string]: unknown;
     };
+    next_cursor?: (string | null);
     data: Array<Peer>;
     count: number;
     skip: number;
@@ -2095,6 +2111,21 @@ export type Public = {
 export type audience = 'management' | 'operations';
 
 export type language = 'zh' | 'en';
+
+export type Register = {
+    source_id: string;
+    ready_id: string;
+};
+
+export type Registered = {
+    project_id: string;
+    dataset_id: string;
+    source_id: string;
+    ready_id: string;
+    file_count: number;
+    byte_size: number;
+    counts_state: string;
+};
 
 export type ReplacementPreview = {
     candidate_upload_id: string;
@@ -2383,6 +2414,8 @@ export type SupplementAddress = {
 export type SupplementAddresses = {
     contract_version?: "core-comparison-v2";
     project_id: string;
+    record_count_semantics?: ("unique_export_records" | null);
+    netflow_policy_version?: (string | null);
     result_id: string;
     binding_id: string;
     analysis_id: string;
@@ -2413,6 +2446,8 @@ export type SupplementHistory = {
 export type SupplementPublic = {
     contract_version?: "core-comparison-v2";
     project_id: string;
+    record_count_semantics?: ("unique_export_records" | null);
+    netflow_policy_version?: (string | null);
     result_id: string;
     id: (string | null);
     parent_id?: (string | null);
@@ -3369,6 +3404,60 @@ export type ModelConnectionsOperationResponse = (ConnectionActionPublic);
 
 export type ModelQualificationReadModelQualificationStatusResponse = (ModelQualificationStatus);
 
+export type NetflowBulkRegisterData = {
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: Register;
+};
+
+export type NetflowBulkRegisterResponse = (Registered);
+
+export type NetflowBulkAnalyzeData = {
+    datasetId: string;
+    idempotencyKey: string;
+    projectId: string;
+    requestBody: Analyze;
+};
+
+export type NetflowBulkAnalyzeResponse = (AnalysisPublic);
+
+export type NetflowBulkProgressData = {
+    analysisId: string;
+    projectId: string;
+};
+
+export type NetflowBulkProgressResponse = ({
+    [key: string]: unknown;
+});
+
+export type NetflowBulkCancelData = {
+    analysisId: string;
+    projectId: string;
+};
+
+export type NetflowBulkCancelResponse = ({
+    [key: string]: unknown;
+});
+
+export type NetflowBulkRecordData = {
+    analysisId: string;
+    projectId: string;
+    reference: string;
+};
+
+export type NetflowBulkRecordResponse = ({
+    [key: string]: unknown;
+});
+
+export type NetflowBulkInvalidateData = {
+    analysisId: string;
+    projectId: string;
+};
+
+export type NetflowBulkInvalidateResponse = ({
+    [key: string]: unknown;
+});
+
 export type NetflowLedgerReadNetflowLedgerData = {
     candidate?: boolean;
     datasetId?: (string | null);
@@ -3521,8 +3610,18 @@ export type NetflowProcessingReconcileOperationData = {
 
 export type NetflowProcessingReconcileOperationResponse = (AnalysisPublic);
 
+export type NetflowProcessingReadAnalysisAccessData = {
+    analysisId: string;
+    projectId: string;
+};
+
+export type NetflowProcessingReadAnalysisAccessResponse = ({
+    [key: string]: unknown;
+});
+
 export type NetflowReviewsReadPeersData = {
     analysisId: string;
+    cursor?: (string | null);
     ip?: (string | null);
     limit?: number;
     peerPort?: (number | null);
@@ -3536,6 +3635,7 @@ export type NetflowReviewsReadPeersResponse = (PeerPage);
 
 export type NetflowReviewsReadObservationsData = {
     analysisId: string;
+    cursor?: (string | null);
     ip?: (string | null);
     limit?: number;
     projectId: string;

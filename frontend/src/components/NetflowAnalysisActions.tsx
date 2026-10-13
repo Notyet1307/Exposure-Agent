@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react"
-import { type AnalysisPublic, NetflowProcessingService } from "@/client"
+import {
+  type AnalysisPublic,
+  NetflowBulkService,
+  NetflowProcessingService,
+} from "@/client"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/lib/i18n"
-import { netflowRequestRejected } from "@/lib/netflow-errors"
+import { netflowErrorCode, netflowRequestRejected } from "@/lib/netflow-errors"
 
 export function NetflowAnalysisActions({
   actor,
@@ -28,6 +32,7 @@ export function NetflowAnalysisActions({
     action: "create" | "reconcile"
   }>()
   const [busy, setBusy] = useState(false)
+  const [cancelRequested, setCancelRequested] = useState(false)
   const [error, setError] = useState<[string, string]>()
   const active = useRef(true)
   useEffect(() => {
@@ -104,6 +109,13 @@ export function NetflowAnalysisActions({
         sessionStorage.removeItem(store)
         setPending(undefined)
       }
+      if (netflowErrorCode(cause) === "bulk_capacity_busy") {
+        setError([
+          "Another bulk batch is still active. Wait for it to finish, then retry.",
+          "另一个批量任务仍在处理。请等待完成后重试。",
+        ])
+        return
+      }
       setError([
         "Analysis action unavailable. Query the original operation before another attempt.",
         "分析操作不可用；再次尝试前查询原操作。",
@@ -140,6 +152,45 @@ export function NetflowAnalysisActions({
               onClick={() => void perform("reconcile")}
             >
               {t("Reconcile original Analysis", "恢复原 Analysis")}
+            </Button>
+          )}
+        {analysis?.provenance.backend === "netflow-bulk-v1" &&
+          ["PENDING", "RUNNING", "UNKNOWN"].includes(analysis.status) && (
+            <Button
+              variant="outline"
+              disabled={
+                !canWrite || busy || cancelRequested || Boolean(pending)
+              }
+              onClick={async () => {
+                if (busy || !canWrite) return
+                setBusy(true)
+                setError(undefined)
+                try {
+                  const value = await NetflowBulkService.cancel({
+                    projectId,
+                    analysisId: analysis.analysis_id,
+                  })
+                  if (!active.current) return
+                  setCancelRequested(value.cancel_requested === true)
+                  const updated = await NetflowProcessingService.readAnalysis({
+                    projectId,
+                    analysisId: analysis.analysis_id,
+                  })
+                  if (active.current) onAnalysis(updated)
+                } catch {
+                  if (active.current)
+                    setError([
+                      "Cancellation could not be confirmed. Refresh the original task before retrying.",
+                      "未能确认取消结果。请刷新原任务后重试。",
+                    ])
+                } finally {
+                  if (active.current) setBusy(false)
+                }
+              }}
+            >
+              {cancelRequested
+                ? t("Cancellation requested", "已请求取消")
+                : t("Cancel bulk processing", "取消批量处理")}
             </Button>
           )}
         {pending && (

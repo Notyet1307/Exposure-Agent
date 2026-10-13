@@ -18,4 +18,6 @@ export const netflowRequestRejected = (error: unknown) =>
   error instanceof ApiError &&
   ([400, 401, 403, 404, 410, 413, 415, 422].includes(error.status) ||
     (error.status === 409 &&
-      netflowErrorCode(error) === "netflow_revision_conflict"))
+      ["netflow_revision_conflict", "bulk_capacity_busy"].includes(
+        netflowErrorCode(error) ?? "",
+      )))

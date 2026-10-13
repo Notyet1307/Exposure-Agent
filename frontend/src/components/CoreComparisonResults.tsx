@@ -522,7 +522,6 @@ export default function CoreComparisonResults({
     ...options,
     queryKey: [...prefix, "supplement", search.binding],
     enabled: readable && search.binding !== "none",
-    refetchInterval: (query) => (query.state.status === "error" ? false : 5000),
     queryFn: async () => {
       const value = verify(
         await (search.binding
@@ -552,12 +551,39 @@ export default function CoreComparisonResults({
     eMeta.data,
     change,
   ])
+  const evidenceAccess = useQuery({
+    ...options,
+    queryKey: [
+      ...prefix,
+      "supplement-access",
+      search.binding,
+      eMeta.data?.analysis_id,
+    ],
+    enabled:
+      readable &&
+      eMeta.data?.state === "ACTIVE" &&
+      Boolean(eMeta.data.analysis_id),
+    refetchInterval: (query) => (query.state.status === "error" ? false : 5000),
+    queryFn: async () => {
+      const value = await NetflowProcessingService.readAnalysisAccess({
+        projectId,
+        analysisId: eMeta.data!.analysis_id!,
+      })
+      if (
+        value.project_id !== projectId ||
+        value.analysis_id !== eMeta.data!.analysis_id
+      )
+        throw new Error("supplement_identity_mismatch")
+      return value
+    },
+  })
   const eReadable =
     readable &&
     !!search.binding &&
     search.binding !== "none" &&
     eMeta.isSuccess &&
     !eMeta.isError &&
+    !evidenceAccess.isError &&
     eMeta.data.state === "ACTIVE" &&
     expiredBinding !== search.binding &&
     unreadableBinding !== search.binding
@@ -632,7 +658,7 @@ export default function CoreComparisonResults({
       return value
     },
   })
-  const evidenceError = flows.isError || extra.isError
+  const evidenceError = flows.isError || extra.isError || evidenceAccess.isError
   useEffect(() => {
     if (evidenceError && search.binding) {
       setUnreadableBinding(search.binding)
@@ -1894,7 +1920,11 @@ export default function CoreComparisonResults({
                       <p key={row.canonical_ip} className="text-sm">
                         {t("Observation objects", "观测对象")}{" "}
                         {row.observation_count} ·{" "}
-                        {t("Source records", "源记录")} {row.source_records}
+                        {eMeta.data?.record_count_semantics ===
+                        "unique_export_records"
+                          ? t("Unique export records", "去重后导出记录")
+                          : t("Source records", "源记录")}{" "}
+                        {row.source_records}
                       </p>
                     ))}
                 <p className="text-sm text-muted-foreground">
@@ -2197,7 +2227,12 @@ export default function CoreComparisonResults({
                           <TableHead>
                             {t("Observation objects", "观测对象")}
                           </TableHead>
-                          <TableHead>{t("Source records", "源记录")}</TableHead>
+                          <TableHead>
+                            {eMeta.data?.record_count_semantics ===
+                            "unique_export_records"
+                              ? t("Unique export records", "去重后导出记录")
+                              : t("Source records", "源记录")}
+                          </TableHead>
                           <TableHead>{t("Evidence", "依据")}</TableHead>
                         </TableRow>
                       </TableHeader>

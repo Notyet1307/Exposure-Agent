@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path, PurePath, PureWindowsPath
 from typing import TYPE_CHECKING, BinaryIO
 
+from fastapi import HTTPException
 from python_multipart import MultipartParser
 from python_multipart.multipart import parse_options_header
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -373,12 +374,16 @@ def accept_netflow_dataset(
             activity_valid_record_count=parsed.activity_valid_record_count,
             isolated_record_count=parsed.isolated_record_count,
             valid_time_start_utc=(
-                datetime.fromisoformat(parsed.valid_time_start_utc.replace("Z", "+00:00"))
-                if parsed.valid_time_start_utc is not None else None
+                datetime.fromisoformat(
+                    parsed.valid_time_start_utc.replace("Z", "+00:00")
+                )
+                if parsed.valid_time_start_utc is not None
+                else None
             ),
             valid_time_end_utc=(
                 datetime.fromisoformat(parsed.valid_time_end_utc.replace("Z", "+00:00"))
-                if parsed.valid_time_end_utc is not None else None
+                if parsed.valid_time_end_utc is not None
+                else None
             ),
             duplicate_group_count=parsed.duplicate_group_count,
             duplicate_record_count=parsed.duplicate_record_count,
@@ -439,6 +444,10 @@ def set_current_netflow_dataset(
     actor_subject: str,
     ip_address: str | None,
 ) -> None:
+    if dataset is not None and dataset.dataset_contract_version == "netflow-bulk-v1":
+        raise HTTPException(
+            status_code=422, detail={"code": "bulk_legacy_input_unsupported"}
+        )
     previous_dataset_id = project.current_netflow_dataset_id
     selected_dataset_id = dataset.id if dataset is not None else None
     if previous_dataset_id == selected_dataset_id:

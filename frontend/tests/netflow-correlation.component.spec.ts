@@ -1842,15 +1842,49 @@ test("switching projects clears every NetFlow fixed selection", async ({
       },
     }),
   )
+  let releaseSummary!: () => void
+  const summaryGate = new Promise<void>((resolve) => {
+    releaseSummary = resolve
+  })
+  await page.route(
+    `**${root}/source-correlations/${revision}`,
+    async (route) => {
+      await summaryGate
+      await route.fulfill({ json: summary })
+    },
+  )
   await page.goto(
     `/projects/${project}/netflow-correlation?revision=${revision}&namespace=synthetic&tab=addresses`,
   )
+  // Replay the real automatic pin navigation after the project switch commits.
+  await page.evaluate(() => {
+    const router = window.__TSR_ROUTER__
+    if (!router) throw new Error("Router not ready")
+    const navigate = router.navigate
+    router.navigate = (options) => {
+      if (options.replace && typeof options.search === "function") {
+        router.navigate = navigate
+        Object.assign(window, { resumeOldPins: () => navigate(options) })
+        return Promise.resolve()
+      }
+      return navigate(options)
+    }
+  })
+  releaseSummary()
+  await expect
+    .poll(() => page.evaluate(() => "resumeOldPins" in window))
+    .toBe(true)
   await page
     .getByRole("combobox", { name: "Project", exact: true })
     .selectOption(next)
   await expect(page).toHaveURL(
     new RegExp(`/projects/${next}/netflow-correlation`),
   )
+  await page.evaluate(async () => {
+    const resume = (window as unknown as { resumeOldPins: () => Promise<void> })
+      .resumeOldPins
+    await resume()
+  })
   const url = new URL(page.url())
   for (const field of [
     "dataset",

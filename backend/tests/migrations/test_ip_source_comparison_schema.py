@@ -495,7 +495,7 @@ def test_comparison_migration_preserves_null_v1_history_without_backfill(
             }
 
     before = snapshot()
-    run_migration(evidence_database, "head")
+    run_migration(evidence_database, COMPARISON_REVISION)
     assert snapshot() == before
     with connect(evidence_database) as connection:
         assert connection.execute(

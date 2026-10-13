@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     # Required deployment limit; 50 MiB is the admitted maximum.
     NETFLOW_MAX_BYTES: int = Field(gt=0, le=50 * 1024 * 1024)
     NETFLOW_ALLOW_TEST_FIXTURES: bool = False
+    NETFLOW_BULK_ROOT: Path | None = None
+    NETFLOW_BULK_MEMORY_MB: int = Field(default=512, ge=64, le=65536)
+    NETFLOW_BULK_THREADS: int = Field(default=2, ge=1, le=32)
+    NETFLOW_BULK_TEMP_BYTES: int = Field(default=8 * 1024**3, ge=1024**2)
+    NETFLOW_BULK_DISK_RESERVE_BYTES: int = Field(default=2 * 1024**3, ge=0)
+    NETFLOW_BULK_RSS_BYTES: int = Field(default=2 * 1024**3, ge=128 * 1024**2)
+    NETFLOW_BULK_TIMEOUT_SECONDS: int = Field(default=86400, ge=1)
+    NETFLOW_BULK_LEASE_SECONDS: int = Field(default=120, ge=10, le=3600)
     OCTOBUS_URL: str = "http://octobus:9000"
     OCTOBUS_TIMEOUT_SECONDS: float = 65.0
     CLOUDATLAS_CAPSET_TOKEN: SecretStr = SecretStr("")
