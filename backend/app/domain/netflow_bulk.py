@@ -646,12 +646,10 @@ def run_engine(session: Session, analysis_id: uuid.UUID, fence: int) -> None:
                     )
                     state = target.stat()
                     if (
-                        state.st_ino,
                         state.st_size,
                         state.st_mtime_ns,
                         state.st_ctime_ns,
                     ) != (
-                        shard.sealed_inode,
                         shard.size,
                         shard.sealed_mtime_ns,
                         shard.sealed_ctime_ns,

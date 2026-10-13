@@ -92,7 +92,6 @@ def gate(
             path = safe_file(settings.ARTIFACT_ROOT, descriptor["path"])
             st = path.stat()
             if (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns) != (
-                descriptor["inode"],
                 descriptor["size"],
                 descriptor["mtime_ns"],
                 descriptor["ctime_ns"],
