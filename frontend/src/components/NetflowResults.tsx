@@ -505,8 +505,8 @@ export default function NetflowResults({
           >
             <p className="text-sm">
               {t(
-                "Exact export-row deduplication covers this frozen dataset. Missing time or collection identity keeps records separate. Counts are not sessions or proof of ownership.",
-                "在本冻结数据集内精确去重导出记录；缺少时间或采集身份时保守保留。记录数不是会话数，也不证明归属。",
+                "Exact export-row deduplication covers this frozen dataset. Missing time or collection identity keeps records separate. Counts are not sessions or proof of ownership. Material review has not been performed.",
+                "在本冻结数据集内精确去重导出记录；缺少时间或采集身份时保守保留。记录数不是会话数，也不证明归属；本批次未执行材料复核。",
               )}
             </p>
             <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm">

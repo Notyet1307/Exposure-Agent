@@ -335,7 +335,11 @@ def normalize_file(
                     )
                     invalid += not record["valid"]
                     batch.append(record)
-                    bytes_in_batch += size * 3 + 512
+                    # Include expanded header names and escaped JSON, not only
+                    # source values: tiny rows can have very large column names.
+                    bytes_in_batch += (
+                        len(record["canonical_key"]) + len(record["original"]) + 512
+                    )
                     if (
                         len(batch) >= budget.shard_rows
                         or bytes_in_batch >= MAX_BATCH_BYTES
