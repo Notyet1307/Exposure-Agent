@@ -887,6 +887,35 @@ export const AnalysisReportsPublicSchema = {
     title: 'AnalysisReportsPublic'
 } as const;
 
+export const AnalyzeSchema = {
+    properties: {
+        context_revision_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Context Revision Id'
+        },
+        retry_of_analysis_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Retry Of Analysis Id'
+        },
+        bulk_filter: {
+            '$ref': '#/components/schemas/Filter'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['context_revision_id'],
+    title: 'Analyze'
+} as const;
+
 export const AttemptPublicSchema = {
     properties: {
         id: {
@@ -4279,6 +4308,54 @@ export const FeedbackPublicSchema = {
     type: 'object',
     required: ['project_id', 'analysis_id', 'dataset_id', 'context_revision_id', 'network_namespace', 'test_fixture', 'provenance', 'feedback_revision_id', 'parent_id', 'revision', 'system_generated', 'authenticated_actor_id', 'authenticated_submitted_at', 'human_note', 'binding', 'schema_version', 'submission', 'summary', 'response_authors'],
     title: 'FeedbackPublic'
+} as const;
+
+export const FilterSchema = {
+    properties: {
+        cidrs: {
+            items: {
+                type: 'string'
+            },
+            type: 'array',
+            maxItems: 4096,
+            title: 'Cidrs'
+        },
+        protocols: {
+            items: {
+                type: 'integer'
+            },
+            type: 'array',
+            maxItems: 256,
+            title: 'Protocols'
+        },
+        start: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Start'
+        },
+        end: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'End'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    title: 'Filter'
 } as const;
 
 export const FindingDetailPublicSchema = {
@@ -7927,6 +8004,11 @@ export const NetFlowDatasetPublicSchema = {
             format: 'uuid',
             title: 'Id'
         },
+        counts_state: {
+            type: 'string',
+            title: 'Counts State',
+            default: 'KNOWN'
+        },
         display_filename: {
             type: 'string',
             title: 'Display Filename'
@@ -7956,15 +8038,36 @@ export const NetFlowDatasetPublicSchema = {
             title: 'Byte Size'
         },
         raw_record_count: {
-            type: 'integer',
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Raw Record Count'
         },
         activity_valid_record_count: {
-            type: 'integer',
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Activity Valid Record Count'
         },
         isolated_record_count: {
-            type: 'integer',
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Isolated Record Count'
         },
         valid_time_start_utc: {
@@ -7992,11 +8095,25 @@ export const NetFlowDatasetPublicSchema = {
             title: 'Valid Time End Utc'
         },
         duplicate_group_count: {
-            type: 'integer',
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Duplicate Group Count'
         },
         duplicate_record_count: {
-            type: 'integer',
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
             title: 'Duplicate Record Count'
         },
         warnings: {
@@ -8328,6 +8445,17 @@ export const ObservationPageSchema = {
             additionalProperties: true,
             type: 'object',
             title: 'Provenance'
+        },
+        next_cursor: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Next Cursor'
         },
         data: {
             items: {
@@ -8730,6 +8858,17 @@ export const PeerPageSchema = {
             additionalProperties: true,
             type: 'object',
             title: 'Provenance'
+        },
+        next_cursor: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Next Cursor'
         },
         data: {
             items: {
@@ -9335,6 +9474,63 @@ export const PublicSchema = {
     type: 'object',
     required: ['result_id', 'supplement_binding_id', 'id', 'project_id', 'status', 'revision', 'created_at', 'completed_at', 'edited_at', 'confirmed_at', 'created_by_id', 'edited_by_id', 'confirmed_by_id', 'connection_version_id', 'config_fingerprint', 'material_sha256', 'failure_code', 'readable', 'unavailable_reason', 'materials_changed', 'valid_until', 'original_output', 'text', 'material'],
     title: 'Public'
+} as const;
+
+export const RegisterSchema = {
+    properties: {
+        source_id: {
+            type: 'string',
+            pattern: '^[a-z][a-z0-9_-]{0,63}$',
+            title: 'Source Id'
+        },
+        ready_id: {
+            type: 'string',
+            pattern: '^[0-9a-f]{64}$',
+            title: 'Ready Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['source_id', 'ready_id'],
+    title: 'Register'
+} as const;
+
+export const RegisteredSchema = {
+    properties: {
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        dataset_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Dataset Id'
+        },
+        source_id: {
+            type: 'string',
+            title: 'Source Id'
+        },
+        ready_id: {
+            type: 'string',
+            title: 'Ready Id'
+        },
+        file_count: {
+            type: 'integer',
+            title: 'File Count'
+        },
+        byte_size: {
+            type: 'integer',
+            title: 'Byte Size'
+        },
+        counts_state: {
+            type: 'string',
+            title: 'Counts State'
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'dataset_id', 'source_id', 'ready_id', 'file_count', 'byte_size', 'counts_state'],
+    title: 'Registered'
 } as const;
 
 export const ReplacementPreviewSchema = {

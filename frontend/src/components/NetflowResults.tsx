@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ApiError,
+  NetflowBulkService,
   NetflowProcessingService,
   NetflowReviewsService,
   ProjectsService,
@@ -76,6 +77,23 @@ export default function NetflowResults({
   const detailTarget = useRef<HTMLElement>(null)
   const evidenceTarget = useRef<HTMLElement>(null)
   const tab = search.tab ?? "observations"
+  const cursorPages = useRef(new Map<string, string>())
+  const pageScope = JSON.stringify([
+    scope,
+    tab,
+    search.ip,
+    search.protocol,
+    search.port,
+    search.sort,
+  ])
+  const pageCursor = cursorPages.current.get(
+    `${pageScope}:${search.resultPage ?? 0}`,
+  )
+  const [selectedRecord, setSelectedRecord] = useState<{
+    analysis: string
+    reference: string
+  }>()
+
   const change = (patch: Partial<NetflowResultsSearch>) =>
     void navigate({ search: (previous) => ({ ...previous, ...patch }) })
   useEffect(() => {
@@ -106,10 +124,15 @@ export default function NetflowResults({
     retry: false,
     staleTime: 0,
     gcTime: 0,
-    refetchInterval: 5000,
   }
   const batch = useQuery({
     ...options,
+    refetchInterval: (query) =>
+      query.state.data &&
+      !query.state.data.pipeline_complete &&
+      query.state.data.status !== "FAILED"
+        ? 5000
+        : false,
     queryKey: [...scope, "batch"],
     enabled: available && Boolean(search.analysis),
     queryFn: () =>
@@ -117,6 +140,25 @@ export default function NetflowResults({
         projectId,
         analysisId: search.analysis!,
       }),
+  })
+  const access = useQuery({
+    ...options,
+    queryKey: [...scope, "access"],
+    enabled: available && Boolean(search.analysis),
+    refetchInterval: 5000,
+    queryFn: async () => {
+      const value = await NetflowProcessingService.readAnalysisAccess({
+        projectId,
+        analysisId: search.analysis!,
+      })
+      if (
+        value.project_id !== projectId ||
+        value.analysis_id !== search.analysis ||
+        (search.dataset && value.dataset_id !== search.dataset)
+      )
+        throw new Error("Fixed access identity mismatch")
+      return value
+    },
   })
   const current = useQuery({
     ...options,
@@ -209,7 +251,8 @@ export default function NetflowResults({
           protocol: search.protocol,
           sourcePort: search.port,
           sort: search.sort ?? "ip_asc",
-          skip: (search.resultPage ?? 0) * SIZE,
+          skip: pageCursor ? 0 : (search.resultPage ?? 0) * SIZE,
+          cursor: pageCursor,
           limit: SIZE,
         }),
       ),
@@ -248,7 +291,8 @@ export default function NetflowResults({
           protocol: search.protocol,
           peerPort: search.port,
           sort: search.sort ?? "ip_asc",
-          skip: (search.resultPage ?? 0) * SIZE,
+          skip: pageCursor ? 0 : (search.resultPage ?? 0) * SIZE,
+          cursor: pageCursor,
           limit: SIZE,
         }),
       ),
@@ -283,6 +327,25 @@ export default function NetflowResults({
         }),
       ),
   })
+  const originalRecord = useQuery({
+    ...options,
+    queryKey: [...scope, "original-record", selectedRecord?.reference],
+    enabled: readable && selectedRecord?.analysis === search.analysis,
+    queryFn: async () => {
+      const value = await NetflowBulkService.record({
+        projectId,
+        analysisId: search.analysis!,
+        reference: selectedRecord!.reference,
+      })
+      if (
+        value.project_id !== projectId ||
+        value.analysis_id !== search.analysis ||
+        value.dataset_id !== identity?.dataset_id
+      )
+        throw new Error("Fixed record identity mismatch")
+      return value
+    },
+  })
   const datasets = useQuery({
     ...options,
     queryKey: [...scope, "datasets", search.datasetPage],
@@ -311,10 +374,12 @@ export default function NetflowResults({
   })
   const failure = [
     batch,
+    access,
     observations,
     detail,
     peers,
     evidence,
+    originalRecord,
     ...(search.analysis ? [] : [current]),
     datasets,
     batches,
@@ -322,13 +387,13 @@ export default function NetflowResults({
   useEffect(() => {
     if (
       !(failure instanceof ApiError) ||
-      ![401, 403, 404, 410].includes(failure.status)
+      (![401, 403, 404, 410].includes(failure.status) && !access.isError)
     )
       return
     setDenied(true)
     void cache.cancelQueries({ queryKey: scope })
     cache.removeQueries({ queryKey: scope })
-  }, [cache, scope, failure])
+  }, [cache, scope, failure, access.isError])
   const mismatch = Boolean(identity && !identityMatches)
   const blocked = denied || search.invalid || mismatch || Boolean(failure)
   useEffect(() => {
@@ -376,25 +441,27 @@ export default function NetflowResults({
         </p>
         <div className="flex flex-wrap gap-4 text-sm">
           <ComparisonReturnLink projectId={projectId} search={search} />
-          <Link
-            className="underline"
-            to="/projects/$projectId/netflow-ledger"
-            params={{ projectId }}
-            search={{
-              dataset: identity?.dataset_id,
-              revision: undefined,
-              page: 0,
-              ip: undefined,
-              candidate: false,
-              profile_ip: undefined,
-              customer_upload: undefined,
-              customer_revision: undefined,
-              cloud_snapshot: undefined,
-              cloud_revision: undefined,
-            }}
-          >
-            {t("Original activity ledger", "原生活动账")}
-          </Link>
+          {identity?.provenance.backend !== "netflow-bulk-v1" && (
+            <Link
+              className="underline"
+              to="/projects/$projectId/netflow-ledger"
+              params={{ projectId }}
+              search={{
+                dataset: identity?.dataset_id,
+                revision: undefined,
+                page: 0,
+                ip: undefined,
+                candidate: false,
+                profile_ip: undefined,
+                customer_upload: undefined,
+                customer_revision: undefined,
+                cloud_snapshot: undefined,
+                cloud_revision: undefined,
+              }}
+            >
+              {t("Original activity ledger", "原生活动账")}
+            </Link>
+          )}
           <Link
             className="underline"
             to="/projects/$projectId/netflow-correlation"
@@ -429,6 +496,42 @@ export default function NetflowResults({
           )}
         </div>
       </header>
+      {!blocked &&
+        readable &&
+        identity?.provenance.backend === "netflow-bulk-v1" && (
+          <section
+            className="space-y-2"
+            aria-label={t("Bulk record counts", "批量记录口径")}
+          >
+            <p className="text-sm">
+              {t(
+                "Exact export-row deduplication covers this frozen dataset. Missing time or collection identity keeps records separate. Counts are not sessions or proof of ownership.",
+                "在本冻结数据集内精确去重导出记录；缺少时间或采集身份时保守保留。记录数不是会话数，也不证明归属。",
+              )}
+            </p>
+            <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+              {Object.entries(
+                (identity.result?.counts ?? {}) as Record<string, number>,
+              ).map(([name, count]) => (
+                <div key={name}>
+                  <dt>
+                    {(
+                      {
+                        raw: t("Raw", "原始"),
+                        invalid: t("Invalid", "无效"),
+                        filtered: t("Filtered", "过滤排除"),
+                        retained: t("Retained", "过滤后保留"),
+                        unique: t("Unique", "去重后唯一"),
+                        duplicate: t("Duplicates", "重复副本"),
+                      } as Record<string, string>
+                    )[name] ?? name}
+                  </dt>
+                  <dd>{count}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        )}
       {blocked ? (
         <section
           role="alert"
@@ -973,7 +1076,18 @@ export default function NetflowResults({
                 count={pageData?.count ?? 0}
                 page={search.resultPage ?? 0}
                 pageSize={SIZE}
-                onPageChange={(page) =>
+                onPageChange={(page) => {
+                  if (
+                    page === (search.resultPage ?? 0) + 1 &&
+                    pageData?.next_cursor
+                  ) {
+                    if (cursorPages.current.size >= 100)
+                      cursorPages.current.clear()
+                    cursorPages.current.set(
+                      `${pageScope}:${page}`,
+                      pageData.next_cursor,
+                    )
+                  }
                   change({
                     resultPage: page,
                     object: undefined,
@@ -981,7 +1095,7 @@ export default function NetflowResults({
                     evidence: false,
                     evidencePage: 0,
                   })
-                }
+                }}
               />
             </>
           )}
@@ -1072,7 +1186,23 @@ export default function NetflowResults({
                           key={`${row.side}:${row.reference}`}
                           className="break-all font-mono text-sm"
                         >
-                          {row.reference}
+                          {identity?.provenance.backend ===
+                          "netflow-bulk-v1" ? (
+                            <Button
+                              variant="link"
+                              className="h-auto whitespace-normal break-all text-left"
+                              onClick={() =>
+                                setSelectedRecord({
+                                  analysis: search.analysis!,
+                                  reference: row.reference,
+                                })
+                              }
+                            >
+                              {row.reference}
+                            </Button>
+                          ) : (
+                            row.reference
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -1083,6 +1213,25 @@ export default function NetflowResults({
                       pageSize={EVIDENCE_SIZE}
                       onPageChange={(page) => change({ evidencePage: page })}
                     />
+                    {selectedRecord?.analysis === search.analysis && (
+                      <div className="space-y-2">
+                        <h3 className="font-medium">
+                          {t("Original logical record", "原始逻辑记录")}
+                        </h3>
+                        {originalRecord.isPending ? (
+                          <p role="status">
+                            {t(
+                              "Reading the selected shard…",
+                              "正在读取对应分片…",
+                            )}
+                          </p>
+                        ) : (
+                          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all text-sm">
+                            {JSON.stringify(originalRecord.data, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    )}
                     <details className="text-sm">
                       <summary className="cursor-pointer">
                         {t("Evidence identity and hashes", "证据身份与 Hash")}

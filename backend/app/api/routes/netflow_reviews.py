@@ -65,6 +65,7 @@ def read_peers(
     sort: Literal["ip_asc", "ip_desc"] = "ip_asc",
     skip: Skip = 0,
     limit: Limit = 25,
+    cursor: Annotated[str | None, Query(max_length=4096)] = None,
 ) -> service.PeerPage:
     _private(response)
     project = project_for(session, current_user, project_id)
@@ -79,6 +80,7 @@ def read_peers(
             sort=sort,
             skip=skip,
             limit=limit,
+            cursor=cursor,
         )
 
 
@@ -96,6 +98,7 @@ def read_observations(
     sort: Literal["ip_asc", "ip_desc"] = "ip_asc",
     skip: Skip = 0,
     limit: Limit = 25,
+    cursor: Annotated[str | None, Query(max_length=4096)] = None,
 ) -> service.ObservationPage:
     _private(response)
     project = project_for(session, current_user, project_id)
@@ -110,6 +113,7 @@ def read_observations(
             sort=sort,
             skip=skip,
             limit=limit,
+            cursor=cursor,
         )
 
 

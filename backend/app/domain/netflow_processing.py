@@ -230,6 +230,18 @@ def dataset_for(
     ).one_or_none()
     if row is None:
         deny("netflow_input_not_found", 404)
+    from app.netflow_bulk.contracts import (
+        SCHEMA as BULK_SCHEMA,
+    )
+    from app.netflow_bulk.contracts import (
+        VERSION as BULK_VERSION,
+    )
+
+    if (
+        row.dataset_contract_version == BULK_VERSION
+        and row.schema_fingerprint == BULK_SCHEMA
+    ):
+        return row
     if (
         row.dataset_contract_version != NETFLOW_DATASET_CONTRACT_VERSION
         or row.schema_fingerprint != SCHEMA_FINGERPRINT
@@ -382,7 +394,9 @@ def save_context(
         payload=payload
         | {
             "component_context": component_context,
-            "original_time_basis": "netflow-dataset-v1:UTC+08:00",
+            "original_time_basis": "bulk:per-file-declared-timezone"
+            if dataset.dataset_contract_version == "netflow-bulk-v1"
+            else "netflow-dataset-v1:UTC+08:00",
             "business_time_qualification": "UNKNOWN",
         },
         created_by=actor.id,
@@ -527,6 +541,8 @@ def analysis_material(
     session: Session, project: Project, analysis_id: uuid.UUID
 ) -> tuple[NetFlowAnalysis, processor.ProcessorBundle]:
     row = analysis_for(session, project, analysis_id)
+    if row.identity.get("backend") == "netflow-bulk-v1":
+        deny("bulk_requires_versioned_repository", 422)
     context = context_for(session, project, row.dataset_id, row.context_revision_id)
     validate_context(session, project, context)
     if (
@@ -578,6 +594,10 @@ def analysis_public(
     *,
     include_result: bool = True,
 ) -> AnalysisPublic:
+    if row.identity.get("backend") == "netflow-bulk-v1":
+        from app.domain.netflow_bulk_queries import public_analysis
+
+        return public_analysis(session, project, row, include_result=include_result)
     context = context_for(session, project, row.dataset_id, row.context_revision_id)
     current = current_context(session, project, row.dataset_id)
     readable = (
@@ -735,10 +755,19 @@ def current_netflow(
         )
     ).all()
     latest = rows[0] if rows else None
+    input_order = {
+        dataset.id: dataset.created_at
+        for dataset in session.exec(
+            select(NetFlowDataset).where(
+                NetFlowDataset.project_id == project.id,
+                col(NetFlowDataset.id).in_({row.dataset_id for row in rows}),
+            )
+        ).all()
+    }
     current: AnalysisPublic | None = None
     for row in sorted(
         (row for row in rows if row.status in SUCCESS and row.completed_at is not None),
-        key=lambda row: (row.completed_at, row.id),
+        key=lambda row: (input_order[row.dataset_id], row.created_at, row.id),
         reverse=True,
     ):
         public = analysis_public(session, project, row)
@@ -817,6 +846,8 @@ def reserve_analysis(
     if existing:
         return analysis_for(session, project, existing), False
     dataset = dataset_for(session, project, dataset_id)
+    if dataset.dataset_contract_version == "netflow-bulk-v1":
+        deny("bulk_analysis_endpoint_required", 422)
     context = context_for(session, project, dataset.id, request.context_revision_id)
     validate_context(session, project, context, write=True)
     config = (
@@ -1264,7 +1295,11 @@ def reconcile_analysis(
     payload = {"analysis_id": str(analysis_id)}
     operation = f"reconcile:{analysis_id}"
     actor_id = actor.id
-    analysis_for(session, project, analysis_id)
+    fixed = analysis_for(session, project, analysis_id)
+    if fixed.identity.get("backend") == "netflow-bulk-v1":
+        from app.domain.netflow_bulk import reconcile
+
+        return reconcile(session, project, actor, fixed, key)
     project, row = _locked(session, analysis_id)
     if (
         operation_result(session, project, actor_id, operation, key, payload)

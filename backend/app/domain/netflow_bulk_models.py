@@ -71,6 +71,10 @@ class BulkShard(SQLModel, table=True):
             ondelete="RESTRICT",
         ),
         CheckConstraint(
+            "(sealed_inode IS NULL AND sealed_mtime_ns IS NULL AND sealed_ctime_ns IS NULL) OR (sealed_inode IS NOT NULL AND sealed_mtime_ns IS NOT NULL AND sealed_ctime_ns IS NOT NULL)",
+            name="ck_bulk_shard_seal",
+        ),
+        CheckConstraint(
             "first_row > 0 AND last_row >= first_row AND rows = last_row-first_row+1 AND invalid >= 0 AND invalid <= rows",
             name="ck_bulk_shard_counts",
         ),
@@ -85,6 +89,9 @@ class BulkShard(SQLModel, table=True):
     last_row: int = Field(sa_type=BigInteger)
     rows: int = Field(sa_type=BigInteger)
     invalid: int = Field(sa_type=BigInteger)
+    sealed_inode: int | None = Field(default=None, sa_type=BigInteger)
+    sealed_mtime_ns: int | None = Field(default=None, sa_type=BigInteger)
+    sealed_ctime_ns: int | None = Field(default=None, sa_type=BigInteger)
 
 
 class BulkJob(SQLModel, table=True):

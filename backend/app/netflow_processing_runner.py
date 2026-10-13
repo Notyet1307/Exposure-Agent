@@ -31,7 +31,25 @@ def main() -> int:
         ):
             return 1
         with Session(engine) as session:
-            execute_analysis(session, analysis_id, run_id, session_id)
+            reserved = session.get(NetFlowAnalysis, analysis_id)
+            if (
+                reserved is not None
+                and reserved.identity.get("backend") == "netflow-bulk-v1"
+            ):
+                import resource
+
+                from app.domain.netflow_bulk import execute
+
+                if sys.platform == "linux":
+                    address_space = settings.NETFLOW_BULK_RSS_BYTES * 4
+                    resource.setrlimit(
+                        resource.RLIMIT_AS, (address_space, address_space)
+                    )
+                    cpu_seconds = settings.NETFLOW_BULK_TIMEOUT_SECONDS + 30
+                    resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+                execute(session, analysis_id, run_id, session_id)
+            else:
+                execute_analysis(session, analysis_id, run_id, session_id)
             row = session.get(NetFlowAnalysis, analysis_id)
             return 0 if row is not None and row.status in SUCCESS else 1
     except Exception:

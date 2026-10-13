@@ -150,6 +150,7 @@ class Peer(BaseModel):
 
 
 class PeerPage(Identity):
+    next_cursor: str | None = None
     data: list[Peer]
     count: int
     skip: int
@@ -171,6 +172,7 @@ class Observation(BaseModel):
 
 
 class ObservationPage(Identity):
+    next_cursor: str | None = None
     data: list[Observation]
     count: int
     skip: int
@@ -554,7 +556,29 @@ def read_peers(
     sort: Literal["ip_asc", "ip_desc"],
     skip: int,
     limit: int,
+    cursor: str | None = None,
 ) -> PeerPage:
+    from app.domain import netflow_bulk_queries as bulk
+    from app.domain.netflow_processing import analysis_for
+
+    if (
+        analysis_for(session, project, analysis_id).identity.get("backend")
+        == "netflow-bulk-v1"
+    ):
+        return bulk.peers(
+            session,
+            project,
+            analysis_id,
+            ip=ip,
+            protocol=protocol,
+            peer_port=peer_port,
+            sort=sort,
+            skip=skip,
+            limit=limit,
+            cursor=cursor,
+        )
+    if cursor is not None:
+        deny("bulk_cursor_invalid", 422)
     analysis, bundle = analysis_material(session, project, analysis_id)
     canonical = normalize_ip(ip) if ip is not None else None
     selected = [
@@ -647,7 +671,29 @@ def read_observations(
     sort: Literal["ip_asc", "ip_desc"],
     skip: int,
     limit: int,
+    cursor: str | None = None,
 ) -> ObservationPage:
+    from app.domain import netflow_bulk_queries as bulk
+    from app.domain.netflow_processing import analysis_for
+
+    if (
+        analysis_for(session, project, analysis_id).identity.get("backend")
+        == "netflow-bulk-v1"
+    ):
+        return bulk.observations(
+            session,
+            project,
+            analysis_id,
+            ip=ip,
+            protocol=protocol,
+            source_port=source_port,
+            sort=sort,
+            skip=skip,
+            limit=limit,
+            cursor=cursor,
+        )
+    if cursor is not None:
+        deny("bulk_cursor_invalid", 422)
     analysis, bundle, context = _observation_material(session, project, analysis_id)
     canonical = normalize_ip(ip) if ip is not None else None
     selected = [
@@ -690,6 +736,14 @@ def read_observation(
     analysis_id: uuid.UUID,
     object_key: str,
 ) -> ObservationDetail:
+    from app.domain import netflow_bulk_queries as bulk
+    from app.domain.netflow_processing import analysis_for
+
+    if (
+        analysis_for(session, project, analysis_id).identity.get("backend")
+        == "netflow-bulk-v1"
+    ):
+        return bulk.observation(session, project, analysis_id, object_key=object_key)
     analysis, bundle, context = _observation_material(session, project, analysis_id)
     item = next(
         (row for row in bundle.observations if row["object_key"] == object_key), None
@@ -717,6 +771,22 @@ def read_evidence(
     skip: int,
     limit: int,
 ) -> EvidencePage:
+    from app.domain import netflow_bulk_queries as bulk
+    from app.domain.netflow_processing import analysis_for
+
+    if (
+        analysis_for(session, project, analysis_id).identity.get("backend")
+        == "netflow-bulk-v1"
+    ):
+        return bulk.evidence(
+            session,
+            project,
+            analysis_id,
+            object_key=object_key,
+            peer_key=peer_key,
+            skip=skip,
+            limit=limit,
+        )
     if (object_key is None) == (peer_key is None):
         deny("netflow_artifact_schema_invalid", 422)
     analysis, bundle = analysis_material(session, project, analysis_id)

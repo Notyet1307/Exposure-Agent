@@ -522,7 +522,6 @@ export default function CoreComparisonResults({
     ...options,
     queryKey: [...prefix, "supplement", search.binding],
     enabled: readable && search.binding !== "none",
-    refetchInterval: (query) => (query.state.status === "error" ? false : 5000),
     queryFn: async () => {
       const value = verify(
         await (search.binding
@@ -552,12 +551,39 @@ export default function CoreComparisonResults({
     eMeta.data,
     change,
   ])
+  const evidenceAccess = useQuery({
+    ...options,
+    queryKey: [
+      ...prefix,
+      "supplement-access",
+      search.binding,
+      eMeta.data?.analysis_id,
+    ],
+    enabled:
+      readable &&
+      eMeta.data?.state === "ACTIVE" &&
+      Boolean(eMeta.data.analysis_id),
+    refetchInterval: (query) => (query.state.status === "error" ? false : 5000),
+    queryFn: async () => {
+      const value = await NetflowProcessingService.readAnalysisAccess({
+        projectId,
+        analysisId: eMeta.data!.analysis_id!,
+      })
+      if (
+        value.project_id !== projectId ||
+        value.analysis_id !== eMeta.data!.analysis_id
+      )
+        throw new Error("supplement_identity_mismatch")
+      return value
+    },
+  })
   const eReadable =
     readable &&
     !!search.binding &&
     search.binding !== "none" &&
     eMeta.isSuccess &&
     !eMeta.isError &&
+    !evidenceAccess.isError &&
     eMeta.data.state === "ACTIVE" &&
     expiredBinding !== search.binding &&
     unreadableBinding !== search.binding
@@ -632,7 +658,7 @@ export default function CoreComparisonResults({
       return value
     },
   })
-  const evidenceError = flows.isError || extra.isError
+  const evidenceError = flows.isError || extra.isError || evidenceAccess.isError
   useEffect(() => {
     if (evidenceError && search.binding) {
       setUnreadableBinding(search.binding)

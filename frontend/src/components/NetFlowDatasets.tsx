@@ -74,19 +74,25 @@ function CountSummary({ dataset }: { dataset: NetFlowDatasetPublic }) {
         <dt className="text-muted-foreground">
           {t("Raw records", "原始记录数")}
         </dt>
-        <dd className="font-medium">{dataset.raw_record_count}</dd>
+        <dd className="font-medium">
+          {dataset.raw_record_count ?? t("Unknown", "未知")}
+        </dd>
       </div>
       <div>
         <dt className="text-muted-foreground">
           {t("Valid activity records", "有效活动记录数")}
         </dt>
-        <dd className="font-medium">{dataset.activity_valid_record_count}</dd>
+        <dd className="font-medium">
+          {dataset.activity_valid_record_count ?? t("Unknown", "未知")}
+        </dd>
       </div>
       <div>
         <dt className="text-muted-foreground">
           {t("Isolated records", "隔离记录数")}
         </dt>
-        <dd className="font-medium">{dataset.isolated_record_count}</dd>
+        <dd className="font-medium">
+          {dataset.isolated_record_count ?? t("Unknown", "未知")}
+        </dd>
       </div>
     </dl>
   )
@@ -141,13 +147,13 @@ function QualitySummary({ dataset }: { dataset: NetFlowDatasetPublic }) {
           <dt className="text-muted-foreground">
             {t("Duplicate groups", "重复组数")}
           </dt>
-          <dd>{dataset.duplicate_group_count}</dd>
+          <dd>{dataset.duplicate_group_count ?? t("Unknown", "未知")}</dd>
         </div>
         <div>
           <dt className="text-muted-foreground">
             {t("Duplicate records", "重复记录数")}
           </dt>
-          <dd>{dataset.duplicate_record_count}</dd>
+          <dd>{dataset.duplicate_record_count ?? t("Unknown", "未知")}</dd>
         </div>
       </dl>
       <p>
@@ -296,27 +302,33 @@ function DatasetTable({
                   </TableCell>
                   <TableCell>
                     <p>
-                      {t("Raw:", "原始：")} {dataset.raw_record_count}
+                      {t("Raw:", "原始：")}{" "}
+                      {dataset.raw_record_count ?? t("Unknown", "未知")}
                     </p>
                     <p>
                       {t("Valid:", "有效：")}{" "}
-                      {dataset.activity_valid_record_count}
+                      {dataset.activity_valid_record_count ??
+                        t("Unknown", "未知")}
                     </p>
                     <p>
-                      {t("Isolated:", "隔离：")} {dataset.isolated_record_count}
+                      {t("Isolated:", "隔离：")}{" "}
+                      {dataset.isolated_record_count ?? t("Unknown", "未知")}
                     </p>
                   </TableCell>
                   <TableCell className="whitespace-normal break-all">
                     <QualitySummary dataset={dataset} />
                   </TableCell>
                   <TableCell className="text-right">
-                    {!isCurrent && canSelect && (
-                      <DatasetAction
-                        dataset={dataset}
-                        pending={selectingId === dataset.id}
-                        onSelect={() => onSelect(dataset.id)}
-                      />
-                    )}
+                    {!isCurrent &&
+                      canSelect &&
+                      dataset.dataset_contract_version !==
+                        "netflow-bulk-v1" && (
+                        <DatasetAction
+                          dataset={dataset}
+                          pending={selectingId === dataset.id}
+                          onSelect={() => onSelect(dataset.id)}
+                        />
+                      )}
                   </TableCell>
                 </TableRow>
               )
@@ -332,13 +344,15 @@ function DatasetTable({
               <CardContent className="space-y-4 pt-6">
                 <DatasetDetails dataset={dataset} />
                 {isCurrent && <Badge>{t("Current", "当前")}</Badge>}
-                {!isCurrent && canSelect && (
-                  <DatasetAction
-                    dataset={dataset}
-                    pending={selectingId === dataset.id}
-                    onSelect={() => onSelect(dataset.id)}
-                  />
-                )}
+                {!isCurrent &&
+                  canSelect &&
+                  dataset.dataset_contract_version !== "netflow-bulk-v1" && (
+                    <DatasetAction
+                      dataset={dataset}
+                      pending={selectingId === dataset.id}
+                      onSelect={() => onSelect(dataset.id)}
+                    />
+                  )}
               </CardContent>
             </Card>
           )

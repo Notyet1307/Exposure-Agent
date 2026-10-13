@@ -396,11 +396,9 @@ def compute(
     try:
         files = str(normalized / "*" / "*.parquet")
         if not any(normalized.glob("*/*.parquet")):
-            empty = normalized / "empty"
-            empty.mkdir(exist_ok=True)
-            pq.write_table(
-                pa.Table.from_pylist([], schema=COLUMNS), empty / "00000000.parquet"
-            )
+            empty = root / "empty.parquet"
+            pq.write_table(pa.Table.from_pylist([], schema=COLUMNS), empty)
+            files = str(empty)
         con.execute(
             "CREATE OR REPLACE VIEW normalized AS SELECT * FROM read_parquet("
             + sql_literal(files)

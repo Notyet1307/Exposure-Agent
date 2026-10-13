@@ -12,7 +12,7 @@ from fastapi import (
     Response,
     status,
 )
-from sqlmodel import col, func, select
+from sqlmodel import Session, col, func, select
 
 from app.api.deps import CurrentUser, SessionDep, get_current_active_superuser
 from app.api.project_authorization import (
@@ -274,6 +274,34 @@ def read_current_customer_upload_profile(
     )
 
 
+def _netflow_dataset_public(
+    session: Session, dataset: NetFlowDataset
+) -> NetFlowDatasetPublic:
+    value = NetFlowDatasetPublic.model_validate(dataset)
+    if dataset.dataset_contract_version == "netflow-bulk-v1":
+        from app.domain.netflow_bulk_models import BulkDataset, BulkMember
+
+        bulk = session.get(BulkDataset, dataset.id)
+        counts = session.exec(
+            select(
+                func.sum(BulkMember.raw_count), func.sum(BulkMember.invalid_count)
+            ).where(BulkMember.dataset_id == dataset.id)
+        ).one()
+        known = bulk is not None and bulk.complete
+        raw, invalid = int(counts[0] or 0), int(counts[1] or 0)
+        value = value.model_copy(
+            update={
+                "counts_state": "NORMALIZED" if known else "PENDING",
+                "raw_record_count": raw if known else None,
+                "activity_valid_record_count": raw - invalid if known else None,
+                "isolated_record_count": invalid if known else None,
+                "duplicate_group_count": None,
+                "duplicate_record_count": None,
+            }
+        )
+    return value
+
+
 @router.get(
     "/{project_id}/netflow-datasets",
     response_model=NetFlowDatasetsPublic,
@@ -328,11 +356,11 @@ def read_netflow_datasets(
     ).one()
     can_change_inputs = project.archived_at is None and has_operator_access > 0
     return NetFlowDatasetsPublic(
-        data=[NetFlowDatasetPublic.model_validate(dataset) for dataset in datasets],
+        data=[_netflow_dataset_public(session, dataset) for dataset in datasets],
         count=count,
         current_netflow_dataset_id=project.current_netflow_dataset_id,
         current_netflow_dataset=(
-            NetFlowDatasetPublic.model_validate(current_dataset)
+            _netflow_dataset_public(session, current_dataset)
             if current_dataset is not None
             else None
         ),

@@ -2032,11 +2032,13 @@ export default function NetflowCorrelation({
           {selectedDataset && (
             <p className="mt-3 text-xs text-muted-foreground">
               {selectedDataset.display_filename} ·{" "}
-              {t("Raw records", "原始记录")} {selectedDataset.raw_record_count}{" "}
-              · {t("Valid records", "有效记录")}{" "}
-              {selectedDataset.activity_valid_record_count} ·{" "}
-              {t("Isolated records", "隔离记录")}{" "}
-              {selectedDataset.isolated_record_count}
+              {t("Raw records", "原始记录")}{" "}
+              {selectedDataset.raw_record_count ?? t("Unknown", "未知")} ·{" "}
+              {t("Valid records", "有效记录")}{" "}
+              {selectedDataset.activity_valid_record_count ??
+                t("Unknown", "未知")}{" "}
+              · {t("Isolated records", "隔离记录")}{" "}
+              {selectedDataset.isolated_record_count ?? t("Unknown", "未知")}
             </p>
           )}
           {selectedContext && (

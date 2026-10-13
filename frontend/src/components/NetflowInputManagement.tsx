@@ -7,6 +7,7 @@ import {
   ProjectsService,
 } from "@/client"
 import { NetflowAnalysisActions } from "@/components/NetflowAnalysisActions"
+import { NetflowBulkRegistration } from "@/components/NetflowBulkRegistration"
 import { NetflowContextForm } from "@/components/NetflowContextForm"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Button } from "@/components/ui/button"
@@ -239,6 +240,16 @@ export function NetflowInputManagement({
           )}
         </p>
       </header>
+      {isAdmin && allowed && (
+        <NetflowBulkRegistration
+          key={`${actor}:${projectId}`}
+          projectId={projectId}
+          onRegistered={(id) => {
+            void cache.invalidateQueries({ queryKey: key })
+            onDatasetChange(id)
+          }}
+        />
+      )}
       {datasets.isError ? (
         <p role="alert">
           {t(

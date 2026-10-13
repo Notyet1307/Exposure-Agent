@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { type AnalysisPublic, NetflowProcessingService } from "@/client"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/lib/i18n"
-import { netflowRequestRejected } from "@/lib/netflow-errors"
+import { netflowErrorCode, netflowRequestRejected } from "@/lib/netflow-errors"
 
 export function NetflowAnalysisActions({
   actor,
@@ -103,6 +103,13 @@ export function NetflowAnalysisActions({
       if (!recover && netflowRequestRejected(cause)) {
         sessionStorage.removeItem(store)
         setPending(undefined)
+      }
+      if (netflowErrorCode(cause) === "bulk_capacity_busy") {
+        setError([
+          "Another bulk batch is still active. Wait for it to finish, then retry.",
+          "另一个批量任务仍在处理。请等待完成后重试。",
+        ])
+        return
       }
       setError([
         "Analysis action unavailable. Query the original operation before another attempt.",

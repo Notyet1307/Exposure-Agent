@@ -156,9 +156,28 @@ def create_analysis(
     idempotency_key: Key,
 ) -> service.AnalysisPublic:
     project = project_for(session, current_user, project_id, write=True)
-    row, created = service.reserve_analysis(
-        session, project, current_user, dataset_id, request, idempotency_key
-    )
+    dataset = service.dataset_for(session, project, dataset_id)
+    if dataset.dataset_contract_version == "netflow-bulk-v1":
+        from app.domain import netflow_bulk
+        from app.netflow_bulk.contracts import Filter
+
+        selection = {}
+        if request.retry_of_analysis_id:
+            parent = service.analysis_for(
+                session, project, request.retry_of_analysis_id
+            )
+            selection = parent.identity.get("config", {})
+        bulk_request = netflow_bulk.Analyze(
+            **request.model_dump(),
+            bulk_filter=Filter.model_validate(selection),
+        )
+        row, created = netflow_bulk.reserve(
+            session, project, current_user, dataset_id, bulk_request, idempotency_key
+        )
+    else:
+        row, created = service.reserve_analysis(
+            session, project, current_user, dataset_id, request, idempotency_key
+        )
     if created:
         row = service.launch_analysis(session, row)
     return service.analysis_public(session, project, row)
@@ -309,7 +328,9 @@ async def import_analysis(
                 select(Project.id).where(Project.id == project_id).with_for_update()
             ).one()
             source = directory / "source.zip"
-            storage_key = source.relative_to(settings.ARTIFACT_ROOT.resolve()).as_posix()
+            storage_key = source.relative_to(
+                settings.ARTIFACT_ROOT.resolve()
+            ).as_posix()
             # A lost commit acknowledgement may still leave a durable owner.
             owner = session.exec(
                 select(Artifact.id).where(Artifact.storage_key == storage_key)
@@ -398,3 +419,17 @@ def reconcile_operation(
     return service.analysis_public(
         session, project, service.analysis_for(session, project, identifier)
     )
+
+
+@router.get("/netflow-analyses/{analysis_id}/access")
+def read_analysis_access(*, session: SessionDep, current_user: CurrentUser, response: Response, project_id: uuid.UUID, analysis_id: uuid.UUID) -> dict[str, Any]:
+    """Lightweight revocation gate; immutable content is read by its own endpoint."""
+    _private(response)
+    project = project_for(session, current_user, project_id)
+    row = service.analysis_for(session, project, analysis_id)
+    context = service.context_for(session, project, row.dataset_id, row.context_revision_id)
+    service.validate_context(session, project, context)
+    if row.identity.get("backend") == "netflow-bulk-v1" and row.status in service.SUCCESS:
+        from app.domain.netflow_bulk_queries import gate
+        gate(session, project, row.id)
+    return {"project_id": row.project_id, "analysis_id": row.id, "dataset_id": row.dataset_id, "context_revision_id": row.context_revision_id, "identity_sha256": row.processing_identity_sha256, "status": row.status, "can_read_result": row.status in service.SUCCESS}
