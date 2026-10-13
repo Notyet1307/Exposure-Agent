@@ -11,6 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
 from pydantic import Field
 from sqlalchemy import delete, func, insert, tuple_
 from sqlmodel import Session, col, select
@@ -438,36 +439,117 @@ def _checkpoint(
     session.commit()
 
 
+def _failure_code(error: Exception) -> str:
+    if isinstance(error, BulkError):
+        return error.code
+    if isinstance(error, OSError) and error.errno == 28:
+        return "bulk_disk_budget"
+    if isinstance(error, HTTPException) and isinstance(error.detail, dict):
+        return str(error.detail.get("code", "bulk_processing_failed"))
+    return "bulk_processing_failed"
+
+
+def _fail_execution(
+    session: Session,
+    analysis_id: uuid.UUID,
+    code: str,
+    *,
+    fence: int | None,
+    metrics: dict[str, Any] | None = None,
+    session_id: str | None = None,
+) -> None:
+    session.rollback()
+    project, row = legacy._locked(session, analysis_id)
+    job = _job(session, analysis_id)
+    if (
+        row.status not in legacy.UNFINISHED
+        or (fence is not None and job.fence != fence)
+        or (
+            fence is None
+            and job.lease_until is not None
+            and job.lease_until > get_datetime_utc()
+        )
+    ):
+        session.rollback()
+        return
+    if (
+        session_id is not None
+        and row.session_id is not None
+        and row.session_id != session_id
+    ):
+        session.rollback()
+        return
+    if code in ("bulk_input_changed", "bulk_checkpoint_integrity"):
+        dataset = session.get(BulkDataset, row.dataset_id)
+        assert dataset is not None
+        dataset.invalidated = True
+        session.add(dataset)
+    if row.session_id is None and session_id is not None:
+        row.session_id = session_id
+    job.phase = "CANCELLED" if job.cancel_requested else "FAILED"
+    job.lease_until = None
+    job.metrics = (metrics or job.metrics) | {"error_code": code}
+    row.status, row.error_code, row.completed_at = "FAILED", code, get_datetime_utc()
+    session.add(job)
+    session.add(row)
+    session.add(
+        AuditEvent(
+            tenant_id=project.tenant_id,
+            project_id=project.id,
+            actor_subject=str(row.created_by),
+            actor_type="user",
+            action="netflow.bulk_failed",
+            target_type="netflow_analysis",
+            target_id=row.id,
+            after_data={"error_code": code, "phase": job.phase, "fence": job.fence},
+        )
+    )
+    session.commit()
+
+
 def execute(
     session: Session, analysis_id: uuid.UUID, run_id: str, session_id: str
 ) -> None:
     row = session.get(NetFlowAnalysis, analysis_id)
     if row is None:
         raise BulkError("bulk_input_not_found")
+    if row.agent_run_id != run_id:
+        raise BulkError("bulk_execution_identity")
     observed_id, observed = legacy.session_observation(row)
     if observed_id != session_id or observed != AgentComposeSessionObservation.RUNNING:
         raise BulkError("bulk_execution_identity")
-    wait_started = time.monotonic()
-    while True:
-        try:
-            fence = claim(session, analysis_id, run_id, session_id)
-            break
-        except BulkError as error:
-            session.rollback()
-            if (
-                error.code != "bulk_capacity_busy"
-                or time.monotonic() - wait_started
-                > settings.NETFLOW_BULK_TIMEOUT_SECONDS
-            ):
-                raise
-            job = _job(session, analysis_id)
-            job.phase = "WAITING_CAPACITY"
-            session.add(job)
-            session.commit()
-            time.sleep(1)
-    if fence is None:
-        return
-    run_engine(session, analysis_id, fence)
+    fence: int | None = None
+    try:
+        wait_started = time.monotonic()
+        while True:
+            try:
+                fence = claim(session, analysis_id, run_id, session_id)
+                break
+            except BulkError as error:
+                session.rollback()
+                if (
+                    error.code != "bulk_capacity_busy"
+                    or time.monotonic() - wait_started
+                    > settings.NETFLOW_BULK_TIMEOUT_SECONDS
+                ):
+                    raise
+                job = _job(session, analysis_id)
+                job.phase = "WAITING_CAPACITY"
+                session.add(job)
+                session.commit()
+                time.sleep(1)
+        if fence is None:
+            return
+        run_engine(session, analysis_id, fence)
+    except Exception as error:
+        _fail_execution(
+            session,
+            analysis_id,
+            _failure_code(error),
+            fence=fence,
+            session_id=session_id,
+        )
+        raise
 
 
 def run_engine(session: Session, analysis_id: uuid.UUID, fence: int) -> None:
@@ -701,34 +783,9 @@ def run_engine(session: Session, analysis_id: uuid.UUID, fence: int) -> None:
             pulse=pulse,
         )
     except Exception as error:
-        session.rollback()
-        legacy._locked(session, analysis_id)
-        current = _job(session, analysis_id)
-        if current.fence == fence:
-            if isinstance(error, BulkError) and error.code in (
-                "bulk_input_changed",
-                "bulk_checkpoint_integrity",
-            ):
-                damaged = session.get(BulkDataset, current.dataset_id)
-                if damaged is not None:
-                    damaged.invalidated = True
-                    session.add(damaged)
-            current.phase = "CANCELLED" if current.cancel_requested else "FAILED"
-            current.lease_until = None
-            current.metrics = metrics | {
-                "error_code": error.code
-                if isinstance(error, BulkError)
-                else "bulk_processing_failed"
-            }
-            row = session.get(NetFlowAnalysis, analysis_id)
-            assert row is not None
-            if row.status in legacy.UNFINISHED:
-                row.status = "FAILED"
-                row.error_code = str(current.metrics["error_code"])
-                row.completed_at = get_datetime_utc()
-                session.add(row)
-            session.add(current)
-            session.commit()
+        _fail_execution(
+            session, analysis_id, _failure_code(error), fence=fence, metrics=metrics
+        )
         raise
     finally:
         stop.set()

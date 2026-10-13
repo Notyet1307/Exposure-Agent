@@ -15,6 +15,7 @@ from app.core.time import get_datetime_utc
 from app.domain import netflow_bulk as bulk
 from app.domain import netflow_bulk_queries as queries
 from app.domain import netflow_processing as legacy
+from app.domain.models import AuditEvent
 from app.domain.netflow_bulk_models import BulkDataset, BulkJob, BulkMember
 from app.domain.netflow_common import deny, project_for
 from app.netflow_bulk.contracts import BulkError
@@ -161,8 +162,20 @@ def cancel(
     project = project_for(session, current_user, project_id, write=True)
     row = legacy.analysis_for(session, project, analysis_id)
     job = bulk._job(session, row.id)
-    if row.status in legacy.UNFINISHED:
+    if row.status in legacy.UNFINISHED and not job.cancel_requested:
         job.cancel_requested = True
+        session.add(
+            AuditEvent(
+                tenant_id=project.tenant_id,
+                project_id=project.id,
+                actor_subject=str(current_user.id),
+                actor_type="user",
+                action="netflow.bulk_cancel_requested",
+                target_type="netflow_analysis",
+                target_id=row.id,
+                after_data={"fence": job.fence},
+            )
+        )
         if job.lease_until is None:
             job.phase = "CANCELLED"
             row.status, row.error_code, row.completed_at = (
