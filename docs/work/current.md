@@ -1,5 +1,7 @@
 # 当前工作
 
+- 2026-10-13 工作区样式与固定比对依据 [#306](https://github.com/Notyet1307/Exposure-Agent/issues/306)：本地视觉验收后已获维护者授权提交/push/PR及必要CI/Review后正常merge。候选`494c3ec`整合main`4e61fb4`，生产构建、285项组件回归和独立Standards/Spec审阅PASS，见[验收回执](workspace-attio-validation.md)。本轮不部署、不改业务逻辑或后端；远端发布状态以Issue/PR为准。
+
 - 2026-10-13维护者已明确授权将[#304](https://github.com/Notyet1307/Exposure-Agent/issues/304)本地实现push并创建PR，必要CI/审阅通过后正常合并；**暂不部署或关闭Issue，TB 验收未执行**。此前本地阶段回执保留如下，远端发布状态以Issue/PR为准。
 
 - 2026-10-13 NetFlow bulk [#304](https://github.com/Notyet1307/Exposure-Agent/issues/304)：规格/ADR固定`ee61c8c`；分支`codex/netflow-bulk`完成本地实现及隔离合成验证，见[交付回执](netflow-bulk-validation.md)与[实测报告](netflow-bulk-benchmark.md)。1 GB硬内存引擎及PG/API、128 MB真实agent-compose链路已验；10 GB预检停止，**TB 验收未执行**。业务源码未push/PR/merge，既有部署未改变；Issue保持开放，远端生命周期须另行明确授权。
