@@ -1,5 +1,7 @@
 # 当前工作
 
+- 2026-10-13维护者已明确授权将[#304](https://github.com/Notyet1307/Exposure-Agent/issues/304)本地实现push并创建PR，必要CI/审阅通过后正常合并；**暂不部署或关闭Issue，TB 验收未执行**。此前本地阶段回执保留如下，远端发布状态以Issue/PR为准。
+
 - 2026-10-13 NetFlow bulk [#304](https://github.com/Notyet1307/Exposure-Agent/issues/304)：规格/ADR固定`ee61c8c`；分支`codex/netflow-bulk`完成本地实现及隔离合成验证，见[交付回执](netflow-bulk-validation.md)与[实测报告](netflow-bulk-benchmark.md)。1 GB硬内存引擎及PG/API、128 MB真实agent-compose链路已验；10 GB预检停止，**TB 验收未执行**。业务源码未push/PR/merge，既有部署未改变；Issue保持开放，远端生命周期须另行明确授权。
 
 - V2真实模型兼容修复[#298](https://github.com/Notyet1307/Exposure-Agent/issues/298)：源码[PR#302](https://github.com/Notyet1307/Exposure-Agent/pull/302)正常合并9e99d19，8081受保护部署/默认V1+V2资格及管理/运营原生可读草稿验收完成，见[回执](v2-model-contract-validation.md)。仅固定合成C+A出域；管理稿人工修订保留原稿，均未自动确认，真实客户验收仍未执行。下方NOT_CONFIGURED等条目保留此前快照；实际任务状态以GitHub为准。

@@ -2,6 +2,8 @@
 
 日期2026-10-13；[Issue #304](https://github.com/Notyet1307/Exposure-Agent/issues/304)；批准Spec/ADR固定 `ee61c8ce4249a2390d38a065c8cbbbec2be90e1d`。基线`05b14d52ab6d9f3b0eb54c3a7c7fcfed69bd3751`，隔离工作树`/Users/yang/.codex/worktrees/netflow-bulk/Exposure-Agent`，分支`codex/netflow-bulk`。任务状态/依赖/授权仍以GitHub Issue为准。
 
+2026-10-13后续授权：维护者明确允许push/PR及必要CI/审阅通过后的正常合并，暂不部署、不关闭Issue。下文保留本地交付阶段的原始验收与授权快照，后续远端状态以#304及关联PR为准；**TB 验收未执行**。
+
 ## 交付内容
 
 真实调用链与初始瓶颈见[审计](netflow-bulk-audit.md)。本轮提供独立源码bulk引擎、追加3个迁移、锁定DuckDB/PyArrow、冻结多文件接入、Parquet标准化、完整键精确外存去重、持久任务/lease/fencing/checkpoint/取消、原子发布、PostgreSQL观测投影、列式peer与定向证据、新版观测页和V2可选辅证接入。
