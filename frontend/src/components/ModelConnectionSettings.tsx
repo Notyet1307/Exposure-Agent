@@ -114,12 +114,10 @@ export default function ModelConnectionSettings() {
   if (!user)
     return <p role="status">{t("Checking permissions…", "正在读取权限…")}</p>
   return (
-    <div className="mx-auto max-w-4xl space-y-8">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {t("AI settings", "AI 设置")}
-        </h1>
-        <p className="max-w-prose text-muted-foreground">
+    <div className="max-w-4xl space-y-6">
+      <header className="workspace-page-header">
+        <h1 className="workspace-page-title">{t("AI settings", "AI 设置")}</h1>
+        <p className="max-w-prose text-sm text-muted-foreground">
           {t(
             "Save a connection, verify it, then activate it for new AI tasks.",
             "保存连接，验证通过后，再启用到新的 AI 任务。",
@@ -591,7 +589,6 @@ function Management({ actor }: { actor: string }) {
           <ConnectionDetails version={pending} />
           <div className="flex flex-wrap gap-3">
             <Button
-              className="text-black"
               disabled={
                 disabled ||
                 ["VALIDATING", "ACTIVATING"].includes(pending.validation_status)
@@ -744,7 +741,6 @@ function Management({ actor }: { actor: string }) {
                 </p>
               </div>
               <LoadingButton
-                className="text-black"
                 type="submit"
                 loading={busy}
                 disabled={!!intent && (!notFound || recovery.isFetching)}

@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
+import { ArrowUpRight, Search } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ComparisonResultsService as API,
@@ -14,6 +15,14 @@ import { TechnicalValue } from "@/components/TechnicalValue"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import "./CoreComparisonResults.css"
 import {
   Table,
   TableBody,
@@ -217,6 +226,7 @@ export default function CoreComparisonResults({
   const [bindingHistoryPage, setBindingHistoryPage] = useState(0)
   const detailHeading = useRef<HTMLHeadingElement>(null)
   const lastAddressTrigger = useRef<HTMLButtonElement | null>(null)
+  const comparisonTable = useRef<HTMLTableElement | null>(null)
   const store = `exposure:comparison:${actor}:${projectId}:${search.result ?? search.scope ?? "current"}`
   const [pending, setPending] = useState<Pending | null>(() => {
     try {
@@ -1110,11 +1120,11 @@ export default function CoreComparisonResults({
       : t("No matching flow record", "未匹配到流量")
   }
   return (
-    <main className="min-w-0 space-y-6">
-      <header className="space-y-3">
+    <main className="comparison-workbench min-w-0 space-y-5">
+      <header className="comparison-header space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-2">
-            <h1 className="text-2xl font-semibold">
+            <h1 className="text-[22px] font-semibold tracking-tight">
               {t("Comparison results", "比对结果")}
             </h1>
             {result && (
@@ -1125,7 +1135,7 @@ export default function CoreComparisonResults({
               </p>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="comparison-actions flex flex-wrap gap-2">
             <Button
               disabled={
                 !enabled || busy || !!pending || !statusReady?.can_write
@@ -1166,14 +1176,14 @@ export default function CoreComparisonResults({
             </Button>
           </div>
         </div>
-        <p className="max-w-prose text-sm text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           {t(
             "The applied customer register and published CloudAtlas data form the core comparison. NetFlow only supplies optional observations.",
             "核心比对采用已应用客户台账与已发布云图资料。NetFlow 只提供可选观测依据。",
           )}
         </p>
         {result && (
-          <p className="text-sm">
+          <p className="comparison-context text-xs leading-6">
             {t("Customer version", "客户版本")}：{result.customer_filename} ·{" "}
             {t("Applied", "生效时间")}：{date(result.customer_applied_at)}
             <br />
@@ -1580,20 +1590,7 @@ export default function CoreComparisonResults({
       )}
       {result && (
         <>
-          <section
-            aria-label={t("AI model status", "AI 模型状态")}
-            className="space-y-3"
-          >
-            <AiModelStatus />
-            <V2AnalysisReportsPanel
-              key={`${actor}:${projectId}:${result.id}:${search.binding}`}
-              actor={actor}
-              projectId={projectId}
-              resultId={result.id}
-              bindingId={search.binding === "none" ? null : search.binding}
-            />
-          </section>
-          <details className="space-y-3 rounded border p-4">
+          <details className="space-y-3 border-y py-3 text-xs">
             <summary className="cursor-pointer font-medium">
               {t("View the materials used here", "查看本次资料")}
             </summary>
@@ -1617,23 +1614,19 @@ export default function CoreComparisonResults({
           </details>
           <section
             aria-label={t("Core classification", "核心分类")}
-            className="space-y-3"
+            className="comparison-core space-y-3"
           >
-            <div className="flex flex-wrap gap-2">
+            <div className="comparison-views flex flex-wrap gap-1">
               {comparisonClasses.map((kind) => {
                 const value =
                   kind === "all" ? result.total_addresses : result[kind]
                 return (
                   <Button
                     key={kind}
-                    variant={
-                      (search.core_class ?? "all") === kind
-                        ? "default"
-                        : "outline"
-                    }
+                    variant="ghost"
                     aria-pressed={(search.core_class ?? "all") === kind}
                     disabled={value === null}
-                    className="h-auto min-w-0 max-w-full whitespace-normal py-2 text-left"
+                    className="h-auto min-w-0 max-w-full whitespace-normal px-3 py-2 text-left text-xs"
                     onClick={() =>
                       change({
                         core_class: kind,
@@ -1644,7 +1637,7 @@ export default function CoreComparisonResults({
                     }
                   >
                     {classes[kind]}{" "}
-                    <span className="ml-2 font-semibold tabular-nums">
+                    <span className="ml-1 font-normal tabular-nums text-muted-foreground">
                       {value ?? "—"}
                     </span>
                   </Button>
@@ -1660,7 +1653,7 @@ export default function CoreComparisonResults({
               </p>
             )}
             <form
-              className="flex flex-wrap items-end gap-3"
+              className="comparison-filters flex flex-wrap items-end gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
                 change({
@@ -1670,19 +1663,27 @@ export default function CoreComparisonResults({
                 })
               }}
             >
-              <Label>
-                {t("IP address", "IP 地址")}
+              <Label className="relative block min-w-0 grow sm:max-w-72">
+                <span className="sr-only">{t("IP address", "IP 地址")}</span>
+                <Search
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-2.5 top-2 size-4 text-muted-foreground"
+                />
                 <Input
+                  className="h-8 pl-9 text-xs"
                   value={ip}
                   onChange={(event) => setIp(event.target.value)}
-                  placeholder="192.0.2.20"
+                  placeholder={t(
+                    "Filter by exact IP address…",
+                    "输入完整 IP 地址筛选…",
+                  )}
                   maxLength={45}
                 />
               </Label>
               <Label>
-                {t("Sort", "排序")}
+                <span className="sr-only">{t("Sort", "排序")}</span>
                 <select
-                  className="block rounded border bg-background p-2 text-sm"
+                  className="block h-8 rounded-md border bg-background px-2 text-xs"
                   value={search.core_sort ?? "ip_asc"}
                   onChange={(event) =>
                     change({
@@ -1736,12 +1737,8 @@ export default function CoreComparisonResults({
               <p role="status">{t("Reading differences…", "正在读取差异…")}</p>
             ) : (
               <>
-                <p className="text-sm text-muted-foreground">
-                  {t("Fixed total", "固定全集")} {rows.data.total_addresses} ·{" "}
-                  {t("Matching", "筛选命中")} {rows.data.count} ·{" "}
-                  {t("This page", "本页")} {rows.data.data.length}
-                </p>
                 <Table
+                  ref={comparisonTable}
                   tabIndex={0}
                   aria-label={t("Comparison addresses", "比对地址列表")}
                   className="min-w-[740px] focus-visible:outline-2 focus-visible:outline-ring"
@@ -1760,12 +1757,23 @@ export default function CoreComparisonResults({
                   </TableHeader>
                   <TableBody>
                     {rows.data.data.map((row) => (
-                      <TableRow key={row.address_key}>
-                        <TableCell className="font-medium">
+                      <TableRow
+                        key={row.address_key}
+                        data-state={
+                          search.core_address === row.address_key
+                            ? "selected"
+                            : undefined
+                        }
+                      >
+                        <TableCell className="comparison-ip font-mono">
                           {row.canonical_ip}
                         </TableCell>
-                        <TableCell>{row.customer_records}</TableCell>
-                        <TableCell>{row.cloud_records}</TableCell>
+                        <TableCell className="tabular-nums">
+                          {row.customer_records}
+                        </TableCell>
+                        <TableCell className="tabular-nums">
+                          {row.cloud_records}
+                        </TableCell>
                         <TableCell className="max-w-64 whitespace-normal">
                           {row.classification
                             ? classes[row.classification]
@@ -1774,13 +1782,14 @@ export default function CoreComparisonResults({
                                 "已知记录；比对覆盖不足",
                               )}
                         </TableCell>
-                        <TableCell className="max-w-48 whitespace-normal">
+                        <TableCell className="max-w-48 whitespace-normal text-xs text-muted-foreground">
                           {flowStatus(row.canonical_ip)}
                         </TableCell>
                         <TableCell>
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant="ghost"
+                            className="comparison-evidence-trigger"
                             aria-expanded={
                               search.core_address === row.address_key
                             }
@@ -1796,6 +1805,10 @@ export default function CoreComparisonResults({
                             }}
                           >
                             {t("View evidence", "查看依据")}
+                            <ArrowUpRight
+                              aria-hidden="true"
+                              className="size-3"
+                            />
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -1803,273 +1816,326 @@ export default function CoreComparisonResults({
                   </TableBody>
                 </Table>
                 {rows.data.count === 0 && (
-                  <p>
+                  <p className="py-12 text-center text-sm text-muted-foreground">
                     {t(
                       "No records match this filter in the fixed result.",
                       "此固定结果没有符合当前筛选的记录。",
                     )}
                   </p>
                 )}
-                <ResultPagination
-                  label={t("Comparison addresses", "比对地址")}
-                  count={rows.data.count}
-                  page={search.core_page ?? 0}
-                  pageSize={SIZE}
-                  onPageChange={(page) =>
-                    change({
-                      core_page: page,
-                      core_address: undefined,
-                      core_evidence_page: 0,
-                    })
-                  }
-                />
+                <div className="comparison-table-footer flex flex-wrap items-center justify-between gap-3 py-2">
+                  <p className="text-sm text-muted-foreground">
+                    {t("Fixed total", "固定全集")} {rows.data.total_addresses} ·{" "}
+                    {t("Matching", "筛选命中")} {rows.data.count} ·{" "}
+                    {t("This page", "本页")} {rows.data.data.length}
+                  </p>
+                  <ResultPagination
+                    label={t("Comparison addresses", "比对地址")}
+                    count={rows.data.count}
+                    page={search.core_page ?? 0}
+                    pageSize={SIZE}
+                    onPageChange={(page) =>
+                      change({
+                        core_page: page,
+                        core_address: undefined,
+                        core_evidence_page: 0,
+                      })
+                    }
+                  />
+                </div>
               </>
             )}
-            <p className="max-w-prose text-sm text-muted-foreground">
+            <p className="text-xs leading-relaxed text-muted-foreground">
               {t(
                 "These are differences between the selected records. A shared IP does not prove ownership or no risk. Not observed does not mean offline. A flow source port is not a listening-service port.",
                 "这些结论只描述所用资料中的记录差异。相同 IP 不证明资产归属或无风险；本批未观测不等于下线；流量源侧端口不是监听服务端口。",
               )}
             </p>
           </section>
-          {search.core_address && (
-            <section
-              className="space-y-4 rounded-md border p-4"
-              aria-label={t("Fixed address evidence", "固定地址依据")}
+          <Sheet
+            modal={false}
+            open={!!search.core_address}
+            onOpenChange={(open) => {
+              if (!open)
+                change({ core_address: undefined, core_evidence_page: 0 })
+            }}
+          >
+            <SheetContent
+              className="comparison-evidence w-full gap-0 overflow-y-auto sm:max-w-[560px]"
+              onInteractOutside={(event) => event.preventDefault()}
+              onOpenAutoFocus={(event) => {
+                event.preventDefault()
+                detailHeading.current?.focus()
+              }}
+              onCloseAutoFocus={(event) => {
+                event.preventDefault()
+                const trigger = lastAddressTrigger.current
+                if (trigger?.isConnected) trigger.focus()
+                else comparisonTable.current?.focus()
+              }}
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2
-                  ref={detailHeading}
-                  tabIndex={-1}
-                  className="text-lg font-semibold"
-                >
-                  {detail.data?.address.canonical_ip ??
-                    t("Fixed address evidence", "固定地址依据")}
-                </h2>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    change({ core_address: undefined, core_evidence_page: 0 })
-                    requestAnimationFrame(() =>
-                      lastAddressTrigger.current?.focus(),
-                    )
-                  }}
-                >
-                  {t("Close evidence", "关闭依据")}
-                </Button>
-              </div>
-              {detail.isError ? (
-                <p role="alert">
-                  {t(
-                    "This address cannot be read in this fixed result.",
-                    "无法在这份固定结果中读取该地址。",
-                  )}
-                </p>
-              ) : detail.data ? (
-                <p>
-                  {detail.data.address.classification
-                    ? classes[detail.data.address.classification]
-                    : t(
-                        "The sources contain records; coverage does not support a complete difference conclusion.",
-                        "来源中存在记录，但覆盖范围不足以支持完整差异结论。",
-                      )}
-                </p>
-              ) : (
-                <p role="status">
-                  {t("Reading the address…", "正在读取地址…")}
-                </p>
-              )}
-              {detail.data && (
-                <p className="text-sm">
-                  {t("Customer records", "客户记录")}{" "}
-                  {detail.data.address.customer_records} ·{" "}
-                  {t("CloudAtlas records", "云图记录")}{" "}
-                  {detail.data.address.cloud_records}
-                </p>
-              )}
-              {detail.data && (
-                <V2AnalysisReportsPanel
-                  key={`${actor}:${projectId}:${result.id}:${search.binding}:${detail.data.address.address_key}`}
-                  actor={actor}
-                  projectId={projectId}
-                  resultId={result.id}
-                  bindingId={search.binding === "none" ? null : search.binding}
-                  addressKey={detail.data.address.address_key}
-                />
-              )}
               <section
-                className="space-y-2"
-                aria-label={t("NetFlow corroboration", "NetFlow 佐证说明")}
+                className="space-y-5 px-5 pb-6 sm:px-7"
+                aria-label={t("Fixed address evidence", "固定地址依据")}
               >
-                <h3 className="font-medium">
-                  {t("NetFlow corroboration", "NetFlow 佐证说明")}
-                </h3>
-                <p>
-                  {detail.data
-                    ? flowStatus(detail.data.address.canonical_ip)
-                    : t("Reading the address…", "正在读取地址…")}
-                </p>
-                {eReadable &&
-                  flows.isSuccess &&
-                  flows.data.data
-                    .filter(
-                      (row) =>
-                        row.canonical_ip === detail.data?.address.canonical_ip,
-                    )
-                    .map((row) => (
-                      <p key={row.canonical_ip} className="text-sm">
-                        {t("Observation objects", "观测对象")}{" "}
-                        {row.observation_count} ·{" "}
-                        {eMeta.data?.record_count_semantics ===
-                        "unique_export_records"
-                          ? t("Unique export records", "去重后导出记录")
-                          : t("Source records", "源记录")}{" "}
-                        {row.source_records}
-                      </p>
-                    ))}
-                <p className="text-sm text-muted-foreground">
-                  {t(
-                    "The actual observation window was not provided. Flow records do not prove simultaneous activity or listening services.",
-                    "未提供实际观测窗口。流量记录不证明同时活动或监听服务。",
-                  )}
-                </p>
-              </section>
-              <section
-                className="space-y-2"
-                aria-label={t("Limits and sources", "限制与来源")}
-              >
-                <h3 className="font-medium">
-                  {t("Limits and sources", "限制与来源")}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {t(
-                    "These records do not prove ownership, a vulnerability or that an unobserved asset is offline. Review the fixed source records below.",
-                    "这些记录不证明资产归属、漏洞或未观测资产已下线。请核对下方固定来源记录。",
-                  )}
-                </p>
-                {materialLinks(result)}
-              </section>
-              {eReadable && eMeta.data?.analysis_id && (
-                <Link
-                  className="block text-sm underline"
-                  to="/projects/$projectId/netflow-results"
-                  params={{ projectId }}
-                  search={{
-                    ...back,
-                    analysis: eMeta.data.analysis_id,
-                    dataset: eMeta.data.dataset_id ?? undefined,
-                    ip: detail.data?.address.canonical_ip,
-                  }}
-                >
-                  {t(
-                    "Read the fixed NetFlow observations",
-                    "查看固定 NetFlow 观测",
-                  )}
-                </Link>
-              )}
-              <div className="flex gap-2">
-                {(["customer", "cloud"] as const).map((sourceName) => (
-                  <Button
-                    key={sourceName}
-                    size="sm"
-                    variant={
-                      (search.core_evidence ?? "customer") === sourceName
-                        ? "default"
-                        : "outline"
-                    }
-                    onClick={() =>
-                      change({
-                        core_evidence: sourceName,
-                        core_evidence_page: 0,
-                      })
-                    }
-                  >
-                    {sourceName === "customer"
-                      ? t("Customer evidence", "客户依据")
-                      : t("CloudAtlas evidence", "云图依据")}
-                  </Button>
-                ))}
-              </div>
-              {proof.isPending ? (
-                <p role="status">
-                  {t("Reading fixed source evidence…", "正在读取固定来源依据…")}
-                </p>
-              ) : proof.isError ? (
-                <p role="alert">
-                  {t(
-                    "The fixed evidence could not be read. No current version was substituted.",
-                    "无法读取固定依据，未替换为当前版本。",
-                  )}
-                </p>
-              ) : (
-                <>
-                  {proof.data.data.length === 0 && (
-                    <p>
-                      {t(
-                        "This selected source contains no record for the address in this result.",
-                        "这份结果所用的该来源中，没有此地址的记录。",
-                      )}
-                    </p>
-                  )}
-                  {proof.data.data.map((record) => (
-                    <section
-                      key={`${record.version_id}:${record.record_key}`}
-                      className="space-y-3 rounded border p-3 text-sm"
+                <div className="comparison-evidence-heading flex flex-wrap items-center justify-between gap-3 border-b py-4">
+                  <SheetTitle asChild>
+                    <h2
+                      ref={detailHeading}
+                      tabIndex={-1}
+                      className="min-w-0 break-all font-mono text-lg font-medium"
                     >
-                      <h3 className="font-medium">
-                        {record.source === "CUSTOMER"
-                          ? t("Customer declaration", "客户声明")
-                          : t("CloudAtlas observation", "云图观测")}
-                      </h3>
-                      {record.source === "CUSTOMER" ? (
-                        <CustomerRecordFields
-                          fields={object(record.original.fields)}
-                        />
-                      ) : (
-                        <RecordFields
-                          record={{ fields: record.original }}
-                          domain={record.domain}
-                        />
-                      )}
-                      <details className="rounded border p-3 text-sm">
-                        <summary className="cursor-pointer">
-                          {record.canonical_ip} · {record.domain} ·{" "}
-                          {t("Original source record", "原始来源记录")}
-                        </summary>
-                        <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs">
-                          {JSON.stringify(
-                            {
-                              original: record.original,
-                              availability: record.availability,
-                            },
-                            null,
-                            2,
-                          )}
-                        </pre>
-                        <TechnicalValue
-                          value={record.version_id}
-                          label={t("Fixed version", "固定版本")}
-                        />
-                        <TechnicalValue
-                          value={record.record_key}
-                          label={t("Source record", "来源记录")}
-                        />
-                      </details>
-                    </section>
+                      {detail.data?.address.canonical_ip ??
+                        t("Fixed address evidence", "固定地址依据")}
+                    </h2>
+                  </SheetTitle>
+                  <SheetClose asChild>
+                    <Button variant="ghost" size="sm">
+                      {t("Close evidence", "关闭依据")}
+                    </Button>
+                  </SheetClose>
+                </div>
+                <SheetDescription className="sr-only">
+                  {t(
+                    "Read source records from the fixed comparison result.",
+                    "阅读此固定比对结果所用的来源记录。",
+                  )}
+                </SheetDescription>
+                {detail.isError ? (
+                  <p role="alert">
+                    {t(
+                      "This address cannot be read in this fixed result.",
+                      "无法在这份固定结果中读取该地址。",
+                    )}
+                  </p>
+                ) : detail.data ? (
+                  <p>
+                    {detail.data.address.classification
+                      ? classes[detail.data.address.classification]
+                      : t(
+                          "The sources contain records; coverage does not support a complete difference conclusion.",
+                          "来源中存在记录，但覆盖范围不足以支持完整差异结论。",
+                        )}
+                  </p>
+                ) : (
+                  <p role="status">
+                    {t("Reading the address…", "正在读取地址…")}
+                  </p>
+                )}
+                {detail.data && (
+                  <p className="text-sm">
+                    {t("Customer records", "客户记录")}{" "}
+                    {detail.data.address.customer_records} ·{" "}
+                    {t("CloudAtlas records", "云图记录")}{" "}
+                    {detail.data.address.cloud_records}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  {(["customer", "cloud"] as const).map((sourceName) => (
+                    <Button
+                      key={sourceName}
+                      size="sm"
+                      variant={
+                        (search.core_evidence ?? "customer") === sourceName
+                          ? "secondary"
+                          : "ghost"
+                      }
+                      aria-pressed={
+                        (search.core_evidence ?? "customer") === sourceName
+                      }
+                      onClick={() =>
+                        change({
+                          core_evidence: sourceName,
+                          core_evidence_page: 0,
+                        })
+                      }
+                    >
+                      {sourceName === "customer"
+                        ? t("Customer evidence", "客户依据")
+                        : t("CloudAtlas evidence", "云图依据")}
+                    </Button>
                   ))}
-                  <ResultPagination
-                    label={t("Evidence records", "依据记录")}
-                    count={proof.data.count}
-                    page={search.core_evidence_page ?? 0}
-                    pageSize={SIZE}
-                    onPageChange={(page) =>
-                      change({ core_evidence_page: page })
+                </div>
+                {proof.isPending ? (
+                  <p role="status">
+                    {t(
+                      "Reading fixed source evidence…",
+                      "正在读取固定来源依据…",
+                    )}
+                  </p>
+                ) : proof.isError ? (
+                  <p role="alert">
+                    {t(
+                      "The fixed evidence could not be read. No current version was substituted.",
+                      "无法读取固定依据，未替换为当前版本。",
+                    )}
+                  </p>
+                ) : (
+                  <>
+                    {proof.data.data.length === 0 && (
+                      <p>
+                        {t(
+                          "This selected source contains no record for the address in this result.",
+                          "这份结果所用的该来源中，没有此地址的记录。",
+                        )}
+                      </p>
+                    )}
+                    {proof.data.data.map((record) => (
+                      <section
+                        key={`${record.version_id}:${record.record_key}`}
+                        className="comparison-source-record space-y-3 border-y py-4 text-sm"
+                      >
+                        <h3 className="font-medium">
+                          {record.source === "CUSTOMER"
+                            ? t("Customer declaration", "客户声明")
+                            : t("CloudAtlas observation", "云图观测")}
+                        </h3>
+                        {record.source === "CUSTOMER" ? (
+                          <CustomerRecordFields
+                            fields={object(record.original.fields)}
+                          />
+                        ) : (
+                          <RecordFields
+                            record={{ fields: record.original }}
+                            domain={record.domain}
+                          />
+                        )}
+                        <details className="rounded border p-3 text-sm">
+                          <summary className="cursor-pointer">
+                            {record.canonical_ip} · {record.domain} ·{" "}
+                            {t("Original source record", "原始来源记录")}
+                          </summary>
+                          <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs">
+                            {JSON.stringify(
+                              {
+                                original: record.original,
+                                availability: record.availability,
+                              },
+                              null,
+                              2,
+                            )}
+                          </pre>
+                          <TechnicalValue
+                            value={record.version_id}
+                            label={t("Fixed version", "固定版本")}
+                          />
+                          <TechnicalValue
+                            value={record.record_key}
+                            label={t("Source record", "来源记录")}
+                          />
+                        </details>
+                      </section>
+                    ))}
+                    <ResultPagination
+                      label={t("Evidence records", "依据记录")}
+                      count={proof.data.count}
+                      page={search.core_evidence_page ?? 0}
+                      pageSize={SIZE}
+                      onPageChange={(page) =>
+                        change({ core_evidence_page: page })
+                      }
+                    />
+                  </>
+                )}
+                {detail.data && (
+                  <V2AnalysisReportsPanel
+                    key={`${actor}:${projectId}:${result.id}:${search.binding}:${detail.data.address.address_key}`}
+                    actor={actor}
+                    projectId={projectId}
+                    resultId={result.id}
+                    bindingId={
+                      search.binding === "none" ? null : search.binding
                     }
+                    addressKey={detail.data.address.address_key}
                   />
-                </>
-              )}
-            </section>
-          )}
+                )}
+                <section
+                  className="space-y-2"
+                  aria-label={t("NetFlow corroboration", "NetFlow 佐证说明")}
+                >
+                  <h3 className="font-medium">
+                    {t("NetFlow corroboration", "NetFlow 佐证说明")}
+                  </h3>
+                  <p>
+                    {detail.data
+                      ? flowStatus(detail.data.address.canonical_ip)
+                      : t("Reading the address…", "正在读取地址…")}
+                  </p>
+                  {eReadable &&
+                    flows.isSuccess &&
+                    flows.data.data
+                      .filter(
+                        (row) =>
+                          row.canonical_ip ===
+                          detail.data?.address.canonical_ip,
+                      )
+                      .map((row) => (
+                        <p key={row.canonical_ip} className="text-sm">
+                          {t("Observation objects", "观测对象")}{" "}
+                          {row.observation_count} ·{" "}
+                          {eMeta.data?.record_count_semantics ===
+                          "unique_export_records"
+                            ? t("Unique export records", "去重后导出记录")
+                            : t("Source records", "源记录")}{" "}
+                          {row.source_records}
+                        </p>
+                      ))}
+                  <p className="text-sm text-muted-foreground">
+                    {t(
+                      "The actual observation window was not provided. Flow records do not prove simultaneous activity or listening services.",
+                      "未提供实际观测窗口。流量记录不证明同时活动或监听服务。",
+                    )}
+                  </p>
+                </section>
+                <section
+                  className="space-y-2"
+                  aria-label={t("Limits and sources", "限制与来源")}
+                >
+                  <h3 className="font-medium">
+                    {t("Limits and sources", "限制与来源")}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {t(
+                      "These records do not prove ownership, a vulnerability or that an unobserved asset is offline. Review the fixed source records below.",
+                      "这些记录不证明资产归属、漏洞或未观测资产已下线。请核对下方固定来源记录。",
+                    )}
+                  </p>
+                  {materialLinks(result)}
+                </section>
+                {eReadable && eMeta.data?.analysis_id && (
+                  <Link
+                    className="block text-sm underline"
+                    to="/projects/$projectId/netflow-results"
+                    params={{ projectId }}
+                    search={{
+                      ...back,
+                      analysis: eMeta.data.analysis_id,
+                      dataset: eMeta.data.dataset_id ?? undefined,
+                      ip: detail.data?.address.canonical_ip,
+                    }}
+                  >
+                    {t(
+                      "Read the fixed NetFlow observations",
+                      "查看固定 NetFlow 观测",
+                    )}
+                  </Link>
+                )}
+              </section>
+            </SheetContent>
+          </Sheet>
+          <section
+            aria-label={t("AI model status", "AI 模型状态")}
+            className="space-y-3"
+          >
+            <AiModelStatus />
+            <V2AnalysisReportsPanel
+              key={`${actor}:${projectId}:${result.id}:${search.binding}`}
+              actor={actor}
+              projectId={projectId}
+              resultId={result.id}
+              bindingId={search.binding === "none" ? null : search.binding}
+            />
+          </section>
           <section
             className="space-y-4 border-t pt-5"
             aria-label={t("Optional NetFlow evidence", "可选 NetFlow 佐证")}

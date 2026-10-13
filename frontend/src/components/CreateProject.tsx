@@ -186,12 +186,12 @@ function ProjectForm({ actor }: { actor: string }) {
       className="mx-auto max-w-2xl space-y-8"
       aria-labelledby="create-project-title"
     >
-      <header className="space-y-3">
+      <header className="workspace-page-header">
         <h1
           ref={formTitle}
           tabIndex={-1}
           id="create-project-title"
-          className="text-3xl font-semibold tracking-tight"
+          className="workspace-page-title"
         >
           {t("Start a comparison project", "开始一个比对项目")}
         </h1>

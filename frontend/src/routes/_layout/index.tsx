@@ -968,7 +968,7 @@ function Dashboard() {
       />
     ) : (
       <section className="space-y-3">
-        <h1 className="text-2xl font-bold">
+        <h1 className="workspace-page-title">
           {t("Internet exposure assets", "互联网暴露面资产")}
         </h1>
         <p role="status">
@@ -983,7 +983,7 @@ function Dashboard() {
   if (!projects.data.data.length)
     return (
       <section className="mx-auto max-w-2xl space-y-5 py-10">
-        <h1 className="text-3xl font-semibold tracking-tight">
+        <h1 className="workspace-page-title">
           {t("Your first comparison starts here", "从这里开始首轮比对")}
         </h1>
         <p className="text-muted-foreground">
@@ -1029,7 +1029,11 @@ function Dashboard() {
             projectId={project.id}
             archived={project.archived_at !== null}
           />
-          <div id="customer-inputs" tabIndex={-1} className="scroll-mt-32">
+          <div
+            id="customer-inputs"
+            tabIndex={-1}
+            className="workspace-inputs scroll-mt-32"
+          >
             <ProjectInputs
               key={`${user.id}:${project.id}`}
               actorId={user.id}
@@ -1042,7 +1046,7 @@ function Dashboard() {
             className="scroll-mt-32 space-y-3 border-t pt-6"
             aria-labelledby="cloud-access-title"
           >
-            <h2 id="cloud-access-title" className="text-xl font-semibold">
+            <h2 id="cloud-access-title" className="text-base font-semibold">
               {t("CloudAtlas data access", "云图数据接入")}
             </h2>
             <p className="max-w-prose text-sm text-muted-foreground">
@@ -1204,7 +1208,7 @@ function Dashboard() {
   return (
     <div className="min-w-0 space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+        <h1 className="workspace-page-title">{project.name}</h1>
         {view === "overview" && report && (
           <Button asChild variant="outline">
             <Link to="/" search={{ project: project.id, view: "inputs" }}>

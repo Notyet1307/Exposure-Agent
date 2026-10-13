@@ -289,8 +289,8 @@ function Ledger({ actor, projectId }: { actor: string; projectId: string }) {
     }
   }
   return (
-    <main className="container mx-auto max-w-6xl px-4 py-6">
-      <h1 className="text-2xl font-semibold">
+    <main className="min-w-0">
+      <h1 className="workspace-page-title">
         {t("NetFlow activity ledger", "NetFlow 原生活动账")}
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">

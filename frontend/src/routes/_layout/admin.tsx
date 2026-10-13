@@ -67,12 +67,10 @@ function Admin() {
   }, [t])
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="workspace-page-header flex flex-wrap items-start justify-between gap-3 sm:flex-row">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            {t("Users", "用户")}
-          </h1>
-          <p className="text-muted-foreground">
+          <h1 className="workspace-page-title">{t("Users", "用户")}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             {t("Manage user accounts and permissions", "管理用户账户与权限")}
           </p>
         </div>

@@ -561,12 +561,8 @@ function LedgerView({
     )
   return (
     <div className="min-w-0 space-y-6">
-      <header className="space-y-3">
-        <h1
-          ref={heading}
-          tabIndex={-1}
-          className="text-2xl font-bold tracking-tight"
-        >
+      <header className="workspace-page-header">
+        <h1 ref={heading} tabIndex={-1} className="workspace-page-title">
           {t("Customer asset ledger", "客户资产台账")}
         </h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
@@ -828,7 +824,7 @@ function LedgerView({
                     <TableCell>
                       <button
                         type="button"
-                        className="text-left underline underline-offset-4"
+                        className="font-mono text-left underline underline-offset-4"
                         onClick={() => {
                           setSelected(row)
                           void navigate({
@@ -922,7 +918,7 @@ function LedgerView({
             />
           </div>
           {selected && !editor && (
-            <section className="space-y-4 border-t pt-5">
+            <section className="workspace-record space-y-4 border-t pt-5">
               <h2 className="text-lg font-semibold">
                 {selected.canonical_ip} · {t("Source record", "原生条目")}{" "}
                 {selected.position}

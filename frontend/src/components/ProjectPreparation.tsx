@@ -26,14 +26,14 @@ export default function ProjectPreparation({
     target?.focus()
   }, [hash])
   return (
-    <header className="space-y-4">
+    <header className="workspace-page-header">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <h1
             id="preparation-title"
             tabIndex={-1}
             ref={heading}
-            className="text-2xl font-semibold"
+            className="workspace-page-title"
           >
             {t("Data access", "数据接入")}
           </h1>

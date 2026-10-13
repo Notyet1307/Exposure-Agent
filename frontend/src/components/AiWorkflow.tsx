@@ -139,7 +139,7 @@ export function AiWorkspace({
         className="flex flex-wrap gap-3"
         aria-label={t("AI workflow", "AI 工作流")}
       >
-        <Button asChild className="h-auto whitespace-normal text-black">
+        <Button asChild className="h-auto whitespace-normal">
           <Link
             to="/"
             search={{ project: projectId, run: runId, view: "reports" }}

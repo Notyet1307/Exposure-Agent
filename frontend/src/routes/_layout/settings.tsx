@@ -44,11 +44,11 @@ function UserSettings() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
+      <div className="workspace-page-header">
+        <h1 className="workspace-page-title">
           {t("User Settings", "用户设置")}
         </h1>
-        <p className="text-muted-foreground">
+        <p className="mt-2 text-sm text-muted-foreground">
           {t(
             "Manage your account settings and preferences",
             "管理您的账户设置与偏好",

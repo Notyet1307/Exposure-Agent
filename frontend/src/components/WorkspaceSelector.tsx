@@ -118,7 +118,7 @@ export default function WorkspaceSelector() {
       <label className="flex min-w-0 items-center gap-2 text-sm">
         <span>{t("Project", "项目")}</span>
         <select
-          className="min-w-0 max-w-52 rounded-md border bg-background p-2"
+          className="min-w-0 max-w-52 rounded-md border bg-background px-2 py-1.5 text-[13px]"
           aria-label={t("Project", "项目")}
           value={projectId ?? ""}
           disabled={!projectChoices}
@@ -206,7 +206,7 @@ export default function WorkspaceSelector() {
           <label className="flex min-w-0 items-center gap-2 text-sm">
             <span>{t("Published run", "已发布运行")}</span>
             <select
-              className="min-w-0 max-w-72 rounded-md border bg-background p-2"
+              className="min-w-0 max-w-72 rounded-md border bg-background px-2 py-1.5 text-[13px]"
               aria-label={t("Published run", "已发布运行")}
               value={runId ?? ""}
               disabled={!runChoices?.length}
