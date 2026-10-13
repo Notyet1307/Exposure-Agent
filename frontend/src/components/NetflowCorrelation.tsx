@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useRouter } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type AddressPublic,
@@ -310,7 +311,7 @@ export default function NetflowCorrelation({
   actor,
   projectId,
   search,
-  navigate,
+  navigate: navigateSearch,
 }: {
   actor: string
   projectId: string
@@ -319,6 +320,20 @@ export default function NetflowCorrelation({
 }) {
   const { t, formatDate } = useI18n()
   const { user } = useAuth()
+  const router = useRouter()
+  const navigate = useCallback<Navigate>(
+    (options) =>
+      navigateSearch({
+        ...options,
+        // A queued search update must not refill identities after a project switch.
+        search: (previous) =>
+          router.buildLocation({}).pathname ===
+          `/projects/${projectId}/netflow-correlation`
+            ? options.search(previous)
+            : previous,
+      }),
+    [navigateSearch, projectId, router],
+  )
   const scope = JSON.stringify([
     actor,
     projectId,
