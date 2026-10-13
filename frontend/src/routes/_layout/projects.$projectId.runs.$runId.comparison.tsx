@@ -116,7 +116,7 @@ function RunSourceComparison() {
 
   return (
     <div className="min-w-0 max-w-full space-y-6 overflow-hidden">
-      <header className="space-y-2">
+      <header className="workspace-page-header">
         <Link
           to="/"
           search={(previous) => ({
@@ -129,7 +129,7 @@ function RunSourceComparison() {
         >
           {t("Back to overview", "返回概览")}
         </Link>
-        <h1 className="text-2xl font-bold tracking-tight">
+        <h1 className="workspace-page-title">
           {t("Run source comparison", "运行来源比较")}
         </h1>
         {ready && (

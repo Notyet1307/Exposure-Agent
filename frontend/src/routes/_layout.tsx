@@ -42,12 +42,12 @@ function Layout() {
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <header className="sticky top-0 z-10 flex min-h-16 shrink-0 items-center gap-2 border-b bg-background px-4 py-2">
+        <header className="sticky top-0 z-10 flex min-h-14 shrink-0 items-center gap-2 border-b bg-background px-4 py-2">
           <SidebarTrigger className="-ml-1 text-muted-foreground" />
           {workspace && <WorkspaceSelector />}
         </header>
-        <main className="flex-1 p-6 md:p-8">
-          <div className="mx-auto max-w-7xl">
+        <main className="workspace-content min-w-0 flex-1 px-4 py-6 md:px-7">
+          <div className="mx-auto min-w-0 max-w-7xl">
             {userError ? (
               <Alert variant="destructive">
                 <AlertDescription>

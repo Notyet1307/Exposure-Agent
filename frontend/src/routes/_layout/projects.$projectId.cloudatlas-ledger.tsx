@@ -482,12 +482,8 @@ function Ledger({ actor, projectId }: { actor: string; projectId: string }) {
   )
   return (
     <div className="min-w-0 space-y-6">
-      <header className="space-y-3">
-        <h2
-          ref={heading}
-          tabIndex={-1}
-          className="text-2xl font-bold tracking-tight"
-        >
+      <header className="workspace-page-header">
+        <h2 ref={heading} tabIndex={-1} className="workspace-page-title">
           {t("Historical Run snapshots", "历史 Run 快照")}
         </h2>
         <p className="max-w-3xl text-sm text-muted-foreground">

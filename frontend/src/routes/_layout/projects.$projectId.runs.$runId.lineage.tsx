@@ -135,11 +135,11 @@ function RunLineage() {
 
   return (
     <div className="min-w-0 max-w-full space-y-4 overflow-hidden">
-      <header className="space-y-2">
+      <header className="workspace-page-header">
         <h1
           ref={heading}
           tabIndex={-1}
-          className="text-2xl font-bold tracking-tight focus-visible:outline-2 focus-visible:outline-ring"
+          className="workspace-page-title focus-visible:outline-2 focus-visible:outline-ring"
         >
           {resourceId === undefined
             ? t("Run lineage", "运行血缘")

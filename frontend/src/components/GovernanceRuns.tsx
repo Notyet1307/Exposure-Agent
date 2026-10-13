@@ -908,10 +908,7 @@ function RunManager({
           )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <Badge
-                className={runs.ready ? "text-black" : undefined}
-                variant={runs.ready ? "default" : "secondary"}
-              >
+              <Badge variant={runs.ready ? "default" : "secondary"}>
                 {runs.ready
                   ? t("Inputs ready", "输入已就绪")
                   : t("Not ready", "尚未就绪")}
@@ -947,7 +944,6 @@ function RunManager({
             {runs.can_trigger && !intent && (
               <LoadingButton
                 type="button"
-                className="text-black"
                 loading={triggerMutation.isPending}
                 disabled={
                   !runs.ready ||

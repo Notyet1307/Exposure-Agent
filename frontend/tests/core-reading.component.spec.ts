@@ -373,3 +373,210 @@ test("a deep-linked address outside this page reads its own fixed flow annotatio
   ).toBeVisible()
   expect(reads.some((ips) => ips.includes("192.0.2.30"))).toBeTruthy()
 })
+
+test("evidence drawer keeps the list usable, restores focus and fits narrow screens", async ({
+  page,
+}, info) => {
+  const writes = await serve(page)
+  const address = {
+    address_key: `addr:${"c".repeat(64)}`,
+    canonical_ip: "2001:db8:1234:5678:abcd:ef01:2345:6789",
+    classification: "both",
+    customer_records: 1,
+    cloud_records: 1,
+    presence: { CUSTOMER: "PRESENT", CLOUD: "PRESENT" },
+  }
+  await page.route(`**${root}/addresses?*`, (route) =>
+    route.fulfill({
+      json: {
+        ...envelope,
+        result_id: result,
+        count: 1,
+        skip: 0,
+        limit: 25,
+        total_addresses: 3,
+        data: [address],
+      },
+    }),
+  )
+  await page.route(
+    (url) =>
+      decodeURIComponent(url.pathname) ===
+      `${root}/addresses/${address.address_key}`,
+    (route) =>
+      route.fulfill({ json: { ...envelope, result_id: result, address } }),
+  )
+  await page.route(
+    (url) =>
+      decodeURIComponent(url.pathname) ===
+      `${root}/addresses/${address.address_key}/evidence`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...envelope,
+          result_id: result,
+          address_key: address.address_key,
+          source: "customer",
+          count: 1,
+          skip: 0,
+          limit: 25,
+          data: [
+            {
+              source: "CUSTOMER",
+              domain: "asset",
+              version_id: ipVersion,
+              record_key: "synthetic-record",
+              canonical_ip: address.canonical_ip,
+              original: {
+                fields: {
+                  asset_ip: address.canonical_ip,
+                  start_port: 443,
+                  asset_owner: "Synthetic operations team",
+                  service_type: "HTTPS",
+                },
+              },
+              availability: {},
+            },
+          ],
+        },
+      }),
+  )
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none`,
+  )
+  const table = page.getByRole("table", { name: "Comparison addresses" })
+  const trigger = table.getByRole("button", { name: "View evidence" })
+  const drawer = page.getByRole("dialog", { name: address.canonical_ip })
+  await expect(trigger).toBeVisible()
+  await page.screenshot({
+    animations: "disabled",
+    path: info.outputPath("comparison-desktop.png"),
+    fullPage: true,
+  })
+  await trigger.focus()
+  await page.keyboard.press("Enter")
+  await expect(drawer).toBeVisible()
+  await expect(
+    drawer.getByRole("heading", { name: address.canonical_ip }),
+  ).toBeFocused()
+  await expect(table.getByRole("row").last()).toHaveAttribute(
+    "data-state",
+    "selected",
+  )
+  const input = page.getByRole("textbox", { name: "IP address", exact: true })
+  await input.click()
+  await expect(input).toBeFocused()
+  await expect(drawer).toBeVisible()
+  await drawer.getByRole("heading", { name: address.canonical_ip }).focus()
+  await page.keyboard.press("Escape")
+  await expect(drawer).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  for (const width of [1440, 1024, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await trigger.click()
+    await expect(drawer).toBeVisible()
+    await expect(
+      drawer.getByText("Synthetic operations team", { exact: true }),
+    ).toBeVisible()
+    await expect
+      .poll(async () => {
+        const box = await drawer.boundingBox()
+        return !!box && box.x >= 0 && box.x + box.width <= width + 1
+      })
+      .toBe(true)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      ),
+    ).toBe(false)
+    await page.screenshot({
+      animations: "disabled",
+      path: info.outputPath(`evidence-${width}.png`),
+      fullPage: false,
+    })
+    await drawer
+      .getByRole("button", { name: "Close evidence", exact: true })
+      .click()
+    await expect(drawer).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+  }
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none&core_address=${address.address_key}`,
+  )
+  await expect(drawer).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(drawer).toHaveCount(0)
+  await expect(table).toBeFocused()
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.evaluate(() => {
+    localStorage.setItem("vite-ui-theme", "light")
+    localStorage.setItem("exposure:language", "zh-CN")
+  })
+  await page.reload()
+  await expect(
+    page.getByRole("button", { name: "查看依据", exact: true }),
+  ).toBeVisible()
+  await page.screenshot({
+    animations: "disabled",
+    path: info.outputPath("comparison-light-zh.png"),
+    fullPage: true,
+  })
+  await page.getByRole("button", { name: "查看依据", exact: true }).click()
+  await expect(
+    drawer.getByRole("button", { name: "关闭依据", exact: true }),
+  ).toBeVisible()
+  await page.screenshot({ path: info.outputPath("evidence-light-zh.png") })
+  expect(writes).toEqual([])
+})
+
+test("compact filters retain fixed identity, empty-state recovery and server sorting", async ({
+  page,
+}) => {
+  const writes = await serve(page)
+  const reads: URLSearchParams[] = []
+  await page.route(`**${root}/addresses?*`, (route) => {
+    const query = new URL(route.request().url()).searchParams
+    reads.push(query)
+    if (query.get("ip") !== "192.0.2.99") return route.fallback()
+    return route.fulfill({
+      json: {
+        ...envelope,
+        result_id: result,
+        count: 0,
+        total_addresses: 3,
+        skip: 0,
+        limit: 25,
+        data: [],
+      },
+    })
+  })
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none`,
+  )
+  const core = page.getByRole("region", { name: "Core classification" })
+  await core
+    .getByRole("textbox", { name: "IP address", exact: true })
+    .fill("192.0.2.99")
+  await core.getByRole("button", { name: "Filter", exact: true }).click()
+  await expect(
+    core.getByText("No records match this filter in the fixed result.", {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`result=${result}`))
+  await core.getByRole("button", { name: "Clear filters", exact: true }).click()
+  await expect(
+    core.getByRole("button", { name: "View evidence" }),
+  ).toBeVisible()
+  await core
+    .getByRole("combobox", { name: "Sort", exact: true })
+    .selectOption("ip_desc")
+  await expect
+    .poll(() => reads.some((query) => query.get("sort") === "ip_desc"))
+    .toBe(true)
+  await expect(
+    core.getByRole("button", { name: /All addresses 3/ }),
+  ).toHaveAttribute("aria-pressed", "true")
+  expect(writes).toEqual([])
+})

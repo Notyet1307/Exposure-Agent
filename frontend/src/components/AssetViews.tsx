@@ -19,8 +19,8 @@ export default function AssetViews({
     )
   }, [t])
   return (
-    <header className="space-y-3">
-      <h1 className="text-2xl font-bold">
+    <header className="workspace-page-header">
+      <h1 className="workspace-page-title">
         {t("Internet exposure assets", "互联网暴露面资产")}
       </h1>
       {search.asset_error && (
@@ -36,13 +36,10 @@ export default function AssetViews({
               )}
         </p>
       )}
-      <nav
-        aria-label={t("Asset view", "资产视图")}
-        className="flex flex-wrap gap-2"
-      >
+      <nav aria-label={t("Asset view", "资产视图")} className="workspace-views">
         <Button
           asChild
-          variant={search.asset_view === "synced" ? "default" : "outline"}
+          variant={search.asset_view === "synced" ? "secondary" : "ghost"}
         >
           <Link
             to="/projects/$projectId/cloudatlas-ledger"
@@ -55,7 +52,7 @@ export default function AssetViews({
         </Button>
         <Button
           asChild
-          variant={search.asset_view === "history" ? "default" : "outline"}
+          variant={search.asset_view === "history" ? "secondary" : "ghost"}
         >
           <Link
             to="/projects/$projectId/cloudatlas-ledger"

@@ -430,8 +430,8 @@ export default function NetflowResults({
         }))
   return (
     <main className="min-w-0 space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">
+      <header className="workspace-page-header">
+        <h1 className="workspace-page-title">
           {t("NetFlow observations", "NetFlow 观测")}
         </h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
@@ -823,13 +823,13 @@ export default function NetflowResults({
             </details>
           </section>
           <section
-            className="flex flex-wrap gap-2"
+            className="workspace-views"
             aria-label={t("Result views", "结果视图")}
           >
             {(["observations", "peers"] as const).map((value) => (
               <Button
                 key={value}
-                variant={tab === value ? "default" : "outline"}
+                variant={tab === value ? "secondary" : "ghost"}
                 aria-pressed={tab === value}
                 onClick={() =>
                   change({
@@ -853,7 +853,7 @@ export default function NetflowResults({
           </section>
           {tab === "observations" && observations.data && (
             <section
-              className="grid gap-3 sm:grid-cols-3"
+              className="workspace-counts"
               aria-label={t("Batch counts", "批次计数")}
             >
               {[
@@ -870,10 +870,10 @@ export default function NetflowResults({
                   observations.data.total_addresses,
                 ],
               ].map(([label, value]) => (
-                <div className="rounded-lg border p-4" key={label}>
+                <div className="flex items-baseline gap-2" key={label}>
                   <p className="text-sm text-muted-foreground">{label}</p>
                   <output
-                    className="mt-2 text-2xl font-semibold tabular-nums"
+                    className="text-sm font-semibold tabular-nums"
                     aria-label={String(label)}
                   >
                     {value}
