@@ -592,24 +592,29 @@ def record(
     ).one_or_none()
     if shard is None:
         deny("netflow_input_not_found", 404)
-    path = safe_file(settings.ARTIFACT_ROOT, shard.storage_key)
-    if file_hash(path) != shard.sha256:
-        dataset = session.get(BulkDataset, row.dataset_id)
-        assert dataset is not None
-        dataset.invalidated = True
-        session.add(dataset)
-        session.commit()
-        deny("bulk_integrity_invalidated")
-    parquet = pq.ParquetFile(path)
-    offset = number - shard.first_row
-    for index in range(parquet.metadata.num_row_groups):
-        rows = parquet.metadata.row_group(index).num_rows
-        if offset < rows:
-            value = parquet.read_row_group(index).slice(offset, 1).to_pylist()[0]
-            return identity(row) | {
-                "reference": reference,
-                "record": value,
-                "shard_sha256": shard.sha256,
-            }
-        offset -= rows
+    try:
+        path = safe_file(settings.ARTIFACT_ROOT, shard.storage_key)
+        if file_hash(path) != shard.sha256:
+            raise BulkError("bulk_checkpoint_integrity")
+        parquet = pq.ParquetFile(path)
+        offset = number - shard.first_row
+        for index in range(parquet.metadata.num_row_groups):
+            rows = parquet.metadata.row_group(index).num_rows
+            if offset < rows:
+                value = parquet.read_row_group(index).slice(offset, 1).to_pylist()[0]
+                return identity(row) | {
+                    "reference": reference,
+                    "record": value,
+                    "shard_sha256": shard.sha256,
+                }
+            offset -= rows
+    except BulkError, OSError, ValueError:
+        # A discovered missing, unsafe, unreadable or corrupt committed shard
+        # invalidates every dependent result; subsequent lists cannot hide it.
+        pass
+    dataset = session.get(BulkDataset, row.dataset_id)
+    assert dataset is not None
+    dataset.invalidated = True
+    session.add(dataset)
+    session.commit()
     deny("bulk_integrity_invalidated")
