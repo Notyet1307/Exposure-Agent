@@ -51,6 +51,12 @@ from tests.migrations.test_schema_history import (
 from tests.utils.audit import reject_audit_inserts
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+PRE_BULK_REVISION = "ai2980000001"
+BULK_RETAINED_BOUNDARIES = (
+    ("nf3040000001", PRE_BULK_REVISION, "Bulk evidence is retained"),
+    ("nf3040000002", "nf3040000001", "Keep published bulk identities and evidence"),
+    ("nf3040000003", "nf3040000002", "Keep sealed normalization evidence"),
+)
 BINDING_INSERT = "INSERT INTO ai_governance_draft_finding_bindings (id, tenant_id, project_id, governance_run_id, draft_id, finding_id, evidence_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, now())"
 
 
@@ -77,9 +83,13 @@ def _replaced_function_boundaries() -> tuple[tuple[str, str], ...]:
         if "CREATE OR REPLACE FUNCTION" not in source:
             continue
         tree = ast.parse(source)
+        revision = _migration_string_assignment(tree, "revision")
+        # These boundaries reject rollback; the retention test below covers each one.
+        if revision in {item[0] for item in BULK_RETAINED_BOUNDARIES}:
+            continue
         boundaries.append(
             (
-                _migration_string_assignment(tree, "revision"),
+                revision,
                 _migration_string_assignment(tree, "down_revision"),
             )
         )
@@ -104,7 +114,7 @@ def run_downgrade(database: str, revision: str) -> None:
 
 
 @pytest.fixture
-def draft_database() -> Iterator[str]:
+def draft_database(request: pytest.FixtureRequest) -> Iterator[str]:
     database = f"test_ai_draft_{uuid.uuid4().hex}"
     with connect(settings.POSTGRES_DB) as admin_connection:
         admin_connection.autocommit = True
@@ -113,7 +123,7 @@ def draft_database() -> Iterator[str]:
         )
 
     try:
-        run_migration(database, "head")
+        run_migration(database, getattr(request, "param", "head"))
         yield database
     finally:
         with connect(settings.POSTGRES_DB) as admin_connection:
@@ -973,7 +983,8 @@ def test_draft_reservation_freezes_a_complete_agent_compose_namespace(
     )
 
 
-def test_latest_downgrade_rejects_a_reserved_unbound_launch(
+@pytest.mark.parametrize("draft_database", [PRE_BULK_REVISION], indirect=True)
+def test_namespace_downgrade_rejects_a_reserved_unbound_launch(
     draft_database: str,
 ) -> None:
     ids = _seed_draft_fixture(draft_database, identity_suffix="-downgrade-reservation")
@@ -1885,6 +1896,7 @@ def test_draft_runner_starts_with_only_draft_identity_and_handles_mismatches(
         assert "sensitive-model-secret" not in failed.stderr
 
 
+@pytest.mark.parametrize("draft_database", [PRE_BULK_REVISION], indirect=True)
 @pytest.mark.parametrize(
     ("boundary_revision", "predecessor_revision"),
     REPLACED_TRIGGER_BOUNDARIES,
@@ -1937,3 +1949,46 @@ def test_migration_chain_restores_replaced_triggers_and_keeps_findings_sealed(
     _assert_head_draft_seals(
         draft_database, fresh_ids, fresh_draft.id, agent_compose_run_id="e" * 64
     )
+
+
+@pytest.mark.parametrize(
+    ("draft_database", "predecessor_revision", "message"),
+    BULK_RETAINED_BOUNDARIES,
+    indirect=["draft_database"],
+)
+def test_bulk_downgrade_preserves_revision_schema_and_existing_facts(
+    draft_database: str, predecessor_revision: str, message: str
+) -> None:
+    _seed_draft_fixture(draft_database, identity_suffix="-bulk-retention")
+
+    def snapshot() -> tuple[Any, ...]:
+        with connect(draft_database) as connection:
+            return (
+                connection.execute(
+                    "SELECT version_num FROM alembic_version"
+                ).fetchall(),
+                connection.execute(
+                    "SELECT table_name, column_name, data_type FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name LIKE 'netflow_bulk_%' "
+                    "ORDER BY table_name, ordinal_position"
+                ).fetchall(),
+                connection.execute(
+                    "SELECT p.proname, pg_get_functiondef(p.oid) FROM pg_proc p "
+                    "JOIN pg_namespace n ON n.oid = p.pronamespace "
+                    "WHERE n.nspname = 'public' AND p.proname LIKE 'guard_bulk_%' "
+                    "ORDER BY p.proname"
+                ).fetchall(),
+                connection.execute(
+                    "SELECT to_jsonb(e) FROM evidence e ORDER BY id"
+                ).fetchall(),
+                connection.execute(
+                    "SELECT to_jsonb(r) FROM governance_runs r ORDER BY id"
+                ).fetchall(),
+            )
+
+    before = snapshot()
+    assert before[1] and before[3] and before[4]
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        run_downgrade(draft_database, predecessor_revision)
+    assert message in error.value.stderr
+    assert snapshot() == before
