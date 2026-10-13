@@ -235,6 +235,8 @@ def test_interrupted_attempt_reuses_only_committed_shards(
     monkeypatch: pytest.MonkeyPatch,
     failure: str,
 ) -> None:
+    import pyarrow.parquet as pq  # type: ignore[import-untyped]
+
     from app.integrations.agent_compose import AgentComposeSessionObservation
     from app.netflow_bulk.contracts import BulkError
 
@@ -257,7 +259,7 @@ def test_interrupted_attempt_reuses_only_committed_shards(
             def no_space(*_args: Any, **_kwargs: Any) -> None:
                 raise OSError(28, "Synthetic ENOSPC")
 
-            patch.setattr(bulk.engine.pq, "write_table", no_space)
+            patch.setattr(pq, "write_table", no_space)
         else:
             patch.setattr(settings, "NETFLOW_BULK_DISK_RESERVE_BYTES", 2**62)
         with pytest.raises((BulkError, OSError)):
