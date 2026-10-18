@@ -11,6 +11,47 @@ const admin = {
   is_superuser: true,
 }
 
+test("notifications follow the selected appearance and system changes", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light" })
+  await page.addInitScript(() => {
+    localStorage.setItem("exposure:language", "en")
+    localStorage.setItem("vite-ui-theme", "dark")
+  })
+  await mockAdmin(page)
+  await page.goto("/settings")
+  const notify = async (name: string) => {
+    await page.getByRole("button", { name: "Edit", exact: true }).click()
+    await page.getByLabel("Full name").fill(name)
+    await page.getByRole("button", { name: "Save", exact: true }).click()
+    await expect(
+      page.getByText("User updated successfully").last(),
+    ).toBeVisible()
+  }
+  const toaster = page.locator("[data-sonner-toaster]")
+  await notify("Dark theme")
+  await expect(page.locator("html")).toHaveClass(/dark/)
+  await expect(toaster).toHaveAttribute("data-sonner-theme", "dark")
+
+  await page.emulateMedia({ colorScheme: "dark" })
+  await page.getByTestId("theme-button").click()
+  await page.getByTestId("light-mode").click()
+  await notify("Light theme")
+  await expect(page.locator("html")).toHaveClass(/light/)
+  await expect(toaster).toHaveAttribute("data-sonner-theme", "light")
+
+  await page.getByTestId("theme-button").click()
+  await page.getByRole("menuitem", { name: "System", exact: true }).click()
+  await notify("System dark")
+  await expect(page.locator("html")).toHaveClass(/dark/)
+  await expect(toaster).toHaveAttribute("data-sonner-theme", "dark")
+  await page.emulateMedia({ colorScheme: "light" })
+  await notify("System light")
+  await expect(page.locator("html")).toHaveClass(/light/)
+  await expect(toaster).toHaveAttribute("data-sonner-theme", "light")
+})
+
 async function mockAdmin(page: Page) {
   await page.addInitScript(() =>
     localStorage.setItem("access_token", "component-token"),
