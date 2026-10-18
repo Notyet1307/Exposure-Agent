@@ -56,6 +56,12 @@ jobs:
         run: ./scripts/test-compose-environment-parity.sh
       - if: steps.changes.outputs.non_markdown == 'true'
         run: docker compose -f compose.yml build
+      - name: Test CloudAtlas structured adapter contract
+        if: steps.changes.outputs.non_markdown == 'true'
+        run: >-
+          docker compose -f compose.yml run --rm --no-deps
+          --entrypoint node --volume "$PWD:/audit:ro" --workdir /audit
+          octobus --test tests/cloudatlas_structured/adapter.test.mjs
       - if: steps.changes.outputs.non_markdown == 'true'
         run: docker compose -f compose.yml down -v --remove-orphans
       - if: steps.changes.outputs.non_markdown == 'true'
