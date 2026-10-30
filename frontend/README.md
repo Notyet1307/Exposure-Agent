@@ -72,3 +72,11 @@ bun run test
 ```
 
 Playwright requires the Compose application and test credentials from the ignored root `.env`. Use `bun run test:ui` only for interactive debugging.
+
+The `component` project mocks API responses and uses the frontend production preview, so it can run without Compose or test credentials:
+
+```bash
+CI=true bunx playwright test --project=component --workers=1 --retries=0 --fail-on-flaky-tests --reporter=json
+```
+
+Name these tests `*.component.spec.ts` so the project collects them. The additional FDE frontend workflow reuses this suite and emits a separate report bound to the tested head and CI source; see the [CI contract and onboarding steps](../docs/specs/fde-frontend-ci.md). The existing four required CI checks remain in place.
