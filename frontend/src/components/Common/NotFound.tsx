@@ -28,7 +28,7 @@ const NotFound = () => {
       </p>
       <div className="z-10">
         <Link to="/">
-          <Button className="mt-4">{t("Go Back", "返回")}</Button>
+          <Button className="mt-4">{t("Go Home", "返回首页")}</Button>
         </Link>
       </div>
     </div>
