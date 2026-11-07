@@ -564,10 +564,7 @@ async def create_customer_upload(
             "code": error.code,
             "message": error_message,
         }
-        if error.field is not None:
-            detail["field"] = error.field
-        if error.row is not None:
-            detail["row"] = error.row
+        detail.update(error.diagnostic.detail_fields())
         raise HTTPException(status_code=error_status, detail=detail)
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     return CustomerUploadPublic.model_validate(upload)

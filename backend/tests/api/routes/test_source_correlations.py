@@ -78,7 +78,7 @@ def correlation(
     sheet = book.active
     assert sheet is not None
     sheet.append(list(customer_ledger.HEADERS))
-    # The unchanged v1 upload contract accepts only degenerate closed intervals.
+    # The v1 upload contract now accepts closed intervals; this fixture uses 443-443.
     for number in (1, 4, 5, 7):
         sheet.append(
             [

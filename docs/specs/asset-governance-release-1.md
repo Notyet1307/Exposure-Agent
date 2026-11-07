@@ -382,3 +382,45 @@ GovernanceRun 继续只固定现有 CustomerUpload ID、raw hash、Profile ID/ve
 [#208](https://github.com/Notyet1307/Exposure-Agent/issues/208)、[#214](https://github.com/Notyet1307/Exposure-Agent/issues/214)、[#221](https://github.com/Notyet1307/Exposure-Agent/issues/221) 以“本地合成交付完成，保留已知限制”关闭。不得回填为全部 PASS。
 
 保留限制包括：部分真实 AI 极限场景未逐项实测（#214 AC7 仍未勾选）；复杂核查有 120 秒超时及必需工具未调用的失败记录；完整恢复演练未执行；#221 是该复现样例与提示词的修复，不是对任意未来模型输出的机械正确性保证；AI 草稿持续需要人工复核；非生产、非真实客户、非自动处置、非商业价值验证。
+
+## 2026-11-06 客户输入修复附录（窄范围）
+
+本附录是维护者 2026-11-06“开始修复”授权的本地窄范围修补合同，只替代本 Spec 及 ADR-0018 中与下列谓词、诊断、未知列 warning 和首次选择直接相关的“保持既有校验/warning”措辞。它不声称已获得新的 Git 固定批准 commit 或正式 Issue，不重写 ADR-0009（其状态仍为 PROPOSED，仅作历史保留），不改变 CustomerUpload Profile 定义/版本、导入格式、原 Artifact 不可变性、人工 Revision 父子链、原子事务、幂等、权限或历史 reader。未列出的既有校验、warning、Run/报告合同继续有效。
+
+### 容量
+
+- 客户 XLSX 原始文件上限为 50 MiB，即 52,428,800 bytes；恰好等于上限可接受，超过 1 byte 拒绝。
+- 单个解压成员上限为 128 MiB，即 134,217,728 bytes；恰好等于上限可接受，超过拒绝。
+- 保留总解压上限 256 MiB、ZIP 条目上限 2,048、中央目录上限 4 MiB，以及既有 ZIP/OOXML、公式、外链、ActiveX、嵌入对象、工作表数量和结构保护。
+- multipart 流式接收保留额外 64 KiB（65,536 bytes）请求开销余量；文件部分继续按 50 MiB 上限流式判断。
+- 资源拒绝必须给出稳定 code、原因、准确 limit，以及仅在可靠时给出的 observed 和测量语义。流中断只能报告“已接收”字节，不得伪称已知最终文件大小。
+
+### 端口闭区间
+
+- 共享 CustomerUpload 校验的端口谓词改为整数且 `1 <= start_port <= end_port <= 65535`，包含首尾。`start_port == end_port` 继续有效。
+- 保留整数与 ASCII 十进制字符串的规范化；拒绝 bool、float、十六进制、范围表达式（如 `1-2`）、越界和倒置区间。倒置区间不得被静默交换。
+- 上传、人工修订、派生 XLSX、Artifact/记录存储、内容去重、Ledger Revision、来源比对、报告和导出必须保真两个端点。服务比对继续按闭区间 `[start_port,end_port]` 判断命中；本附录不改变协议字段的 UNKNOWN 语义。
+- 既有等值端口的上传、Revision 和导出记录继续有效，不迁移、不重写。
+
+### 单一不可变诊断
+
+- 领域内只使用一个 frozen 诊断值承载可选 `field`、`row`、`column`、`reason`、位置来源（worksheet row 与 ledger row 明确区分）、`limit`、`observed` 和测量语义（精确/声明/已接收）。既有异常保留外层 code/status，并通过兼容访问器从该诊断派生 field/row，不复制可变值。
+- preflight、validator、上传接受、Ledger、API route 和 UI 贯通同一诊断。既有 error code 与英文 message 保持稳定；新增字段可选且向后兼容。
+- 台账错误不得把 ledger 行号冒充原始 Excel 行号。任何诊断不得回显单元格内容、ZIP 成员路径、临时路径或解析器异常。
+- UI 防御性解析不可信 detail，只本地化已知字段、原因、位置和限额；旧响应形状安全回退。
+
+### 未知列 warning
+
+- 保留 `extra_columns_ignored` 的 code、field 和 count，新增有界详情：最多 32 个名称、每个名称最多 64 个 Unicode 字符、原始列位置、明确 truncated、omitted_count 和 names_truncated，以及确定性的 case/whitespace 归一化后精确相等的 near-match 提示。`truncated` 仍只表示名称列表被 32 个上限截断，`omitted_count` 是实际省略列数；`names_truncated` 只在任一展示名称因超过 64 个 Unicode 字符而被截短时为 true，历史 detail 缺少该字段时按 false 处理。
+- 名称仅用于展示：去除控制字符和 bidi 格式字符，使用 React 文本渲染，不使用 HTML 注入。提示只建议，不自动映射，不猜模糊匹配，不持久化单元格值。
+- 历史 warning JSON 没有新详情字段时仍可正常读取，UI 明示详情不可用。原 Artifact 不可变；派生 XLSX 仅物化当前支持字段，界面必须说明“没有新的额外列 warning”不等于保留额外数据。
+
+### 首次选择与替换
+
+- `current_customer_upload_id=null` 时，首次选择使用与替换不同的文案和按钮（例如“预览选择/设为当前输入”对“预览替换/应用替换”）。显式 preview/apply、receipt、幂等、冲突检查和 sessionStorage 恢复语义不变。
+- 上传成功后的下一步提示必须区分“尚未设为当前输入（预览并设为当前）”与“已有输入（预览替换）”。
+
+### 接口与部署配置
+
+- 可见 API schema 仅增补可选诊断和未知列详情字段；生成客户端按仓库 `scripts/generate-client.sh` 的等价 OpenAPI 导出与 `generate-client` 步骤重建，不手改 `frontend/src/client/**`。
+- 仓库 `frontend/nginx.conf` 接受 `client_max_body_size 51264k`（50 MiB 加 64 KiB 请求余量）。本附录不声称该值已部署，也不声称任何生产网关或反向代理已采用该配置。

@@ -31,8 +31,8 @@ test("customer ledger preserves input history through correction and real new Ru
     .getByRole("button", { name: "Upload", exact: true })
     .click()
   const row = page.getByRole("row").filter({ hasText: "customer-ledger.xlsx" })
-  await row.getByRole("button", { name: "Preview replacement" }).click()
-  await page.getByRole("button", { name: "Apply replacement" }).click()
+  await row.getByRole("button", { name: "Preview selection" }).click()
+  await page.getByRole("button", { name: "Set as current input" }).click()
   await expect(row.getByText("Current", { exact: true })).toBeVisible()
   await page
     .getByRole("link", { name: "Customer asset ledger", exact: true })

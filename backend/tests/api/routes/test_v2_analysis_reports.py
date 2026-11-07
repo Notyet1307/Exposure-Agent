@@ -168,6 +168,51 @@ def generate(
     return completed
 
 
+def test_v2_report_material_preserves_a_closed_port_interval(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    core = _setup_core(
+        client,
+        db,
+        superuser_token_headers,
+        tmp_path,
+        monkeypatch,
+        customer_ports=(10_001, 10_002),
+    )
+    result = _create_core(client, core)
+    _configure_qualified_model(session=db, monkeypatch=monkeypatch)
+    context = {
+        **core,
+        "result": result,
+        "url": core["root"] + "/analysis-reports/v2",
+        "body": {
+            "result_id": result["id"],
+            "supplement_binding_id": None,
+            "language": "zh",
+            "audience": "management",
+        },
+    }
+
+    report = generate(client, context, monkeypatch, "v2-interval-ports")
+
+    customer_records = [
+        item
+        for item in report["material"]["items"]
+        if item.get("kind") == "SOURCE_RECORD"
+        and item.get("identity", {}).get("source") == "CUSTOMER"
+    ]
+    assert customer_records
+    assert any(
+        item["data"].get("start_port") == 10_001
+        and item["data"].get("end_port") == 10_002
+        for item in customer_records
+    )
+
+
 def test_v2_no_run_generation_edit_confirm_and_immutable_revisions(
     client: TestClient,
     db: Session,

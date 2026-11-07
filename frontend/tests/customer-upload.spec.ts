@@ -65,7 +65,11 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
     .getByRole("button", { name: "Upload", exact: true })
     .click()
 
-  await expect(page.getByText("Upload accepted successfully.")).toBeVisible()
+  await expect(
+    page.getByText(
+      "Upload accepted. Preview this file and set it as the current input.",
+    ),
+  ).toBeVisible()
   const uploadRow = page
     .getByRole("row")
     .filter({ hasText: "customer-upload-v1.xlsx" })
@@ -103,8 +107,8 @@ test("Operator uploads a valid v1 workbook and sees its digest", async ({
   await expect(uploadRow.getByText("v1", { exact: true })).toBeVisible()
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
 
-  await uploadRow.getByRole("button", { name: "Preview replacement" }).click()
-  await page.getByRole("button", { name: "Apply replacement" }).click()
+  await uploadRow.getByRole("button", { name: "Preview selection" }).click()
+  await page.getByRole("button", { name: "Set as current input" }).click()
 
   await expect(uploadRow.getByText("Current", { exact: true })).toBeVisible()
   const selectedInputs = await ProjectsService.readCustomerUploads({

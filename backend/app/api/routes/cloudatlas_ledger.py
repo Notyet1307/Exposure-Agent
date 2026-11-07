@@ -33,9 +33,11 @@ def _errors() -> Iterator[None]:
     try:
         yield
     except (service.CloudLedgerError, LedgerError) as error:
-        raise HTTPException(
-            status_code=error.status, detail={"code": error.code}
-        ) from None
+        detail: dict[str, object] = {"code": error.code}
+        diagnostic = getattr(error, "diagnostic", None)
+        if diagnostic is not None:
+            detail.update(diagnostic.detail_fields())
+        raise HTTPException(status_code=error.status, detail=detail) from None
     except IPRecordContractError, ValueError:
         raise HTTPException(
             status_code=422, detail={"code": "cloud_ledger_input_invalid"}

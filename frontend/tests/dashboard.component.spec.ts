@@ -710,8 +710,8 @@ test("selects an accepted upload as the current Project input", async ({
   await page.goto("/?view=inputs")
 
   await expect(page.getByText("Project input is not ready.")).toBeVisible()
-  await page.getByRole("button", { name: "Preview replacement" }).click()
-  await page.getByRole("button", { name: "Apply replacement" }).click()
+  await page.getByRole("button", { name: "Preview selection" }).click()
+  await page.getByRole("button", { name: "Set as current input" }).click()
 
   const currentDetails = page
     .locator("details")
@@ -728,7 +728,16 @@ test("selects an accepted upload as the current Project input", async ({
     }),
   ).toBeVisible()
   await expect(page.getByText("Current", { exact: true }).first()).toBeVisible()
+  await expect(
+    page.getByText(
+      "Selection confirmed. This file is now the current input; history is unchanged.",
+    ),
+  ).toBeVisible()
   expect(replacementRequests).toBe(1)
+
+  await page.reload()
+  await expect(page.getByText("Current", { exact: true }).first()).toBeVisible()
+  await expect(page.getByText("Project input is not ready.")).toHaveCount(0)
 })
 
 test("keeps read-only and Archived Projects visible without input controls", async ({
@@ -765,7 +774,7 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).toBeVisible()
   await expect(page.getByLabel("XLSX file")).not.toBeVisible()
   await expect(
-    page.getByRole("button", { name: "Preview replacement" }),
+    page.getByRole("button", { name: /Preview (selection|replacement)/ }),
   ).not.toBeVisible()
 
   const projectSelect = page.getByRole("combobox", { name: "Project" })
@@ -1062,7 +1071,11 @@ for (const status of [201, 200]) {
       .getByRole("button", { name: "Upload" })
       .click()
 
-    await expect(page.getByText("Upload accepted successfully.")).toBeVisible()
+    await expect(
+      page.getByText(
+        "Upload accepted. Preview this file and set it as the current input.",
+      ),
+    ).toBeVisible()
     await expect(fileInput).toHaveValue("")
     await expect(page.getByText("new-assets.xlsx")).toBeVisible()
   })
@@ -1751,6 +1764,750 @@ for (const role of ["Viewer", "Approver"] as const) {
     )
   })
 }
+
+test("uses replacement wording when a current input already exists", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const second = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000002",
+    display_filename: "south-assets.xlsx",
+    raw_sha256: "b".repeat(64),
+  }
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          project_id: projects[0].id,
+          current_upload_id: first.id,
+          current_revision_id: null,
+          current_profile_id: first.profile_id,
+          data: [],
+          count: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [first, second],
+          count: 2,
+          current_customer_upload_id: first.id,
+          can_upload: true,
+          can_select: true,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: second.id,
+          current_upload_id: first.id,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: first.record_count,
+          current_unique_ips: 1,
+          candidate_record_count: second.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 0,
+          removed_ips: 0,
+          changed_ip_declarations: 1,
+        },
+      }),
+  )
+  await page.goto("/?view=inputs")
+
+  const firstRow = page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+  const secondRow = page
+    .getByRole("row")
+    .filter({ hasText: second.display_filename })
+  await expect(firstRow.getByText("Current", { exact: true })).toBeVisible()
+  await expect(
+    firstRow.getByRole("button", { name: /Preview (selection|replacement)/ }),
+  ).toHaveCount(0)
+  await secondRow.getByRole("button", { name: "Preview replacement" }).click()
+
+  await expect(
+    page.getByText("Replacement preview", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Apply replacement", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByText("Selection preview", { exact: true }),
+  ).toHaveCount(0)
+})
+
+test("shows a structured upload diagnostic and localizes known values", async ({
+  page,
+}) => {
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback()
+      return route.fulfill({
+        status: 422,
+        json: {
+          detail: {
+            code: "invalid_required_value",
+            message: "The workbook contains an invalid required value.",
+            field: "start_port",
+            row: 3,
+            column: 2,
+            reason: "port_out_of_range",
+            location: "worksheet",
+            limit: 65535,
+            observed: 70000,
+            unit: "port_number",
+            debug: "sensitive-cell-value",
+          },
+        },
+      })
+    },
+  )
+  await page.goto("/?view=inputs")
+  const input = page.getByLabel("XLSX file")
+  await input.setInputFiles({
+    name: "bad-port.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("bad port"),
+  })
+  await page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
+
+  const details = page.getByTestId("diagnostic-details")
+  await expect(details).toBeVisible()
+  await expect(details.getByText("Start port", { exact: true })).toBeVisible()
+  await expect(
+    details.getByText("Worksheet row", { exact: true }),
+  ).toBeVisible()
+  await expect(details.getByText("3", { exact: true })).toBeVisible()
+  await expect(details.getByText("Column", { exact: true })).toBeVisible()
+  await expect(details.getByText("2", { exact: true })).toBeVisible()
+  await expect(
+    details.getByText("Port must be between 1 and 65535", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    details.getByText("65,535 port number", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    details.getByText("70,000 port number", { exact: true }),
+  ).toBeVisible()
+  await expect(page.getByText("sensitive-cell-value")).toHaveCount(0)
+
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(details.getByText("工作表行", { exact: true })).toBeVisible()
+  await expect(details.getByText("起始端口", { exact: true })).toBeVisible()
+  await expect(
+    details.getByText("端口必须在 1 到 65535 之间", { exact: true }),
+  ).toBeVisible()
+})
+
+test("names every accepted Web flag value in both locales", async ({
+  page,
+}) => {
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback()
+      return route.fulfill({
+        status: 422,
+        json: {
+          detail: {
+            code: "invalid_required_value",
+            message: "The workbook contains an invalid required value.",
+            field: "is_web",
+            row: 2,
+            column: 4,
+            reason: "web_flag",
+            location: "worksheet",
+          },
+        },
+      })
+    },
+  )
+  await page.goto("/?view=inputs")
+  const input = page.getByLabel("XLSX file")
+  await input.setInputFiles({
+    name: "bad-web-flag.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("bad web flag"),
+  })
+  await page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
+
+  const details = page.getByTestId("diagnostic-details")
+  const english = details.getByText(/Web flag must be/)
+  await expect(english).toContainText("是")
+  await expect(english).toContainText("否")
+  await expect(english).toContainText("无")
+
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  const chinese = details.getByText(/是否 Web 字段必须为/)
+  await expect(chinese).toContainText("是")
+  await expect(chinese).toContainText("否")
+  await expect(chinese).toContainText("无")
+})
+
+test("renders bounded extra-column detail and marks historical warnings", async ({
+  page,
+}) => {
+  const currentWarning = {
+    ...uploads[projects[0].id].data[0],
+    warnings: [
+      {
+        code: "extra_columns_ignored",
+        field: "extra_columns",
+        count: 3,
+        detail: {
+          names: [
+            {
+              name: "归属‮信息",
+              column: 9,
+              near_match: "asset_owner",
+            },
+            { name: "internal-note", column: 12, near_match: null },
+          ],
+          truncated: true,
+          omitted_count: 4,
+          names_truncated: true,
+        },
+      },
+    ],
+  }
+  const historicalWarning = {
+    ...currentWarning,
+    id: "20000000-0000-0000-0000-000000000004",
+    display_filename: "historical.xlsx",
+    warnings: [
+      {
+        code: "extra_columns_ignored",
+        field: "extra_columns",
+        count: 2,
+      },
+    ],
+  }
+  const omittedOnlyWarning = {
+    ...currentWarning,
+    id: "20000000-0000-0000-0000-000000000005",
+    display_filename: "omitted-only.xlsx",
+    warnings: [
+      {
+        code: "extra_columns_ignored",
+        field: "extra_columns",
+        count: 9,
+        detail: {
+          names: [{ name: "short-name", column: 6, near_match: null }],
+          truncated: true,
+          omitted_count: 8,
+          names_truncated: false,
+        },
+      },
+    ],
+  }
+  const longNameWarning = {
+    ...currentWarning,
+    id: "20000000-0000-0000-0000-000000000006",
+    display_filename: "long-name.xlsx",
+    warnings: [
+      {
+        code: "extra_columns_ignored",
+        field: "extra_columns",
+        count: 1,
+        detail: {
+          names: [{ name: "L".repeat(64), column: 6, near_match: null }],
+          truncated: false,
+          omitted_count: 0,
+          names_truncated: true,
+        },
+      },
+    ],
+  }
+  const legacyDetailWarning = {
+    ...currentWarning,
+    id: "20000000-0000-0000-0000-000000000007",
+    display_filename: "legacy-detail.xlsx",
+    warnings: [
+      {
+        code: "extra_columns_ignored",
+        field: "extra_columns",
+        count: 3,
+        detail: {
+          names: [{ name: "legacy-short", column: 6, near_match: null }],
+          truncated: true,
+          omitted_count: 2,
+        },
+      },
+    ],
+  }
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [
+            currentWarning,
+            historicalWarning,
+            omittedOnlyWarning,
+            longNameWarning,
+            legacyDetailWarning,
+          ],
+          count: 5,
+          current_customer_upload_id: null,
+          can_upload: true,
+          can_select: true,
+        },
+      }),
+  )
+  await page.goto("/?view=inputs")
+
+  const currentRow = page
+    .getByRole("row")
+    .filter({ hasText: currentWarning.display_filename })
+  await expect(currentRow.getByText("归属信息", { exact: false })).toBeVisible()
+  await expect(
+    currentRow.getByText("Did you mean Declared owner?", { exact: false }),
+  ).toBeVisible()
+  await expect(
+    currentRow.getByText("4 more columns omitted.", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    currentRow.getByText("Some column names are shortened to 64 characters.", {
+      exact: true,
+    }),
+  ).toBeVisible()
+  const omittedOnlyRow = page
+    .getByRole("row")
+    .filter({ hasText: omittedOnlyWarning.display_filename })
+  await expect(
+    omittedOnlyRow.getByText("8 more columns omitted.", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    omittedOnlyRow.getByText(
+      "Some column names are shortened to 64 characters.",
+      { exact: true },
+    ),
+  ).toHaveCount(0)
+  await expect(
+    omittedOnlyRow.getByText("0 more columns omitted.", { exact: true }),
+  ).toHaveCount(0)
+  const longNameRow = page
+    .getByRole("row")
+    .filter({ hasText: longNameWarning.display_filename })
+  await expect(
+    longNameRow.getByText("Some column names are shortened to 64 characters.", {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(
+    longNameRow.getByText("0 more columns omitted.", { exact: true }),
+  ).toHaveCount(0)
+  const legacyDetailRow = page
+    .getByRole("row")
+    .filter({ hasText: legacyDetailWarning.display_filename })
+  await expect(
+    legacyDetailRow.getByText("2 more columns omitted.", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    legacyDetailRow.getByText(
+      "Some column names are shortened to 64 characters.",
+      { exact: true },
+    ),
+  ).toHaveCount(0)
+  const historicalRow = page
+    .getByRole("row")
+    .filter({ hasText: historicalWarning.display_filename })
+  await expect(
+    historicalRow.getByText(
+      "Column details are unavailable for this historical warning.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(
+    page.getByText(
+      "Derived XLSX files materialize supported fields only. The absence of an extra-column warning is not evidence that unsupported columns are retained.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await page
+    .getByRole("combobox", { name: "Language / 语言" })
+    .selectOption("zh-CN")
+  await expect(
+    longNameRow.getByText("部分列名超过 64 个字符，已截断显示。", {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(
+    omittedOnlyRow.getByText("另有 8 列未显示。", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    omittedOnlyRow.getByText("部分列名超过 64 个字符，已截断显示。", {
+      exact: true,
+    }),
+  ).toHaveCount(0)
+})
+
+test("explains the post-upload next step for an existing input", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const acceptedUpload = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000005",
+    display_filename: "replacement-candidate.xlsx",
+    raw_sha256: "c".repeat(64),
+  }
+  let accepted = false
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        accepted = true
+        return route.fulfill({ status: 201, json: acceptedUpload })
+      }
+      return route.fulfill({
+        json: {
+          data: accepted ? [first, acceptedUpload] : [first],
+          count: accepted ? 2 : 1,
+          current_customer_upload_id: first.id,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto("/?view=inputs")
+  const input = page.getByLabel("XLSX file")
+  await input.setInputFiles({
+    name: "replacement-candidate.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("replacement"),
+  })
+  await page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
+
+  await expect(
+    page.getByText(
+      "Upload accepted. Preview the replacement before applying it.",
+    ),
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "replacement-candidate.xlsx" })
+      .getByRole("button", { name: "Preview replacement" }),
+  ).toBeVisible()
+})
+
+test("keeps the current input when a replacement conflict is rejected", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const second = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000006",
+    display_filename: "conflicting.xlsx",
+    raw_sha256: "d".repeat(64),
+  }
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          project_id: projects[0].id,
+          current_upload_id: first.id,
+          current_revision_id: null,
+          current_profile_id: first.profile_id,
+          data: [],
+          count: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [first, second],
+          count: 2,
+          current_customer_upload_id: first.id,
+          can_upload: true,
+          can_select: true,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: second.id,
+          current_upload_id: first.id,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: first.record_count,
+          current_unique_ips: 1,
+          candidate_record_count: second.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 0,
+          removed_ips: 0,
+          changed_ip_declarations: 1,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) =>
+      route.fulfill({
+        status: 409,
+        json: {
+          detail: {
+            code: "ledger_version_conflict",
+            message: "The current input changed.",
+          },
+        },
+      }),
+  )
+  await page.goto("/?view=inputs")
+  const secondRow = page
+    .getByRole("row")
+    .filter({ hasText: second.display_filename })
+  await secondRow.getByRole("button", { name: "Preview replacement" }).click()
+  await page.getByRole("button", { name: "Apply replacement" }).click()
+
+  await expect(
+    page.getByText(
+      "The current version or profile changed. This request was rejected; preview the latest version again.",
+    ),
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: first.display_filename })
+      .getByText("Current", { exact: true }),
+  ).toBeVisible()
+})
+
+test("recovers a lost selection response after refresh and resends the same identity", async ({
+  page,
+}) => {
+  const candidate = uploads[projects[0].id].data[0]
+  let currentUploadId: string | null = null
+  let failApply = true
+  const recoveryFound = false
+  let receipt: Record<string, unknown> | null = null
+  const keys: string[] = []
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          project_id: projects[0].id,
+          current_upload_id: currentUploadId,
+          current_revision_id: null,
+          current_profile_id: candidate.profile_id,
+          data: [],
+          count: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...uploads[projects[0].id],
+          current_customer_upload_id: currentUploadId,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/*`,
+    (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      if (!recoveryFound || !receipt) {
+        return route.fulfill({
+          status: 404,
+          json: { detail: { code: "ledger_replacement_not_found" } },
+        })
+      }
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      keys.push(route.request().headers()["idempotency-key"] ?? "")
+      const body = route.request().postDataJSON()
+      receipt = {
+        id: "91000000-0000-0000-0000-000000000003",
+        project_id: projects[0].id,
+        created_by: "30000000-0000-0000-0000-000000000001",
+        candidate_upload_id: candidate.id,
+        expected_upload_id: null,
+        expected_revision_id: null,
+        expected_profile_id: candidate.profile_id,
+        request_sha256: await requestDigest(body),
+        created_at: projects[0].created_at,
+      }
+      if (failApply) {
+        failApply = false
+        return route.abort("connectionfailed")
+      }
+      currentUploadId = candidate.id
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: candidate.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: candidate.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: candidate.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.goto("/?view=inputs")
+  await page.getByRole("button", { name: "Preview selection" }).click()
+  await page.getByRole("button", { name: "Set as current input" }).click()
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+
+  await page.reload()
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Recover result" }).click()
+  await expect(
+    page.getByText("No completed receipt yet.", { exact: false }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Resend original request" }).click()
+  await expect(
+    page.getByText(
+      "Selection confirmed. This file is now the current input; history is unchanged.",
+    ),
+  ).toBeVisible()
+  expect(keys).toHaveLength(2)
+  expect(keys[0]).toBe(keys[1])
+  expect(currentUploadId).toBe(candidate.id)
+})
+
+test("labels ledger diagnostics as ledger rows, never worksheet rows", async ({
+  page,
+}) => {
+  const uploadId = "20000000-0000-0000-0000-000000000007"
+  const entryId = "40000000-0000-0000-0000-000000000007"
+  const profileId = profiles[projects[0].id].id
+  const ledgerPage = {
+    project_id: projects[0].id,
+    upload_id: uploadId,
+    revision_id: null,
+    current_upload_id: uploadId,
+    current_revision_id: null,
+    current_profile_id: profileId,
+    data: [
+      {
+        entry_id: entryId,
+        position: 1,
+        canonical_ip: "2001:db8::7",
+        fields: {
+          asset_ip: "2001:db8::7",
+          start_port: 8443,
+          end_port: 443,
+          is_web: "否",
+          web_url: null,
+          service_type: "",
+          asset_owner: "",
+          asset_department: "",
+          port_owner: "",
+          department: "",
+          serial: "",
+        },
+        management: { owner: "", tags: [] },
+        archived: false,
+      },
+    ],
+    count: 1,
+    total_records: 1,
+    unique_ips: 1,
+    can_edit: true,
+  }
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerPage }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/revisions*`,
+    (route) => {
+      if (route.request().method() === "GET") return route.fulfill({ json: [] })
+      return route.fulfill({
+        status: 422,
+        json: {
+          detail: {
+            code: "ledger_fields_invalid",
+            field: "start_port",
+            row: 1,
+            reason: "port_order",
+            location: "ledger",
+          },
+        },
+      })
+    },
+  )
+  await page.goto(`/projects/${projects[0].id}/customer-ledger`)
+  await page.getByRole("button", { name: "Correct", exact: true }).click()
+  await page.getByLabel("Reason for this change").fill("Correct the port order")
+  await page.getByRole("button", { name: "Save new revision" }).click()
+
+  const details = page.getByTestId("diagnostic-details")
+  await expect(details).toBeVisible()
+  await expect(details.getByText("Ledger row", { exact: true })).toBeVisible()
+  await expect(details.getByText("Start port", { exact: true })).toBeVisible()
+  await expect(
+    details.getByText("Start port must not exceed end port", { exact: true }),
+  ).toBeVisible()
+  await expect(details.getByText("Worksheet row", { exact: true })).toHaveCount(
+    0,
+  )
+  await expect(
+    details.getByText("Original Excel row", { exact: true }),
+  ).toHaveCount(0)
+})
 
 test("delivery measures five upload feedback samples and preserves rejection", async ({
   page,

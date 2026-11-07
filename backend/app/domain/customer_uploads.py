@@ -7,7 +7,7 @@ import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePath, PureWindowsPath
-from typing import TYPE_CHECKING, BinaryIO, NoReturn
+from typing import TYPE_CHECKING, Any, BinaryIO, NoReturn
 from zipfile import is_zipfile
 
 from python_multipart import MultipartParser
@@ -26,6 +26,7 @@ from app.domain.customer_upload_validator import (
     CustomerUploadValidationError,
     validate_customer_upload_workbook,
 )
+from app.domain.diagnostics import Diagnostic
 from app.domain.models import (
     Artifact,
     AuditEvent,
@@ -46,12 +47,54 @@ class CustomerUploadAcceptanceError(Exception):
     """A stable upload failure that carries no customer-provided content."""
 
     def __init__(
-        self, code: str, *, field: str | None = None, row: int | None = None
+        self,
+        code: str,
+        *,
+        field: str | None = None,
+        row: int | None = None,
+        diagnostic: Diagnostic | None = None,
     ) -> None:
         super().__init__(code)
-        self.code = code
-        self.field = field
-        self.row = row
+        self.diagnostic = diagnostic or Diagnostic(
+            code=code, field=field, row=row
+        )
+        self.code = self.diagnostic.code
+
+    @property
+    def field(self) -> str | None:
+        return self.diagnostic.field
+
+    @property
+    def row(self) -> int | None:
+        return self.diagnostic.row
+
+    @property
+    def column(self) -> int | None:
+        return self.diagnostic.column
+
+    @property
+    def reason(self) -> str | None:
+        return self.diagnostic.reason
+
+    @property
+    def location(self) -> str | None:
+        return self.diagnostic.location
+
+    @property
+    def limit(self) -> int | None:
+        return self.diagnostic.limit
+
+    @property
+    def observed(self) -> int | None:
+        return self.diagnostic.observed
+
+    @property
+    def measurement(self) -> str | None:
+        return self.diagnostic.measurement
+
+    @property
+    def unit(self) -> str | None:
+        return self.diagnostic.unit
 
 
 class CustomerUploadDeletionError(Exception):
@@ -62,6 +105,10 @@ class CustomerUploadDeletionError(Exception):
 
 def _raise(code: str) -> NoReturn:
     raise CustomerUploadAcceptanceError(code)
+
+
+def _raise_diagnostic(diagnostic: Diagnostic) -> NoReturn:
+    raise CustomerUploadAcceptanceError(diagnostic.code, diagnostic=diagnostic)
 
 
 def _display_filename(filename: str | None) -> str:
@@ -135,7 +182,16 @@ class _CustomerUploadMultipartStream:
         chunk = data[start:end]
         self.byte_size += len(chunk)
         if self.byte_size > MAX_WORKBOOK_BYTES:
-            _raise("upload_too_large")
+            _raise_diagnostic(
+                Diagnostic(
+                    code="upload_too_large",
+                    reason="workbook_bytes",
+                    limit=MAX_WORKBOOK_BYTES,
+                    observed=self.byte_size,
+                    measurement="received",
+                    unit="bytes",
+                )
+            )
         self.digest.update(chunk)
         assert self.destination is not None
         try:
@@ -238,7 +294,17 @@ async def stream_customer_upload_request(
                 if received_bytes > (
                     MAX_WORKBOOK_BYTES + MAX_MULTIPART_OVERHEAD_BYTES
                 ):
-                    _raise("upload_too_large")
+                    _raise_diagnostic(
+                        Diagnostic(
+                            code="upload_too_large",
+                            reason="request_bytes",
+                            limit=MAX_WORKBOOK_BYTES
+                            + MAX_MULTIPART_OVERHEAD_BYTES,
+                            observed=received_bytes,
+                            measurement="received",
+                            unit="bytes",
+                        )
+                    )
                 parser.write(chunk)
         parser.finalize()
         return stream.finish()
@@ -253,21 +319,28 @@ async def stream_customer_upload_request(
         raise
 
 
-def _validate_workbook(path: Path) -> tuple[int, list[dict[str, str | int | None]]]:
+def _validate_workbook(path: Path) -> tuple[int, list[dict[str, Any]]]:
     if not is_zipfile(path):
         _raise("unsupported_workbook_type")
     try:
         result = validate_customer_upload_workbook(path)
     except CustomerUploadValidationError as error:
         raise CustomerUploadAcceptanceError(
-            error.code, field=error.field, row=error.row
+            error.code, diagnostic=error.diagnostic
         )
     except Exception:
         _raise("upload_storage_failed")
-    return result.record_count, [
-        {"code": warning.code, "field": warning.field, "count": warning.count}
-        for warning in result.warnings
-    ]
+    warnings: list[dict[str, Any]] = []
+    for warning in result.warnings:
+        item: dict[str, Any] = {
+            "code": warning.code,
+            "field": warning.field,
+            "count": warning.count,
+        }
+        if warning.detail is not None:
+            item["detail"] = warning.detail
+        warnings.append(item)
+    return result.record_count, warnings
 
 
 def _accepted_audit_event(

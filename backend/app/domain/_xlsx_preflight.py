@@ -11,8 +11,15 @@ from zipfile import ZIP_DEFLATED, ZIP_STORED, BadZipFile, ZipFile
 from defusedxml import ElementTree  # type: ignore[import-untyped]
 from defusedxml.common import DefusedXmlException  # type: ignore[import-untyped]
 
+from app.domain.diagnostics import (
+    Diagnostic,
+    DiagnosticUnit,
+    LocationOrigin,
+    Measurement,
+)
+
 MAX_ZIP_ENTRIES: Final = 2_048
-MAX_ENTRY_UNCOMPRESSED_BYTES: Final = 64 * 1024 * 1024
+MAX_ENTRY_UNCOMPRESSED_BYTES: Final = 128 * 1024 * 1024
 MAX_TOTAL_UNCOMPRESSED_BYTES: Final = 256 * 1024 * 1024
 MAX_CENTRAL_DIRECTORY_BYTES: Final = 4 * 1024 * 1024
 _MAX_EOCD_TAIL_BYTES: Final = 65_557
@@ -74,16 +81,82 @@ class PreflightError(Exception):
         row: int | None = None,
         column: int | None = None,
         field: str | None = None,
+        reason: str | None = None,
+        location: LocationOrigin | None = None,
+        limit: int | None = None,
+        observed: int | None = None,
+        measurement: Measurement | None = None,
+        unit: DiagnosticUnit | None = None,
+        diagnostic: Diagnostic | None = None,
     ) -> None:
         super().__init__(code)
-        self.code = code
-        self.row = row
-        self.column = column
-        self.field = field
+        self.diagnostic = diagnostic or Diagnostic(
+            code=code,
+            field=field,
+            row=row,
+            column=column,
+            reason=reason,
+            location=location,
+            limit=limit,
+            observed=observed,
+            measurement=measurement,
+            unit=unit,
+        )
+        self.code = self.diagnostic.code
+
+    @property
+    def field(self) -> str | None:
+        return self.diagnostic.field
+
+    @property
+    def row(self) -> int | None:
+        return self.diagnostic.row
+
+    @property
+    def column(self) -> int | None:
+        return self.diagnostic.column
+
+    @property
+    def reason(self) -> str | None:
+        return self.diagnostic.reason
+
+    @property
+    def limit(self) -> int | None:
+        return self.diagnostic.limit
+
+    @property
+    def observed(self) -> int | None:
+        return self.diagnostic.observed
+
+    @property
+    def measurement(self) -> str | None:
+        return self.diagnostic.measurement
+
+    @property
+    def location(self) -> str | None:
+        return self.diagnostic.location
+
+    @property
+    def unit(self) -> str | None:
+        return self.diagnostic.unit
 
 
-def _resource_limit() -> PreflightError:
-    return PreflightError("workbook_resource_limit")
+def _resource_limit(
+    *,
+    reason: str,
+    limit: int,
+    observed: int,
+    unit: DiagnosticUnit,
+) -> PreflightError:
+    return PreflightError(
+        "workbook_resource_limit",
+        reason=reason,
+        location=None,
+        limit=limit,
+        observed=observed,
+        measurement="declared",
+        unit=unit,
+    )
 
 
 def _safe_member_name(raw_name: bytes, flags: int) -> str:
@@ -135,9 +208,19 @@ def _check_central_directory(path: Path) -> None:
             ):
                 raise PreflightError("malformed_workbook")
             if total_entries > MAX_ZIP_ENTRIES:
-                raise _resource_limit()
+                raise _resource_limit(
+                    reason="workbook_entries",
+                    limit=MAX_ZIP_ENTRIES,
+                    observed=total_entries,
+                    unit="entries",
+                )
             if central_size > MAX_CENTRAL_DIRECTORY_BYTES:
-                raise _resource_limit()
+                raise _resource_limit(
+                    reason="workbook_directory_bytes",
+                    limit=MAX_CENTRAL_DIRECTORY_BYTES,
+                    observed=central_size,
+                    unit="bytes",
+                )
             if central_offset + central_size > eocd_offset:
                 raise PreflightError("malformed_workbook")
 
@@ -197,10 +280,20 @@ def _check_central_directory(path: Path) -> None:
             raise PreflightError("malformed_workbook")
         names.add(name)
         if uncompressed_size > MAX_ENTRY_UNCOMPRESSED_BYTES:
-            raise _resource_limit()
+            raise _resource_limit(
+                reason="workbook_member_bytes",
+                limit=MAX_ENTRY_UNCOMPRESSED_BYTES,
+                observed=uncompressed_size,
+                unit="bytes",
+            )
         total_uncompressed += uncompressed_size
         if total_uncompressed > MAX_TOTAL_UNCOMPRESSED_BYTES:
-            raise _resource_limit()
+            raise _resource_limit(
+                reason="workbook_total_bytes",
+                limit=MAX_TOTAL_UNCOMPRESSED_BYTES,
+                observed=total_uncompressed,
+                unit="bytes",
+            )
         cursor = next_cursor
         parsed_entries += 1
 
@@ -504,6 +597,8 @@ def _inspect_ooxml(
                                     if cell_column is not None
                                     else None
                                 ),
+                                reason="unsupported_formula",
+                                location="worksheet",
                             )
                         if local_name == "c":
                             if (
@@ -551,7 +646,12 @@ def _inspect_ooxml(
                         if local_name == "mergeCell" and _merged_range_includes_header(
                             element.attrib.get("ref", "")
                         ):
-                            raise PreflightError("missing_required_structure", row=1)
+                            raise PreflightError(
+                                "missing_required_structure",
+                                row=1,
+                                reason="merged_header",
+                                location="worksheet",
+                            )
                         if (
                             local_name == "ClientData"
                             and element.attrib.get("ObjectType", "").casefold()

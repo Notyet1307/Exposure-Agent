@@ -15,6 +15,7 @@ from sqlmodel import Session, col, select
 
 from app.core.time import get_datetime_utc
 from app.domain import cloudatlas_ledger, customer_ledger, external_assets
+from app.domain.customer_upload_validator import normalize_customer_port
 from app.domain.external_asset_models import ExternalAssetRecord
 from app.domain.ip_consistency import IPRecordContractError, normalize_ip
 from app.domain.models import (
@@ -1095,7 +1096,8 @@ def _compare(
         relation = "NOT_APPLICABLE"
     elif port is not None:
         if customer:
-            start, end = _port(fields.get("start_port")), _port(fields.get("end_port"))
+            start = normalize_customer_port(fields.get("start_port"))
+            end = normalize_customer_port(fields.get("end_port"))
             if start is not None and end is not None:
                 relation = "IN_RANGE" if start <= port <= end else "OUT_OF_RANGE"
         else:

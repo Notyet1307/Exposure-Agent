@@ -15,6 +15,7 @@ import {
   customerFieldValue as display,
   customerFields as FIELDS,
 } from "@/components/CustomerRecordFields"
+import { DiagnosticDetails } from "@/components/DiagnosticDetails"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -35,6 +36,7 @@ import {
   type ComparisonReturn,
   comparisonReturnFields,
 } from "@/lib/comparisonReturn"
+import { apiErrorDetail } from "@/lib/diagnostics"
 import { useI18n } from "@/lib/i18n"
 import { requestDigest } from "@/lib/ledgerIntent"
 
@@ -169,6 +171,7 @@ function LedgerView({
       (search.ledger_revision ?? undefined)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState("")
+  const [noticeDetail, setNoticeDetail] = useState<unknown>(undefined)
   const [query, setQuery] = useState(search.ledger_query ?? "")
   const [editState, updateEditor] = useState<{
     scope: string
@@ -305,8 +308,8 @@ function LedgerView({
         "当前输入已变化。已保留填写内容，请核对新版本后重新更正。",
       ),
       ledger_fields_invalid: t(
-        "Check the IP, ports and Web fields. Start and end ports must match.",
-        "请检查 IP、端口和 Web 字段；起始与结束端口须相同。",
+        "Check the field shown below. Ports must be whole numbers from 1 to 65535, and the start port must not exceed the end port.",
+        "请检查下方显示的字段。端口必须是 1 到 65535 的整数，且起始端口不得大于结束端口。",
       ),
       ledger_source_invalid: t(
         "The input could not be verified. No empty ledger was substituted.",
@@ -324,6 +327,14 @@ function LedgerView({
         "操作未完成。请核对权限；结果未知时查询原请求，不要重复提交。",
       )
     )
+  }
+  const fail = (error: unknown) => {
+    setNotice(failure(error))
+    setNoticeDetail(apiErrorDetail(error))
+  }
+  const showNotice = (value: string) => {
+    setNotice(value)
+    setNoticeDetail(undefined)
   }
   const finish = async (revision: RevisionPublic, requestScope: string) => {
     if (!isCurrent(requestScope)) return
@@ -350,7 +361,7 @@ function LedgerView({
       }),
     })
     if (!isCurrent(ledgerScope(revision.upload_id, revision.id))) return
-    setNotice("saved")
+    showNotice("saved")
     heading.current?.focus()
   }
   const submit = async () => {
@@ -359,12 +370,12 @@ function LedgerView({
     const requestScope = scopeRef.current
     const body = structuredClone(editor)
     setBusy(true)
-    setNotice("")
+    showNotice("")
     try {
       const digest = await requestDigest(body)
       if (!isCurrent(requestScope)) return
       if (pending && digest !== pending.digest) {
-        setNotice(
+        showNotice(
           t(
             "Re-enter exactly the original change and reason before restoring this request.",
             "请重新填写与原请求一致的修改和理由，再恢复原操作。",
@@ -386,7 +397,7 @@ function LedgerView({
       try {
         sessionStorage.setItem(recoveryName, JSON.stringify(intent))
       } catch {
-        setNotice(
+        showNotice(
           t(
             "Session storage is unavailable; nothing was submitted.",
             "无法保存恢复身份，操作尚未提交。",
@@ -412,7 +423,7 @@ function LedgerView({
         sessionStorage.removeItem(recoveryName)
         setPending(null)
       }
-      setNotice(failure(error))
+      fail(error)
     } finally {
       if (alive.current) setBusy(false)
     }
@@ -430,7 +441,7 @@ function LedgerView({
         requestScope,
       )
     } catch (error) {
-      if (isCurrent(requestScope)) setNotice(failure(error))
+      if (isCurrent(requestScope)) fail(error)
     } finally {
       if (alive.current) setBusy(false)
     }
@@ -484,14 +495,14 @@ function LedgerView({
         management:
           base.operation === "manage" ? { ...row?.management } : undefined,
       })
-      setNotice(
+      showNotice(
         t(
           "Re-enter the original change and reason. Confirmation reuses its key and may submit it for the first time.",
           "请重填原修改和理由。确认将复用原标识；若请求此前未到达，可能首次提交。",
         ),
       )
     } catch (error) {
-      if (alive.current) setNotice(failure(error))
+      if (alive.current) fail(error)
     } finally {
       if (alive.current) setBusy(false)
     }
@@ -515,7 +526,7 @@ function LedgerView({
           fresh.revision_id ?? undefined,
         )
     } catch (error) {
-      if (isCurrent(requestScope)) setNotice(failure(error))
+      if (isCurrent(requestScope)) fail(error)
     } finally {
       if (alive.current) setBusy(false)
     }
@@ -523,7 +534,7 @@ function LedgerView({
   const start = (operation: LedgerEdit["operation"], row?: LedgerEntry) => {
     if (!data?.upload_id || !canEdit || pendingKey) return
     setSelected(row ?? null)
-    setNotice("")
+    showNotice("")
     setEditor({
       expected_upload_id: data.upload_id,
       expected_revision_id: data.revision_id,
@@ -608,12 +619,17 @@ function LedgerView({
       {notice && (
         <Alert role="status">
           <AlertDescription>
-            {notice === "saved"
-              ? t(
-                  "Saved a new revision. Existing Run reports are unchanged.",
-                  "新修订已保存，已有批次报告保持不变。",
-                )
-              : notice}
+            {notice === "saved" ? (
+              t(
+                "Saved a new revision. Existing Run reports are unchanged.",
+                "新修订已保存，已有批次报告保持不变。",
+              )
+            ) : (
+              <>
+                <p>{notice}</p>
+                <DiagnosticDetails detail={noticeDetail} />
+              </>
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -670,7 +686,8 @@ function LedgerView({
       ) : ledger.isError || !data ? (
         <Alert variant="destructive">
           <AlertDescription>
-            {failure(ledger.error)}{" "}
+            <p>{failure(ledger.error)}</p>
+            <DiagnosticDetails detail={apiErrorDetail(ledger.error)} />{" "}
             <Button variant="outline" onClick={() => void ledger.refetch()}>
               {t("Retry reading", "重试读取")}
             </Button>
@@ -843,8 +860,11 @@ function LedgerView({
                       </p>
                     </TableCell>
                     <TableCell>
-                      {display(row.fields.start_port)} ·{" "}
-                      {row.fields.is_web === "是" ? "Web" : "—"}
+                      {display(row.fields.start_port) ===
+                      display(row.fields.end_port)
+                        ? display(row.fields.start_port)
+                        : `${display(row.fields.start_port)}–${display(row.fields.end_port)}`}{" "}
+                      · {row.fields.is_web === "是" ? "Web" : "—"}
                     </TableCell>
                     <TableCell>
                       {display(row.fields.asset_owner) ||

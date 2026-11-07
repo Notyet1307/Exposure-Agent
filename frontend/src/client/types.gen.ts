@@ -789,10 +789,24 @@ export type CustomerUploadsPublic = {
     can_select: boolean;
 };
 
+export type CustomerUploadWarningDetailPublic = {
+    names: Array<CustomerUploadWarningNamePublic>;
+    truncated: boolean;
+    omitted_count: number;
+    names_truncated?: boolean;
+};
+
+export type CustomerUploadWarningNamePublic = {
+    name: string;
+    column: number;
+    near_match?: (string | null);
+};
+
 export type CustomerUploadWarningPublic = {
     code: string;
     field: (string | null);
     count: number;
+    detail?: (CustomerUploadWarningDetailPublic | null);
 };
 
 export type Edit = {

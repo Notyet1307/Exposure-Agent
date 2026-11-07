@@ -124,9 +124,9 @@ test("Operator completes Retry and explicit Rerun recovery with real Sessions", 
   const uploadRow = page
     .getByRole("row")
     .filter({ hasText: "customer-upload-v1.xlsx" })
-  await uploadRow.getByRole("button", { name: "Preview replacement" }).click()
+  await uploadRow.getByRole("button", { name: "Preview selection" }).click()
   await page
-    .getByRole("button", { name: "Apply replacement", exact: true })
+    .getByRole("button", { name: "Set as current input", exact: true })
     .click()
   await expect(uploadRow.getByText("Current", { exact: true })).toBeVisible()
 
@@ -498,10 +498,10 @@ test("Project readers see published IP lifecycle results and safe failure fallba
     .getByRole("row")
     .filter({ hasText: "customer-upload-stage4-first.xlsx" })
   await firstUploadRow
-    .getByRole("button", { name: "Preview replacement" })
+    .getByRole("button", { name: "Preview selection" })
     .click()
   await page
-    .getByRole("button", { name: "Apply replacement", exact: true })
+    .getByRole("button", { name: "Set as current input", exact: true })
     .click()
   await expect(
     firstUploadRow.getByText("Current", { exact: true }),

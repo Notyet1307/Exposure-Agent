@@ -16,6 +16,7 @@ import {
 } from "@/client"
 import CloudAtlasSources from "@/components/CloudAtlasSources"
 import CreateProject, { CreateProjectLink } from "@/components/CreateProject"
+import { DiagnosticDetails } from "@/components/DiagnosticDetails"
 import Findings from "@/components/Findings"
 import GovernanceReports from "@/components/GovernanceReports"
 import GovernanceRuns from "@/components/GovernanceRuns"
@@ -46,6 +47,7 @@ import {
 } from "@/components/ui/table"
 import WorkspaceOverview from "@/components/WorkspaceOverview"
 import useAuth from "@/hooks/useAuth"
+import { apiErrorDetail, parseWarningDetail } from "@/lib/diagnostics"
 import { useI18n } from "@/lib/i18n"
 import { requestDigest } from "@/lib/ledgerIntent"
 import {
@@ -67,19 +69,19 @@ export const Route = createFileRoute("/_layout/")({
   }),
 })
 
-function safeUploadErrorMessage(error: Error): string {
-  if (
-    error instanceof ApiError &&
-    error.body &&
-    typeof error.body === "object"
-  ) {
-    const detail = (error.body as { detail?: unknown }).detail
-    if (detail && typeof detail === "object") {
-      const message = (detail as { message?: unknown }).message
-      if (typeof message === "string") return message
-    }
+function uploadError(error: Error): { message: string; detail: unknown } {
+  const detail = apiErrorDetail(error)
+  const message =
+    detail && typeof detail === "object"
+      ? (detail as { message?: unknown }).message
+      : undefined
+  return {
+    message:
+      typeof message === "string"
+        ? message
+        : "The upload could not be accepted. Please try again.",
+    detail,
   }
-  return "The upload could not be accepted. Please try again."
 }
 
 function HeaderList({ title, headers }: { title: string; headers: string[] }) {
@@ -97,6 +99,28 @@ function HeaderList({ title, headers }: { title: string; headers: string[] }) {
   )
 }
 
+const warningFieldLabels: Record<string, [string, string]> = {
+  asset_ip: ["Asset IP", "资产 IP"],
+  start_port: ["Start port", "起始端口"],
+  end_port: ["End port", "结束端口"],
+  is_web: ["Web interface", "是否 Web 界面"],
+  web_url: ["Web URL", "Web 界面 URL"],
+  service_type: ["Service", "服务类型"],
+  asset_owner: ["Declared owner", "原声明负责人"],
+  asset_department: ["Asset department", "资产所属部门"],
+  port_owner: ["Port owner", "端口负责人"],
+  department: ["Department", "部门"],
+  serial: ["Source number", "原序号"],
+}
+
+function warningFieldLabel(
+  value: string,
+  t: (english: string, chinese: string) => string,
+) {
+  const label = warningFieldLabels[value]
+  return label ? t(label[0], label[1]) : value
+}
+
 function WarningSummary({
   warnings,
 }: {
@@ -106,13 +130,71 @@ function WarningSummary({
   if (warnings.length === 0)
     return <span className="text-muted-foreground">{t("None", "无")}</span>
   return (
-    <ul className="space-y-1">
-      {warnings.map((warning) => (
-        <li key={`${warning.code}-${warning.field ?? "none"}`}>
-          {translateValue(warning.code)}
-          {warning.field ? ` (${warning.field})` : ""}: {warning.count}
-        </li>
-      ))}
+    <ul className="space-y-2">
+      {warnings.map((warning, index) => {
+        const detail = parseWarningDetail(
+          (warning as { detail?: unknown }).detail,
+        )
+        return (
+          <li key={`${warning.code}-${warning.field ?? "none"}-${index}`}>
+            <div>
+              {translateValue(warning.code)}
+              {warning.field ? ` (${warningFieldLabel(warning.field, t)})` : ""}
+              : {warning.count}
+            </div>
+            {warning.code === "extra_columns_ignored" && detail ? (
+              <div className="mt-1 text-xs text-muted-foreground">
+                <p>
+                  {t(
+                    "Ignored columns (original positions):",
+                    "已忽略列（原始位置）：",
+                  )}
+                </p>
+                <ul className="list-disc pl-4">
+                  {detail.names.map((item) => (
+                    <li key={`${item.column}-${item.name}`}>
+                      {item.name || t("(unnamed column)", "（未命名列）")}{" "}
+                      <span>
+                        ({t("column", "第")} {item.column})
+                      </span>
+                      {item.nearMatch && (
+                        <span>
+                          {" "}
+                          {t("Did you mean", "是否指")}{" "}
+                          {warningFieldLabel(item.nearMatch, t)}?
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {detail.omittedCount > 0 && (
+                  <p>
+                    {t(
+                      `${detail.omittedCount} more columns omitted.`,
+                      `另有 ${detail.omittedCount} 列未显示。`,
+                    )}
+                  </p>
+                )}
+                {detail.namesTruncated && (
+                  <p>
+                    {t(
+                      "Some column names are shortened to 64 characters.",
+                      "部分列名超过 64 个字符，已截断显示。",
+                    )}
+                  </p>
+                )}
+              </div>
+            ) : warning.code === "extra_columns_ignored" ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t(
+                  "Column details are unavailable for this historical warning.",
+                  "此历史警告没有列明细。",
+                )}
+              </p>
+            ) : null}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -211,7 +293,9 @@ function UploadRows({
                     disabled={selectingUploadId !== null}
                     onClick={() => onSelect(upload.id)}
                   >
-                    {t("Preview replacement", "预览替换")}
+                    {currentUploadId
+                      ? t("Preview replacement", "预览替换")
+                      : t("Preview selection", "预览选择")}
                   </LoadingButton>
                 )}
               </TableCell>
@@ -254,7 +338,10 @@ function ProjectInputs({
     })
   }
   const [fileMessage, setFileMessage] = useState<string | null>(null)
+  const [fileDiagnostic, setFileDiagnostic] = useState<unknown>(undefined)
   const [selectionMessage, setSelectionMessage] = useState<string | null>(null)
+  const [selectionDiagnostic, setSelectionDiagnostic] =
+    useState<unknown>(undefined)
   const replacementStorage = `exposure:customer-replacement:${actorId}:${project.id}`
   const alive = useRef(true)
   const starting = useRef(false)
@@ -311,6 +398,8 @@ function ProjectInputs({
   })
   const writable = useRef(false)
   writable.current = !!uploadsQuery.data?.can_select && !uploadsQuery.isError
+  const hasCurrentInput = useRef(false)
+  hasCurrentInput.current = !!uploadsQuery.data?.current_customer_upload_id
   const clearIntent = () => {
     sessionStorage.removeItem(replacementStorage)
     setPendingReplacement(null)
@@ -341,7 +430,12 @@ function ProjectInputs({
         formData: { file },
       }),
     onSuccess: async () => {
-      setFileMessage("Upload accepted successfully.")
+      setFileMessage(
+        hasCurrentInput.current
+          ? "Upload accepted. Preview the replacement before applying it."
+          : "Upload accepted. Preview this file and set it as the current input.",
+      )
+      setFileDiagnostic(undefined)
       if (fileInputRef.current) fileInputRef.current.value = ""
       setSelectedFilename(null)
       setPage(0)
@@ -349,7 +443,11 @@ function ProjectInputs({
         queryKey: ["customer-uploads", project.id],
       })
     },
-    onError: (error: Error) => setFileMessage(safeUploadErrorMessage(error)),
+    onError: (error: Error) => {
+      const failure = uploadError(error)
+      setFileMessage(failure.message)
+      setFileDiagnostic(failure.detail)
+    },
   })
   const selectionMutation = useMutation({
     mutationFn: async (uploadId: string) => {
@@ -375,14 +473,21 @@ function ProjectInputs({
       if (!alive.current || !writable.current) return
       setReplacement(result)
       setSelectionMessage(null)
+      setSelectionDiagnostic(undefined)
     },
-    onError: () => {
+    onError: (error) => {
+      if (alive.current) setSelectionDiagnostic(apiErrorDetail(error))
       if (alive.current)
         setSelectionMessage(
-          t(
-            "Could not read the replacement preview. Reload the current version and try again.",
-            "无法读取替换预览，请重新读取当前版本后重试。",
-          ),
+          hasCurrentInput.current
+            ? t(
+                "Could not read the replacement preview. Reload the current version and try again.",
+                "无法读取替换预览，请重新读取当前版本后重试。",
+              )
+            : t(
+                "Could not read the selection preview. Reload the current version and try again.",
+                "无法读取选择预览，请重新读取当前版本后重试。",
+              ),
         )
     },
   })
@@ -402,15 +507,22 @@ function ProjectInputs({
       throw new Error("Replacement receipt identity mismatch")
     return receipt
   }
-  const replacementSaved = async () => {
+  const replacementSaved = async (intent: ReplacementIntent) => {
     if (!alive.current || !writable.current) return
+    const selection = intent.request.expected_upload_id === null
     clearIntent()
     setReplacement(null)
+    setSelectionDiagnostic(undefined)
     setSelectionMessage(
-      t(
-        "Replacement confirmed. Current data has been reloaded; history is unchanged.",
-        "替换操作已确认。已重新读取当前数据，历史版本保持不变。",
-      ),
+      selection
+        ? t(
+            "Selection confirmed. This file is now the current input; history is unchanged.",
+            "选择已确认。此文件现为当前输入，历史版本保持不变。",
+          )
+        : t(
+            "Replacement confirmed. Current data has been reloaded; history is unchanged.",
+            "替换操作已确认。已重新读取当前数据，历史版本保持不变。",
+          ),
     )
     await Promise.all([
       queryClient.invalidateQueries({
@@ -438,10 +550,12 @@ function ProjectInputs({
         intent,
       )
     },
-    onSuccess: replacementSaved,
-    onError: (error) => {
+    onSuccess: (_receipt, intent) => replacementSaved(intent),
+    onError: (error, intent) => {
       if (!alive.current) return
       setCanReplay(false)
+      setSelectionDiagnostic(apiErrorDetail(error))
+      const selection = intent.request.expected_upload_id === null
       if (
         error instanceof ApiError &&
         [400, 401, 403, 404, 409, 422].includes(error.status)
@@ -453,17 +567,27 @@ function ProjectInputs({
                 "The current version or profile changed. This request was rejected; preview the latest version again.",
                 "当前版本或配置已变化，本次请求被拒绝，请重新预览最新版本。",
               )
-            : t(
-                "Replacement was rejected. Check access and the accepted file before previewing again.",
-                "替换请求被拒绝，请核对权限与已接受文件后重新预览。",
-              ),
+            : selection
+              ? t(
+                  "Selection was rejected. Check access and the accepted file before previewing again.",
+                  "选择请求被拒绝，请核对权限与已接受文件后重新预览。",
+                )
+              : t(
+                  "Replacement was rejected. Check access and the accepted file before previewing again.",
+                  "替换请求被拒绝，请核对权限与已接受文件后重新预览。",
+                ),
         )
       } else {
         setSelectionMessage(
-          t(
-            "The replacement outcome is unknown. Read the saved operation before submitting again.",
-            "替换结果尚未确认，请先读取原操作回执，再决定是否重新提交。",
-          ),
+          selection
+            ? t(
+                "The selection outcome is unknown. Read the saved operation before submitting again.",
+                "选择结果尚未确认，请先读取原操作回执，再决定是否重新提交。",
+              )
+            : t(
+                "The replacement outcome is unknown. Read the saved operation before submitting again.",
+                "替换结果尚未确认，请先读取原操作回执，再决定是否重新提交。",
+              ),
         )
       }
     },
@@ -491,6 +615,7 @@ function ProjectInputs({
       setReplacement(null)
       applyReplacement.mutate(intent)
     } catch {
+      if (alive.current) setSelectionDiagnostic(undefined)
       if (alive.current)
         setSelectionMessage(
           t(
@@ -512,9 +637,10 @@ function ProjectInputs({
         }),
         intent,
       ),
-    onSuccess: replacementSaved,
+    onSuccess: (_receipt, intent) => replacementSaved(intent),
     onError: (error) => {
       if (!alive.current) return
+      setSelectionDiagnostic(apiErrorDetail(error))
       const missing = error instanceof ApiError && error.status === 404
       setCanReplay(missing && writable.current)
       setSelectionMessage(
@@ -563,9 +689,11 @@ function ProjectInputs({
     const file = fileInputRef.current?.files?.[0]
     if (!file) {
       setFileMessage("Choose one XLSX file to upload.")
+      setFileDiagnostic(undefined)
       return
     }
     setFileMessage(null)
+    setFileDiagnostic(undefined)
     uploadMutation.mutate(file)
   }
 
@@ -680,9 +808,10 @@ function ProjectInputs({
             </Alert>
           )}
           {selectionMessage && (
-            <p className="text-sm" role="status">
-              {message(selectionMessage)}
-            </p>
+            <div className="text-sm" role="status">
+              <p>{message(selectionMessage)}</p>
+              <DiagnosticDetails detail={selectionDiagnostic} />
+            </div>
           )}
         </CardContent>
       </Card>
@@ -690,12 +819,21 @@ function ProjectInputs({
       {replacement && (
         <Card aria-live="polite">
           <CardHeader>
-            <CardTitle>{t("Replacement preview", "替换预览")}</CardTitle>
+            <CardTitle>
+              {replacement.request.expected_upload_id === null
+                ? t("Selection preview", "选择预览")
+                : t("Replacement preview", "替换预览")}
+            </CardTitle>
             <CardDescription>
-              {t(
-                "Apply replaces the complete current register and clears local edits for the new file. It does not change history.",
-                "应用会以新文件完整替换当前台账，并清除新文件的本地修订；不会改变历史版本。",
-              )}
+              {replacement.request.expected_upload_id === null
+                ? t(
+                    "Setting this file as the current input makes it the complete current register and clears local edits for it. It does not change history.",
+                    "将此文件设为当前输入后，它将成为完整的当前台账，并清除该文件的本地修订；不会改变历史版本。",
+                  )
+                : t(
+                    "Apply replaces the complete current register and clears local edits for the new file. It does not change history.",
+                    "应用会以新文件完整替换当前台账，并清除新文件的本地修订；不会改变历史版本。",
+                  )}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -739,7 +877,9 @@ function ProjectInputs({
                 disabled={!!pendingReplacement || !uploads.can_select}
                 onClick={() => void startReplacement()}
               >
-                {t("Apply replacement", "应用替换")}
+                {replacement.request.expected_upload_id === null
+                  ? t("Set as current input", "设为当前输入")
+                  : t("Apply replacement", "应用替换")}
               </LoadingButton>
               <Button
                 type="button"
@@ -760,14 +900,18 @@ function ProjectInputs({
         <Alert>
           <AlertTitle>
             {applyReplacement.isPending
-              ? t("Applying replacement…", "正在应用替换…")
-              : t("Replacement outcome unknown", "替换结果未知")}
+              ? pendingReplacement.request.expected_upload_id === null
+                ? t("Setting current input…", "正在设置当前输入…")
+                : t("Applying replacement…", "正在应用替换…")
+              : pendingReplacement.request.expected_upload_id === null
+                ? t("Selection outcome unknown", "选择结果未知")
+                : t("Replacement outcome unknown", "替换结果未知")}
           </AlertTitle>
           <AlertDescription className="flex flex-wrap items-center gap-2">
             <span>
               {t(
-                "Recover the saved request before starting another replacement.",
-                "请先恢复已保存的请求，再开始新的替换。",
+                "Recover the saved request before starting another change.",
+                "请先恢复已保存的请求，再开始新的更改。",
               )}
             </span>
             <LoadingButton
@@ -852,9 +996,10 @@ function ProjectInputs({
               </LoadingButton>
             </form>
             {fileMessage && (
-              <p className="mt-3 text-sm" role="status">
-                {message(fileMessage)}
-              </p>
+              <div className="mt-3 text-sm" role="status">
+                <p>{message(fileMessage)}</p>
+                <DiagnosticDetails detail={fileDiagnostic} />
+              </div>
             )}
           </CardContent>
         </Card>
@@ -873,7 +1018,13 @@ function ProjectInputs({
         <CardHeader>
           <CardTitle>{t("Accepted uploads", "已接受的上传")}</CardTitle>
           <CardDescription>
-            {t(`${uploads.count} total`, `共 ${uploads.count} 项`)}
+            <p>{t(`${uploads.count} total`, `共 ${uploads.count} 项`)}</p>
+            <p className="mt-1">
+              {t(
+                "Derived XLSX files materialize supported fields only. The absence of an extra-column warning is not evidence that unsupported columns are retained.",
+                "派生 XLSX 仅写入受支持字段。没有额外列警告并不代表未受支持的列已被保留。",
+              )}
+            </p>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -889,6 +1040,7 @@ function ProjectInputs({
             onSelect={(uploadId) => {
               if (pendingReplacement || preparing) return
               setSelectionMessage(null)
+              setSelectionDiagnostic(undefined)
               setReplacement(null)
               selectionMutation.mutate(uploadId)
             }}

@@ -35,7 +35,9 @@ from tests.utils.netflow_processing import (
 )
 
 
-def _workbook(ips: tuple[str, ...]) -> bytes:
+def _workbook(
+    ips: tuple[str, ...], *, ports: tuple[int, int] = (443, 443)
+) -> bytes:
     book = Workbook()
     sheet = book.active
     assert sheet is not None
@@ -44,8 +46,8 @@ def _workbook(ips: tuple[str, ...]) -> bytes:
         sheet.append(
             [
                 ip,
-                443,
-                443,
+                ports[0],
+                ports[1],
                 "是",
                 "example.test",
                 "HTTPS",
@@ -83,6 +85,7 @@ def _setup_core(
     *,
     cloud_ips: tuple[str, ...] = ("192.0.2.20", "192.0.2.30"),
     complete: bool = True,
+    customer_ports: tuple[int, int] = (443, 443),
 ) -> dict[str, Any]:
     monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     project_public = _project(client, headers)
@@ -91,7 +94,12 @@ def _setup_core(
     upload = client.post(
         root + "/customer-uploads",
         headers=headers,
-        files={"file": ("core.xlsx", _workbook(("192.0.2.10", "192.0.2.20")))},
+        files={
+            "file": (
+                "core.xlsx",
+                _workbook(("192.0.2.10", "192.0.2.20"), ports=customer_ports),
+            )
+        },
     )
     assert upload.status_code == 201, upload.text
     selected = client.post(

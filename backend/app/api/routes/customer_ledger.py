@@ -30,7 +30,9 @@ Key = Annotated[
 
 
 def _error(error: service.LedgerError) -> HTTPException:
-    return HTTPException(status_code=error.status, detail={"code": error.code})
+    detail: dict[str, object] = {"code": error.code}
+    detail.update(error.diagnostic.detail_fields())
+    return HTTPException(status_code=error.status, detail=detail)
 
 
 @router.get("", response_model=service.LedgerPage)

@@ -25,3 +25,7 @@ Run 继续固定 CustomerUpload ID、raw hash 和 Profile ID/version，不增加
 继承 ADR-0008 的固定输入/恢复、ADR-0013 的报告分派和 ADR-0016 的权威分工。编辑只生成新版本，不自动启动 Run/模型/扫描，不调外部系统、不关闭 Finding、不改旧报告/引用。01B/01C/02、客户系统同步、空输入和 namespace 治理仍未批准。
 
 PostgreSQL、agent-compose、OctoBus 边界不变，无第二调度器、Controller 或通用规则系统。发布、实施、验证和部署以实际授权及证据分别记录。
+
+## 2026-11-06 澄清（不改变本 ADR 决定）
+
+文中的“旧严格校验”指当前共享 CustomerUpload validator 的严格接受链路，不把当时未包含的端口闭区间或容量阈值追溯为历史已接受事实。2026-11-06 的窄范围修复附录仅更新该共享 validator 的容量上限、端口谓词和诊断/未知列 warning/首次选择呈现；本 ADR 的严格链路、原 Artifact 不可变、人工 Revision 父子链、原子事务与幂等语义继续有效。
