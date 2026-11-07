@@ -30,9 +30,11 @@ def _errors() -> Iterator[None]:
     try:
         yield
     except (service.LedgerError, CustomerLedgerError, CloudLedgerError) as error:
-        raise HTTPException(
-            status_code=error.status, detail={"code": error.code}
-        ) from None
+        detail: dict[str, object] = {"code": error.code}
+        diagnostic = getattr(error, "diagnostic", None)
+        if diagnostic is not None:
+            detail.update(diagnostic.detail_fields())
+        raise HTTPException(status_code=error.status, detail=detail) from None
     except ValueError, IPRecordContractError:
         raise HTTPException(
             status_code=422, detail={"code": "netflow_ledger_input_invalid"}

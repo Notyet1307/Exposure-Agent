@@ -652,3 +652,41 @@ def build_xlsx_fixture(name: str, path: Path) -> Path:
     else:
         raise ValueError(f"unknown fixture kind: {name}")
     return path
+
+
+def pad_xlsx_to_size(path: Path, size: int) -> Path:
+    """Grow a valid XLSX to an exact byte size with a stored member and ZIP comment."""
+    base = path.with_name(f"{path.stem}-base.xlsx")
+    path.replace(base)
+    with ZipFile(base) as archive, ZipFile(path, "w") as output:
+        for info in archive.infolist():
+            output.writestr(info, archive.read(info))
+        padding = size - base.stat().st_size - 4_096
+        assert padding > 0
+        padding_info = ZipInfo("fixture/padding.bin", date_time=(2026, 1, 1, 0, 0, 0))
+        padding_info.compress_type = ZIP_STORED
+        output.writestr(padding_info, b"\x00" * padding)
+    delta = size - path.stat().st_size
+    if delta > 65_535 or delta < 0:
+        target = path.with_name(f"{path.stem}-adjusted.xlsx")
+        with ZipFile(base) as archive, ZipFile(target, "w") as output:
+            for info in archive.infolist():
+                output.writestr(info, archive.read(info))
+            adjusted = size - base.stat().st_size - 4_096 + delta - 65_535
+            assert adjusted > 0
+            padding_info = ZipInfo(
+                "fixture/padding.bin", date_time=(2026, 1, 1, 0, 0, 0)
+            )
+            padding_info.compress_type = ZIP_STORED
+            output.writestr(padding_info, b"\x00" * adjusted)
+        target.replace(path)
+        delta = size - path.stat().st_size
+    assert 0 <= delta <= 65_535
+    data = bytearray(path.read_bytes())
+    eocd = data.rfind(b"PK\x05\x06")
+    assert eocd >= 0 and eocd + 22 == len(data)
+    struct.pack_into("<H", data, eocd + 20, delta)
+    path.write_bytes(bytes(data) + b"c" * delta)
+    assert path.stat().st_size == size
+    base.unlink(missing_ok=True)
+    return path

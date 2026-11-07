@@ -13,7 +13,7 @@ from typing import NoReturn, cast
 
 import pytest
 from fastapi.testclient import TestClient
-from openpyxl import Workbook  # type: ignore[import-untyped]
+from openpyxl import Workbook, load_workbook  # type: ignore[import-untyped]
 from pytest import LogCaptureFixture, MonkeyPatch
 from sqlalchemy import event, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -37,18 +37,47 @@ from app.main import app
 from tests.utils.audit import reject_audit_inserts
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
+from tests.xlsx_fixtures import pad_xlsx_to_size
 
 REQUIRED_HEADERS = ["资产IP", "起始端口", "结束端口", "是否web界面", "web界面url"]
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-def _workbook_bytes(*, asset_ip: str = "192.0.2.10", formula: bool = False) -> bytes:
+def _workbook_bytes(
+    *,
+    asset_ip: str = "192.0.2.10",
+    formula: bool = False,
+    start_port: int = 443,
+    end_port: int = 443,
+) -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.append(REQUIRED_HEADERS)
     worksheet.append(
-        [asset_ip, 443, 443, "是", "=HYPERLINK(\"https://example.test\")" if formula else "example.test"]
+        [
+            asset_ip,
+            start_port,
+            end_port,
+            "是",
+            "=HYPERLINK(\"https://example.test\")"
+            if formula
+            else "example.test",
+        ]
     )
+    output = io.BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
+REORDERED_HEADERS = ["web界面url", "是否web界面", "结束端口", "起始端口", "资产IP"]
+
+
+def _reordered_workbook_bytes(*, start_port: int = 443) -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(REORDERED_HEADERS)
+    worksheet.append([None, "否", 443, start_port, "192.0.2.1"])
     output = io.BytesIO()
     workbook.save(output)
     workbook.close()
@@ -553,6 +582,59 @@ def test_repeated_upload_returns_existing_record_without_duplicate_side_effects(
     assert len(list((tmp_path / "customer_uploads").glob("*.xlsx"))) == 1
 
 
+def test_repeated_interval_upload_dedupes_and_preserves_both_endpoints(
+    client: TestClient,
+    db: Session,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    content = _workbook_bytes(start_port=10_001, end_port=10_002)
+    url = f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads"
+
+    first = client.post(
+        url,
+        headers=superuser_token_headers,
+        files={"file": ("first.xlsx", content, XLSX_MEDIA_TYPE)},
+    )
+    repeated = client.post(
+        url,
+        headers=superuser_token_headers,
+        files={"file": ("second.xlsx", content, XLSX_MEDIA_TYPE)},
+    )
+    assert first.status_code == 201
+    assert repeated.status_code == 200
+    assert repeated.json() == first.json()
+
+    upload_id = first.json()["id"]
+    selected = client.post(
+        f"{url}/{upload_id}/select", headers=superuser_token_headers
+    )
+    assert selected.status_code == 200, selected.text
+    ledger = client.get(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-ledger",
+        headers=superuser_token_headers,
+    )
+    assert ledger.status_code == 200, ledger.text
+    fields = ledger.json()["data"][0]["fields"]
+    assert (fields["start_port"], fields["end_port"]) == (10_001, 10_002)
+
+    db.expire_all()
+    upload = db.get(CustomerUpload, uuid.UUID(str(upload_id)))
+    assert upload is not None
+    artifact = db.get(Artifact, upload.artifact_id)
+    assert artifact is not None
+    book = load_workbook(tmp_path / artifact.storage_key, read_only=True)
+    assert book.active is not None
+    assert any(
+        row[1] == 10_001 and row[2] == 10_002
+        for row in book.active.iter_rows(min_row=2, values_only=True)
+    )
+    book.close()
+
+
 def test_concurrent_uploads_are_idempotent(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -741,7 +823,7 @@ def test_archived_project_is_readable_but_cannot_accept_uploads(
         ("customer.xlsx", b"not an xlsx", 415, "unsupported_workbook_type"),
         (
             "customer.xlsx",
-            b"x" * (20 * 1024 * 1024 + 1),
+            b"x" * (50 * 1024 * 1024 + 1),
             413,
             "upload_too_large",
         ),
@@ -770,13 +852,20 @@ def test_upload_transport_rejections_are_stable_and_leave_no_records(
     )
 
     assert response.status_code == expected_status
-    assert response.json()["detail"] == {
-        "code": expected_code,
-        "message": {
-            "unsupported_workbook_type": "Only XLSX workbooks are supported.",
-            "upload_too_large": "The upload exceeds the allowed size.",
-        }[expected_code],
-    }
+    detail = response.json()["detail"]
+    assert detail["code"] == expected_code
+    assert detail["message"] == {
+        "unsupported_workbook_type": "Only XLSX workbooks are supported.",
+        "upload_too_large": "The upload exceeds the allowed size.",
+    }[expected_code]
+    if expected_code == "upload_too_large":
+        assert detail["reason"] == "workbook_bytes"
+        assert detail["limit"] == 52_428_800
+        assert detail["observed"] >= 52_428_801
+        assert detail["measurement"] == "received"
+        assert detail["unit"] == "bytes"
+    else:
+        assert set(detail) == {"code", "message"}
     assert filename not in response.text
     assert str(tmp_path) not in response.text
     db.expire_all()
@@ -787,6 +876,80 @@ def test_upload_transport_rejections_are_stable_and_leave_no_records(
     ).one() == 0
     assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
     assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
+def test_exact_fifty_mib_workbook_is_accepted_through_the_api(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    path = tmp_path / "exact-50mib.xlsx"
+    path.write_bytes(_workbook_bytes())
+    pad_xlsx_to_size(path, 52_428_800)
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers=superuser_token_headers,
+        files={"file": ("exact-50mib.xlsx", path.read_bytes(), XLSX_MEDIA_TYPE)},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["record_count"] == 1
+    stored = list((tmp_path / "customer_uploads").glob("*.xlsx"))
+    assert len(stored) == 1 and stored[0].stat().st_size == 52_428_800
+
+
+def test_extra_column_warning_detail_is_api_visible_and_persisted(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append([*REQUIRED_HEADERS, "资产 IP", "服务 类型"])
+    worksheet.append(["192.0.2.10", 443, 443, "是", "example.test", "x", "y"])
+    output = io.BytesIO()
+    workbook.save(output)
+    workbook.close()
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers=superuser_token_headers,
+        files={"file": ("extra.xlsx", output.getvalue(), XLSX_MEDIA_TYPE)},
+    )
+
+    assert response.status_code == 201, response.text
+    upload = response.json()
+    extra = next(
+        warning
+        for warning in upload["warnings"]
+        if warning["code"] == "extra_columns_ignored"
+    )
+    assert extra["count"] == 2
+    assert extra["detail"] == {
+        "names": [
+            {"name": "资产 IP", "column": 6, "near_match": "asset_ip"},
+            {"name": "服务 类型", "column": 7, "near_match": "service_type"},
+        ],
+        "truncated": False,
+        "omitted_count": 0,
+        "names_truncated": False,
+    }
+    with Session(engine) as session:
+        stored = session.get(CustomerUpload, uuid.UUID(upload["id"]))
+        assert stored is not None
+        persisted = next(
+            warning
+            for warning in stored.warnings
+            if warning["code"] == "extra_columns_ignored"
+        )
+        assert persisted["detail"] == extra["detail"]
 
 
 def test_valid_upload_streams_without_framework_spooling(
@@ -891,7 +1054,7 @@ def test_oversized_non_file_multipart_content_is_rejected(
         b"--"
         + boundary
         + b'\r\nContent-Disposition: form-data; name="metadata"\r\n\r\n'
-        + b"x" * (20 * 1024 * 1024 + 64 * 1024)
+        + b"x" * (50 * 1024 * 1024 + 64 * 1024)
         + b"\r\n--"
         + boundary
         + b"--\r\n"
@@ -907,11 +1070,40 @@ def test_oversized_non_file_multipart_content_is_rejected(
     )
 
     assert response.status_code == 413
-    assert response.json()["detail"] == {
-        "code": "upload_too_large",
-        "message": "The upload exceeds the allowed size.",
-    }
+    detail = response.json()["detail"]
+    assert detail["code"] == "upload_too_large"
+    assert detail["message"] == "The upload exceeds the allowed size."
+    assert detail["reason"] == "request_bytes"
+    assert detail["limit"] == 52_428_800 + 65_536
+    assert detail["observed"] > detail["limit"]
+    assert detail["measurement"] == "received"
+    assert detail["unit"] == "bytes"
     assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
+def test_stream_capacity_rejection_reports_received_bytes_not_final_size(
+    tmp_path: Path,
+) -> None:
+    stream = customer_upload_service._CustomerUploadMultipartStream(
+        tmp_path / "partial.xlsx"
+    )
+    stream.destination = stream.temporary_path.open("xb")
+    stream.current_part_is_upload = True
+    stream.byte_size = 52_428_800
+
+    with pytest.raises(
+        customer_upload_service.CustomerUploadAcceptanceError
+    ) as caught:
+        stream.on_part_data(b"xy", 0, 2)
+
+    assert caught.value.code == "upload_too_large"
+    assert caught.value.reason == "workbook_bytes"
+    assert caught.value.limit == 52_428_800
+    assert caught.value.observed == 52_428_802
+    assert caught.value.measurement == "received"
+    assert caught.value.unit == "bytes"
+    stream.abort()
+    assert not stream.temporary_path.exists()
 
 
 def test_cancelled_multipart_stream_removes_temporary_file(tmp_path: Path) -> None:
@@ -982,6 +1174,9 @@ def test_validator_rejection_is_sanitized_and_compensated(
         "message": "The workbook contains an invalid required value.",
         "field": "asset_ip",
         "row": 2,
+        "column": 1,
+        "reason": "invalid_ip",
+        "location": "worksheet",
     }
     assert "customer-secret" not in response.text
     assert str(tmp_path) not in response.text
@@ -997,6 +1192,41 @@ def test_validator_rejection_is_sanitized_and_compensated(
     assert str(tmp_path) not in caplog.text
     assert db.exec(select(func.count()).select_from(AuditEvent)).one() == audit_count
     assert not list((tmp_path / "customer_uploads").glob("*"))
+
+
+def test_reordered_header_rejection_reports_the_original_column(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project['id']}/customer-uploads",
+        headers=superuser_token_headers,
+        files={
+            "file": (
+                "reordered.xlsx",
+                _reordered_workbook_bytes(start_port=70_000),
+                XLSX_MEDIA_TYPE,
+            )
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": "invalid_required_value",
+        "message": "The workbook contains an invalid required value.",
+        "field": "start_port",
+        "row": 2,
+        "column": 4,
+        "reason": "port_out_of_range",
+        "location": "worksheet",
+        "limit": 65_535,
+        "unit": "port_number",
+    }
 
 
 def test_validator_rejection_cleanup_failure_returns_storage_error(
@@ -1054,7 +1284,15 @@ def test_active_content_maps_to_unsupported_workbook_feature(
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "unsupported_workbook_feature"
+    assert response.json()["detail"] == {
+        "code": "unsupported_workbook_feature",
+        "message": "The workbook contains an unsupported feature.",
+        "field": "web_url",
+        "row": 2,
+        "column": 5,
+        "reason": "unsupported_formula",
+        "location": "worksheet",
+    }
     assert not list((tmp_path / "customer_uploads").glob("*"))
 
 

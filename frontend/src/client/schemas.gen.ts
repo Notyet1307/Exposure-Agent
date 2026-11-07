@@ -2901,6 +2901,65 @@ export const CustomerUploadPublicSchema = {
     title: 'CustomerUploadPublic'
 } as const;
 
+export const CustomerUploadWarningDetailPublicSchema = {
+    properties: {
+        names: {
+            items: {
+                '$ref': '#/components/schemas/CustomerUploadWarningNamePublic'
+            },
+            type: 'array',
+            maxItems: 32,
+            title: 'Names'
+        },
+        truncated: {
+            type: 'boolean',
+            title: 'Truncated'
+        },
+        omitted_count: {
+            type: 'integer',
+            minimum: 0,
+            title: 'Omitted Count'
+        },
+        names_truncated: {
+            type: 'boolean',
+            title: 'Names Truncated',
+            default: false
+        }
+    },
+    type: 'object',
+    required: ['names', 'truncated', 'omitted_count'],
+    title: 'CustomerUploadWarningDetailPublic'
+} as const;
+
+export const CustomerUploadWarningNamePublicSchema = {
+    properties: {
+        name: {
+            type: 'string',
+            maxLength: 64,
+            title: 'Name'
+        },
+        column: {
+            type: 'integer',
+            minimum: 1,
+            title: 'Column'
+        },
+        near_match: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Near Match'
+        }
+    },
+    type: 'object',
+    required: ['name', 'column'],
+    title: 'CustomerUploadWarningNamePublic'
+} as const;
+
 export const CustomerUploadWarningPublicSchema = {
     properties: {
         code: {
@@ -2921,6 +2980,16 @@ export const CustomerUploadWarningPublicSchema = {
         count: {
             type: 'integer',
             title: 'Count'
+        },
+        detail: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/CustomerUploadWarningDetailPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
         }
     },
     type: 'object',

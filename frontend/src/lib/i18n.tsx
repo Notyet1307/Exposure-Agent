@@ -89,6 +89,10 @@ const messages: Record<string, string> = Object.setPrototypeOf(
     "The upload could not be accepted. Please try again.":
       "无法接受上传，请重试。",
     "Upload accepted successfully.": "上传已成功接受。",
+    "Upload accepted. Preview this file and set it as the current input.":
+      "上传已接受。请预览此文件并将其设为当前输入。",
+    "Upload accepted. Preview the replacement before applying it.":
+      "上传已接受。请先预览替换内容，再应用替换。",
     "Current Project input updated successfully.": "项目当前输入已更新。",
     "The current Project input could not be changed.": "无法更改项目当前输入。",
     "Choose one XLSX file to upload.": "请选择一个 XLSX 文件上传。",

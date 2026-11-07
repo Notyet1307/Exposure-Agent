@@ -444,10 +444,26 @@ class NetFlowDatasetsPublic(SQLModel):
     can_select: bool
 
 
+class CustomerUploadWarningNamePublic(SQLModel):
+    name: str = Field(max_length=64)
+    column: int = Field(ge=1)
+    near_match: str | None = None
+
+
+class CustomerUploadWarningDetailPublic(SQLModel):
+    names: list[CustomerUploadWarningNamePublic] = Field(max_length=32)
+    truncated: bool
+    omitted_count: int = Field(ge=0)
+    names_truncated: bool = False
+
+
 class CustomerUploadWarningPublic(SQLModel):
     code: str
     field: str | None
     count: int
+    detail: CustomerUploadWarningDetailPublic | None = PydanticField(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class CustomerUpload(SQLModel, table=True):

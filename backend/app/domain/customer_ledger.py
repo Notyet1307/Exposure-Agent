@@ -8,6 +8,7 @@ import json
 import tempfile
 import uuid
 from collections import Counter
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -37,6 +38,7 @@ from app.domain.customer_upload_validator import (
     _validate_required_row,
     validate_customer_upload_workbook,
 )
+from app.domain.diagnostics import Diagnostic
 from app.domain.ip_consistency import IPRecordContractError, normalize_ip
 from app.domain.models import (
     Artifact,
@@ -202,9 +204,52 @@ class ReplacementReceipt(BaseModel):
 
 
 class LedgerError(Exception):
-    def __init__(self, code: str, status: int = 409) -> None:
+    def __init__(
+        self,
+        code: str,
+        status: int = 409,
+        *,
+        diagnostic: Diagnostic | None = None,
+    ) -> None:
         self.code = code
         self.status = status
+        self.diagnostic = diagnostic or Diagnostic(code=code)
+
+    @property
+    def field(self) -> str | None:
+        return self.diagnostic.field
+
+    @property
+    def row(self) -> int | None:
+        return self.diagnostic.row
+
+    @property
+    def column(self) -> int | None:
+        return self.diagnostic.column
+
+    @property
+    def reason(self) -> str | None:
+        return self.diagnostic.reason
+
+    @property
+    def location(self) -> str | None:
+        return self.diagnostic.location
+
+    @property
+    def limit(self) -> int | None:
+        return self.diagnostic.limit
+
+    @property
+    def observed(self) -> int | None:
+        return self.diagnostic.observed
+
+    @property
+    def measurement(self) -> str | None:
+        return self.diagnostic.measurement
+
+    @property
+    def unit(self) -> str | None:
+        return self.diagnostic.unit
 
 
 def public_revision(record: CustomerLedgerRevision) -> RevisionPublic:
@@ -613,35 +658,79 @@ def recover(
     ).one_or_none()
 
 
+def _ledger_position_for_worksheet_row(
+    worksheet_row: int | None, rows: list[LedgerEntry]
+) -> int | None:
+    """Map a generated workbook row only when it matches one active ledger row."""
+    if worksheet_row is None or worksheet_row < 2:
+        return None
+    active = [row.position for row in rows if not row.archived]
+    index = worksheet_row - 2
+    return active[index] if index < len(active) else None
+
+
+def _ledger_diagnostic(diagnostic: Diagnostic, row: int | None) -> Diagnostic:
+    return replace(
+        diagnostic,
+        code="ledger_fields_invalid",
+        row=row,
+        column=None,
+        location="ledger",
+    )
+
+
 def _write_workbook(rows: list[LedgerEntry]) -> Path:
     root = settings.ARTIFACT_ROOT
     root.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=root, suffix=".xlsx", delete=False) as output:
         path = Path(output.name)
     workbook = Workbook()
+    write_position: int | None = None
     try:
         sheet = workbook.active
         sheet.append(list(HEADERS))
+        # The dense row counter avoids openpyxl's whole-sheet scan in max_row.
+        worksheet_row = 1
         for row in rows:
             if row.archived:
                 continue
+            write_position = row.position
             values = [_excel(row.fields.get(field)) for field in FIELD_NAMES]
-            _validate_required_row(
-                values,
-                dict(zip(FIELD_NAMES, range(len(FIELD_NAMES)), strict=True)),
-                row.position + 1,
-            )
+            try:
+                _validate_required_row(
+                    values,
+                    dict(zip(FIELD_NAMES, range(len(FIELD_NAMES)), strict=True)),
+                    row.position + 1,
+                )
+            except CustomerUploadValidationError as error:
+                raise LedgerError(
+                    "ledger_fields_invalid",
+                    422,
+                    diagnostic=_ledger_diagnostic(error.diagnostic, row.position),
+                ) from None
             sheet.append(values)
-            for cell in sheet[sheet.max_row]:
+            worksheet_row += 1
+            for column in range(1, len(HEADERS) + 1):
+                cell = sheet.cell(row=worksheet_row, column=column)
                 if isinstance(cell.value, str):
                     cell.data_type = (
                         "s"  # User text is always a literal, never an Excel formula.
                     )
+            write_position = None
         workbook.save(path)
         validate_customer_upload_workbook(path)
         return path
     except Exception as error:
         path.unlink(missing_ok=True)
+        if isinstance(error, CustomerUploadValidationError):
+            raise LedgerError(
+                "ledger_fields_invalid",
+                422,
+                diagnostic=_ledger_diagnostic(
+                    error.diagnostic,
+                    _ledger_position_for_worksheet_row(error.diagnostic.row, rows),
+                ),
+            ) from None
         if isinstance(
             error,
             (
@@ -651,7 +740,20 @@ def _write_workbook(rows: list[LedgerEntry]) -> Path:
                 OverflowError,
             ),
         ):
-            raise LedgerError("ledger_fields_invalid", 422) from None
+            raise LedgerError(
+                "ledger_fields_invalid",
+                422,
+                diagnostic=Diagnostic(
+                    code="ledger_fields_invalid",
+                    row=write_position,
+                    reason=(
+                        "unsupported_character"
+                        if isinstance(error, IllegalCharacterError)
+                        else "unsupported_cell_value"
+                    ),
+                    location="ledger",
+                ),
+            ) from None
         raise
     finally:
         workbook.close()
@@ -731,9 +833,22 @@ def save(
                 raise LedgerError("ledger_last_entry", 422)
             for item in rows:
                 if not item.archived:
-                    item.canonical_ip = normalize_ip(
-                        str(item.fields.get("asset_ip", ""))
-                    )
+                    try:
+                        item.canonical_ip = normalize_ip(
+                            str(item.fields.get("asset_ip", ""))
+                        )
+                    except IPRecordContractError as error:
+                        raise LedgerError(
+                            "ledger_fields_invalid",
+                            422,
+                            diagnostic=Diagnostic(
+                                code="ledger_fields_invalid",
+                                field="asset_ip",
+                                row=item.position,
+                                reason=error.code,
+                                location="ledger",
+                            ),
+                        ) from None
             path = _write_workbook(rows)
             size = path.stat().st_size
             with path.open("rb") as stream:
@@ -826,17 +941,42 @@ def save(
             promoted_path.unlink(missing_ok=True)
         if isinstance(error, LedgerError):
             raise
-        if isinstance(
-            error,
-            CustomerUploadValidationError
-            | IPRecordContractError
-            | ValueError
-            | OverflowError,
-        ):
-            raise LedgerError("ledger_fields_invalid", 422) from None
-        if isinstance(error, uploads.CustomerUploadAcceptanceError):
+        if isinstance(error, CustomerUploadValidationError):
             raise LedgerError(
-                error.code, 500 if error.code == "upload_storage_failed" else 422
+                "ledger_fields_invalid",
+                422,
+                diagnostic=replace(
+                    error.diagnostic,
+                    code="ledger_fields_invalid",
+                    row=None,
+                    column=None,
+                    location="ledger",
+                ),
+            ) from None
+        if isinstance(error, IPRecordContractError | ValueError | OverflowError):
+            raise LedgerError(
+                "ledger_fields_invalid",
+                422,
+                diagnostic=Diagnostic(
+                    code="ledger_fields_invalid",
+                    field=getattr(error, "field", None),
+                    reason="invalid_required_value",
+                    location="ledger",
+                ),
+            ) from None
+        if isinstance(error, uploads.CustomerUploadAcceptanceError):
+            diagnostic = error.diagnostic
+            if diagnostic.location == "worksheet":
+                diagnostic = replace(
+                    diagnostic,
+                    row=_ledger_position_for_worksheet_row(diagnostic.row, rows),
+                    column=None,
+                    location="ledger",
+                )
+            raise LedgerError(
+                error.code,
+                500 if error.code == "upload_storage_failed" else 422,
+                diagnostic=diagnostic,
             ) from None
         if isinstance(error, SQLAlchemyError | OSError):
             raise LedgerError("ledger_save_failed", 500) from None

@@ -59,20 +59,20 @@ test("customer replacement uses the real preview, preserves old versions and rec
   ).json()
   expect(inputs.current_customer_upload_id).toBeNull()
   const firstId = inputs.data[0].id as string
-  await first.getByRole("button", { name: "Preview replacement" }).click()
+  await first.getByRole("button", { name: "Preview selection" }).click()
   await expect(
-    page.getByText("Replacement preview", { exact: true }),
+    page.getByText("Selection preview", { exact: true }),
   ).toBeVisible()
   expect(
     (await (await request.get(`${root}/customer-uploads`, { headers })).json())
       .current_customer_upload_id,
   ).toBeNull()
   await page
-    .getByRole("button", { name: "Apply replacement", exact: true })
+    .getByRole("button", { name: "Set as current input", exact: true })
     .click()
   await expect(first.getByText("Current", { exact: true })).toBeVisible()
   await expect(
-    page.getByText("Replacement confirmed.", { exact: false }),
+    page.getByText("Selection confirmed.", { exact: false }),
   ).toBeVisible()
 
   const second = await upload("customer-upload-stage4-second.xlsx")

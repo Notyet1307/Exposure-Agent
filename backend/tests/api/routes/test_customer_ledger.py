@@ -18,6 +18,8 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.db import engine
 from app.domain import customer_ledger as ledger
+from app.domain import customer_uploads
+from app.domain.diagnostics import Diagnostic
 from app.domain.models import (
     Artifact,
     AuditEvent,
@@ -450,18 +452,42 @@ def test_archive_add_validation_and_immutability(
     assert added.status_code == 201, added.text
     current = read(client, setup_ledger)
     assert current["count"] == 61
-    assert (
-        post(
-            client, setup_ledger, edit(current, fields={"start_port": 1, "end_port": 2})
-        ).status_code
-        == 422
+    interval = post(
+        client, setup_ledger, edit(current, fields={"start_port": 10_001, "end_port": 10_002})
     )
-    assert (
-        post(
-            client, setup_ledger, edit(current, fields={"asset_ip": "fe80::1%en0"})
-        ).status_code
-        == 422
+    assert interval.status_code == 201, interval.text
+    current = read(client, setup_ledger)
+    assert current["data"][0]["fields"]["start_port"] == 10_001
+    assert current["data"][0]["fields"]["end_port"] == 10_002
+    derived = read(client, setup_ledger, original=False)
+    assert derived["data"][0]["fields"]["start_port"] == 10_001
+    assert derived["data"][0]["fields"]["end_port"] == 10_002
+    with Session(engine) as db:
+        derived_upload = db.get(CustomerUpload, current["upload_id"])
+        assert derived_upload is not None
+        derived_artifact = db.get(Artifact, derived_upload.artifact_id)
+        assert derived_artifact is not None
+        book = load_workbook(
+            setup_ledger[-1] / derived_artifact.storage_key, read_only=True
+        )
+        sheet = book.active
+        assert sheet is not None
+        assert any(
+            row[1] == 10_001 and row[2] == 10_002
+            for row in sheet.iter_rows(min_row=2, values_only=True)
+        )
+        book.close()
+    invalid_ip = post(
+        client, setup_ledger, edit(current, fields={"asset_ip": "fe80::1%en0"})
     )
+    assert invalid_ip.status_code == 422
+    assert invalid_ip.json()["detail"] == {
+        "code": "ledger_fields_invalid",
+        "field": "asset_ip",
+        "row": current["data"][0]["position"],
+        "reason": "invalid_ip",
+        "location": "ledger",
+    }
     with Session(engine) as db:
         with pytest.raises(SQLAlchemyError, match="immutable"):
             db.execute(
@@ -481,6 +507,67 @@ def test_archive_add_validation_and_immutability(
             )
             db.commit()
         db.rollback()
+
+
+@pytest.mark.parametrize(
+    ("worksheet_row", "expected_row"),
+    [(2, 2), (99, None)],
+)
+def test_acceptance_diagnostic_maps_generated_rows_to_ledger(
+    client: TestClient,
+    setup_ledger: LedgerSetup,
+    monkeypatch: pytest.MonkeyPatch,
+    worksheet_row: int,
+    expected_row: int | None,
+) -> None:
+    first = read(client, setup_ledger)
+    archive = edit(first, operation="archive")
+    archive["fields"] = {}
+    archived = post(client, setup_ledger, archive)
+    assert archived.status_code == 201, archived.text
+    current = read(client, setup_ledger)
+    assert current["data"][0]["position"] == 2
+
+    def reject(**_kwargs: Any) -> NoReturn:
+        raise customer_uploads.CustomerUploadAcceptanceError(
+            "invalid_required_value",
+            diagnostic=Diagnostic(
+                code="invalid_required_value",
+                field="start_port",
+                row=worksheet_row,
+                column=4,
+                reason="port_out_of_range",
+                location="worksheet",
+                limit=65_535,
+                observed=70_000,
+                measurement="exact",
+                unit="port_number",
+            ),
+        )
+
+    monkeypatch.setattr(customer_uploads, "accept_customer_upload", reject)
+    response = post(
+        client,
+        setup_ledger,
+        edit(current, fields={"start_port": 10_001, "end_port": 10_002}),
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "column" not in detail
+    expected: dict[str, object] = {
+        "code": "invalid_required_value",
+        "field": "start_port",
+        "reason": "port_out_of_range",
+        "location": "ledger",
+        "limit": 65_535,
+        "observed": 70_000,
+        "measurement": "exact",
+        "unit": "port_number",
+    }
+    if expected_row is not None:
+        expected["row"] = expected_row
+    assert detail == expected
 
 
 def test_permissions_recovery_scope_and_archive(
@@ -729,3 +816,119 @@ def test_replacement_cannot_reset_current_manual_revision(
     after = read(client, setup_ledger)
     assert after["current_revision_id"] == current["current_revision_id"]
     assert after["data"] == current["data"]
+
+
+def test_first_selection_preview_apply_replay_and_conflict_without_current_input(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
+    project = _create_project(client, superuser_token_headers)
+    root = f"{settings.API_V1_STR}/projects/{project['id']}"
+    book = Workbook()
+    sheet = book.active
+    assert sheet is not None
+    sheet.append(list(ledger.HEADERS))
+    sheet.append(["2001:db8:10::40", 443, 443, "是", "example.net"])
+    sheet.append(["2001:db8:10::41", 443, 443, "否", None])
+    stream = io.BytesIO()
+    book.save(stream)
+    book.close()
+    candidate_response = client.post(
+        root + "/customer-uploads",
+        headers=superuser_token_headers,
+        files={"file": ("first-selection.xlsx", stream.getvalue())},
+    )
+    assert candidate_response.status_code == 201, candidate_response.text
+    candidate = candidate_response.json()
+    listings = client.get(root + "/customer-uploads", headers=superuser_token_headers)
+    assert listings.status_code == 200, listings.text
+    assert listings.json()["current_customer_upload_id"] is None
+    page = client.get(root + "/customer-ledger", headers=superuser_token_headers)
+    assert page.status_code == 200, page.text
+    initial = page.json()
+    assert (
+        initial["upload_id"] is None
+        and initial["current_upload_id"] is None
+        and initial["current_revision_id"] is None
+        and initial["can_edit"] is False
+        and initial["data"] == []
+    )
+    body = {
+        "candidate_upload_id": candidate["id"],
+        "expected_upload_id": None,
+        "expected_revision_id": None,
+        "expected_profile_id": initial["current_profile_id"],
+    }
+    preview = client.post(
+        root + "/customer-ledger/replacements/preview",
+        headers=superuser_token_headers,
+        json=body,
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json() == {
+        "candidate_upload_id": candidate["id"],
+        "current_upload_id": None,
+        "current_revision_id": None,
+        "profile_id": initial["current_profile_id"],
+        "current_record_count": 0,
+        "current_unique_ips": 0,
+        "candidate_record_count": 2,
+        "candidate_unique_ips": 2,
+        "added_ips": 2,
+        "removed_ips": 0,
+        "changed_ip_declarations": 0,
+    }
+    key = "first-selection-once"
+    applied = client.post(
+        root + "/customer-ledger/replacements",
+        headers={**superuser_token_headers, "Idempotency-Key": key},
+        json=body,
+    )
+    assert applied.status_code == 201, applied.text
+    assert applied.json()["expected_upload_id"] is None
+    replay = client.post(
+        root + "/customer-ledger/replacements",
+        headers={**superuser_token_headers, "Idempotency-Key": key},
+        json=body,
+    )
+    assert replay.status_code == 201 and replay.json() == applied.json()
+    after = client.get(root + "/customer-ledger", headers=superuser_token_headers)
+    assert after.status_code == 200, after.text
+    selected = after.json()
+    assert (
+        selected["upload_id"] == candidate["id"]
+        and selected["current_upload_id"] == candidate["id"]
+        and selected["can_edit"] is True
+        and selected["count"] == 2
+    )
+    stale = client.post(
+        root + "/customer-ledger/replacements/preview",
+        headers=superuser_token_headers,
+        json=body,
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "ledger_version_conflict"
+    second_book = Workbook()
+    second_sheet = second_book.active
+    assert second_sheet is not None
+    second_sheet.append(list(ledger.HEADERS))
+    second_sheet.append(["2001:db8:10::42", 443, 443, "是", "example.net"])
+    second_stream = io.BytesIO()
+    second_book.save(second_stream)
+    second_book.close()
+    second_response = client.post(
+        root + "/customer-uploads",
+        headers=superuser_token_headers,
+        files={"file": ("another-candidate.xlsx", second_stream.getvalue())},
+    )
+    assert second_response.status_code == 201, second_response.text
+    conflicting = client.post(
+        root + "/customer-ledger/replacements",
+        headers={**superuser_token_headers, "Idempotency-Key": key},
+        json={**body, "candidate_upload_id": second_response.json()["id"]},
+    )
+    assert conflicting.status_code == 409
+    assert conflicting.json()["detail"]["code"] == "ledger_key_conflict"

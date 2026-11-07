@@ -96,9 +96,9 @@ test("administrator completes a historical Run through explicit compatibility co
     const row = page
       .getByRole("row")
       .filter({ hasText: "first-comparison.xlsx" })
-    await activate(row.getByRole("button", { name: "Preview replacement" }))
+    await activate(row.getByRole("button", { name: "Preview selection" }))
     await activate(
-      page.getByRole("button", { name: "Apply replacement", exact: true }),
+      page.getByRole("button", { name: "Set as current input", exact: true }),
     )
     await expect(
       page.getByRole("heading", { name: "Current Project input", exact: true }),
