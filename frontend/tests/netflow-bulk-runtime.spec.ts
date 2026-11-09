@@ -54,6 +54,20 @@ type ProgressEvent = {
 
 type TerminalFixture = { label: string; analysis_id: string }
 
+type CurrentSnapshot = {
+  project_id?: string
+  current?: {
+    project_id?: string
+    analysis_id?: string
+    dataset_id?: string
+    context_revision_id?: string
+    status?: string
+    pipeline_complete?: boolean
+    can_read_result?: boolean
+    result?: unknown
+  } | null
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function env(name: string): string {
@@ -407,6 +421,29 @@ test("real Results page shows an unfinished progress response, a later response,
     expect(visibleTerminal).not.toContain("Progress data did not match")
     expect(visibleTerminal).not.toContain("temporarily unavailable")
 
+    const currentAtSuccessResponse = await request.get(
+      `/api/v1/projects/${project}/netflow-results/current`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    const currentAtSuccessReadAt = new Date().toISOString()
+    expect(currentAtSuccessResponse.ok()).toBe(true)
+    const currentAtSuccess =
+      (await currentAtSuccessResponse.json()) as CurrentSnapshot
+    const successCurrent = currentAtSuccess.current
+    expect(currentAtSuccess.project_id).toBe(project)
+    expect(successCurrent).toBeTruthy()
+    expect(successCurrent?.project_id).toBe(project)
+    expect(successCurrent?.analysis_id).toBe(started.analysis_id)
+    expect(successCurrent?.dataset_id).toBe(fixture.dataset_id)
+    expect(successCurrent?.context_revision_id).toBe(
+      fixture.context_revision_id,
+    )
+    expect(successCurrent?.status).toBe(finalBody.status)
+    expect(successCurrent?.pipeline_complete).toBe(true)
+    expect(successCurrent?.can_read_result).toBe(true)
+    expect(successCurrent?.result).toBeDefined()
+    expect(successCurrent?.result).not.toBeNull()
+
     await recorder.flush()
     writeFileSync(
       path.join(evidence, "ui-progress.json"),
@@ -425,6 +462,11 @@ test("real Results page shows an unfinished progress response, a later response,
           terminal_event_index: recorder.records.indexOf(final),
           current_while_running_analysis_id:
             currentDuring.current?.analysis_id ?? null,
+          current_at_success: {
+            at: currentAtSuccessReadAt,
+            response_status: currentAtSuccessResponse.status(),
+            body: currentAtSuccess,
+          },
           visible_first: visibleFirst,
           visible_terminal: visibleTerminal,
         },
@@ -468,6 +510,7 @@ test("real UI cancel observes a live lease, POST acknowledgement, requested and 
       label: fixture.label,
       fixture,
       status: "MISSED",
+      started_at: new Date().toISOString(),
       events_path: path.relative(evidence, eventsPath),
     }
     try {

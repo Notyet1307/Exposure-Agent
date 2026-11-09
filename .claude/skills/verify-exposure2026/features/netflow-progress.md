@@ -102,9 +102,15 @@ response. The test records the actual POST `/cancel` acknowledgement, visible
 `Cancellation requested`, server `FAILED`/`CANCELLED`, visible
 `Processing cancelled`, current-result retention and unreadable cancelled
 result. Missed 16 MB windows are written under `ui-cancel-attempts/` and are a
-MISSED result, never a PASS. Each attempt records and asserts its own pre-click
-current result, so a successful missed 16 MB attempt may legitimately become
-the retained current without weakening the assertion. Progress events record
+MISSED result, never a PASS. The success test reads
+`/netflow-results/current` at its own terminal success, before any later cancel
+task starts, and saves that response identity and timestamp in
+`ui-progress.json`; the Python verifier checks this snapshot plus the
+independent progress and SQL readback. It does not require the later global
+current to still name the success analysis. Each cancel attempt that reaches
+a live lease instead records and asserts its own pre-click current result, so a
+successful missed 16 MB attempt may legitimately become the retained current
+without weakening the assertion. Progress events record
 the response-time page URL; the success evidence requires the first unfinished
 response to come from `/netflow-results` and both first and terminal responses
 to be HTTP 200. No API route interception or manually emitted callback is used.

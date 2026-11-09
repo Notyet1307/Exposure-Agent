@@ -26,6 +26,7 @@ import subprocess
 import sys
 import time
 import traceback
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -62,6 +63,52 @@ UI_CANCEL_SIZES = ((16_000_000, "16mb"), (64_000_000, "64mb"))
 
 def progress_sample(value):
     return {key: value.get(key) for key in PROGRESS_KEYS}
+
+
+def iso_time(value):
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def check_current_at_success(
+    snapshot,
+    project_id,
+    analysis_id,
+    fixture,
+    final,
+    terminal_at,
+    cancel_started_at,
+):
+    if not isinstance(snapshot, dict):
+        raise AssertionError("success terminal current snapshot is missing")
+    assert snapshot.get("response_status") == 200, snapshot
+    at = snapshot.get("at")
+    assert isinstance(at, str) and at, snapshot
+    assert isinstance(terminal_at, str) and terminal_at, snapshot
+    assert isinstance(cancel_started_at, str) and cancel_started_at, snapshot
+    read_at = iso_time(at)
+    assert read_at >= iso_time(terminal_at), (at, terminal_at)
+    assert read_at < iso_time(cancel_started_at), (at, cancel_started_at)
+    body = snapshot.get("body")
+    assert isinstance(body, dict), snapshot
+    assert body.get("project_id") == project_id, snapshot
+    current = body.get("current")
+    assert isinstance(current, dict), snapshot
+    assert current.get("project_id") == project_id, snapshot
+    assert current.get("analysis_id") == analysis_id, snapshot
+    assert current.get("dataset_id") == fixture["dataset_id"], snapshot
+    assert (
+        current.get("context_revision_id") == fixture["context_revision_id"]
+    ), snapshot
+    assert current.get("status") == final["status"], snapshot
+    assert current.get("pipeline_complete") is True, snapshot
+    assert current.get("can_read_result") is True, snapshot
+    assert current.get("result") is not None, snapshot
+    return {
+        "analysis_id": current["analysis_id"],
+        "status": current["status"],
+        "read_at": at,
+        "response_status": snapshot["response_status"],
+    }
 
 
 class Run(base.Run):
@@ -781,9 +828,22 @@ class Run(base.Run):
         assert sql["files_total"] == UI_SUCCESS_FILES, sql
         assert sql["rows_normalized"] == fixture["input_rows"], sql
         assert all(member["complete"] for member in sql["members"]), sql
-        current = self.current(client, project_id)
-        assert current["current"] is not None, current
-        assert current["current"]["analysis_id"] == analysis_id, current
+        cancel_attempts = (ui.get("ui-cancel") or {}).get("attempts") or []
+        assert cancel_attempts, "cancel attempts evidence is missing"
+        cancel_starts = []
+        for attempt in cancel_attempts:
+            started_at = attempt.get("started_at")
+            assert isinstance(started_at, str) and started_at, attempt
+            cancel_starts.append(started_at)
+        current_at_success = check_current_at_success(
+            value.get("current_at_success"),
+            project_id,
+            analysis_id,
+            fixture,
+            final,
+            value["terminal_event"]["at"],
+            min(cancel_starts, key=iso_time),
+        )
         result = {
             "analysis_id": analysis_id,
             "fixture": fixture,
@@ -794,7 +854,7 @@ class Run(base.Run):
             "current_while_running_analysis_id": value[
                 "current_while_running_analysis_id"
             ],
-            "current_after": current["current"]["analysis_id"],
+            "current_at_success": current_at_success,
             "visible_first": value["visible_first"],
             "visible_terminal": value["visible_terminal"],
             "sql_readback": sql,
@@ -986,7 +1046,7 @@ class Run(base.Run):
             "current_while_running": ui_success[
                 "current_while_running_analysis_id"
             ],
-            "current_after": ui_success["current_after"],
+            "current_at_success": ui_success["current_at_success"],
             "visible_first": ui_success["visible_first"],
             "visible_terminal": ui_success["visible_terminal"],
             "sql_readback": ui_success["sql_readback"],
@@ -1002,7 +1062,7 @@ class Run(base.Run):
                 "current_while_running": ui_success[
                     "current_while_running_analysis_id"
                 ],
-                "current_after": ui_success["current_after"],
+                "current_at_success": ui_success["current_at_success"],
             },
             "cancel": {
                 "analysis_id": active["analysis_id"],
