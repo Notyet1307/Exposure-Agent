@@ -294,7 +294,10 @@ async function installBaseMocks(page: Page) {
     }),
   )
   await page.addInitScript(() => {
+    // Re-seeding would fake a logged-in document after the client logout.
+    if (sessionStorage.getItem("component-auth-seeded") !== null) return
     localStorage.setItem("access_token", "component-token")
+    sessionStorage.setItem("component-auth-seeded", "1")
   })
   await page.route("**/api/v1/users/me", (route) =>
     route.fulfill({
@@ -2120,6 +2123,594 @@ test.describe("Analysis reports", () => {
       panel.getByRole("region", { name: "Frozen materials and citations" }),
     ).toHaveCount(0)
     await expect(panel.getByLabel("Analysis version")).toHaveValue(record.id)
+  })
+
+  async function installReadFixture(
+    page: Page,
+    records: ReturnType<typeof analysisVersion>[],
+  ) {
+    const state = {
+      failDetail: 0,
+      failList: 0,
+      failBody: null as unknown,
+      posts: 0,
+      listCalls: 0,
+      detailPaths: [] as string[],
+    }
+    await page.route(analysisPath, (route) => {
+      const request = route.request()
+      const path = new URL(request.url()).pathname
+      if (request.method() === "POST") {
+        state.posts++
+        return route.fulfill({ status: 201, json: records[0] })
+      }
+      const record = records.find((item) => path.endsWith(`/${item.id}`))
+      if (record) {
+        state.detailPaths.push(path)
+        if (state.failDetail)
+          return route.fulfill({
+            status: state.failDetail,
+            json: state.failBody ?? { detail: "synthetic read failure" },
+          })
+        return route.fulfill({ json: record })
+      }
+      state.listCalls++
+      if (state.failList)
+        return route.fulfill({
+          status: state.failList,
+          json: state.failBody ?? { detail: "synthetic list failure" },
+        })
+      return route.fulfill({
+        json: { data: records, count: records.length, can_create: true },
+      })
+    })
+    return state
+  }
+
+  test("temporary detail read failure keeps the selected version and unsaved edits", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    const editor = panel.getByLabel("Business summary", { exact: true })
+    await editor.fill("Temporary failure keeps this legacy edit.")
+    state.failDetail = 503
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    const temporary = panel
+      .getByRole("alert")
+      .filter({ hasText: "temporarily" })
+    await expect(temporary).toBeVisible()
+    await expect(temporary).not.toContainText("expired")
+    await expect(panel.getByLabel("Analysis version")).toHaveValue(record.id)
+    state.failDetail = 0
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(editor).toBeVisible()
+    await expect(editor).toHaveValue(
+      "Temporary failure keeps this legacy edit.",
+    )
+    expect(state.posts).toBe(0)
+    expect(
+      state.detailPaths.every((path) => path.endsWith(`/${record.id}`)),
+    ).toBe(true)
+  })
+
+  test("temporary list read failure is labeled temporary and keeps the selected version", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await expect(panel.getByLabel("Analysis version")).toHaveValue(record.id)
+    state.failList = 503
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel.getByRole("alert").filter({ hasText: "temporarily" }),
+    ).toBeVisible()
+    await expect(panel.getByLabel("Analysis version")).toHaveValue(record.id)
+    expect(state.posts).toBe(0)
+  })
+
+  test("list 404 says not found or unauthorized without asserting existence", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await expect(panel.getByLabel("Analysis version")).toHaveValue(record.id)
+    state.failList = 404
+    state.failBody = { detail: "Not Found" }
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    const notFound = panel
+      .getByRole("alert")
+      .filter({ hasText: "not found, or this account is not authorized" })
+    await expect(notFound).toBeVisible()
+    await expect(notFound).not.toContainText("expired")
+    await expect(panel.getByLabel("Analysis version")).toHaveValue(record.id)
+    expect(state.posts).toBe(0)
+  })
+
+  test("detail 404 clears cached content and local edits", async ({ page }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    await panel
+      .getByLabel("Business summary", { exact: true })
+      .fill("404 must clear this edit.")
+    state.failDetail = 404
+    state.failBody = { detail: "Not Found" }
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel
+        .getByRole("alert")
+        .filter({ hasText: "not found, or this account is not authorized" }),
+    ).toBeVisible()
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toHaveCount(0)
+    state.failDetail = 0
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toBeVisible()
+    await expect(
+      panel.getByLabel("Business summary", { exact: true }),
+    ).toHaveCount(0)
+    expect(state.posts).toBe(0)
+  })
+
+  test("authorization denial clears content and edits without redirecting", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    await panel
+      .getByLabel("Business summary", { exact: true })
+      .fill("403 must clear this edit.")
+    state.failDetail = 403
+    state.failBody = {
+      detail: {
+        code: "project_role_denied",
+        message: "Operator role required",
+      },
+    }
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel.getByRole("alert").filter({ hasText: "not allowed to read" }),
+    ).toBeVisible()
+    await expect(page).not.toHaveURL(/\/login/)
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Edit narrative", exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Confirm this version", exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Save narrative", exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", {
+        name: "Generate new analysis draft",
+        exact: true,
+      }),
+    ).toHaveCount(0)
+    const listCalls = state.listCalls
+    const detailCalls = state.detailPaths.length
+    state.failDetail = 0
+    await page.waitForTimeout(800)
+    expect(state.listCalls).toBe(listCalls)
+    expect(state.detailPaths.length).toBe(detailCalls)
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByLabel("Business summary", { exact: true }),
+    ).toHaveCount(0)
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toBeVisible()
+    await expect(
+      panel.getByLabel("Business summary", { exact: true }),
+    ).toHaveCount(0)
+    expect(state.posts).toBe(0)
+  })
+
+  for (const [status, detail] of [
+    [401, "Not authenticated"],
+    [403, "Could not validate credentials"],
+  ] as const) {
+    test(`authentication failure ${status} ${detail} follows the client redirect`, async ({
+      page,
+    }) => {
+      const state = await installReadFixture(page, [analysisVersion(0)])
+      state.failList = status
+      state.failBody = { detail }
+      await openReport(page)
+      await expect(page).toHaveURL(/\/login/)
+      expect(
+        await page.evaluate(() => localStorage.getItem("access_token")),
+      ).toBeNull()
+      await page.reload()
+      await expect(page).toHaveURL(/\/login/)
+      await expect(page.getByTestId("email-input")).toBeVisible()
+      expect(
+        await page.evaluate(() => localStorage.getItem("access_token")),
+      ).toBeNull()
+      expect(state.posts).toBe(0)
+    })
+  }
+
+  test("unknown read failure is generic and does not claim permission or expiry", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    state.failDetail = 418
+    state.failBody = { detail: "synthetic unknown failure" }
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    const unknown = panel
+      .getByRole("alert")
+      .filter({ hasText: "cause is unknown" })
+    await expect(unknown).toBeVisible()
+    await expect(unknown).not.toContainText("permission")
+    await expect(unknown).not.toContainText("expired")
+    expect(state.posts).toBe(0)
+  })
+
+  test("an inactive account 400 is an explicit refusal and clears content and edits", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    await panel
+      .getByLabel("Business summary", { exact: true })
+      .fill("Inactive account must clear this legacy edit.")
+    state.failDetail = 400
+    state.failBody = { detail: "Inactive user" }
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    const inactive = panel
+      .getByRole("alert")
+      .filter({ hasText: "This account is inactive" })
+    await expect(inactive).toBeVisible()
+    await expect(inactive).not.toContainText("not allowed to read")
+    await expect(inactive).not.toContainText("temporarily")
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByLabel("Business summary", { exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Edit narrative", exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Confirm this version", exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Save narrative", exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", {
+        name: "Generate new analysis draft",
+        exact: true,
+      }),
+    ).toHaveCount(0)
+    expect(state.posts).toBe(0)
+
+    state.failDetail = 0
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toBeVisible()
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    const recovered = panel.getByLabel("Business summary", { exact: true })
+    await expect(recovered).toHaveValue(
+      "Analysis 0: reconcile the recorded source difference.",
+    )
+    await expect(recovered).not.toHaveValue(
+      "Inactive account must clear this legacy edit.",
+    )
+    expect(state.posts).toBe(0)
+  })
+
+  test("an unrelated 400 stays unknown and retains unsaved legacy edits", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    const editor = panel.getByLabel("Business summary", { exact: true })
+    await editor.fill("Other 400 keeps this legacy edit.")
+    state.failDetail = 400
+    state.failBody = { detail: "Synthetic bad request" }
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    const unknown = panel
+      .getByRole("alert")
+      .filter({ hasText: "cause is unknown" })
+    await expect(unknown).toBeVisible()
+    await expect(unknown).not.toContainText("inactive")
+    await expect(unknown).not.toContainText("permission")
+    await expect(unknown).not.toContainText("expired")
+    await expect(editor).toHaveCount(0)
+    state.failDetail = 0
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(editor).toBeVisible()
+    await expect(editor).toHaveValue("Other 400 keeps this legacy edit.")
+    expect(state.posts).toBe(0)
+  })
+
+  for (const status of [200, 503, 403] as const) {
+    test(`a late detail response after switching versions does not change the selected version (${status})`, async ({
+      page,
+    }) => {
+      const first = analysisVersion(0)
+      const second = analysisVersion(1)
+      let release = () => {}
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let gateHit = false
+      let gateDone = false
+      await page.route(analysisPath, async (route) => {
+        const request = route.request()
+        const path = new URL(request.url()).pathname
+        if (request.method() === "POST") {
+          return route.fulfill({ status: 201, json: first })
+        }
+        if (path.endsWith(`/${first.id}`)) {
+          gateHit = true
+          await gate
+          try {
+            if (status === 200) await route.fulfill({ json: first })
+            else
+              await route.fulfill({
+                status,
+                json: { detail: "unavailable" },
+              })
+            gateDone = true
+          } catch {
+            return
+          }
+          return
+        }
+        if (path.endsWith(`/${second.id}`))
+          return route.fulfill({ json: second })
+        return route.fulfill({
+          json: { data: [first, second], count: 2, can_create: true },
+        })
+      })
+      await openReport(page)
+      const panel = page.getByRole("region", {
+        name: "AI analysis reports",
+        exact: true,
+      })
+      await expect.poll(() => gateHit).toBe(true)
+      await panel.getByLabel("Analysis version").selectOption(second.id)
+      const narrative = panel.getByRole("region", { name: "Report narrative" })
+      await expect(narrative).toContainText(second.text!.business_summary)
+      release()
+      await expect.poll(() => gateDone).toBe(true)
+      await expect(narrative).toContainText(second.text!.business_summary)
+      await expect(
+        panel.getByText(first.text!.business_summary, { exact: true }),
+      ).toHaveCount(0)
+      if (status !== 200)
+        await expect(
+          panel.getByRole("alert").filter({
+            hasText: status === 503 ? "temporarily" : "not allowed to read",
+          }),
+        ).toHaveCount(0)
+    })
+  }
+
+  test("a permission refusal wins over a temporary list failure and clears edits", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    const editor = panel.getByLabel("Business summary", { exact: true })
+    await editor.fill("Permission refusal must clear this.")
+    state.failList = 503
+    state.failDetail = 403
+    state.failBody = {
+      detail: {
+        code: "project_role_denied",
+        message: "Operator role required",
+      },
+    }
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    const denied = panel
+      .getByRole("alert")
+      .filter({ hasText: "not allowed to read" })
+    await expect(denied).toBeVisible()
+    await expect(denied).not.toContainText("temporarily")
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByLabel("Business summary", { exact: true }),
+    ).toHaveCount(0)
+    state.failList = 0
+    state.failDetail = 0
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toBeVisible()
+    await expect(
+      panel.getByLabel("Business summary", { exact: true }),
+    ).toHaveCount(0)
+    expect(state.posts).toBe(0)
+  })
+
+  test("an explicit refusal clears cached content and does not auto-read or restore edits", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    const state = await installReadFixture(page, [record])
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    await panel
+      .getByLabel("Business summary", { exact: true })
+      .fill("Refusal must not leave cached material.")
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toBeVisible()
+    state.failDetail = 403
+    state.failBody = {
+      detail: {
+        code: "project_role_denied",
+        message: "Operator role required",
+      },
+    }
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel.getByRole("alert").filter({ hasText: "not allowed to read" }),
+    ).toBeVisible()
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByText("Loading analysis versions…", { exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByText("Loading selected report…", { exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Generate new analysis draft" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Edit narrative" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Confirm this version" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByRole("button", { name: "Save narrative" }),
+    ).toHaveCount(0)
+    const listReads = state.listCalls
+    const detailReads = state.detailPaths.length
+    state.failDetail = 0
+    await page.waitForTimeout(800)
+    expect(state.listCalls).toBe(listReads)
+    expect(state.detailPaths.length).toBe(detailReads)
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toHaveCount(0)
+    await expect(
+      panel.getByLabel("Business summary", { exact: true }),
+    ).toHaveCount(0)
+    await panel
+      .getByRole("button", { name: "Refresh analysis reports" })
+      .click()
+    await expect(
+      panel.getByRole("region", { name: "Report narrative" }),
+    ).toBeVisible()
+    await expect(
+      panel.getByLabel("Business summary", { exact: true }),
+    ).toHaveCount(0)
+    expect(state.posts).toBe(0)
   })
 })
 
