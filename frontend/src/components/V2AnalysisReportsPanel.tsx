@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { type V2Report, V2ReportContent } from "@/components/V2ReportContent"
+import { isInactiveAccountError } from "@/hooks/useAuth"
 import { comparisonUuid } from "@/lib/comparisonReturn"
 import { useI18n } from "@/lib/i18n"
 import { requestDigest } from "@/lib/ledgerIntent"
@@ -20,18 +21,124 @@ type Props = {
 }
 type Body = Parameters<typeof API.createV2AnalysisReport>[0]["requestBody"]
 type Pending = { key: string; digest: string; body: Body }
-const accessLost = (error: unknown) => {
-  if (!(error instanceof ApiError)) return false
-  if ([401, 403, 404, 410].includes(error.status)) return true
+const errorCode = (error: ApiError) => {
   const detail = (error.body as { detail?: unknown }).detail
-  const code =
-    detail && typeof detail === "object" && "code" in detail
-      ? String(detail.code)
-      : ""
-  return [
-    "v2_report_material_unavailable",
-    "v2_report_material_expired",
-  ].includes(code)
+  return detail && typeof detail === "object" && "code" in detail
+    ? String(detail.code)
+    : ""
+}
+type ReadProblem =
+  | "temporary"
+  | "permission"
+  | "inactive"
+  | "not_found"
+  | "expired"
+  | "unavailable"
+  | "invalid"
+  | "unreadable"
+  | "unknown"
+const refusal = (problem: ReadProblem | null) =>
+  problem === "permission" ||
+  problem === "inactive" ||
+  problem === "not_found" ||
+  problem === "expired" ||
+  problem === "unavailable" ||
+  problem === "invalid" ||
+  problem === "unreadable"
+const pickProblem = (...values: (ReadProblem | null)[]) => {
+  let fallback: ReadProblem | null = null
+  for (const value of values) {
+    if (!value) continue
+    if (refusal(value)) return value
+    fallback ??= value
+  }
+  return fallback
+}
+const classifyReadProblem = (error: unknown): ReadProblem | null => {
+  if (!error) return null
+  if (isInactiveAccountError(error)) return "inactive"
+  if (error instanceof ApiError) {
+    const code = errorCode(error)
+    if (code === "v2_report_material_expired") return "expired"
+    if (code === "v2_report_material_unavailable") return "unavailable"
+    if (code === "v2_report_material_invalid") return "invalid"
+    if (error.status === 404) return "not_found"
+    if (error.status === 410) return "expired"
+    if (error.status === 401 || error.status === 403) return "permission"
+    if (error.status === 0 || error.status >= 500) return "temporary"
+    return "unknown"
+  }
+  if (error instanceof Error && error.message === "report_identity_mismatch")
+    return "unknown"
+  return "temporary"
+}
+const unreadableProblem = (reason: string | null | undefined): ReadProblem => {
+  if (reason === "v2_report_material_expired") return "expired"
+  if (reason === "v2_report_material_unavailable") return "unavailable"
+  if (reason === "v2_report_material_invalid") return "invalid"
+  return "unreadable"
+}
+type HistoryRevision = { selected: string; revision: number }
+const retainHistoryRevision = (
+  current: HistoryRevision | null,
+  selected: string | undefined,
+  revision: number | undefined,
+) => {
+  if (!selected) return { retained: current, revision: undefined }
+  if (revision !== undefined)
+    return { retained: { selected, revision }, revision }
+  if (current?.selected === selected)
+    return { retained: current, revision: current.revision }
+  return { retained: current, revision: undefined }
+}
+const problemMessage = (problem: ReadProblem): [string, string] => {
+  switch (problem) {
+    case "temporary":
+      return [
+        "This report could not be read temporarily. Check the network or service, then re-read the same version. Unsaved edits are kept; no new report is generated.",
+        "此报告暂时无法读取。请检查网络或服务后重读同一版本；未保存编辑会保留，不会生成新报告。",
+      ]
+    case "permission":
+      return [
+        "This account is not allowed to read this report. Its summary, original, revisions and printing are unavailable; the C+A core remains readable.",
+        "当前账户无权读取此报告；其摘要、原稿、修订和打印均不可用；客户与云图核心仍可阅读。",
+      ]
+    case "inactive":
+      return [
+        "This account is inactive, so this report cannot be read. Cached report content and local edits were cleared; after the account is active, re-read the same version.",
+        "此账户已停用，因此无法读取此报告。已清除缓存的报告内容与本地编辑；账户恢复启用后，请重读同一版本。",
+      ]
+    case "not_found":
+      return [
+        "This report was not found, or this account is not authorized to read it under the fixed scope. It was not replaced with another version.",
+        "未找到此报告，或当前账户无权在固定范围内读取。系统没有替换成其他版本。",
+      ]
+    case "expired":
+      return [
+        "This report's fixed material period has expired. Its summary, original, revisions and printing are unavailable; the C+A core remains readable.",
+        "此报告的固定材料期限已过期；摘要、原稿、修订和打印均不可用；客户与云图核心仍可阅读。",
+      ]
+    case "unavailable":
+      return [
+        "This report's fixed material is no longer available. Its summary, original, revisions and printing are unavailable; the C+A core remains readable.",
+        "此报告的固定材料已不再可用；摘要、原稿、修订和打印均不可用；客户与云图核心仍可阅读。",
+      ]
+    case "invalid":
+      return [
+        "This report's fixed material failed its integrity check. Its summary, original, revisions and printing are unavailable; the C+A core remains readable.",
+        "此报告的固定材料未通过完整性校验；摘要、原稿、修订和打印均不可用；客户与云图核心仍可阅读。",
+      ]
+    case "unreadable":
+      return [
+        "This report is explicitly unreadable. The exact reason is not available to this client, so no cause is assumed. Its summary, original, revisions and printing are unavailable; the C+A core remains readable.",
+        "此报告已明确为不可读取，但未向此客户端提供具体原因，因此不推定原因。其摘要、原稿、修订和打印均不可用；客户与云图核心仍可阅读。",
+      ]
+    case "unknown":
+      return [
+        "This report could not be read and the cause is unknown. Re-read the same version to try again; unsaved edits are kept and no new report is generated.",
+        "此报告无法读取，原因未知。请重读同一版本重试；未保存编辑会保留，不会生成新报告。",
+      ]
+  }
 }
 
 export function V2AnalysisReportsPanel({
@@ -58,7 +165,12 @@ export function V2AnalysisReportsPanel({
   const [busy, setBusy] = useState(false)
   const submitting = useRef(false)
   const [error, setError] = useState("")
-  const [expired, setExpired] = useState(false)
+  const [blocked, setBlocked] = useState(false)
+  const [readProblem, setReadProblem] = useState<ReadProblem | null>(null)
+  const selectedRef = useRef<string | undefined>(undefined)
+  const historyRevisionRef = useRef<HistoryRevision | null>(null)
+  const historyScopeRef = useRef("")
+  const readEpoch = useRef(0)
   const [editing, setEditing] = useState(false)
   const [editRevision, setEditRevision] = useState(0)
   const [edits, setEdits] = useState<Record<string, string>>({})
@@ -102,7 +214,7 @@ export function V2AnalysisReportsPanel({
   const scopeKey = JSON.stringify(prefix)
   const store = `exposure:v2-report:${JSON.stringify(prefix)}`
   const [pending, setPending] = useState<Pending | null>(null)
-  const enabled = bindingId !== undefined && !expired
+  const enabled = bindingId !== undefined && !blocked
   const options = {
     retry: false,
     gcTime: 0,
@@ -174,32 +286,87 @@ export function V2AnalysisReportsPanel({
     enabled: enabled && !!selected,
     refetchInterval: (query) =>
       query.state.data?.status === "GENERATING" ? 2000 : 5000,
-    queryFn: async () =>
-      verify(
+    queryFn: async () => {
+      const value = verify(
         await API.readV2AnalysisReport({
           projectId,
           analysisReportId: selected!,
         }),
-      ),
+      )
+      if (value.id !== selected) throw new Error("report_identity_mismatch")
+      return value
+    },
   })
-  const report =
+  const selectedVersion = versions.data?.data.find(
+    (value) => value.id === selected,
+  )
+  const detailProblem =
+    detail.data && !detail.data.readable
+      ? unreadableProblem(detail.data.unavailable_reason)
+      : classifyReadProblem(detail.error)
+  const versionsProblem =
+    selectedVersion && !selectedVersion.readable
+      ? unreadableProblem(selectedVersion.unavailable_reason)
+      : classifyReadProblem(versions.error)
+  const reportBase =
     detail.isSuccess &&
     !detail.isError &&
     !versions.isError &&
     detail.data.readable &&
-    !expired
+    !(detailProblem && refusal(detailProblem)) &&
+    !(versionsProblem && refusal(versionsProblem)) &&
+    !blocked
       ? detail.data
       : undefined
+  if (historyScopeRef.current !== scopeKey) {
+    historyScopeRef.current = scopeKey
+    historyRevisionRef.current = null
+  }
+  const observedHistoryRevision =
+    detail.data?.revision ?? selectedVersion?.revision
+  const retainedHistory = retainHistoryRevision(
+    historyRevisionRef.current,
+    selected,
+    observedHistoryRevision,
+  )
+  historyRevisionRef.current = retainedHistory.retained
+  const historyRevision = retainedHistory.revision
+  const historyGenerating =
+    (detail.data?.status ?? selectedVersion?.status) === "GENERATING"
   const history = useQuery({
     ...options,
-    queryKey: [...prefix, "revisions", selected, report?.revision],
-    enabled: !!report && full && report.status !== "GENERATING",
+    queryKey: [...prefix, "revisions", selected, historyRevision],
+    enabled:
+      full &&
+      !!selected &&
+      historyRevision !== undefined &&
+      !historyGenerating &&
+      !blocked,
     queryFn: () =>
-      API.readV2ReportRevisions({ projectId, analysisReportId: report!.id }),
+      API.readV2ReportRevisions({
+        projectId,
+        analysisReportId: selected!,
+      }),
   })
+  // The full/summary toggle only gates issuing the revisions request. A refusal
+  // already received for this selected report/revision must still be observed.
+  const historyReadProblem = classifyReadProblem(history.error)
+  const historyProblem =
+    historyReadProblem && (full || refusal(historyReadProblem))
+      ? historyReadProblem
+      : null
+  const observedProblem = pickProblem(
+    detailProblem,
+    versionsProblem,
+    historyProblem,
+  )
+  const report =
+    historyProblem && refusal(historyProblem) ? undefined : reportBase
   useEffect(() => {
     alive.current = true
     scope.current = scopeKey
+    selectedRef.current = undefined
+    historyRevisionRef.current = null
     setSelected(undefined)
     setPage(0)
     setFull(false)
@@ -207,7 +374,8 @@ export function V2AnalysisReportsPanel({
     setEdits({})
     setCaseEdits({})
     setError("")
-    setExpired(false)
+    setBlocked(false)
+    setReadProblem(null)
     setPrintReport(undefined)
     try {
       const value = JSON.parse(sessionStorage.getItem(store) ?? "null")
@@ -235,49 +403,40 @@ export function V2AnalysisReportsPanel({
       versions.isSuccess &&
       !versions.isError &&
       versions.data.data[0]
-    )
+    ) {
+      selectedRef.current = versions.data.data[0].id
       setSelected(versions.data.data[0].id)
+    }
   }, [selected, versions.isSuccess, versions.isError, versions.data])
   useEffect(() => {
-    if (
-      !detail.isError &&
-      !versions.isError &&
-      !history.isError &&
-      (detail.data === undefined || detail.data.readable)
-    )
+    selectedRef.current = selected
+  }, [selected])
+  useEffect(() => {
+    if (blocked) return
+    if (!observedProblem) {
+      setReadProblem(null)
       return
+    }
+    setReadProblem(observedProblem)
+    if (!refusal(observedProblem)) return
+    readEpoch.current += 1
+    setBlocked(true)
     setEditing(false)
     setEdits({})
     setCaseEdits({})
     setPrintReport(undefined)
-    if (
-      (detail.data && !detail.data.readable) ||
-      accessLost(detail.error) ||
-      accessLost(versions.error) ||
-      accessLost(history.error)
-    ) {
-      setExpired(true)
-      void cache.cancelQueries({ queryKey: prefix })
-      cache.removeQueries({ queryKey: prefix })
-    }
-  }, [
-    detail.isError,
-    detail.data,
-    detail.error,
-    versions.isError,
-    versions.error,
-    history.isError,
-    history.error,
-    cache,
-    prefix,
-  ])
+    void cache.cancelQueries({ queryKey: prefix })
+    cache.removeQueries({ queryKey: prefix })
+  }, [blocked, observedProblem, cache, prefix])
   useEffect(() => {
     if (!detail.data?.valid_until) return
     let timer: ReturnType<typeof setTimeout>
     const check = () => {
       const remaining = Date.parse(detail.data!.valid_until!) - Date.now()
       if (remaining <= 0) {
-        setExpired(true)
+        readEpoch.current += 1
+        setBlocked(true)
+        setReadProblem("expired")
         setEditing(false)
         setEdits({})
         setCaseEdits({})
@@ -297,6 +456,7 @@ export function V2AnalysisReportsPanel({
     verify(value)
     if (!alive.current || scope.current !== scopeKey) return
     clearIntent()
+    selectedRef.current = value.id
     setSelected(value.id)
     cache.setQueryData([...prefix, "detail", value.id], value)
     void cache.invalidateQueries({ queryKey: [...prefix, "versions"] })
@@ -396,6 +556,7 @@ export function V2AnalysisReportsPanel({
   }
   const write = async (confirm = false) => {
     if (!report || submitting.current) return
+    const requested = report.id
     submitting.current = true
     setBusy(true)
     setError("")
@@ -417,6 +578,9 @@ export function V2AnalysisReportsPanel({
           })
       verify(value)
       if (!alive.current) return
+      if (scope.current !== scopeKey || selectedRef.current !== requested)
+        return
+      if (value.id !== requested) throw new Error("report_identity_mismatch")
       setEditing(false)
       setEdits({})
       setCaseEdits({})
@@ -424,20 +588,30 @@ export function V2AnalysisReportsPanel({
       void cache.invalidateQueries({ queryKey: [...prefix, "versions"] })
     } catch (reason) {
       if (!alive.current) return
-      if (accessLost(reason)) {
+      if (scope.current !== scopeKey || selectedRef.current !== requested)
+        return
+      const problem = classifyReadProblem(reason)
+      if (refusal(problem)) {
+        readEpoch.current += 1
         setEditing(false)
         setEdits({})
         setCaseEdits({})
         setPrintReport(undefined)
-        setExpired(true)
+        setBlocked(true)
+        setReadProblem(problem)
         void cache.cancelQueries({ queryKey: prefix })
         cache.removeQueries({ queryKey: prefix })
       }
       setError(
-        t(
-          "This version could not be saved or confirmed. Re-read it to check permissions, material access or a revision conflict.",
-          "无法保存或确认此版本。请重读，核对权限、材料可读性或修订冲突。",
-        ),
+        reason instanceof ApiError && reason.status === 409 && !refusal(problem)
+          ? t(
+              "This version changed since it was read. Your unsaved edits are kept; re-read the same version before saving or confirming again.",
+              "读取后此版本已发生变化。未保存的编辑会保留；请重读同一版本后再保存或确认。",
+            )
+          : t(
+              "This version could not be saved or confirmed. Re-read it to check permissions, material access or a revision conflict.",
+              "无法保存或确认此版本。请重读，核对权限、材料可读性或修订冲突。",
+            ),
       )
     } finally {
       submitting.current = false
@@ -446,6 +620,8 @@ export function V2AnalysisReportsPanel({
   }
   const print = async () => {
     if (!report || submitting.current) return
+    const requested = report.id
+    const epoch = readEpoch.current
     submitting.current = true
     setBusy(true)
     setError("")
@@ -453,37 +629,95 @@ export function V2AnalysisReportsPanel({
       const value = verify(
         await API.readV2AnalysisReport({
           projectId,
-          analysisReportId: report.id,
+          analysisReportId: requested,
         }),
       )
       if (!alive.current) return
-      cache.setQueryData([...prefix, "detail", value.id], value)
-      if (!value.readable || !value.material)
-        throw new Error("report_unreadable")
-      setPrintReport(value)
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      )
-      if (
-        !alive.current ||
-        (value.valid_until && Date.parse(value.valid_until) <= Date.now())
-      )
-        throw new Error("report_expired")
-      document.body.dataset.v2Print = value.id
-      window.print()
-    } catch {
-      if (alive.current) {
+      if (scope.current !== scopeKey || selectedRef.current !== requested)
+        return
+      if (readEpoch.current !== epoch) return
+      if (value.id !== requested) throw new Error("report_identity_mismatch")
+      if (!value.readable || !value.material) {
+        readEpoch.current += 1
         setPrintReport(undefined)
-        setExpired(true)
         setEditing(false)
         setEdits({})
         setCaseEdits({})
+        setBlocked(true)
+        setReadProblem(unreadableProblem(value.unavailable_reason))
         void cache.cancelQueries({ queryKey: prefix })
         cache.removeQueries({ queryKey: prefix })
         setError(
           t(
             "The report could not be reauthorized for printing. Re-read the fixed version.",
             "无法重新验证报告的打印权限，请重读固定版本。",
+          ),
+        )
+        return
+      }
+      cache.setQueryData([...prefix, "detail", value.id], value)
+      setPrintReport(value)
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      )
+      if (!alive.current) return
+      if (scope.current !== scopeKey || selectedRef.current !== requested)
+        return
+      if (readEpoch.current !== epoch) return
+      if (value.valid_until && Date.parse(value.valid_until) <= Date.now()) {
+        readEpoch.current += 1
+        setPrintReport(undefined)
+        setEditing(false)
+        setEdits({})
+        setCaseEdits({})
+        setBlocked(true)
+        setReadProblem("expired")
+        void cache.cancelQueries({ queryKey: prefix })
+        cache.removeQueries({ queryKey: prefix })
+        setError(
+          t(
+            "The report's fixed material expired before printing. Re-read the fixed version.",
+            "报告固定材料在打印前已过期，请重读固定版本。",
+          ),
+        )
+        return
+      }
+      document.body.dataset.v2Print = value.id
+      window.print()
+    } catch (reason) {
+      if (!alive.current) return
+      if (scope.current !== scopeKey || selectedRef.current !== requested)
+        return
+      if (readEpoch.current !== epoch) return
+      setPrintReport(undefined)
+      const problem = classifyReadProblem(reason)
+      if (refusal(problem)) {
+        readEpoch.current += 1
+        setEditing(false)
+        setEdits({})
+        setCaseEdits({})
+        setBlocked(true)
+        setReadProblem(problem)
+        void cache.cancelQueries({ queryKey: prefix })
+        cache.removeQueries({ queryKey: prefix })
+        setError(
+          t(
+            "The report could not be reauthorized for printing. Re-read the fixed version.",
+            "无法重新验证报告的打印权限，请重读固定版本。",
+          ),
+        )
+      } else if (problem === "temporary") {
+        setError(
+          t(
+            "The report could not be read temporarily, so printing was not authorized. Check the network or service and try again.",
+            "报告暂时无法读取，因此未授权打印。请检查网络或服务后重试。",
+          ),
+        )
+      } else {
+        setError(
+          t(
+            "The report could not be verified for printing. Re-read the fixed version and try again.",
+            "无法验证报告的打印条件。请重读固定版本后重试。",
           ),
         )
       }
@@ -600,42 +834,46 @@ export function V2AnalysisReportsPanel({
             {t("Use this fixed NetFlow supplement", "使用此固定 NetFlow 辅证")}
           </Label>
         )}
-        <Button
-          disabled={
-            !ready.data?.can_create ||
-            ready.isError ||
-            busy ||
-            editing ||
-            !!pending ||
-            report?.status === "GENERATING" ||
-            !enabled
-          }
-          onClick={() => void generate()}
-        >
-          {addressKey
-            ? t("Generate this explanation", "生成此解释")
-            : t("Generate AI interpretation report", "生成 AI 解读报告")}
-        </Button>
+        {!blocked && (
+          <Button
+            disabled={
+              !ready.data?.can_create ||
+              ready.isError ||
+              busy ||
+              editing ||
+              !!pending ||
+              report?.status === "GENERATING" ||
+              !enabled
+            }
+            onClick={() => void generate()}
+          >
+            {addressKey
+              ? t("Generate this explanation", "生成此解释")
+              : t("Generate AI interpretation report", "生成 AI 解读报告")}
+          </Button>
+        )}
       </div>
-      <p
-        role={ready.isError ? "alert" : "status"}
-        className="max-w-prose text-sm text-muted-foreground"
-      >
-        {bindingId === undefined
-          ? t(
-              "Reading the fixed supplement selection…",
-              "正在读取固定辅证选择…",
-            )
-          : ready.isError
+      {!blocked && (
+        <p
+          role={ready.isError ? "alert" : "status"}
+          className="max-w-prose text-sm text-muted-foreground"
+        >
+          {bindingId === undefined
             ? t(
-                "Generation readiness could not be read; this does not affect the core result.",
-                "无法读取生成就绪状态；核心结果不受影响。",
+                "Reading the fixed supplement selection…",
+                "正在读取固定辅证选择…",
               )
-            : ready.data
-              ? t(...readinessLabels[ready.data.state])
-              : t("Reading generation readiness…", "正在读取生成就绪状态…")}
-      </p>
-      {pending && (
+            : ready.isError
+              ? t(
+                  "Generation readiness could not be read; this does not affect the core result.",
+                  "无法读取生成就绪状态；核心结果不受影响。",
+                )
+              : ready.data
+                ? t(...readinessLabels[ready.data.state])
+                : t("Reading generation readiness…", "正在读取生成就绪状态…")}
+        </p>
+      )}
+      {!blocked && pending && (
         <div className="space-y-3 rounded border p-3">
           <p>
             {t(
@@ -668,10 +906,12 @@ export function V2AnalysisReportsPanel({
           variant="outline"
           disabled={busy}
           onClick={() => {
-            setExpired(false)
+            setBlocked(false)
+            setReadProblem(null)
             void ready.refetch()
             void versions.refetch()
             if (selected) void detail.refetch()
+            if (full && selected) void history.refetch()
           }}
         >
           {t("Re-read report state", "重读报告状态")}
@@ -684,11 +924,7 @@ export function V2AnalysisReportsPanel({
           </Button>
         )}
       </div>
-      {versions.isError ? (
-        <p role="alert">
-          {t("Report versions could not be read.", "无法读取报告版本。")}
-        </p>
-      ) : versions.isPending ? (
+      {versions.isError || blocked ? null : versions.isPending ? (
         <p role="status">
           {t("Reading report versions…", "正在读取报告版本…")}
         </p>
@@ -708,6 +944,7 @@ export function V2AnalysisReportsPanel({
               value={selected ?? ""}
               disabled={editing || busy}
               onChange={(event) => {
+                selectedRef.current = event.target.value
                 setSelected(event.target.value)
                 setError("")
                 setFull(false)
@@ -727,22 +964,14 @@ export function V2AnalysisReportsPanel({
             page={page}
             pageSize={25}
             onPageChange={(next) => {
+              selectedRef.current = undefined
               setSelected(undefined)
               setPage(next)
             }}
           />
         </>
       )}
-      {(expired ||
-        detail.isError ||
-        (detail.data && !detail.data.readable)) && (
-        <p role="alert">
-          {t(
-            "This report is unreadable under its fixed material permissions or cutoff. Its summary, original, revisions and printing are unavailable. The C+A core remains readable.",
-            "此报告的固定材料权限或期限不再允许读取；摘要、原稿、修订和打印均不可用。客户与云图核心仍可阅读。",
-          )}
-        </p>
-      )}
+      {readProblem && <p role="alert">{t(...problemMessage(readProblem))}</p>}
       {report && (
         <div className="space-y-5">
           <p role="status" className="font-medium">

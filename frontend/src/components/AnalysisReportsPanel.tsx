@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useCallback, useEffect, useId, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { z } from "zod"
 
 import {
@@ -14,7 +14,7 @@ import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import useAuth from "@/hooks/useAuth"
+import useAuth, { isInactiveAccountError } from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
 
 const materialSchema = z.object({
@@ -69,6 +69,72 @@ function readRecovery(storageKey: string) {
   }
 }
 
+type ReadProblem =
+  | "temporary"
+  | "permission"
+  | "inactive"
+  | "not_found"
+  | "unknown"
+const readIdentityMessages = [
+  "Analysis report scope mismatch",
+  "Analysis report citation mismatch",
+  "Analysis report identity mismatch",
+  "Analysis report identity missing",
+]
+const classifyReadProblem = (error: unknown): ReadProblem | null => {
+  if (!error) return null
+  if (isInactiveAccountError(error)) return "inactive"
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) return "permission"
+    if (error.status === 404) return "not_found"
+    if (error.status === 0 || error.status >= 500) return "temporary"
+    return "unknown"
+  }
+  if (error instanceof Error && readIdentityMessages.includes(error.message))
+    return "unknown"
+  return "temporary"
+}
+const refusal = (problem: ReadProblem | null) =>
+  problem === "permission" || problem === "inactive" || problem === "not_found"
+const pickProblem = (...values: (ReadProblem | null)[]) => {
+  let fallback: ReadProblem | null = null
+  for (const value of values) {
+    if (!value) continue
+    if (refusal(value)) return value
+    fallback ??= value
+  }
+  return fallback
+}
+const problemMessage = (problem: ReadProblem): [string, string] => {
+  switch (problem) {
+    case "temporary":
+      return [
+        "This report could not be read temporarily. Refresh to re-read the same selected version. Unsaved edits are kept and no report generation is started.",
+        "此报告暂时无法读取。请刷新以重读同一所选版本；未保存编辑会保留，不会发起报告生成。",
+      ]
+    case "permission":
+      return [
+        "This account is not allowed to read this report. Cached report content and local edits were cleared; the selected version was not replaced.",
+        "当前账户无权读取此报告。已清除缓存的报告内容与本地编辑；所选版本未被替换。",
+      ]
+    case "inactive":
+      return [
+        "This account is inactive, so this report cannot be read. Cached report content and local edits were cleared; after the account is active, refresh the same version. No report generation is started.",
+        "此账户已停用，因此无法读取此报告。已清除缓存的报告内容与本地编辑；账户恢复启用后，请刷新同一版本。不会发起报告生成。",
+      ]
+    case "not_found":
+      return [
+        "This report was not found, or this account is not authorized to read it under the fixed scope. Cached report content and local edits were cleared; no other version was selected.",
+        "未找到此报告，或当前账户无权在固定范围内读取。已清除缓存的报告内容与本地编辑；没有改选其他版本。",
+      ]
+    case "unknown":
+      return [
+        "This report could not be read and the cause is unknown. Refresh to re-read the same selected version; unsaved edits are kept and no report generation is started.",
+        "此报告无法读取，原因未知。请刷新以重读同一所选版本；未保存编辑会保留，不会发起报告生成。",
+      ]
+  }
+}
+
 export function AnalysisReportsPanel(scope: Scope) {
   const { user, userError } = useAuth()
   const { t } = useI18n()
@@ -93,14 +159,23 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
   const { t, formatDate, translateValue } = useI18n()
   const formId = useId()
   const queryClient = useQueryClient()
-  const queryKey = [
-    "analysis-reports",
-    scope.actor,
-    scope.projectId,
-    scope.runId,
-    scope.reportId,
-    scope.reportContractVersion,
-  ]
+  const queryKey = useMemo(
+    () => [
+      "analysis-reports",
+      scope.actor,
+      scope.projectId,
+      scope.runId,
+      scope.reportId,
+      scope.reportContractVersion,
+    ],
+    [
+      scope.actor,
+      scope.projectId,
+      scope.runId,
+      scope.reportId,
+      scope.reportContractVersion,
+    ],
+  )
   const storageKey = `exposure:analysis-report:${scope.actor}:${scope.projectId}:${scope.runId}:idempotency-key`
   const active = useRef(true)
   const [token] = useState(() => localStorage.getItem("access_token"))
@@ -117,6 +192,8 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
   const [recovery, setRecovery] = useState(() => readRecovery(storageKey))
   const requestKey = recovery?.key
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [blocked, setBlocked] = useState(false)
+  const [readProblem, setReadProblem] = useState<ReadProblem | null>(null)
   const [editing, setEditing] = useState<{
     id: string
     revision: number
@@ -141,6 +218,7 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
   }
   const list = useQuery({
     queryKey,
+    enabled: !blocked,
     queryFn: async () => {
       const response = await AnalysisReportsService.readAnalysisReports({
         projectId: scope.projectId,
@@ -183,12 +261,34 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
         throw new Error("Analysis report identity mismatch")
       return result
     },
-    enabled: !!selectedId && list.isSuccess,
+    enabled: !!selectedId && list.isSuccess && !blocked,
     retry: false,
     refetchInterval: (query) =>
       query.state.data?.status === "GENERATING" ? 2000 : false,
   })
-  const current = list.isSuccess && detail.isSuccess ? detail.data : undefined
+  const observedProblem = pickProblem(
+    classifyReadProblem(list.error),
+    classifyReadProblem(detail.error),
+  )
+  const refused = !!observedProblem && refusal(observedProblem)
+  const current =
+    !blocked && !refused && list.isSuccess && detail.isSuccess
+      ? detail.data
+      : undefined
+  useEffect(() => {
+    if (!observedProblem) {
+      if (!blocked) setReadProblem(null)
+      return
+    }
+    setReadProblem(observedProblem)
+    if (!refusal(observedProblem)) return
+    setEditing(null)
+    setBlocked(true)
+  }, [observedProblem, blocked])
+  useEffect(() => {
+    if (!blocked) return
+    queryClient.removeQueries({ queryKey })
+  }, [blocked, queryClient, queryKey])
   useEffect(() => {
     if (
       !currentActor() ||
@@ -215,8 +315,11 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
     storageKey,
     currentActor,
   ])
-  const writable = list.isSuccess && list.data.can_create
+  const writable =
+    !blocked && !refused && list.isSuccess && list.data.can_create
   const fresh =
+    !blocked &&
+    !refused &&
     list.isSuccess &&
     !list.isFetching &&
     (!selectedId || (detail.isSuccess && !detail.isFetching))
@@ -422,26 +525,27 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
           type="button"
           variant="outline"
           disabled={list.isFetching || detail.isFetching || busy}
-          onClick={() => void invalidate()}
+          onClick={() => {
+            setBlocked(false)
+            setReadProblem(null)
+            void invalidate()
+          }}
         >
           {t("Refresh analysis reports", "刷新分析报告")}
         </Button>
       </header>
-      {list.isPending && (
+      {!blocked && !refused && list.isPending && (
         <p role="status">
           {t("Loading analysis versions…", "正在加载分析版本…")}
         </p>
       )}
-      {(list.isError || detail.isError) && (
+      {(list.isError || detail.isError || blocked) && (
         <Alert variant="destructive">
           <AlertTitle>
             {t("Analysis report could not be read", "无法读取分析报告")}
           </AlertTitle>
           <AlertDescription>
-            {t(
-              "Refresh to read again. The selected version has not been replaced and no completion is assumed.",
-              "请刷新后重新读取。未替换所选版本，也不推定已完成。",
-            )}
+            {t(...problemMessage(readProblem ?? observedProblem ?? "unknown"))}
           </AlertDescription>
         </Alert>
       )}
@@ -527,11 +631,15 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
           )}
         </div>
       )}
-      {selectedId && list.isSuccess && detail.isPending && (
-        <p role="status">
-          {t("Loading selected report…", "正在加载所选报告…")}
-        </p>
-      )}
+      {!blocked &&
+        !refused &&
+        selectedId &&
+        list.isSuccess &&
+        detail.isPending && (
+          <p role="status">
+            {t("Loading selected report…", "正在加载所选报告…")}
+          </p>
+        )}
       {current && (
         <article className="min-w-0 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
