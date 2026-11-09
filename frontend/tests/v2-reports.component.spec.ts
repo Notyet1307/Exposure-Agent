@@ -239,9 +239,12 @@ async function serve(
       }
     return report
   }
-  await page.addInitScript(() =>
-    localStorage.setItem("access_token", "synthetic-component-token"),
-  )
+  await page.addInitScript(() => {
+    // Re-seeding would fake a logged-in document after the client logout.
+    if (sessionStorage.getItem("component-auth-seeded") !== null) return
+    localStorage.setItem("access_token", "synthetic-component-token")
+    sessionStorage.setItem("component-auth-seeded", "1")
+  })
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request(),
       url = new URL(request.url()),
@@ -1124,6 +1127,15 @@ for (const [status, detail] of [
     state.failDetailBody = { detail }
     await open(page)
     await expect(page).toHaveURL(/\/login/)
+    expect(
+      await page.evaluate(() => localStorage.getItem("access_token")),
+    ).toBeNull()
+    await page.reload()
+    await expect(page).toHaveURL(/\/login/)
+    await expect(page.getByTestId("email-input")).toBeVisible()
+    expect(
+      await page.evaluate(() => localStorage.getItem("access_token")),
+    ).toBeNull()
     expect(state.createCalls).toBe(0)
   })
 }
