@@ -59,6 +59,7 @@ UUID = re.compile(
 UI_SUCCESS_BYTES = 64_000_000
 UI_SUCCESS_FILES = 4
 UI_CANCEL_SIZES = ((16_000_000, "16mb"), (64_000_000, "64mb"))
+SUCCESS_STATUSES = ("SUCCEEDED", "SUCCEEDED_WITH_WARNINGS")
 
 
 def progress_sample(value):
@@ -109,6 +110,157 @@ def check_current_at_success(
         "read_at": at,
         "response_status": snapshot["response_status"],
     }
+
+
+def success_terminal(value):
+    return (
+        isinstance(value, dict)
+        and value.get("status") in SUCCESS_STATUSES
+        and value.get("phase") == "SUCCEEDED"
+        and isinstance(value.get("files_completed"), int)
+        and value.get("files_completed") == value.get("files_total")
+    )
+
+
+def trusted_current(snapshot, project_id):
+    if not isinstance(snapshot, dict):
+        raise AssertionError("trusted current snapshot is missing")
+    assert snapshot.get("response_status") == 200, snapshot
+    at = snapshot.get("at")
+    assert isinstance(at, str) and at, snapshot
+    iso_time(at)
+    body = snapshot.get("body")
+    assert isinstance(body, dict), snapshot
+    assert body.get("project_id") == project_id, snapshot
+    current = body.get("current")
+    assert isinstance(current, dict), snapshot
+    assert current.get("project_id") == project_id, snapshot
+    analysis_id = current.get("analysis_id")
+    dataset_id = current.get("dataset_id")
+    context_revision_id = current.get("context_revision_id")
+    assert isinstance(analysis_id, str) and UUID.match(analysis_id), snapshot
+    assert isinstance(dataset_id, str) and dataset_id, snapshot
+    assert isinstance(context_revision_id, str) and context_revision_id, snapshot
+    assert current.get("status") in SUCCESS_STATUSES, snapshot
+    assert current.get("pipeline_complete") is True, snapshot
+    assert current.get("can_read_result") is True, snapshot
+    assert current.get("result") is not None, snapshot
+    return {
+        "analysis_id": analysis_id,
+        "dataset_id": dataset_id,
+        "context_revision_id": context_revision_id,
+        "status": current["status"],
+        "read_at": at,
+        "response_status": snapshot["response_status"],
+    }
+
+
+def same_task(left, right):
+    return all(
+        left.get(key) == right.get(key)
+        for key in ("analysis_id", "dataset_id", "context_revision_id")
+    )
+
+
+def check_cancel_chain(attempts, project_id, initial):
+    assert isinstance(attempts, list) and attempts, "cancel attempt evidence is missing"
+    assert isinstance(initial, list) and initial, "trusted initial baseline is missing"
+    baseline = None
+    checked = []
+    for attempt in attempts:
+        assert isinstance(attempt, dict), attempt
+        fixture = attempt.get("fixture")
+        assert isinstance(fixture, dict), attempt
+        dataset_id = fixture.get("dataset_id")
+        context_revision_id = fixture.get("context_revision_id")
+        assert isinstance(dataset_id, str) and dataset_id, attempt
+        assert isinstance(context_revision_id, str) and context_revision_id, attempt
+        start = attempt.get("start")
+        assert isinstance(start, dict), attempt
+        analysis_id = start.get("analysis_id")
+        assert isinstance(analysis_id, str) and UUID.match(analysis_id), attempt
+        assert start.get("response_status") in (200, 202), attempt
+
+        bound = trusted_current(attempt.get("baseline_before_start"), project_id)
+        if baseline is None:
+            assert any(same_task(bound, candidate) for candidate in initial), attempt
+        else:
+            assert same_task(bound, baseline), attempt
+        started_at = attempt.get("started_at")
+        requested_at = attempt.get("start_requested_at")
+        assert isinstance(started_at, str) and started_at, attempt
+        assert isinstance(requested_at, str) and requested_at, attempt
+        assert iso_time(started_at) <= iso_time(bound["read_at"]), attempt
+        assert iso_time(bound["read_at"]) <= iso_time(requested_at), attempt
+
+        during_snapshot = attempt.get("current_while_running")
+        during = None
+        during_is_task = False
+        if during_snapshot is not None:
+            during = trusted_current(during_snapshot, project_id)
+            during_is_task = same_task(
+                during,
+                {
+                    "analysis_id": analysis_id,
+                    "dataset_id": dataset_id,
+                    "context_revision_id": context_revision_id,
+                },
+            )
+            assert during_is_task or same_task(during, bound), attempt
+            assert iso_time(during["read_at"]) >= iso_time(bound["read_at"]), attempt
+        if attempt.get("current_while_running_analysis_id") is not None:
+            assert attempt["current_while_running_analysis_id"] in (
+                bound["analysis_id"],
+                analysis_id,
+            ), attempt
+        if attempt.get("live_lease") is not None:
+            assert during is not None, attempt
+
+        evidence = attempt.get("terminal_evidence")
+        assert isinstance(evidence, dict), attempt
+        assert evidence.get("response_status") == 200, attempt
+        terminal_at = evidence.get("at")
+        assert isinstance(terminal_at, str) and terminal_at, attempt
+        body = evidence.get("body")
+        assert isinstance(body, dict), attempt
+        assert body.get("project_id") == project_id, attempt
+        assert body.get("analysis_id") == analysis_id, attempt
+        assert body.get("dataset_id") == dataset_id, attempt
+        assert body.get("context_revision_id") == context_revision_id, attempt
+        if body.get("status") == "FAILED":
+            assert body.get("phase") in ("FAILED", "CANCELLED"), attempt
+            succeeded = False
+        else:
+            succeeded = success_terminal(body)
+            assert succeeded, attempt
+        if during is not None:
+            assert iso_time(during["read_at"]) <= iso_time(terminal_at), attempt
+
+        after_snapshot = attempt.get("current_after_terminal")
+        after = trusted_current(after_snapshot, project_id)
+        assert iso_time(after["read_at"]) >= iso_time(terminal_at), attempt
+        latest = after_snapshot["body"].get("latest_attempt")
+        assert isinstance(latest, dict), after_snapshot
+        assert latest.get("analysis_id") == analysis_id, after_snapshot
+        if succeeded:
+            assert after["analysis_id"] == analysis_id, attempt
+            assert after["dataset_id"] == dataset_id, attempt
+            assert after["context_revision_id"] == context_revision_id, attempt
+            assert after["status"] == body["status"], attempt
+            baseline = after
+        else:
+            assert not during_is_task, attempt
+            assert same_task(after, bound), attempt
+            baseline = bound
+        checked.append(
+            {
+                "analysis_id": analysis_id,
+                "result": "SUCCEEDED" if succeeded else "FAILED_OR_CANCELLED",
+                "baseline": bound,
+                "current_after_terminal": after,
+            }
+        )
+    return baseline, checked
 
 
 class Run(base.Run):
@@ -862,7 +1014,7 @@ class Run(base.Run):
         self.write_json(self.evidence / "progress-ui-success.json", result)
         return result
 
-    def assert_ui_cancel(self, client, project_id, ui):
+    def assert_ui_cancel(self, client, project_id, ui, initial):
         value = ui.get("ui-cancel")
         if not value or value.get("status") != "PASS":
             raise RuntimeError(
@@ -870,14 +1022,16 @@ class Run(base.Run):
                 "see ui-cancel.json and ui-cancel-attempts/"
             )
         assert value["route_interception"] is False, value
-        prior_success = value.get("current_while_running_analysis_id")
-        assert isinstance(prior_success, str) and UUID.match(prior_success), value
         assert (self.evidence / "ui-cancel-attempts").is_dir()
         for attempt in value["attempts"]:
             assert (self.evidence / attempt["events_path"]).exists(), attempt
             assert (
                 self.evidence / "ui-cancel-attempts" / attempt["events_path"].split("/")[-2] / "attempt.json"
             ).exists(), attempt
+        baseline, chain = check_cancel_chain(value["attempts"], project_id, initial)
+        assert (
+            value.get("current_while_running_analysis_id") == baseline["analysis_id"]
+        ), value
         fixture = value["fixture"]
         analysis_id = value["analysis_id"]
         assert value["start"]["analysis_id"] == analysis_id, value["start"]
@@ -934,8 +1088,15 @@ class Run(base.Run):
         assert sql["lease_until"] is None, sql
         assert sql["files_completed"] <= sql["files_total"], sql
         current_after = self.current(client, project_id)
-        assert current_after["current"] is not None, current_after
-        assert current_after["current"]["analysis_id"] == prior_success, current_after
+        current_after_summary = trusted_current(
+            {
+                "at": datetime.now().isoformat(),
+                "response_status": 200,
+                "body": current_after,
+            },
+            project_id,
+        )
+        assert same_task(current_after_summary, baseline), current_after
         assert (
             current_after["latest_attempt"]["analysis_id"] == analysis_id
         ), current_after
@@ -952,7 +1113,9 @@ class Run(base.Run):
             "terminal": progress_sample(progress),
             "terminal_visible": value["visible_confirmed"],
             "current_while_running": value["current_while_running_analysis_id"],
-            "current_after_cancel": current_after["current"]["analysis_id"],
+            "trusted_baseline": baseline,
+            "baseline_chain": chain,
+            "current_after_cancel": current_after_summary["analysis_id"],
             "latest_attempt": current_after["latest_attempt"]["analysis_id"],
             "detail_status": detail_value["status"],
             "detail_result": detail_value["result"],
@@ -1052,7 +1215,20 @@ class Run(base.Run):
             "sql_readback": ui_success["sql_readback"],
         }
         self.write_json(self.evidence / "runtime-result.json", report)
-        active = self.assert_ui_cancel(client, project_id, ui)
+        active = self.assert_ui_cancel(
+            client,
+            project_id,
+            ui,
+            [
+                {
+                    "analysis_id": ui_success["analysis_id"],
+                    "dataset_id": ui_success["fixture"]["dataset_id"],
+                    "context_revision_id": ui_success["fixture"][
+                        "context_revision_id"
+                    ],
+                }
+            ],
+        )
         report["active_cancellation"] = active
         self.write_json(self.evidence / "runtime-result.json", report)
         report["ui"] = {
@@ -1124,7 +1300,26 @@ class Run(base.Run):
         self.write_json(self.evidence / "runtime-result.json", report)
 
         ui = self.browser(project_id, None, cancel, terminal)
-        active = self.assert_ui_cancel(client, project_id, ui)
+        initial = [
+            {
+                "analysis_id": capacity["analysis_id"],
+                "dataset_id": capacity["dataset_id"],
+                "context_revision_id": capacity["context_revision_id"],
+            }
+        ]
+        for attempt in preclaim["attempts"]:
+            terminal_sample = attempt.get("terminal")
+            if success_terminal(terminal_sample):
+                initial.append(
+                    {
+                        "analysis_id": terminal_sample["analysis_id"],
+                        "dataset_id": terminal_sample["dataset_id"],
+                        "context_revision_id": terminal_sample[
+                            "context_revision_id"
+                        ],
+                    }
+                )
+        active = self.assert_ui_cancel(client, project_id, ui, initial)
         report["active_cancellation"] = active
         self.write_json(self.evidence / "runtime-result.json", report)
 

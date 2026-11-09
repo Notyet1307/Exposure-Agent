@@ -68,6 +68,18 @@ type CurrentSnapshot = {
   } | null
 }
 
+type CurrentReading = {
+  at: string
+  response_status: number
+  body: CurrentSnapshot | null
+}
+
+type TerminalEvidence = {
+  at: string
+  response_status: number
+  body: ProgressBody | null
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function env(name: string): string {
@@ -80,6 +92,33 @@ function optionalJson<T>(name: string): T | undefined {
   const value = process.env[name]
   if (!value) return undefined
   return JSON.parse(value) as T
+}
+
+async function readCurrent(
+  request: APIRequestContext,
+  token: string,
+  project: string,
+): Promise<CurrentReading> {
+  const response = await request.get(
+    `/api/v1/projects/${project}/netflow-results/current`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  const at = new Date().toISOString()
+  if (!response.ok())
+    return { at, response_status: response.status(), body: null }
+  return {
+    at,
+    response_status: response.status(),
+    body: (await response.json()) as CurrentSnapshot,
+  }
+}
+
+function terminalEvidence(event: ProgressEvent): TerminalEvidence {
+  return {
+    at: event.at,
+    response_status: event.response_status,
+    body: event.body ?? null,
+  }
 }
 
 function terminal(value: ProgressBody): boolean {
@@ -146,6 +185,7 @@ type SettleResult = {
   timed_out: boolean
   http_status: number | null
   terminal?: ProgressBody
+  terminal_event?: TerminalEvidence
   last?: ProgressBody
   error?: string
 }
@@ -180,6 +220,11 @@ async function settleAfterMiss(
             timed_out: false,
             http_status: httpStatus,
             terminal: body,
+            terminal_event: {
+              at: new Date().toISOString(),
+              response_status: response.status(),
+              body,
+            },
           }
         }
       }
@@ -211,6 +256,7 @@ async function settleAfterMissOrFail(
     throw new Error(
       `missed attempt ${analysisId} did not reach a terminal state before retry`,
     )
+  attempt.terminal_evidence = wait.terminal_event
 }
 
 async function login(request: APIRequestContext): Promise<string> {
@@ -514,6 +560,8 @@ test("real UI cancel observes a live lease, POST acknowledgement, requested and 
       events_path: path.relative(evidence, eventsPath),
     }
     try {
+      attempt.baseline_before_start = await readCurrent(request, token, project)
+      attempt.start_requested_at = new Date().toISOString()
       const started = await startFromUi(page, project, fixture)
       attempt.start = started
       attempt.analysis_id = started.analysis_id
@@ -562,6 +610,11 @@ test("real UI cancel observes a live lease, POST acknowledgement, requested and 
           project,
           started.analysis_id,
         )
+        attempt.current_after_terminal = await readCurrent(
+          request,
+          token,
+          project,
+        )
         continue
       }
       if (liveState !== "lease" || !live) {
@@ -570,7 +623,9 @@ test("real UI cancel observes a live lease, POST acknowledgement, requested and 
             ? "terminal_before_live_lease"
             : "live_lease_not_observed"
         attempt.terminal_before_click = live
-        if (liveState !== "terminal")
+        if (liveState === "terminal" && live) {
+          attempt.terminal_evidence = terminalEvidence(live)
+        } else {
           await settleAfterMissOrFail(
             attempt,
             request,
@@ -578,20 +633,20 @@ test("real UI cancel observes a live lease, POST acknowledgement, requested and 
             project,
             started.analysis_id,
           )
+        }
+        attempt.current_after_terminal = await readCurrent(
+          request,
+          token,
+          project,
+        )
         continue
       }
       attempt.live_lease = live
 
-      const currentResponse = await request.get(
-        `/api/v1/projects/${project}/netflow-results/current`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      )
-      expect(currentResponse.ok()).toBe(true)
-      const current = (await currentResponse.json()) as {
-        current?: { analysis_id?: string }
-      }
+      const currentDuring = await readCurrent(request, token, project)
+      attempt.current_while_running = currentDuring
       attempt.current_while_running_analysis_id =
-        current.current?.analysis_id ?? null
+        currentDuring.body?.current?.analysis_id ?? null
 
       const cancelButton = page.getByRole("button", {
         name: "Cancel bulk processing",
@@ -632,6 +687,11 @@ test("real UI cancel observes a live lease, POST acknowledgement, requested and 
           project,
           started.analysis_id,
         )
+        attempt.current_after_terminal = await readCurrent(
+          request,
+          token,
+          project,
+        )
         continue
       }
 
@@ -655,6 +715,11 @@ test("real UI cancel observes a live lease, POST acknowledgement, requested and 
           project,
           started.analysis_id,
         )
+        attempt.current_after_terminal = await readCurrent(
+          request,
+          token,
+          project,
+        )
         continue
       }
       attempt.visible_requested = await region.innerText()
@@ -671,6 +736,12 @@ test("real UI cancel observes a live lease, POST acknowledgement, requested and 
         "cancellation terminal progress was not observed",
       )
       attempt.terminal = terminalEvent
+      attempt.terminal_evidence = terminalEvidence(terminalEvent)
+      attempt.current_after_terminal = await readCurrent(
+        request,
+        token,
+        project,
+      )
       if (
         terminalEvent.body?.status !== "FAILED" ||
         terminalEvent.body.phase !== "CANCELLED"

@@ -107,10 +107,18 @@ MISSED result, never a PASS. The success test reads
 task starts, and saves that response identity and timestamp in
 `ui-progress.json`; the Python verifier checks this snapshot plus the
 independent progress and SQL readback. It does not require the later global
-current to still name the success analysis. Each cancel attempt that reaches
-a live lease instead records and asserts its own pre-click current result, so a
-successful missed 16 MB attempt may legitimately become the retained current
-without weakening the assertion. Progress events record
+current to still name the success analysis. Each cancel attempt binds
+`/netflow-results/current` before its start click, while its task does not
+exist yet. The first binding must be a task already proven successful, the
+`ui-progress.json` success in the progress scenario or the verified
+capacity/pre-claim success in the capacity scenario. The attempt reads current
+again during its live lease and
+after its terminal observation. A missed attempt that really succeeded may
+become the next attempt's baseline only through its terminal success plus a
+complete readable current identity; FAILED and CANCELLED attempts retain the
+bound baseline. The Python verifier checks this ordered per-attempt chain and
+rejects an unrelated or self UUID, an unproven success switch, a failed or
+cancelled overwrite, and a broken chain. Progress events record
 the response-time page URL; the success evidence requires the first unfinished
 response to come from `/netflow-results` and both first and terminal responses
 to be HTTP 200. No API route interception or manually emitted callback is used.
