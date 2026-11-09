@@ -4,6 +4,15 @@ const project = "00000000-0000-4000-8000-000000000286"
 const analysis = "10000000-0000-4000-8000-000000000286"
 const dataset = "20000000-0000-4000-8000-000000000286"
 const context = "30000000-0000-4000-8000-000000000286"
+const scope = "a".repeat(64)
+const otherProject = "00000000-0000-4000-8000-000000000287"
+const otherAnalysis = "10000000-0000-4000-8000-000000000287"
+const latestAnalysis = "10000000-0000-4000-8000-000000000288"
+const otherDataset = "20000000-0000-4000-8000-000000000287"
+const latestDataset = "20000000-0000-4000-8000-000000000288"
+const otherContext = "30000000-0000-4000-8000-000000000287"
+const latestContext = "30000000-0000-4000-8000-000000000288"
+const notice = "A newer processing result is available."
 const root = `/api/v1/projects/${project}`
 const identity = {
   project_id: project,
@@ -129,6 +138,157 @@ async function setup(page: Page) {
     }
     return route.fulfill({ json: { data: [], count: 0 } })
   })
+}
+
+const attempt = (analysisId: string, overrides: Record<string, unknown>) => ({
+  ...batch,
+  analysis_id: analysisId,
+  ...overrides,
+})
+
+const currentResponse = ({
+  current,
+  latest,
+  projectId = project,
+  scopeId = scope,
+}: {
+  current: Record<string, unknown> | null
+  latest: Record<string, unknown> | null
+  projectId?: string
+  scopeId?: string
+}) => ({
+  project_id: projectId,
+  scope_id: scopeId,
+  scopes: [
+    {
+      scope_id: scopeId,
+      network_namespace: "synthetic",
+      collection_scope: "branch-edge-a",
+      label: "branch-edge-a",
+      evidence: null,
+    },
+  ],
+  current,
+  latest_attempt: latest,
+})
+
+const coverageLimitations = [
+  "INPUT_RECORDS_NOT_SESSIONS",
+  "REACHABILITY_NOT_VERIFIED",
+  "OBSERVATION_COVERAGE_NOT_COMPLETE",
+  "REVERSE_TUPLES_DO_NOT_PROVE_HANDSHAKE",
+  "COUNTERS_NOT_RESCALED",
+  "SAMPLING_UNKNOWN",
+  "ORIGINAL_MAPPED_FORM_UNRECOVERABLE",
+  "SYNTHETIC_TEST_ONLY",
+  "SOURCE_POSITION_DECLARATION_NOT_OWNERSHIP_OR_AUTHORIZATION",
+  "SOURCE_COLUMN_NOT_CONNECTION_INITIATOR",
+  "REVERSE_MATCHING_NOT_EVALUATED",
+  "EXTERNAL_PEER_BY_CUSTOMER_DECLARATION",
+]
+const resultCounts = (overrides: Record<string, number> = {}) => ({
+  address_side_crossover_count: 0,
+  candidates: 0,
+  duplicate_records: 0,
+  endpoint_count: 0,
+  excluded: 0,
+  invalid_records: 0,
+  mapped_addresses_normalized: 0,
+  observations: 0,
+  peer_addresses: 0,
+  peer_hypotheses: 0,
+  raw_records: 0,
+  records_without_managed_endpoint: 0,
+  review: 0,
+  self_loop_records: 0,
+  service_hypotheses: 0,
+  valid_records: 0,
+  ...overrides,
+})
+const results = {
+  empty: {
+    counts: resultCounts(),
+    coverage_limitations: coverageLimitations,
+    input_state: "empty",
+    review_task_count: 1,
+    component_run_id: otherAnalysis,
+    artifacts: [],
+  },
+  nonempty: {
+    counts: resultCounts({
+      address_side_crossover_count: 2,
+      endpoint_count: 4,
+      observations: 5,
+      peer_addresses: 6,
+      peer_hypotheses: 8,
+      raw_records: 8,
+      review: 5,
+      self_loop_records: 1,
+      service_hypotheses: 5,
+      valid_records: 8,
+    }),
+    coverage_limitations: coverageLimitations,
+    input_state: "data_without_candidates",
+    review_task_count: 5,
+    component_run_id: otherAnalysis,
+    artifacts: [
+      {
+        name: "result/observations.jsonl",
+        artifact_id: otherAnalysis,
+        byte_size: 1,
+        sha256: "b".repeat(64),
+      },
+    ],
+  },
+}
+
+const readableCurrent = (result: Record<string, unknown>) =>
+  attempt(otherAnalysis, {
+    dataset_id: otherDataset,
+    context_revision_id: otherContext,
+    result,
+    created_at: "2026-01-02T00:00:00Z",
+    completed_at: "2026-01-02T00:01:00Z",
+  })
+
+const failedLatest = attempt(latestAnalysis, {
+  dataset_id: latestDataset,
+  context_revision_id: latestContext,
+  status: "FAILED",
+  can_read_result: false,
+  result: null,
+  created_at: "2026-01-03T00:00:00Z",
+  completed_at: null,
+})
+
+const fixedUrl = `/projects/${project}/netflow-results?analysis=${analysis}&collectionScope=${scope}`
+
+async function mockCurrent(page: Page, response: Record<string, unknown>) {
+  await page.route(`**${root}/netflow-results/current*`, (route) =>
+    route.fulfill({ json: response }),
+  )
+}
+
+async function mountWithNotice(page: Page) {
+  let response = currentResponse({
+    current: readableCurrent(results.nonempty),
+    latest: failedLatest,
+  })
+  await page.route(`**${root}/netflow-results/current*`, (route) =>
+    route.fulfill({ json: response }),
+  )
+  await page.goto(fixedUrl)
+  await expect(page.getByText(notice, { exact: true })).toBeVisible()
+  return async (next: Record<string, unknown>) => {
+    response = next
+    const refetched = page.waitForResponse((candidate) =>
+      candidate.url().includes("/netflow-results/current"),
+    )
+    await page.evaluate(() =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    )
+    await refetched
+  }
 }
 
 test("independent processed observations keep batch, full pages, counts and evidence", async ({
@@ -623,4 +783,199 @@ test("bulk pages use cursors, keep immutable content idle, and clear on access r
     page.getByRole("heading", { name: "This fixed batch cannot be read" }),
   ).toBeVisible()
   await expect(page.getByText("192.0.2.26", { exact: true })).toHaveCount(0)
+})
+
+for (const status of ["PENDING", "RUNNING", "FAILED", "UNKNOWN"]) {
+  test(`a ${status} latest attempt never announces a new readable result`, async ({
+    page,
+  }) => {
+    await setup(page)
+    const replaceCurrent = await mountWithNotice(page)
+    await replaceCurrent(
+      currentResponse({
+        current: batch,
+        latest: attempt(latestAnalysis, {
+          dataset_id: latestDataset,
+          context_revision_id: latestContext,
+          status,
+          can_read_result: false,
+          result: null,
+          created_at: "2026-01-03T00:00:00Z",
+          completed_at: null,
+        }),
+      }),
+    )
+    await expect(page.getByText(notice, { exact: true })).toHaveCount(0)
+    await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+      "780",
+    )
+    expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
+    expect(new URL(page.url()).searchParams.get("collectionScope")).toBe(scope)
+  })
+}
+
+test("a successful but unreadable latest attempt never announces a new result", async ({
+  page,
+}) => {
+  await setup(page)
+  const replaceCurrent = await mountWithNotice(page)
+  await replaceCurrent(
+    currentResponse({
+      current: batch,
+      latest: attempt(latestAnalysis, {
+        dataset_id: latestDataset,
+        context_revision_id: latestContext,
+        status: "SUCCEEDED",
+        can_read_result: false,
+        result: null,
+        created_at: "2026-01-03T00:00:00Z",
+        completed_at: "2026-01-03T00:01:00Z",
+      }),
+    }),
+  )
+  await expect(page.getByText(notice, { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
+})
+
+for (const [state, result] of Object.entries(results)) {
+  test(`a successful ${state} current result is announced while the latest attempt failed`, async ({
+    page,
+  }, testInfo) => {
+    await setup(page)
+    const writes: string[] = []
+    page.on("request", (request) => {
+      if (request.url().includes("/api/") && request.method() !== "GET")
+        writes.push(`${request.method()} ${request.url()}`)
+    })
+    await mockCurrent(
+      page,
+      currentResponse({
+        current: readableCurrent(result),
+        latest: failedLatest,
+      }),
+    )
+    await page.goto(fixedUrl)
+    await expect(page.getByText(notice, { exact: true })).toBeVisible()
+    await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+      "780",
+    )
+    expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
+    expect(new URL(page.url()).searchParams.get("collectionScope")).toBe(scope)
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `netflow-result-notice-${state}-failed-latest.png`,
+      ),
+      fullPage: true,
+    })
+    expect(writes).toEqual([])
+  })
+
+  test(`a successful ${state} current result is announced when the latest attempt is that result`, async ({
+    page,
+  }, testInfo) => {
+    await setup(page)
+    const writes: string[] = []
+    page.on("request", (request) => {
+      if (request.url().includes("/api/") && request.method() !== "GET")
+        writes.push(`${request.method()} ${request.url()}`)
+    })
+    const current = readableCurrent(result)
+    await mockCurrent(
+      page,
+      currentResponse({
+        current,
+        latest: { ...current, result: null },
+      }),
+    )
+    await page.goto(fixedUrl)
+    await expect(page.getByText(notice, { exact: true })).toBeVisible()
+    await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+      "780",
+    )
+    expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
+    expect(new URL(page.url()).searchParams.get("collectionScope")).toBe(scope)
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `netflow-result-notice-${state}-successful-latest.png`,
+      ),
+      fullPage: true,
+    })
+    expect(writes).toEqual([])
+  })
+}
+
+test("no successful readable current result keeps the fixed result without a notice", async ({
+  page,
+}) => {
+  await setup(page)
+  const replaceCurrent = await mountWithNotice(page)
+  await replaceCurrent(currentResponse({ current: null, latest: failedLatest }))
+  await expect(page.getByText(notice, { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
+})
+
+test("a failed current lookup keeps the fixed result without a notice", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.route(`**${root}/netflow-results/current*`, (route) =>
+    route.fulfill({
+      status: 500,
+      json: { detail: { code: "synthetic_current_failure" } },
+    }),
+  )
+  const failed = page.waitForResponse(
+    (candidate) =>
+      candidate.url().includes("/netflow-results/current") &&
+      candidate.status() === 500,
+  )
+  await page.goto(fixedUrl)
+  await failed
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await expect(page.getByText(notice, { exact: true })).toHaveCount(0)
+  expect(new URL(page.url()).searchParams.get("analysis")).toBe(analysis)
+})
+
+test("current data for another project never announces a new result", async ({
+  page,
+}) => {
+  await setup(page)
+  const replaceCurrent = await mountWithNotice(page)
+  await replaceCurrent(
+    currentResponse({
+      projectId: otherProject,
+      current: readableCurrent(results.nonempty),
+      latest: failedLatest,
+    }),
+  )
+  await expect(page.getByText(notice, { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+})
+
+test("current data for another scope never announces a new result", async ({
+  page,
+}) => {
+  await setup(page)
+  const replaceCurrent = await mountWithNotice(page)
+  await replaceCurrent(
+    currentResponse({
+      scopeId: "b".repeat(64),
+      current: readableCurrent(results.nonempty),
+      latest: failedLatest,
+    }),
+  )
+  await expect(page.getByText(notice, { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
 })

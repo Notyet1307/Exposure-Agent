@@ -774,12 +774,13 @@ export default function NetflowResults({
               {t("Processing completed", "处理完成时间")}:{" "}
               {date(identity?.completed_at)}
             </p>
-            {current.data?.latest_attempt &&
-              current.data.latest_attempt.analysis_id !==
-                identity?.analysis_id && (
+            {current.data?.current &&
+              current.data.project_id === projectId &&
+              current.data.scope_id === search.collectionScope &&
+              current.data.current.analysis_id !== identity?.analysis_id && (
                 <p className="text-sm text-muted-foreground">
                   {t(
-                    "A newer processing attempt is available.",
+                    "A newer processing result is available.",
                     "有新的处理结果可供查看。",
                   )}
                 </p>
