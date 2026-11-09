@@ -979,3 +979,389 @@ test("current data for another scope never announces a new result", async ({
     "780",
   )
 })
+
+const accessPath = `**${root}/netflow-analyses/${analysis}/access`
+const batchPath = `**${root}/netflow-analyses/${analysis}`
+const successAccess = {
+  ...identity,
+  can_read_result: true,
+  status: "SUCCEEDED",
+}
+
+test("a transient access read failure keeps verified results and recovers", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.clock.install()
+  await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await page.route(accessPath, (route) =>
+    route.fulfill({
+      status: 500,
+      json: { detail: { code: "synthetic_access_unavailable" } },
+    }),
+  )
+  const failed = page.waitForResponse(
+    (candidate) =>
+      candidate.url().includes(`/netflow-analyses/${analysis}/access`) &&
+      candidate.status() === 500,
+  )
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  )
+  await failed
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await expect(
+    page.getByText(
+      "The latest access check failed; the last verified access result is shown. Revocation may not be reflected until a read succeeds.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "This fixed batch cannot be read" }),
+  ).toHaveCount(0)
+  await page.route(accessPath, (route) =>
+    route.fulfill({ json: successAccess }),
+  )
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  )
+  await expect(
+    page.getByText("The latest access check failed", { exact: false }),
+  ).toHaveCount(0)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+})
+
+test("a transient batch read failure keeps results and is not a task failure", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.clock.install()
+  await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await page.route(batchPath, (route) =>
+    route.fulfill({
+      status: 503,
+      json: { detail: { code: "synthetic_batch_unavailable" } },
+    }),
+  )
+  const failed = page.waitForResponse(
+    (candidate) =>
+      new URL(candidate.url()).pathname ===
+        `${root}/netflow-analyses/${analysis}` && candidate.status() === 503,
+  )
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  )
+  await failed
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await expect(
+    page.getByText(
+      "The latest batch read failed; the last verified batch status is shown. Results are preserved.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(
+    page.getByText("Failed; inspect the error before retrying", {
+      exact: true,
+    }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("heading", { name: "This fixed batch cannot be read" }),
+  ).toHaveCount(0)
+  await page.route(batchPath, (route) => route.fulfill({ json: batch }))
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  )
+  await expect(
+    page.getByText("The latest batch read failed", { exact: false }),
+  ).toHaveCount(0)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+})
+
+test("an initial transient batch failure is unavailable and retryable", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.route(batchPath, (route) =>
+    route.fulfill({
+      status: 503,
+      json: { detail: { code: "synthetic_batch_unavailable" } },
+    }),
+  )
+  await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
+  await expect(
+    page.getByRole("heading", {
+      name: "This fixed batch cannot be read yet",
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", {
+      name: "Retry reading this fixed batch",
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("heading", {
+      name: "This fixed batch cannot be read",
+      exact: true,
+    }),
+  ).toHaveCount(0)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveCount(0)
+  await page.route(batchPath, (route) => route.fulfill({ json: batch }))
+  await page
+    .getByRole("button", {
+      name: "Retry reading this fixed batch",
+      exact: true,
+    })
+    .click()
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+})
+
+test("an access refusal still clears verified results", async ({ page }) => {
+  await setup(page)
+  await page.clock.install()
+  await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await page.route(accessPath, (route) =>
+    route.fulfill({
+      status: 403,
+      json: { detail: { code: "netflow_view_forbidden" } },
+    }),
+  )
+  const failed = page.waitForResponse(
+    (candidate) =>
+      candidate.url().includes(`/netflow-analyses/${analysis}/access`) &&
+      candidate.status() === 403,
+  )
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  )
+  await failed
+  await expect(
+    page.getByRole("heading", { name: "This fixed batch cannot be read" }),
+  ).toBeVisible()
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveCount(0)
+})
+
+test("a refusal on one fixed scope does not block the next fixed scope", async ({
+  page,
+}) => {
+  await setup(page)
+  const otherIdentity = {
+    ...identity,
+    analysis_id: otherAnalysis,
+    dataset_id: otherDataset,
+    context_revision_id: otherContext,
+  }
+  const otherBatch = { ...batch, ...otherIdentity }
+  await page.route(accessPath, (route) =>
+    route.fulfill({
+      status: 403,
+      json: { detail: { code: "netflow_view_forbidden" } },
+    }),
+  )
+  await page.route(`**${root}/netflow-analyses/${otherAnalysis}`, (route) =>
+    route.fulfill({ json: otherBatch }),
+  )
+  await page.route(
+    `**${root}/netflow-analyses/${otherAnalysis}/access`,
+    (route) =>
+      route.fulfill({
+        json: { ...otherIdentity, can_read_result: true, status: "SUCCEEDED" },
+      }),
+  )
+  await page.route(
+    `**${root}/netflow-analyses/${otherAnalysis}/observations?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...otherIdentity,
+          ...timing,
+          data: [observation(1)],
+          count: 1,
+          skip: 0,
+          limit: 25,
+          raw_record_count: 30,
+          total_source_records: 30,
+          total_observations: 1,
+          total_addresses: 1,
+        },
+      }),
+  )
+  await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
+  await expect(
+    page.getByRole("heading", {
+      name: "This fixed batch cannot be read",
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveCount(0)
+  await page.goto(
+    `/projects/${project}/netflow-results?analysis=${otherAnalysis}`,
+  )
+  await expect(
+    page.getByRole("heading", { name: "NetFlow observations", exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "192.0.2.1", exact: true }),
+  ).toBeVisible()
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "30",
+  )
+  await expect(
+    page.getByRole("heading", {
+      name: "This fixed batch cannot be read",
+      exact: true,
+    }),
+  ).toHaveCount(0)
+})
+
+test("an access identity conflict clears verified results", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.clock.install()
+  await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await page.route(accessPath, (route) =>
+    route.fulfill({
+      json: {
+        ...successAccess,
+        analysis_id: otherAnalysis,
+      },
+    }),
+  )
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange")),
+  )
+  await expect(
+    page.getByRole("heading", { name: "This fixed batch cannot be read" }),
+  ).toBeVisible()
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveCount(0)
+})
+
+test("audit explicit progress revocation clears previously readable result", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.route(batchPath, (route) =>
+    route.fulfill({
+      json: {
+        ...batch,
+        pipeline_complete: true,
+        provenance: { backend: "netflow-bulk-v1" },
+      },
+    }),
+  )
+  let release: () => void = () => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route(
+    `**${root}/netflow-bulk/analyses/${analysis}/progress`,
+    async (route) => {
+      await held
+      return route.fulfill({
+        status: 409,
+        json: { detail: { code: "netflow_context_revoked" } },
+      })
+    },
+  )
+  await page.clock.install()
+  await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await page.route(accessPath, (route) =>
+    route.fulfill({ status: 503, json: { detail: "temporary" } }),
+  )
+  release()
+  await expect(
+    page.getByRole("heading", {
+      name: "This fixed batch cannot be read",
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveCount(0)
+  await page.clock.runFor(5001)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveCount(0)
+})
+
+test("a transient progress failure keeps read results and is not a denial", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.route(batchPath, (route) =>
+    route.fulfill({
+      json: {
+        ...batch,
+        pipeline_complete: true,
+        provenance: { backend: "netflow-bulk-v1" },
+      },
+    }),
+  )
+  let reads = 0
+  await page.route(
+    `**${root}/netflow-bulk/analyses/${analysis}/progress`,
+    (route) => {
+      reads += 1
+      if (reads === 1)
+        return route.fulfill({
+          json: {
+            ...identity,
+            provenance: { backend: "netflow-bulk-v1" },
+            status: "RUNNING",
+            phase: "NORMALIZING",
+            cancel_requested: false,
+            heartbeat_at: null,
+            lease_until: null,
+            files_completed: 0,
+            files_total: 4,
+            rows_normalized: 0,
+            metrics: {},
+          },
+        })
+      return route.fulfill({ status: 503, json: { detail: "temporary" } })
+    },
+  )
+  await page.clock.install()
+  await page.goto(`/projects/${project}/netflow-results?analysis=${analysis}`)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await expect(page.getByText("Phase: Normalizing input files")).toBeVisible()
+  await page.clock.runFor(5001)
+  await page.clock.runFor(5001)
+  await expect(page.getByLabel("Original rows", { exact: true })).toHaveText(
+    "780",
+  )
+  await expect(
+    page.getByText(
+      "The last verified progress is shown; the latest read failed.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("heading", { name: "This fixed batch cannot be read" }),
+  ).toHaveCount(0)
+})

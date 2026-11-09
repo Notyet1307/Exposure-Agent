@@ -9,6 +9,10 @@ import {
   ProjectsService,
 } from "@/client"
 import { ComparisonReturnLink } from "@/components/ComparisonReturnLink"
+import {
+  NetflowProgress,
+  useNetflowProgress,
+} from "@/components/NetflowProgress"
 import { ResultPagination } from "@/components/ResultPagination"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Button } from "@/components/ui/button"
@@ -22,6 +26,16 @@ import { netflowProtocol, netflowText } from "@/lib/netflow-labels"
 
 const SIZE = 25
 const EVIDENCE_SIZE = 10
+
+// Explicit refusal stays fail-closed. Transient reads are a retryable read
+// failure, not a reason to clear verified content.
+const netflowRefusal = (error: unknown) =>
+  error instanceof ApiError &&
+  ([401, 403, 404, 410].includes(error.status) ||
+    (error.status === 409 &&
+      ["netflow_context_revoked", "netflow_artifact_integrity_failed"].includes(
+        netflowErrorCode(error) ?? "",
+      )))
 export type NetflowResultsSearch = ComparisonReturn & {
   analysis?: string
   dataset?: string
@@ -202,12 +216,16 @@ export default function NetflowResults({
       identity.analysis_id === search.analysis &&
       (!search.dataset || identity.dataset_id === search.dataset),
   )
+  const progress = useNetflowProgress({
+    scope,
+    projectId,
+    analysis: available && identityMatches ? identity : undefined,
+  })
   const readable =
     available &&
     identityMatches &&
     identity?.can_read_result === true &&
-    ["SUCCEEDED", "SUCCEEDED_WITH_WARNINGS"].includes(identity.status) &&
-    !batch.isError
+    ["SUCCEEDED", "SUCCEEDED_WITH_WARNINGS"].includes(identity.status)
   const verify = <
     T extends {
       project_id: string
@@ -372,9 +390,7 @@ export default function NetflowResults({
         limit: SIZE,
       }),
   })
-  const failure = [
-    batch,
-    access,
+  const contentFailure = [
     observations,
     detail,
     peers,
@@ -384,19 +400,52 @@ export default function NetflowResults({
     datasets,
     batches,
   ].find((query) => query.isError)?.error
+  const batchRefused = batch.isError && netflowRefusal(batch.error)
+  const accessRefused = access.isError && netflowRefusal(access.error)
+  const progressRefused = progress.problem === "refusal"
+  const accessIdentityConflict = Boolean(
+    access.isError &&
+      access.error instanceof Error &&
+      access.error.message === "Fixed access identity mismatch",
+  )
+  const failure =
+    contentFailure ??
+    (progressRefused ? progress.error : undefined) ??
+    (batchRefused ? batch.error : undefined) ??
+    (accessRefused || accessIdentityConflict ? access.error : undefined)
+  const deny =
+    progressRefused ||
+    Boolean(contentFailure && netflowRefusal(contentFailure)) ||
+    batchRefused ||
+    accessRefused ||
+    accessIdentityConflict
+  // A denial belongs to the scope that produced it. A new fixed scope starts
+  // unblocked; the same scope keeps its denial until an explicit scope change.
   useEffect(() => {
-    if (
-      !access.isError &&
-      (!(failure instanceof ApiError) ||
-        ![401, 403, 404, 410].includes(failure.status))
-    )
-      return
+    setDenied(false)
+  }, [])
+  useEffect(() => {
+    if (!deny) return
     setDenied(true)
     void cache.cancelQueries({ queryKey: scope })
     cache.removeQueries({ queryKey: scope })
-  }, [cache, scope, failure, access.isError])
+  }, [cache, scope, deny])
   const mismatch = Boolean(identity && !identityMatches)
+  const unavailable =
+    !denied &&
+    !search.invalid &&
+    !mismatch &&
+    ((batch.isError && !identity && !batchRefused) ||
+      (access.isError && !access.data && !accessRefused))
   const blocked = denied || search.invalid || mismatch || Boolean(failure)
+  const batchStale =
+    !denied && batch.isError && Boolean(identity) && !batchRefused
+  const accessStale =
+    !denied &&
+    access.isError &&
+    Boolean(access.data) &&
+    !accessRefused &&
+    !accessIdentityConflict
   useEffect(() => {
     if (
       search.object &&
@@ -442,7 +491,7 @@ export default function NetflowResults({
         </p>
         <div className="flex flex-wrap gap-4 text-sm">
           <ComparisonReturnLink projectId={projectId} search={search} />
-          {identity?.provenance.backend !== "netflow-bulk-v1" && (
+          {identity && identity.provenance.backend !== "netflow-bulk-v1" && (
             <Link
               className="underline"
               to="/projects/$projectId/netflow-ledger"
@@ -497,6 +546,27 @@ export default function NetflowResults({
           )}
         </div>
       </header>
+      {!blocked && !unavailable && (
+        <>
+          <NetflowProgress progress={progress} />
+          {batchStale && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {t(
+                "The latest batch read failed; the last verified batch status is shown. Results are preserved.",
+                "最近一次批次读取失败；显示上次已验证的批次状态，结果仍保留。",
+              )}
+            </p>
+          )}
+          {accessStale && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {t(
+                "The latest access check failed; the last verified access result is shown. Revocation may not be reflected until a read succeeds.",
+                "最近一次权限检查失败；显示上次已验证的权限结果。读取恢复前可能无法反映最新撤销。",
+              )}
+            </p>
+          )}
+        </>
+      )}
       {!blocked &&
         readable &&
         identity?.provenance.backend === "netflow-bulk-v1" && (
@@ -560,6 +630,27 @@ export default function NetflowResults({
               )}
             </p>
           )}
+        </section>
+      ) : unavailable ? (
+        <section role="alert" className="space-y-3 rounded-lg border p-4">
+          <h2 className="font-semibold">
+            {t("This fixed batch cannot be read yet", "暂时无法读取该固定批次")}
+          </h2>
+          <p className="text-sm">
+            {t(
+              "The batch or its access check could not be read. No other batch was substituted and no result was cleared.",
+              "无法读取该批次或其权限检查。未替换为其他批次，也未清除已有结果。",
+            )}
+          </p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              void batch.refetch()
+              void access.refetch()
+            }}
+          >
+            {t("Retry reading this fixed batch", "重试读取该固定批次")}
+          </Button>
         </section>
       ) : !search.analysis &&
         !search.history &&

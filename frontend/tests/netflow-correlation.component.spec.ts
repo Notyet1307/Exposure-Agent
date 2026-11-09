@@ -1901,3 +1901,104 @@ test("switching projects clears every NetFlow fixed selection", async ({
     0,
   )
 })
+
+test("an explicit progress refusal clears the pinned correlation rows", async ({
+  page,
+}) => {
+  await setup(page)
+  const datasetId = summary.pins.NETFLOW.dataset_id
+  const contextId = summary.pins.NETFLOW.context_revision_id
+  const pinned = {
+    project_id: project,
+    analysis_id: analysis,
+    dataset_id: datasetId,
+    context_revision_id: contextId,
+    network_namespace: "synthetic",
+    test_fixture: true,
+    provenance: { backend: "netflow-bulk-v1" },
+    status: "RUNNING",
+    can_read_result: false,
+    completed_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    context: {},
+    quality: {},
+    result: null,
+    error_code: null,
+  }
+  await page.route(`**${root}/netflow-analyses/${analysis}`, (route) =>
+    route.fulfill({ json: pinned }),
+  )
+  await page.route(
+    `**${root}/netflow-datasets/${datasetId}/processing-contexts?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [
+            {
+              project_id: project,
+              dataset_id: datasetId,
+              context_revision_id: contextId,
+              current_context_revision_id: contextId,
+              network_namespace: "synthetic",
+              state: "CONFIRMED",
+              current_state: "CONFIRMED",
+              revision: 1,
+              parent_id: null,
+              declarations: {},
+              raw_sha256: "a",
+              normalized_sha256: "a",
+              created_by: "synthetic",
+              created_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+          count: 1,
+        },
+      }),
+  )
+  let reads = 0
+  await page.route(
+    `**${root}/netflow-bulk/analyses/${analysis}/progress`,
+    (route) => {
+      reads += 1
+      if (reads === 1)
+        return route.fulfill({
+          json: {
+            ...pinned,
+            status: "RUNNING",
+            phase: "NORMALIZING",
+            cancel_requested: false,
+            heartbeat_at: null,
+            lease_until: null,
+            files_completed: 0,
+            files_total: 4,
+            rows_normalized: 0,
+            metrics: {},
+          },
+        })
+      return route.fulfill({
+        status: 409,
+        json: { detail: { code: "netflow_context_revoked" } },
+      })
+    },
+  )
+  await page.clock.install()
+  await page.goto(
+    `/projects/${project}/netflow-correlation?revision=${revision}&dataset=${datasetId}&context=${contextId}&analysis=${analysis}&namespace=synthetic&cloudMode=none`,
+  )
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveText("26")
+  await page
+    .getByText("Change inputs or inspect processing", { exact: true })
+    .click()
+  await expect(page.getByText("Phase: Normalizing input files")).toBeVisible()
+  await page.clock.runFor(5001)
+  await expect(
+    page.getByRole("alert").filter({
+      hasText: "The processing context is no longer authorized",
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByLabel("All addresses count", { exact: true }),
+  ).toHaveCount(0)
+})
