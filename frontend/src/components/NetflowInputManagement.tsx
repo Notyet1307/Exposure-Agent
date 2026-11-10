@@ -194,6 +194,7 @@ export function NetflowInputManagement({
     void cache.invalidateQueries({ queryKey: [...key, "contexts"] })
     void cache.invalidateQueries({ queryKey: [...key, "context"] })
     void cache.invalidateQueries({ queryKey: [...key, "analyses"] })
+    void cache.invalidateQueries({ queryKey: ["input-summary", projectId] })
   }
   const failed =
     datasets.isError ||
@@ -260,6 +261,9 @@ export function NetflowInputManagement({
           projectId={projectId}
           onRegistered={(id) => {
             void cache.invalidateQueries({ queryKey: key })
+            void cache.invalidateQueries({
+              queryKey: ["input-summary", projectId],
+            })
             onDatasetChange(id)
           }}
         />
@@ -354,6 +358,9 @@ export function NetflowInputManagement({
               onRefresh={() => {
                 void cache.invalidateQueries({
                   queryKey: [...key, "analyses"],
+                })
+                void cache.invalidateQueries({
+                  queryKey: ["input-summary", projectId],
                 })
               }}
             />

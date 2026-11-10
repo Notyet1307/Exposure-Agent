@@ -20,6 +20,7 @@ import { DiagnosticDetails } from "@/components/DiagnosticDetails"
 import Findings from "@/components/Findings"
 import GovernanceReports from "@/components/GovernanceReports"
 import GovernanceRuns from "@/components/GovernanceRuns"
+import InputReadinessSummary from "@/components/InputReadinessSummary"
 import IPAssets from "@/components/IPAssets"
 import NetFlowDatasets from "@/components/NetFlowDatasets"
 import { NetflowInputManagement } from "@/components/NetflowInputManagement"
@@ -439,9 +440,14 @@ function ProjectInputs({
       if (fileInputRef.current) fileInputRef.current.value = ""
       setSelectedFilename(null)
       setPage(0)
-      await queryClient.invalidateQueries({
-        queryKey: ["customer-uploads", project.id],
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["customer-uploads", project.id],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["input-summary", project.id],
+        }),
+      ])
     },
     onError: (error: Error) => {
       const failure = uploadError(error)
@@ -533,6 +539,9 @@ function ProjectInputs({
       }),
       queryClient.invalidateQueries({
         queryKey: ["governance-runs", project.id],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["input-summary", project.id],
       }),
     ])
     if (alive.current) currentInputTitle.current?.focus()
@@ -1180,6 +1189,11 @@ function Dashboard() {
             key={`preparation:${project.id}`}
             projectId={project.id}
             archived={project.archived_at !== null}
+          />
+          <InputReadinessSummary
+            key={`input-summary:${user.id}:${project.id}`}
+            actorId={user.id}
+            projectId={project.id}
           />
           <div
             id="customer-inputs"

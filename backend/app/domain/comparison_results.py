@@ -445,12 +445,9 @@ def _applied_at(session: Session, project: Project) -> datetime | None:
     return event.created_at if event else None
 
 
-def _cloud_choices(
-    session: Session,
-    project: Project,
-    source_id: uuid.UUID | None = None,
-    expected_pins: dict[str, Any] | None = None,
-) -> list[CloudChoice]:
+def assets_v1_sources(
+    session: Session, project: Project, source_id: uuid.UUID | None = None
+) -> list[SourceInstance]:
     query = select(SourceInstance).where(
         SourceInstance.project_id == project.id,
         SourceInstance.tenant_id == project.tenant_id,
@@ -463,7 +460,17 @@ def _cloud_choices(
     ).all()
     if source_id is not None and not rows:
         deny("netflow_input_not_found", 404)
-    choices = []
+    return list(rows)
+
+
+def _cloud_choices(
+    session: Session,
+    project: Project,
+    source_id: uuid.UUID | None = None,
+    expected_pins: dict[str, Any] | None = None,
+) -> list[CloudChoice]:
+    rows = assets_v1_sources(session, project, source_id)
+    choices: list[CloudChoice] = []
     for source in rows:
         if not source.data_access_enabled:
             if source_id is not None:
@@ -710,7 +717,7 @@ def readiness(
     return value
 
 
-def _ready_safely(
+def readiness_safely(
     session: Session,
     project: Project,
     actor: User,
@@ -755,7 +762,7 @@ def current(
             scope_choices=choices,
         )
     selected = next(iter(by_scope.values()), None)
-    ready = _ready_safely(session, project, actor, selected)
+    ready = readiness_safely(session, project, actor, selected)
     ready.scope_choices = choices
     return CurrentResult(
         project_id=project.id,
@@ -1151,7 +1158,7 @@ def updates(
 ) -> Updates:
     row = _result(session, project, identity)
     _read(session, project, row)
-    ready = _ready_safely(session, project, actor, row)
+    ready = readiness_safely(session, project, actor, row)
     state: Literal["UNCHANGED", "UPDATED", "UNAVAILABLE"] = (
         "UNAVAILABLE"
         if ready.input_sha256 is None

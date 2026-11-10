@@ -27,7 +27,8 @@ if mode == "prepare":
 	root.mkdir(parents=True, exist_ok=False)
 paths = [".claude/skills/verify-exposure2026/" + name for name in (
 	"SKILL.md", "features/README.md", "features/customer-ledger.md",
-	"features/external-assets.md", "features/projects.md",
+	"features/external-assets.md", "features/input-readiness.md",
+	"features/projects.md",
 )] + ["scripts/verify-exposure2026.py", "scripts/verify-exposure2026-ui.cjs"]
 code = 0
 with (root / f"{mode}.log").open("x") as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):

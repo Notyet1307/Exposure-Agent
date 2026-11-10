@@ -415,6 +415,9 @@ export default function NetFlowDatasets({
       queryClient.invalidateQueries({
         queryKey: ["governance-runs", projectId],
       }),
+      queryClient.invalidateQueries({
+        queryKey: ["input-summary", projectId],
+      }),
     ])
   }
 
