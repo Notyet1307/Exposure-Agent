@@ -2512,3 +2512,465 @@ test("a history refusal during the held print frames cancels printing", async ({
   await expect(denied).toBeVisible()
   expect(state.createCalls).toBe(0)
 })
+
+const coreEnvelope = {
+  contract_version: "core-comparison-v2",
+  project_id: project,
+}
+const addressRows = Array.from({ length: 30 }, (_, index) => ({
+  address_key: `addr:${String(index + 1).padStart(64, "0")}`,
+  canonical_ip: `192.0.2.${index + 1}`,
+  classification: "both",
+  customer_records: 1,
+  cloud_records: 1,
+  presence: { CUSTOMER: "PRESENT", CLOUD: "PRESENT" },
+}))
+
+async function serveAddressPage(page: Page) {
+  const reads: URLSearchParams[] = []
+  const addressesPath = `${root}/comparison-results/${result}/addresses`
+  await page.route(
+    (url) => url.pathname === addressesPath,
+    (route) => {
+      const query = new URL(route.request().url()).searchParams
+      reads.push(query)
+      const ip = query.get("ip")
+      const matched = ip
+        ? addressRows.filter((row) => row.canonical_ip === ip)
+        : addressRows
+      const sorted =
+        query.get("sort") === "ip_desc" ? [...matched].reverse() : matched
+      const skip = Number(query.get("skip") ?? 0)
+      const limit = Number(query.get("limit") ?? 25)
+      return route.fulfill({
+        json: {
+          ...coreEnvelope,
+          result_id: result,
+          total_addresses: addressRows.length,
+          count: sorted.length,
+          skip,
+          limit,
+          data: sorted.slice(skip, skip + limit),
+        },
+      })
+    },
+  )
+  await page.route(
+    (url) => url.pathname.startsWith(`${addressesPath}/`),
+    (route) => {
+      const requestUrl = new URL(route.request().url())
+      const rest = decodeURIComponent(
+        requestUrl.pathname.slice(`${addressesPath}/`.length),
+      )
+      if (rest.endsWith("/evidence")) {
+        const key = rest.slice(0, -"/evidence".length)
+        return route.fulfill({
+          json: {
+            ...coreEnvelope,
+            result_id: result,
+            address_key: key,
+            source: requestUrl.searchParams.get("source") ?? "customer",
+            count: 0,
+            skip: 0,
+            limit: 25,
+            data: [],
+          },
+        })
+      }
+      const row = addressRows.find((value) => value.address_key === rest)
+      if (!row)
+        return route.fulfill({
+          status: 404,
+          json: { detail: { code: "comparison_address_not_found" } },
+        })
+      return route.fulfill({
+        json: { ...coreEnvelope, result_id: result, address: row },
+      })
+    },
+  )
+  return reads
+}
+
+const readingNav = (page: Page) =>
+  page.getByRole("navigation", { name: "Reading areas" })
+const recordsGroup = (page: Page) =>
+  page.getByRole("group", { name: "Records and evidence" })
+const reportHeading = (page: Page) =>
+  page.getByRole("heading", {
+    name: "AI interpretation and reports",
+    exact: true,
+  })
+const materialsSummary = (page: Page) =>
+  page.getByText("View the materials used here", { exact: true })
+
+async function visitReadingArea(page: Page, entry: string) {
+  await readingNav(page)
+    .getByRole("button", { name: entry, exact: true })
+    .click()
+}
+
+test("reading shortcuts retain the report node, version page, full body, draft and filters", async ({
+  page,
+}) => {
+  const state = await serve(page, "READY", false, true)
+  const reads = await serveAddressPage(page)
+  const methods: string[] = []
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/v1/"))
+      methods.push(request.method())
+  })
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none&core_class=both&core_page=1&core_sort=ip_desc`,
+  )
+  const core = page.getByRole("region", { name: "Core classification" })
+  await expect(
+    core.getByText("Fixed total 30 · Matching 30 · This page 5"),
+  ).toBeVisible()
+  await expect(
+    core.getByRole("button", { name: /Recorded on both sides 1/ }),
+  ).toHaveAttribute("aria-pressed", "true")
+  const ipInput = core.getByRole("textbox", {
+    name: "IP address",
+    exact: true,
+  })
+  await ipInput.fill("198.51.100.")
+
+  const panel = v2Panel(page)
+  await expect(panel.getByLabel("Saved report version")).toHaveValue(
+    state.pageIds[0],
+  )
+  await panel
+    .getByRole("button", { name: "View full report", exact: true })
+    .click()
+  await expect(
+    panel.getByText("Body for version 1", { exact: true }).first(),
+  ).toBeVisible()
+  await panel
+    .getByRole("navigation", { name: "Report versions pagination" })
+    .getByRole("button", { name: "Next", exact: true })
+    .click()
+  await expect(panel.getByLabel("Saved report version")).toHaveValue(
+    state.pageIds[25],
+  )
+  await expect(
+    panel.getByText("Body for version 26", { exact: true }).first(),
+  ).toBeVisible()
+  await expect(
+    panel.getByRole("button", { name: "Show summary", exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel
+      .getByRole("navigation", { name: "Report versions pagination" })
+      .getByText("Page 2 of 2"),
+  ).toBeVisible()
+  await panel
+    .getByRole("button", { name: "Edit interpretation", exact: true })
+    .click()
+  const editor = panel.getByLabel("Interpretation · check", { exact: true })
+  await editor.fill("Draft kept across reading shortcuts.")
+  await expect(
+    panel.getByRole("button", { name: "Save report revision", exact: true }),
+  ).toBeEnabled()
+  await panel.evaluate((element) =>
+    element.setAttribute("data-reading-node", "kept"),
+  )
+  const node = await panel.elementHandle()
+  const before = page.url()
+  for (const [entry, target] of [
+    ["Records and evidence", recordsGroup(page)],
+    ["AI interpretation and reports", reportHeading(page)],
+    ["Materials used here", materialsSummary(page)],
+  ] as const) {
+    await visitReadingArea(page, entry)
+    await expect(target).toBeFocused()
+  }
+  await page
+    .getByRole("button", { name: "Back to reading areas", exact: true })
+    .click()
+  await expect(readingNav(page)).toBeFocused()
+  expect(page.url()).toBe(before)
+  await expect(panel).toHaveAttribute("data-reading-node", "kept")
+  expect(
+    await node!.evaluate(
+      (element, current) => element === current,
+      await panel.elementHandle(),
+    ),
+  ).toBe(true)
+  await expect(panel.getByLabel("Saved report version")).toHaveValue(
+    state.pageIds[25],
+  )
+  await expect(
+    panel
+      .getByRole("navigation", { name: "Report versions pagination" })
+      .getByText("Page 2 of 2"),
+  ).toBeVisible()
+  await expect(
+    panel.getByRole("button", { name: "Show summary", exact: true }),
+  ).toBeVisible()
+  await expect(editor).toHaveValue("Draft kept across reading shortcuts.")
+  await expect(
+    panel.getByRole("button", { name: "Save report revision", exact: true }),
+  ).toBeEnabled()
+  await expect(ipInput).toHaveValue("198.51.100.")
+  await expect(
+    core.getByRole("button", { name: /Recorded on both sides 1/ }),
+  ).toHaveAttribute("aria-pressed", "true")
+  await expect(
+    core.getByText("Fixed total 30 · Matching 30 · This page 5"),
+  ).toBeVisible()
+  const url = new URL(page.url())
+  expect(url.searchParams.get("core_page")).toBe("1")
+  expect(url.searchParams.get("core_sort")).toBe("ip_desc")
+  expect(url.searchParams.get("core_class")).toBe("both")
+  expect(state.createCalls).toBe(0)
+  expect(state.patchCalls).toBe(0)
+  expect(state.confirmCalls).toBe(0)
+  expect(methods.every((method) => method === "GET")).toBe(true)
+  expect(reads.some((query) => query.get("skip") === "25")).toBe(true)
+})
+
+test("open materials and an open evidence drawer survive shortcuts while the page report draft is kept", async ({
+  page,
+}) => {
+  const state = await serve(page, "READY", true)
+  await serveAddressPage(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await open(page)
+  const panel = v2Panel(page)
+  await panel
+    .getByRole("button", { name: "View full report", exact: true })
+    .click()
+  await panel
+    .getByRole("button", { name: "Edit interpretation", exact: true })
+    .click()
+  const editor = panel.getByLabel("Interpretation · check", { exact: true })
+  const draft = "Page report draft survives materials and drawer."
+  await editor.fill(draft)
+  const materials = materialsSummary(page)
+  const details = page.locator("details").filter({ has: materials })
+  await materials.click()
+  await expect(details).toHaveJSProperty("open", true)
+  const table = page.getByRole("table", { name: "Comparison addresses" })
+  await table.getByRole("button", { name: "View evidence" }).first().click()
+  const drawer = page.getByRole("dialog")
+  await expect(drawer).toBeVisible()
+  await expect(
+    drawer.getByRole("heading", { name: addressRows[0].canonical_ip }),
+  ).toBeFocused()
+  await expect(editor).toHaveValue(draft)
+  const before = page.url()
+  for (const [entry, target] of [
+    ["Records and evidence", recordsGroup(page)],
+    ["AI interpretation and reports", reportHeading(page)],
+    ["Materials used here", materials],
+  ] as const) {
+    await visitReadingArea(page, entry)
+    await expect(target).toBeFocused()
+    await expect(drawer).toBeVisible()
+    await expect(details).toHaveJSProperty("open", true)
+    await expect(editor).toHaveValue(draft)
+  }
+  await page
+    .getByRole("button", { name: "Back to reading areas", exact: true })
+    .click()
+  await expect(readingNav(page)).toBeFocused()
+  await expect(drawer).toBeVisible()
+  await expect(details).toHaveJSProperty("open", true)
+  expect(page.url()).toBe(before)
+  await drawer
+    .getByRole("button", { name: "Close evidence", exact: true })
+    .click()
+  await expect(drawer).toHaveCount(0)
+  await expect(page).not.toHaveURL(/core_address=/)
+  await expect(editor).toHaveValue(draft)
+  await expect(details).toHaveJSProperty("open", true)
+  await table.getByRole("button", { name: "View evidence" }).nth(1).click()
+  await expect(drawer).toBeVisible()
+  await expect(
+    drawer.getByRole("heading", { name: addressRows[1].canonical_ip }),
+  ).toBeFocused()
+  await expect(editor).toHaveValue(draft)
+  await drawer
+    .getByRole("button", { name: "Close evidence", exact: true })
+    .click()
+  await expect(drawer).toHaveCount(0)
+  expect(state.createCalls).toBe(0)
+  expect(state.patchCalls).toBe(0)
+})
+
+test("shortcut activity stays read-only and empty or unavailable report states remain reachable", async ({
+  page,
+}) => {
+  const state = await serve(page, "NOT_CONFIGURED", false)
+  const methods: string[] = []
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/v1/"))
+      methods.push(request.method())
+  })
+  await open(page)
+  await visitReadingArea(page, "AI interpretation and reports")
+  await expect(reportHeading(page)).toBeFocused()
+  const panel = v2Panel(page)
+  await expect(
+    panel.getByText("No model connection is configured.", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel.getByText(
+      "No report for this fixed scope yet. Facts and evidence remain available below.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  const before = page.url()
+  for (const [entry, target] of [
+    ["Records and evidence", recordsGroup(page)],
+    ["Materials used here", materialsSummary(page)],
+    ["AI interpretation and reports", reportHeading(page)],
+  ] as const) {
+    await visitReadingArea(page, entry)
+    await expect(target).toBeFocused()
+  }
+  await page
+    .getByRole("button", { name: "Back to reading areas", exact: true })
+    .click()
+  expect(page.url()).toBe(before)
+  expect(state.createCalls).toBe(0)
+  expect(state.patchCalls).toBe(0)
+  expect(state.confirmCalls).toBe(0)
+  expect(methods.length).toBeGreaterThan(0)
+  expect(methods.every((method) => method === "GET")).toBe(true)
+})
+
+test("a new result notice leaves the fixed identity and reading shortcuts unchanged", async ({
+  page,
+}) => {
+  const state = await serve(page, "READY", true)
+  await page.route(
+    (url) => url.pathname === `${root}/comparison-results/${result}/updates`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...coreEnvelope,
+          result_id: result,
+          state: "UNCHANGED",
+          latest_result_id: "10000000-0000-4000-8000-000000000299",
+        },
+      }),
+  )
+  await open(page)
+  const notice = page.getByText(
+    "A newer result is available. This page has not changed version.",
+  )
+  await expect(notice).toBeVisible()
+  const before = page.url()
+  for (const entry of [
+    "Records and evidence",
+    "AI interpretation and reports",
+    "Materials used here",
+  ]) {
+    await visitReadingArea(page, entry)
+  }
+  await page
+    .getByRole("button", { name: "Back to reading areas", exact: true })
+    .click()
+  await expect(notice).toBeVisible()
+  expect(new URL(page.url()).searchParams.get("result")).toBe(result)
+  expect(page.url()).toBe(before)
+  expect(state.createCalls).toBe(0)
+})
+
+test("a delayed old report response does not replace the selected version during shortcuts", async ({
+  page,
+}) => {
+  const state = await serve(page, "READY", true, true)
+  const gate = deferred()
+  state.gateDetail = { id: state.pageIds[0], gate: gate.promise, status: 200 }
+  await open(page)
+  const panel = v2Panel(page)
+  await expect.poll(() => state.gateHits).toBeGreaterThan(0)
+  await panel.getByLabel("Saved report version").selectOption(state.pageIds[1])
+  await expect(
+    panel.getByText("Body for version 2", { exact: true }).first(),
+  ).toBeVisible()
+  const before = page.url()
+  for (const entry of [
+    "Records and evidence",
+    "AI interpretation and reports",
+    "Materials used here",
+  ]) {
+    await visitReadingArea(page, entry)
+  }
+  gate.release()
+  await expect.poll(() => state.gateFulfilled).toBeGreaterThan(0)
+  await expect(
+    panel.getByText("Body for version 2", { exact: true }).first(),
+  ).toBeVisible()
+  await expect(
+    panel.getByText("Body for version 1", { exact: true }),
+  ).toHaveCount(0)
+  await expect(panel.getByRole("alert")).toHaveCount(0)
+  expect(page.url()).toBe(before)
+  expect(state.createCalls).toBe(0)
+})
+
+test("temporary failures keep the draft through shortcuts; explicit expiry clears it", async ({
+  page,
+}) => {
+  const state = await serve(page, "READY", true)
+  await open(page)
+  const panel = v2Panel(page)
+  await panel
+    .getByRole("button", { name: "View full report", exact: true })
+    .click()
+  await panel
+    .getByRole("button", { name: "Edit interpretation", exact: true })
+    .click()
+  const editor = panel.getByLabel("Interpretation · check", { exact: true })
+  const draft = "Temporary source failure keeps this draft."
+  await editor.fill(draft)
+  state.failDetail = 503
+  await panel
+    .getByRole("button", { name: "Re-read report state", exact: true })
+    .click()
+  await expect(
+    panel.getByRole("alert").filter({ hasText: "temporarily" }),
+  ).toBeVisible()
+  await expect(editor).toHaveCount(0)
+  for (const entry of [
+    "Records and evidence",
+    "AI interpretation and reports",
+    "Materials used here",
+  ]) {
+    await visitReadingArea(page, entry)
+  }
+  state.failDetail = 0
+  await panel
+    .getByRole("button", { name: "Re-read report state", exact: true })
+    .click()
+  await expect(editor).toBeVisible()
+  await expect(editor).toHaveValue(draft)
+  state.failDetail = 410
+  state.failDetailBody = {
+    detail: {
+      code: "v2_report_material_expired",
+      message: "fixed material expired",
+    },
+  }
+  await panel
+    .getByRole("button", { name: "Re-read report state", exact: true })
+    .click()
+  const expired = panel.getByRole("alert").filter({ hasText: "expired" })
+  await expect(expired).toBeVisible()
+  await expect(editor).toHaveCount(0)
+  await expect(panel.getByText(draft)).toHaveCount(0)
+  await visitReadingArea(page, "AI interpretation and reports")
+  await expect(reportHeading(page)).toBeFocused()
+  await expect(expired).toBeVisible()
+  await expect(editor).toHaveCount(0)
+  state.failDetail = 0
+  await panel
+    .getByRole("button", { name: "Re-read report state", exact: true })
+    .click()
+  await expect(editor).toHaveCount(0)
+  expect(state.createCalls).toBe(0)
+  expect(state.patchCalls).toBe(0)
+})

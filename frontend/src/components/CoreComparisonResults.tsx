@@ -67,6 +67,7 @@ type Pending = {
   needsEvidence: boolean
   body: Creation | Binding
 }
+type ReadingArea = "records" | "reports" | "materials"
 
 export type CoreComparisonSearch = {
   result?: string
@@ -228,6 +229,11 @@ export default function CoreComparisonResults({
   const detailHeading = useRef<HTMLHeadingElement>(null)
   const lastAddressTrigger = useRef<HTMLButtonElement | null>(null)
   const comparisonTable = useRef<HTMLTableElement | null>(null)
+  const readingEntries = useRef<HTMLElement | null>(null)
+  const recordsGroup = useRef<HTMLFieldSetElement | null>(null)
+  const reportHeading = useRef<HTMLHeadingElement | null>(null)
+  const materials = useRef<HTMLDetailsElement | null>(null)
+  const materialsSummary = useRef<HTMLElement | null>(null)
   const store = `exposure:comparison:${actor}:${projectId}:${search.result ?? search.scope ?? "current"}`
   const [pending, setPending] = useState<Pending | null>(() => {
     try {
@@ -267,6 +273,24 @@ export default function CoreComparisonResults({
   )
   const date = (value: unknown) =>
     typeof value === "string" ? formatDate(value) : t("Not provided", "未提供")
+  const reveal = (target: HTMLElement | null) => {
+    if (!target?.isConnected) return
+    target.focus({ preventScroll: true })
+    target.scrollIntoView({ block: "center", behavior: "instant" })
+  }
+  const readingAreas: ReadonlyArray<readonly [ReadingArea, string]> = [
+    ["records", t("Records and evidence", "记录与依据")],
+    ["reports", t("AI interpretation and reports", "AI 解读与报告")],
+    ["materials", t("Materials used here", "本次资料")],
+  ]
+  const visitReadingArea = (area: ReadingArea) => {
+    if (area === "records") reveal(recordsGroup.current)
+    else if (area === "reports") reveal(reportHeading.current)
+    else if (materials.current) {
+      materials.current.open = true
+      reveal(materialsSummary.current)
+    }
+  }
   useEffect(() => {
     setIp(search.core_ip ?? "")
   }, [search.core_ip])
@@ -1542,8 +1566,32 @@ export default function CoreComparisonResults({
       )}
       {result && (
         <>
-          <details className="space-y-3 border-y py-3 text-xs">
-            <summary className="cursor-pointer font-medium">
+          <nav
+            ref={readingEntries}
+            tabIndex={-1}
+            aria-label={t("Reading areas", "阅读区域")}
+            className="flex flex-wrap items-center gap-1 border-t pt-3 text-xs focus:outline-2 focus:outline-offset-2"
+          >
+            <span className="px-1 font-medium text-muted-foreground">
+              {t("Reading areas", "阅读区域")}
+            </span>
+            {readingAreas.map(([area, label]) => (
+              <Button
+                key={area}
+                type="button"
+                variant="ghost"
+                className="h-auto min-w-0 max-w-full whitespace-normal px-2 py-1 text-left text-xs"
+                onClick={() => visitReadingArea(area)}
+              >
+                {label}
+              </Button>
+            ))}
+          </nav>
+          <details ref={materials} className="space-y-3 border-y py-3 text-xs">
+            <summary
+              ref={materialsSummary}
+              className="cursor-pointer font-medium focus:outline-2 focus:outline-offset-2"
+            >
               {t("View the materials used here", "查看本次资料")}
             </summary>
             {materialLinks(result)}
@@ -1568,7 +1616,12 @@ export default function CoreComparisonResults({
             aria-label={t("Core classification", "核心分类")}
             className="comparison-core space-y-3"
           >
-            <div className="comparison-views flex flex-wrap gap-1">
+            <fieldset
+              ref={recordsGroup}
+              aria-label={t("Records and evidence", "记录与依据")}
+              tabIndex={-1}
+              className="comparison-views flex min-w-0 flex-wrap gap-1 focus:outline-2 focus:outline-offset-2"
+            >
               {comparisonClasses.map((kind) => {
                 const value =
                   kind === "all" ? result.total_addresses : result[kind]
@@ -1595,7 +1648,7 @@ export default function CoreComparisonResults({
                   </Button>
                 )
               })}
-            </div>
+            </fieldset>
             {result.comparison_state !== "AVAILABLE" && (
               <p role="status" className="text-sm">
                 {t(
@@ -2076,9 +2129,27 @@ export default function CoreComparisonResults({
             </SheetContent>
           </Sheet>
           <section
-            aria-label={t("AI model status", "AI 模型状态")}
+            aria-labelledby="core-reading-report-heading"
             className="space-y-3"
           >
+            <div className="flex flex-wrap items-center gap-3">
+              <h2
+                id="core-reading-report-heading"
+                ref={reportHeading}
+                tabIndex={-1}
+                className="text-lg font-semibold focus:outline-2 focus:outline-offset-2"
+              >
+                {t("AI interpretation and reports", "AI 解读与报告")}
+              </h2>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-auto px-2 py-1 text-xs"
+                onClick={() => reveal(readingEntries.current)}
+              >
+                {t("Back to reading areas", "返回阅读入口")}
+              </Button>
+            </div>
             <AiModelStatus />
             <V2AnalysisReportsPanel
               key={`${actor}:${projectId}:${result.id}:${search.binding}`}

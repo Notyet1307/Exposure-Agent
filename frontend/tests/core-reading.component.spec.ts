@@ -580,3 +580,403 @@ test("compact filters retain fixed identity, empty-state recovery and server sor
   ).toHaveAttribute("aria-pressed", "true")
   expect(writes).toEqual([])
 })
+
+const readingNav = (page: Page) =>
+  page.getByRole("navigation", { name: "Reading areas" })
+const recordsGroup = (page: Page) =>
+  page.getByRole("group", { name: "Records and evidence" })
+const reportHeading = (page: Page) =>
+  page.getByRole("heading", {
+    name: "AI interpretation and reports",
+    exact: true,
+  })
+const materialsSummary = (page: Page) =>
+  page.getByText("View the materials used here", { exact: true })
+
+async function hasVisibleFocus(target: ReturnType<typeof materialsSummary>) {
+  return target.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return (
+      style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) > 0
+    )
+  })
+}
+
+test("reading entries move focus locally without changing search or issuing writes", async ({
+  page,
+}) => {
+  const writes = await serve(page)
+  const methods: string[] = []
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/v1/"))
+      methods.push(request.method())
+  })
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none&core_class=cloud_only&core_page=1&core_ip=192.0.2.20&core_sort=ip_desc`,
+  )
+  const nav = readingNav(page)
+  await expect(nav).toBeVisible()
+  await expect(nav.getByText("Reading areas", { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole("region", {
+      name: "AI interpretation and reports",
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: /All addresses 3/ }),
+  ).toBeVisible()
+  const before = page.url()
+  const records = recordsGroup(page)
+  const heading = reportHeading(page)
+  const materials = materialsSummary(page)
+  const details = page.locator("details").filter({ has: materials })
+
+  await nav
+    .getByRole("button", { name: "Records and evidence", exact: true })
+    .click()
+  await expect(records).toBeFocused()
+  expect(page.url()).toBe(before)
+
+  await nav
+    .getByRole("button", {
+      name: "AI interpretation and reports",
+      exact: true,
+    })
+    .click()
+  await expect(heading).toBeFocused()
+  expect(page.url()).toBe(before)
+
+  await nav
+    .getByRole("button", { name: "Materials used here", exact: true })
+    .click()
+  await expect(materials).toBeFocused()
+  expect(await hasVisibleFocus(materials)).toBe(true)
+  await expect(details).toHaveJSProperty("open", true)
+  expect(page.url()).toBe(before)
+
+  await nav
+    .getByRole("button", { name: "Materials used here", exact: true })
+    .click()
+  await expect(details).toHaveJSProperty("open", true)
+  await expect(materials).toBeFocused()
+  expect(await hasVisibleFocus(materials)).toBe(true)
+
+  await page
+    .getByRole("button", { name: "Back to reading areas", exact: true })
+    .click()
+  await expect(nav).toBeFocused()
+  expect(page.url()).toBe(before)
+
+  await nav.focus()
+  await page.keyboard.press("Tab")
+  await expect(
+    nav.getByRole("button", { name: "Records and evidence", exact: true }),
+  ).toBeFocused()
+  await page.keyboard.press("Enter")
+  await expect(records).toBeFocused()
+  await page.keyboard.press("Tab")
+  await expect(
+    page.getByRole("button", { name: /All addresses 3/ }),
+  ).toBeFocused()
+
+  await nav.focus()
+  await page.keyboard.press("Tab")
+  await page.keyboard.press("Tab")
+  await expect(
+    nav.getByRole("button", {
+      name: "AI interpretation and reports",
+      exact: true,
+    }),
+  ).toBeFocused()
+  await page.keyboard.press("Space")
+  await expect(heading).toBeFocused()
+  await page.keyboard.press("Tab")
+  await expect(
+    page.getByRole("button", { name: "Back to reading areas", exact: true }),
+  ).toBeFocused()
+
+  expect(page.url()).toBe(before)
+  expect(writes).toEqual([])
+  expect(methods.length).toBeGreaterThan(0)
+  expect(methods.every((method) => method === "GET")).toBe(true)
+})
+
+test("reading destinations clear sticky chrome without page overflow at desktop and narrow widths", async ({
+  page,
+}, info) => {
+  await serve(page)
+  for (const [width, height] of [
+    [1440, 900],
+    [390, 844],
+    [375, 812],
+  ] as const) {
+    await page.setViewportSize({ width, height })
+    await page.goto(
+      `/projects/${project}/netflow-correlation?result=${result}&binding=none`,
+    )
+    const nav = readingNav(page)
+    await expect(nav).toBeVisible()
+    const targets = [
+      ["Records and evidence", recordsGroup(page)],
+      ["AI interpretation and reports", reportHeading(page)],
+      ["Materials used here", materialsSummary(page)],
+    ] as const
+    for (const [entry, target] of targets) {
+      await nav.getByRole("button", { name: entry, exact: true }).click()
+      await expect(target).toBeFocused()
+      expect(await hasVisibleFocus(target)).toBe(true)
+      await expect
+        .poll(async () => {
+          const header = await page
+            .locator("header.sticky")
+            .first()
+            .boundingBox()
+          const box = await target.boundingBox()
+          return !!header && !!box && box.y >= header.y + header.height - 1
+        })
+        .toBe(true)
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth > window.innerWidth,
+        ),
+      ).toBe(false)
+    }
+    const table = await page.evaluate(() => {
+      const element = document.querySelector(
+        ".comparison-core [data-slot='table-container']",
+      )
+      if (!(element instanceof HTMLElement)) return null
+      return {
+        client: element.clientWidth,
+        scroll: element.scrollWidth,
+        overflowX: getComputedStyle(element).overflowX,
+      }
+    })
+    expect(table).not.toBeNull()
+    expect(table?.overflowX).toBe("auto")
+    if (width < 600) expect(table!.scroll).toBeGreaterThan(table!.client)
+    await page.screenshot({
+      animations: "disabled",
+      path: info.outputPath(`reading-entries-${width}.png`),
+      fullPage: false,
+    })
+  }
+})
+
+test("open materials and an open evidence drawer survive the reading shortcut cycle", async ({
+  page,
+}) => {
+  const writes = await serve(page)
+  const key = `addr:${"c".repeat(64)}`
+  const address = {
+    address_key: key,
+    canonical_ip: "192.0.2.20",
+    classification: "both",
+    customer_records: 1,
+    cloud_records: 1,
+    presence: { CUSTOMER: "PRESENT", CLOUD: "PRESENT" },
+  }
+  await page.route(
+    (url) => url.pathname === `${root}/addresses/${key}`,
+    (route) =>
+      route.fulfill({ json: { ...envelope, result_id: result, address } }),
+  )
+  await page.route(
+    (url) => url.pathname === `${root}/addresses/${key}/evidence`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...envelope,
+          result_id: result,
+          address_key: key,
+          source: "customer",
+          count: 0,
+          skip: 0,
+          limit: 25,
+          data: [],
+        },
+      }),
+  )
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none`,
+  )
+  const nav = readingNav(page)
+  const materials = materialsSummary(page)
+  const details = page.locator("details").filter({ has: materials })
+  await materials.click()
+  await expect(details).toHaveJSProperty("open", true)
+  const trigger = page
+    .getByRole("table", { name: "Comparison addresses" })
+    .getByRole("button", { name: "View evidence" })
+  await trigger.click()
+  const drawer = page.getByRole("dialog", { name: address.canonical_ip })
+  await expect(drawer).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Back to reading areas", exact: true }),
+  ).toBeVisible()
+  for (const [entry, target] of [
+    ["Records and evidence", recordsGroup(page)],
+    ["AI interpretation and reports", reportHeading(page)],
+    ["Materials used here", materials],
+  ] as const) {
+    await nav.getByRole("button", { name: entry, exact: true }).click()
+    await expect(target).toBeFocused()
+    await expect(drawer).toBeVisible()
+    await expect(details).toHaveJSProperty("open", true)
+  }
+  await drawer
+    .getByRole("button", { name: "Close evidence", exact: true })
+    .click()
+  await expect(drawer).toHaveCount(0)
+  await expect(page).not.toHaveURL(/core_address=/)
+  await expect(details).toHaveJSProperty("open", true)
+  expect(writes).toEqual([])
+})
+
+test("an explicit core refusal removes the reading entries instead of retaining content", async ({
+  page,
+}) => {
+  const writes = await serve(page)
+  let refused = false
+  await page.route(
+    (url) => url.pathname === `${root}/summary`,
+    (route) => {
+      if (!refused) return route.fallback()
+      return route.fulfill({
+        status: 410,
+        json: { detail: { code: "comparison_material_expired" } },
+      })
+    },
+  )
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none`,
+  )
+  await expect(readingNav(page)).toBeVisible()
+  refused = true
+  await page.getByRole("button", { name: "Refresh page", exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: "This fixed result cannot be read" }),
+  ).toBeVisible()
+  await expect(
+    page.getByText(/Identity, access or data integrity could not be verified/),
+  ).toBeVisible()
+  await expect(readingNav(page)).toHaveCount(0)
+  await expect(reportHeading(page)).toHaveCount(0)
+  expect(page.url()).toContain(`result=${result}`)
+  expect(writes).toEqual([])
+})
+
+test("deep links, material round trip and history restore fixed filters and pages", async ({
+  page,
+}) => {
+  const writes = await serve(page)
+  const upload = summary.selection.customer.upload_id
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${project}/customer-ledger`,
+    (route) =>
+      route.fulfill({
+        json: {
+          project_id: project,
+          upload_id: upload,
+          revision_id: null,
+          current_upload_id: upload,
+          current_revision_id: null,
+          current_profile_id: "profile-synthetic",
+          upload_sha256: "e".repeat(64),
+          filename: "synthetic.xlsx",
+          source_created_at: "2026-10-01T00:00:00Z",
+          revision: null,
+          data: [],
+          count: 0,
+          total_records: 0,
+          unique_ips: 0,
+          can_edit: false,
+        },
+      }),
+  )
+  await page.route(
+    (url) =>
+      url.pathname === `/api/v1/projects/${project}/customer-ledger/revisions`,
+    (route) => route.fulfill({ json: [] }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${project}/customer-uploads`,
+    (route) => route.fulfill({ json: { data: [], count: 0 } }),
+  )
+  await page.route(
+    (url) =>
+      url.pathname === `/api/v1/projects/${project}/comparison-results/history`,
+    (route) =>
+      route.fulfill({
+        json: {
+          ...envelope,
+          count: 1,
+          skip: 0,
+          limit: 25,
+          data: [
+            {
+              id: "10000000-0000-4000-8000-000000000302",
+              published_at: "2026-09-01T00:00:00Z",
+              customer_filename: "earlier.xlsx",
+              source_name: "Synthetic CloudAtlas",
+              purpose: "regular",
+            },
+          ],
+        },
+      }),
+  )
+  const deepLink = `/projects/${project}/netflow-correlation?result=${result}&binding=none&core_class=cloud_only&core_page=1&core_ip=192.0.2.20&core_sort=ip_desc`
+  await page.goto(deepLink)
+  const core = page.getByRole("region", { name: "Core classification" })
+  await expect(
+    core.getByRole("textbox", { name: "IP address", exact: true }),
+  ).toHaveValue("192.0.2.20")
+  await expect(
+    core.getByRole("combobox", { name: "Sort", exact: true }),
+  ).toHaveValue("ip_desc")
+  await expect(
+    core.getByRole("button", { name: /CloudAtlas record, not registered/ }),
+  ).toHaveAttribute("aria-pressed", "true")
+
+  await materialsSummary(page).click()
+  await page.getByRole("link", { name: "Read current customer data" }).click()
+  await expect(page).toHaveURL(/customer-ledger/)
+  const back = page.getByRole("link", {
+    name: "Return to comparison results",
+  })
+  await expect(back).toBeVisible()
+  await back.click()
+  await expect(page).toHaveURL(/netflow-correlation/)
+  const returned = new URL(page.url())
+  expect(returned.searchParams.get("result")).toBe(result)
+  expect(returned.searchParams.get("binding")).toBe("none")
+  expect(returned.searchParams.get("core_class")).toBe("cloud_only")
+  expect(returned.searchParams.get("core_page")).toBe("1")
+  expect(returned.searchParams.get("core_ip")).toBe("192.0.2.20")
+  expect(returned.searchParams.get("core_sort")).toBe("ip_desc")
+  await expect(
+    core.getByText("Fixed total 3 · Matching 1 · This page 1"),
+  ).toBeVisible()
+  await expect(
+    core.getByRole("textbox", { name: "IP address", exact: true }),
+  ).toHaveValue("192.0.2.20")
+  await expect(
+    page.locator("details").filter({ has: materialsSummary(page) }),
+  ).toHaveJSProperty("open", false)
+
+  await page
+    .getByRole("button", { name: "Historical results", exact: true })
+    .click()
+  await expect(
+    page
+      .getByRole("region", { name: "Historical results" })
+      .getByText("earlier.xlsx", { exact: false }),
+  ).toBeVisible()
+  const historyUrl = new URL(page.url())
+  expect(historyUrl.searchParams.get("core_history")).toBe("true")
+  expect(historyUrl.searchParams.get("core_ip")).toBe("192.0.2.20")
+  expect(historyUrl.searchParams.get("core_page")).toBe("1")
+  expect(writes).toEqual([])
+})
