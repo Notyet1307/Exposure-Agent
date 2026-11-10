@@ -33,6 +33,14 @@ import {
 } from "@/components/ui/table"
 import { V2AnalysisReportsPanel } from "@/components/V2AnalysisReportsPanel"
 import {
+  comparisonPageMax,
+  comparisonPageSize,
+  type EvidenceSource,
+  emptyEvidencePages,
+  evidencePagePatch,
+  resolveEvidencePages,
+} from "@/lib/comparisonEvidencePages"
+import {
   type ComparisonClass,
   type ComparisonReturn,
   comparisonClasses,
@@ -42,7 +50,7 @@ import { useI18n } from "@/lib/i18n"
 import { requestDigest } from "@/lib/ledgerIntent"
 import { readinessText as readinessLabel } from "@/lib/readiness-presentation"
 
-const SIZE = 25
+const SIZE = comparisonPageSize
 // Browsers cap one timer at about 24.8 days; recheck long explicit cutoffs.
 function expireAt(deadline: number, onExpire: () => void) {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -55,6 +63,7 @@ function expireAt(deadline: number, onExpire: () => void) {
   return () => clearTimeout(timer)
 }
 type Summary = Awaited<ReturnType<typeof API.summary>>
+type EvidencePageData = Awaited<ReturnType<typeof API.evidence>>
 type Ready = Awaited<ReturnType<typeof API.readiness>>
 type Creation = Parameters<typeof API.create>[0]["requestBody"]
 type Binding = Parameters<typeof API.bindSupplement>[0]["requestBody"]
@@ -81,6 +90,8 @@ export type CoreComparisonSearch = {
   core_address?: string
   core_evidence?: "customer" | "cloud"
   core_evidence_page?: number
+  core_customer_page?: number
+  core_cloud_page?: number
   core_extra_page?: number
   core_history_page?: number
   core_invalid?: boolean
@@ -102,17 +113,29 @@ export function coreComparisonSearch(
     }
     return s[name].toLowerCase()
   }
-  const page = (name: string) => {
-    if (s[name] === undefined) return 0
+  const boundedPage = (name: string) => {
     if (
       !/^(0|[1-9][0-9]*)$/.test(String(s[name])) ||
       !Number.isSafeInteger(Number(s[name])) ||
-      Number(s[name]) > Math.floor(Number.MAX_SAFE_INTEGER / SIZE)
-    ) {
+      Number(s[name]) > comparisonPageMax
+    )
+      return undefined
+    return Number(s[name])
+  }
+  const page = (name: string) => {
+    if (s[name] === undefined) return 0
+    const value = boundedPage(name)
+    if (value === undefined) badFilter = true
+    return value ?? 0
+  }
+  const optionalPage = (name: string) => {
+    if (s[name] === undefined) return undefined
+    const value = boundedPage(name)
+    if (value === undefined) {
       badFilter = true
       return 0
     }
-    return Number(s[name])
+    return value
   }
   const result = id("result"),
     binding = id("binding", true)
@@ -150,13 +173,15 @@ export function coreComparisonSearch(
     core_history_page: page("core_history_page"),
     core_extra_page: page("core_extra_page"),
     core_evidence_page: page("core_evidence_page"),
+    core_customer_page: optionalPage("core_customer_page"),
+    core_cloud_page: optionalPage("core_cloud_page"),
     core_ip: typeof s.core_ip === "string" ? s.core_ip : undefined,
     core_sort: s.core_sort === "ip_desc" ? "ip_desc" : "ip_asc",
     core_address:
       typeof s.core_address === "string" ? s.core_address : undefined,
     core_evidence: s.core_evidence === "cloud" ? "cloud" : "customer",
     core_invalid: invalid,
-    core_filter_invalid: badFilter,
+    core_filter_invalid: badFilter || s.core_filter_invalid === true,
     legacy: s.legacy === true || s.legacy === "true",
   }
 }
@@ -169,6 +194,222 @@ const code = (error: unknown) =>
   error instanceof ApiError
     ? String(object(object(error.body).detail).code ?? error.status)
     : "read_failed"
+const stringValue = (value: unknown) =>
+  typeof value === "string" && value ? value : undefined
+const fixedCustomerPin = (value: Summary) => object(object(value.pins).CUSTOMER)
+const fixedCloudPins = (value: Summary) =>
+  object(object(object(value.pins).CLOUD).domains)
+const fixedVersion = (a: unknown, b: unknown) => {
+  const left = stringValue(a)
+  const right = stringValue(b)
+  if (left && right) return left === right ? left : null
+  return left ?? right
+}
+const fixedCustomerVersion = (value: Summary) => {
+  const pin = fixedCustomerPin(value)
+  const selection = object(value.selection.customer)
+  const upload = fixedVersion(pin.upload_id, selection.upload_id)
+  if (upload === null) return undefined
+  const version = fixedVersion(
+    stringValue(pin.revision_id) ?? stringValue(pin.upload_id),
+    stringValue(selection.revision_id) ?? stringValue(selection.upload_id),
+  )
+  return version ?? undefined
+}
+const fixedCloudVersion = (value: Summary, domain: "ip" | "port") => {
+  const selected = stringValue(
+    object(value.selection.cloud)[`${domain}_version_id`],
+  )
+  if (!selected) return undefined
+  const pin = stringValue(object(fixedCloudPins(value)[domain]).id)
+  if (pin && pin !== selected) return undefined
+  return selected
+}
+const isEvidenceRefusal = (error: unknown) =>
+  error instanceof ApiError &&
+  [401, 403, 404, 410].includes(error.status) &&
+  code(error) !== "comparison_address_not_found"
+
+function TechnicalDatum({
+  label,
+  value,
+}: {
+  label: string
+  value?: string | null
+}) {
+  const { t } = useI18n()
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="min-w-0">
+        {value ? (
+          <TechnicalValue value={value} label={label} />
+        ) : (
+          t("Not provided", "未提供")
+        )}
+      </dd>
+    </div>
+  )
+}
+
+function EvidenceRecords({
+  source,
+  page,
+  data,
+  isPending,
+  isError,
+  onPageChange,
+}: {
+  source: EvidenceSource
+  page: number
+  data?: EvidencePageData
+  isPending: boolean
+  isError: boolean
+  onPageChange: (page: number) => void
+}) {
+  const { t } = useI18n()
+  const customer = source === "customer"
+  if (isPending)
+    return (
+      <p role="status">
+        {customer
+          ? t("Reading fixed customer evidence…", "正在读取客户固定依据…")
+          : t("Reading fixed CloudAtlas evidence…", "正在读取云图固定依据…")}
+      </p>
+    )
+  if (isError || !data)
+    return (
+      <p role="alert">
+        {customer
+          ? t(
+              "The fixed customer evidence could not be read. No current version was substituted or shown as empty.",
+              "无法读取客户固定依据，未替换为当前版本，也未当作空记录。",
+            )
+          : t(
+              "The fixed CloudAtlas evidence could not be read. No current version was substituted or shown as empty.",
+              "无法读取云图固定依据，未替换为当前版本，也未当作空记录。",
+            )}
+      </p>
+    )
+  if (data.data.length === 0) {
+    if (data.count === 0)
+      return (
+        <p>
+          {customer
+            ? t(
+                "The fixed customer source has no record for this address in this result.",
+                "这份结果所用的客户来源中，没有此地址的记录。",
+              )
+            : t(
+                "The fixed CloudAtlas source has no record for this address in this result.",
+                "这份结果所用的云图来源中，没有此地址的记录。",
+              )}
+        </p>
+      )
+    return (
+      <div className="space-y-2">
+        <p>
+          {t(
+            `This page has no records, but the fixed source total is ${data.count}.`,
+            `本页没有记录，但该固定来源总数为 ${data.count}。`,
+          )}
+        </p>
+        <Button size="sm" variant="outline" onClick={() => onPageChange(0)}>
+          {t("Read this source from page 1", "回到该来源第 1 页")}
+        </Button>
+      </div>
+    )
+  }
+  return (
+    <>
+      {data.data.map((record) => (
+        <section
+          key={`${record.version_id}:${record.record_key}`}
+          className="comparison-source-record space-y-3 border-y py-4 text-sm"
+        >
+          <h4 className="font-medium">
+            {customer
+              ? t("Customer declaration", "客户声明")
+              : t("CloudAtlas observation", "云图观测")}
+          </h4>
+          <p className="text-xs text-muted-foreground">
+            {t("Record domain", "记录域")}：
+            {record.domain === "customer"
+              ? t("customer declaration", "客户声明")
+              : record.domain === "ip"
+                ? "IP"
+                : record.domain === "port"
+                  ? "PORT"
+                  : record.domain}{" "}
+            · {t("Fixed version", "固定版本")}：
+            <span className="break-all font-mono">{record.version_id}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {customer
+              ? t(
+                  "Port role: the declared start and end ports are a customer range; 0 is a value and missing stays not provided. This range does not prove listening, open service or reachability.",
+                  "端口角色：起始端口与结束端口为客户声明范围；0 是有效值，缺失保持未提供。该范围不证明监听、开放服务或可达。",
+                )
+              : record.domain === "ip"
+                ? t(
+                    "Port role: live_port is a CloudAtlas source-reported count in the IP domain, not an observed PORT record.",
+                    "端口角色：存活端口是云图来源在 IP 域报出的计数，不是 PORT 域观测端口。",
+                  )
+                : t(
+                    "Port role: port and protocol are CloudAtlas PORT-domain observations, not a customer declaration or a NetFlow source-side port.",
+                    "端口角色：端口与协议是云图 PORT 域观测值，不是客户声明，也不是 NetFlow 源侧端口。",
+                  )}
+          </p>
+          {record.source === "CUSTOMER" ? (
+            <CustomerRecordFields fields={object(record.original.fields)} />
+          ) : (
+            <RecordFields
+              record={{ fields: record.original }}
+              domain={record.domain}
+            />
+          )}
+          <details className="rounded border p-3 text-sm">
+            <summary className="cursor-pointer">
+              {record.canonical_ip} · {record.domain} ·{" "}
+              {t("Original source record", "原始来源记录")}
+            </summary>
+            <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs">
+              {JSON.stringify(
+                {
+                  original: record.original,
+                  availability: record.availability,
+                },
+                null,
+                2,
+              )}
+            </pre>
+            <dl className="mt-3 grid gap-3">
+              <TechnicalDatum
+                label={t("Fixed version", "固定版本")}
+                value={record.version_id}
+              />
+              <TechnicalDatum
+                label={t("Source record", "来源记录")}
+                value={record.record_key}
+              />
+            </dl>
+          </details>
+        </section>
+      ))}
+      <ResultPagination
+        label={
+          customer
+            ? t("Customer evidence records", "客户依据记录")
+            : t("CloudAtlas evidence records", "云图依据记录")
+        }
+        count={data.count}
+        page={page}
+        pageSize={SIZE}
+        onPageChange={onPageChange}
+      />
+    </>
+  )
+}
 
 export default function CoreComparisonResults({
   actor,
@@ -227,6 +468,8 @@ export default function CoreComparisonResults({
   const [showBindingHistory, setShowBindingHistory] = useState(false)
   const [bindingHistoryPage, setBindingHistoryPage] = useState(0)
   const detailHeading = useRef<HTMLHeadingElement>(null)
+  const customerEvidenceHeading = useRef<HTMLHeadingElement>(null)
+  const cloudEvidenceHeading = useRef<HTMLHeadingElement>(null)
   const lastAddressTrigger = useRef<HTMLButtonElement | null>(null)
   const comparisonTable = useRef<HTMLTableElement | null>(null)
   const readingEntries = useRef<HTMLElement | null>(null)
@@ -258,6 +501,24 @@ export default function CoreComparisonResults({
       void navigate({ search: (previous) => ({ ...previous, ...patch }) }),
     [navigate],
   )
+  const changeEvidencePage = (sourceName: EvidenceSource, page: number) =>
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        ...evidencePagePatch(previous, sourceName, page),
+      }),
+    })
+  const clearFilters = () => {
+    setIp("")
+    change({
+      core_ip: undefined,
+      core_class: "all",
+      core_page: 0,
+      core_address: undefined,
+      ...emptyEvidencePages,
+      core_filter_invalid: false,
+    })
+  }
   const fixed = useCallback(
     (id: string, binding?: string) =>
       void navigate({
@@ -266,6 +527,8 @@ export default function CoreComparisonResults({
           binding,
           core_class: "all",
           core_page: 0,
+          ...emptyEvidencePages,
+          core_filter_invalid: false,
         }),
         replace: true,
       }),
@@ -384,13 +647,12 @@ export default function CoreComparisonResults({
       return value
     },
   })
-  const readable =
+  const summaryReadable =
     enabled && summary.isSuccess && !summary.isError && !!summary.data
-  const result = readable ? summary.data : undefined
   const updates = useQuery({
     ...options,
     queryKey: [...prefix, "updates"],
-    enabled: readable,
+    enabled: summaryReadable,
     refetchInterval: 10000,
     queryFn: async () => {
       const value = verify(
@@ -411,7 +673,7 @@ export default function CoreComparisonResults({
       search.core_ip,
       search.core_sort,
     ],
-    enabled: readable && !search.core_filter_invalid,
+    enabled: summaryReadable && !search.core_filter_invalid,
     queryFn: async () => {
       const value = verify(
         await API.addresses({
@@ -429,40 +691,76 @@ export default function CoreComparisonResults({
       return value
     },
   })
-  const proof = useQuery({
+  const evidencePages = resolveEvidencePages(search)
+  const evidenceQuery = (evidenceSource: EvidenceSource, page: number) => ({
     ...options,
     queryKey: [
       ...prefix,
       "evidence",
       search.core_address,
-      search.core_evidence,
-      search.core_evidence_page,
+      evidenceSource,
+      page,
     ],
-    enabled: readable && !!search.core_address,
+    enabled:
+      summaryReadable && !!search.core_address && !search.core_filter_invalid,
     queryFn: async () => {
+      const fixedSummary = summary.data
+      if (!fixedSummary) throw new Error("comparison_identity_mismatch")
       const value = verify(
         await API.evidence({
           projectId,
           resultId: search.result!,
           addressKey: search.core_address!,
-          source: search.core_evidence ?? "customer",
-          skip: (search.core_evidence_page ?? 0) * SIZE,
+          source: evidenceSource,
+          skip: page * SIZE,
           limit: SIZE,
         }),
       )
       if (
         value.result_id !== search.result ||
         value.address_key !== search.core_address ||
-        value.source !== (search.core_evidence ?? "customer")
+        value.source !== evidenceSource ||
+        value.skip !== page * SIZE ||
+        value.limit !== SIZE ||
+        !Number.isSafeInteger(value.count) ||
+        value.count < 0
       )
         throw new Error("comparison_identity_mismatch")
+      const customerVersion = fixedCustomerVersion(fixedSummary)
+      for (const record of value.data) {
+        if (!record.record_key || !record.version_id)
+          throw new Error("comparison_identity_mismatch")
+        if (evidenceSource === "customer") {
+          if (
+            record.source !== "CUSTOMER" ||
+            record.domain !== "customer" ||
+            !customerVersion ||
+            record.version_id !== customerVersion
+          )
+            throw new Error("comparison_identity_mismatch")
+        } else {
+          if (
+            record.source !== "CLOUD" ||
+            (record.domain !== "ip" && record.domain !== "port")
+          )
+            throw new Error("comparison_identity_mismatch")
+          const version = fixedCloudVersion(fixedSummary, record.domain)
+          if (!version || record.version_id !== version)
+            throw new Error("comparison_identity_mismatch")
+        }
+      }
       return value
     },
   })
+  const customerProof = useQuery(
+    evidenceQuery("customer", evidencePages.customer),
+  )
+  const cloudProof = useQuery(evidenceQuery("cloud", evidencePages.cloud))
   const detail = useQuery({
     ...options,
     queryKey: [...prefix, "address-detail", search.core_address],
-    enabled: readable && !!search.core_address,
+    enabled:
+      summaryReadable && !!search.core_address && !search.core_filter_invalid,
     queryFn: async () => {
       const value = verify(
         await API.addressDetail({
@@ -479,6 +777,14 @@ export default function CoreComparisonResults({
       return value
     },
   })
+  const coreQueries = [summary, rows, customerProof, cloudProof, detail]
+  const refusalError = coreQueries
+    .map((query) => query.error)
+    .find(isEvidenceRefusal)
+  const deniedNow = denied || Boolean(refusalError)
+  const readable =
+    summaryReadable && !deniedNow && !expiredCore && !search.core_invalid
+  const result = readable ? summary.data : undefined
   useEffect(() => {
     if (detail.isSuccess && !detail.isError) detailHeading.current?.focus()
   }, [detail.isSuccess, detail.isError])
@@ -516,15 +822,8 @@ export default function CoreComparisonResults({
   })
   const ready = readiness.isError ? undefined : readiness.data
   const statusReady = updates.data?.readiness ?? current.data?.readiness
-  const error = [summary, rows, proof, detail].find(
-    (query) => query.isError,
-  )?.error
   useEffect(() => {
-    if (
-      error instanceof ApiError &&
-      [401, 403, 404, 410].includes(error.status) &&
-      code(error) !== "comparison_address_not_found"
-    ) {
+    if (refusalError) {
       setDenied(true)
       setComposer(false)
       setAttach(false)
@@ -535,7 +834,7 @@ export default function CoreComparisonResults({
       void cache.cancelQueries({ queryKey: ePrefix })
       cache.removeQueries({ queryKey: ePrefix })
     }
-  }, [error, cache, prefix, ePrefix, store])
+  }, [refusalError, cache, prefix, ePrefix, store])
   const coreDeadline = result
     ? Math.min(
         ...Object.values(object(object(result.pins.CLOUD).domains))
@@ -740,9 +1039,25 @@ export default function CoreComparisonResults({
         back_address: search.core_address,
         back_evidence: search.core_evidence,
         back_evidence_page: search.core_evidence_page,
+        back_customer_page: evidencePages.customer,
+        back_cloud_page: evidencePages.cloud,
         back_extra_page: search.core_extra_page,
       }
     : {}
+  const customerPin = result ? fixedCustomerPin(result) : {}
+  const cloudPins = result ? fixedCloudPins(result) : {}
+  const customerUpload =
+    stringValue(customerPin.upload_id) ??
+    stringValue(object(result?.selection.customer).upload_id)
+  const customerRevision =
+    stringValue(customerPin.revision_id) ??
+    stringValue(object(result?.selection.customer).revision_id)
+  const customerProfileVersion = customerPin.profile_version
+  const cloudDomainPin = (domain: "ip" | "port") => object(cloudPins[domain])
+  const cloudVersion = (domain: "ip" | "port") =>
+    result ? fixedCloudVersion(result, domain) : undefined
+  const cloudDomainTime = (domain: "ip" | "port", key: string) =>
+    stringValue(cloudDomainPin(domain)[key])
   const classes: Record<ComparisonClass, string> = {
     all: t("All addresses", "全部地址"),
     both: t("Recorded on both sides", "双方都有记录"),
@@ -1224,7 +1539,7 @@ export default function CoreComparisonResults({
           )}
         </section>
       )}
-      {search.core_invalid || denied || expiredCore || summary.isError ? (
+      {search.core_invalid || deniedNow || expiredCore || summary.isError ? (
         <section
           role="alert"
           className="space-y-3 rounded border border-destructive p-4"
@@ -1243,7 +1558,7 @@ export default function CoreComparisonResults({
                   "无法核验身份、权限或资料完整性，未替换为其他结果。",
                 )}
           </p>
-          {!denied && !expiredCore && !search.core_invalid && (
+          {!deniedNow && !expiredCore && !search.core_invalid && (
             <Button variant="outline" onClick={() => void summary.refetch()}>
               {t("Retry this result", "重试读取本结果")}
             </Button>
@@ -1312,7 +1627,7 @@ export default function CoreComparisonResults({
         ) : null)}
       {search.result &&
         summary.isPending &&
-        !denied &&
+        !deniedNow &&
         !search.core_invalid && (
           <p role="status">
             {t("Reading the fixed comparison…", "正在读取固定比对结果…")}
@@ -1600,15 +1915,22 @@ export default function CoreComparisonResults({
                 {t("Fixed identities and rules", "固定身份与规则")}
               </summary>
               <div className="mt-2 space-y-2">
-                <TechnicalValue
-                  value={result.id}
-                  label={t("Result ID", "结果 ID")}
-                />
-                <TechnicalValue
-                  value={result.input_sha256}
-                  label={t("Input fingerprint", "资料指纹")}
-                />
-                <p>{result.rule_version}</p>
+                <dl className="grid gap-3">
+                  <TechnicalDatum
+                    label={t("Result ID", "结果 ID")}
+                    value={result.id}
+                  />
+                  <TechnicalDatum
+                    label={t("Input fingerprint", "资料指纹")}
+                    value={result.input_sha256}
+                  />
+                  <div>
+                    <dt className="text-xs text-muted-foreground">
+                      {t("Rule version", "规则版本")}
+                    </dt>
+                    <dd className="break-all">{result.rule_version}</dd>
+                  </div>
+                </dl>
               </div>
             </details>
           </details>
@@ -1637,7 +1959,8 @@ export default function CoreComparisonResults({
                         core_class: kind,
                         core_page: 0,
                         core_address: undefined,
-                        core_evidence_page: 0,
+                        ...emptyEvidencePages,
+                        core_filter_invalid: false,
                       })
                     }
                   >
@@ -1665,6 +1988,8 @@ export default function CoreComparisonResults({
                   core_ip: ip.trim() || undefined,
                   core_page: 0,
                   core_address: undefined,
+                  ...emptyEvidencePages,
+                  core_filter_invalid: false,
                 })
               }}
             >
@@ -1696,6 +2021,8 @@ export default function CoreComparisonResults({
                         event.target.value === "ip_desc" ? "ip_desc" : "ip_asc",
                       core_page: 0,
                       core_address: undefined,
+                      ...emptyEvidencePages,
+                      core_filter_invalid: false,
                     })
                   }
                 >
@@ -1708,19 +2035,7 @@ export default function CoreComparisonResults({
               <Button variant="outline" type="submit">
                 {t("Filter", "筛选")}
               </Button>
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={() => {
-                  setIp("")
-                  change({
-                    core_ip: undefined,
-                    core_class: "all",
-                    core_page: 0,
-                    core_address: undefined,
-                  })
-                }}
-              >
+              <Button variant="ghost" type="button" onClick={clearFilters}>
                 {t("Clear filters", "清除筛选")}
               </Button>
             </form>
@@ -1805,7 +2120,8 @@ export default function CoreComparisonResults({
                                 core_evidence: row.customer_records
                                   ? "customer"
                                   : "cloud",
-                                core_evidence_page: 0,
+                                ...emptyEvidencePages,
+                                core_filter_invalid: false,
                               })
                             }}
                           >
@@ -1843,7 +2159,8 @@ export default function CoreComparisonResults({
                       change({
                         core_page: page,
                         core_address: undefined,
-                        core_evidence_page: 0,
+                        ...emptyEvidencePages,
+                        core_filter_invalid: false,
                       })
                     }
                   />
@@ -1862,7 +2179,11 @@ export default function CoreComparisonResults({
             open={!!search.core_address}
             onOpenChange={(open) => {
               if (!open)
-                change({ core_address: undefined, core_evidence_page: 0 })
+                change({
+                  core_address: undefined,
+                  ...emptyEvidencePages,
+                  core_filter_invalid: false,
+                })
             }}
           >
             <SheetContent
@@ -1906,27 +2227,44 @@ export default function CoreComparisonResults({
                     "阅读此固定比对结果所用的来源记录。",
                   )}
                 </SheetDescription>
-                {detail.isError ? (
-                  <p role="alert">
-                    {t(
-                      "This address cannot be read in this fixed result.",
-                      "无法在这份固定结果中读取该地址。",
-                    )}
-                  </p>
-                ) : detail.data ? (
-                  <p>
-                    {detail.data.address.classification
-                      ? classes[detail.data.address.classification]
-                      : t(
-                          "The sources contain records; coverage does not support a complete difference conclusion.",
-                          "来源中存在记录，但覆盖范围不足以支持完整差异结论。",
-                        )}
-                  </p>
-                ) : (
-                  <p role="status">
-                    {t("Reading the address…", "正在读取地址…")}
-                  </p>
+                {search.core_filter_invalid && (
+                  <div
+                    role="alert"
+                    className="space-y-3 rounded border border-destructive p-4"
+                  >
+                    <p>
+                      {t(
+                        "The page or filter parameters are invalid or out of range, so fixed evidence was not read. Clear the invalid filters to continue.",
+                        "页码或筛选参数无效或超出范围，未读取固定依据。清除无效筛选后可继续阅读。",
+                      )}
+                    </p>
+                    <Button variant="outline" onClick={clearFilters}>
+                      {t("Clear filters and continue", "清除筛选并继续")}
+                    </Button>
+                  </div>
                 )}
+                {!search.core_filter_invalid &&
+                  (detail.isError ? (
+                    <p role="alert">
+                      {t(
+                        "This address cannot be read in this fixed result.",
+                        "无法在这份固定结果中读取该地址。",
+                      )}
+                    </p>
+                  ) : detail.data ? (
+                    <p>
+                      {detail.data.address.classification
+                        ? classes[detail.data.address.classification]
+                        : t(
+                            "The sources contain records; coverage does not support a complete difference conclusion.",
+                            "来源中存在记录，但覆盖范围不足以支持完整差异结论。",
+                          )}
+                    </p>
+                  ) : (
+                    <p role="status">
+                      {t("Reading the address…", "正在读取地址…")}
+                    </p>
+                  ))}
                 {detail.data && (
                   <p className="text-sm">
                     {t("Customer records", "客户记录")}{" "}
@@ -1935,114 +2273,386 @@ export default function CoreComparisonResults({
                     {detail.data.address.cloud_records}
                   </p>
                 )}
-                <div className="flex gap-2">
-                  {(["customer", "cloud"] as const).map((sourceName) => (
-                    <Button
-                      key={sourceName}
-                      size="sm"
-                      variant={
-                        (search.core_evidence ?? "customer") === sourceName
-                          ? "secondary"
-                          : "ghost"
-                      }
-                      aria-pressed={
-                        (search.core_evidence ?? "customer") === sourceName
-                      }
-                      onClick={() =>
-                        change({
-                          core_evidence: sourceName,
-                          core_evidence_page: 0,
-                        })
-                      }
+                <section
+                  className="comparison-evidence-provenance space-y-3 rounded border p-3 text-sm"
+                  aria-label={t(
+                    "Fixed result identity and time",
+                    "固定结果身份与时间",
+                  )}
+                >
+                  <h3 className="font-medium">
+                    {t("Fixed result identity and time", "固定结果身份与时间")}
+                  </h3>
+                  <dl className="grid gap-3">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">
+                        {t("Generated at", "结果生成时间")}
+                      </dt>
+                      <dd>{date(result.published_at)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">
+                        {t("Confirmed namespace", "已确认网络空间")}
+                      </dt>
+                      <dd className="break-all">
+                        {result.selection.network_namespace}
+                      </dd>
+                    </div>
+                    <TechnicalDatum
+                      label={t("Result ID", "结果 ID")}
+                      value={result.id}
+                    />
+                    <TechnicalDatum
+                      label={t("Scope identity", "范围标识")}
+                      value={result.scope_key}
+                    />
+                    <div>
+                      <dt className="text-xs text-muted-foreground">
+                        {t("Rule version", "规则版本")}
+                      </dt>
+                      <dd className="break-all">{result.rule_version}</dd>
+                    </div>
+                  </dl>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {t(
+                      "Result generation, customer application, CloudAtlas collection, publication and retention, and raw source timestamps are different clocks. Raw source timestamps stay verbatim with an unconfirmed timezone. A trustworthy observation interval is not provided.",
+                      "结果生成时间、客户应用时间、云图采集、发布与保留时间，以及原始来源时间戳是不同时间来源。原始来源时间戳按原文显示且时区未确认。未提供可信观测区间。",
+                    )}
+                  </p>
+                </section>
+                <nav
+                  className="comparison-evidence-jumps flex flex-wrap gap-2"
+                  aria-label={t("Evidence source jumps", "依据来源跳转")}
+                >
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-auto px-2 py-1 text-xs"
+                    aria-controls="customer-evidence-heading"
+                    onClick={() => reveal(customerEvidenceHeading.current)}
+                  >
+                    {t("Customer evidence", "客户依据")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-auto px-2 py-1 text-xs"
+                    aria-controls="cloud-evidence-heading"
+                    onClick={() => reveal(cloudEvidenceHeading.current)}
+                  >
+                    {t("CloudAtlas evidence", "云图依据")}
+                  </Button>
+                </nav>
+                <div className="comparison-evidence-columns">
+                  <section
+                    className="comparison-evidence-source space-y-3"
+                    aria-labelledby="customer-evidence-heading"
+                  >
+                    <h3
+                      id="customer-evidence-heading"
+                      ref={customerEvidenceHeading}
+                      tabIndex={-1}
+                      className="min-w-0 break-words text-base font-semibold focus:outline-2 focus:outline-offset-2"
                     >
-                      {sourceName === "customer"
-                        ? t("Customer evidence", "客户依据")
-                        : t("CloudAtlas evidence", "云图依据")}
-                    </Button>
-                  ))}
-                </div>
-                {proof.isPending ? (
-                  <p role="status">
-                    {t(
-                      "Reading fixed source evidence…",
-                      "正在读取固定来源依据…",
-                    )}
-                  </p>
-                ) : proof.isError ? (
-                  <p role="alert">
-                    {t(
-                      "The fixed evidence could not be read. No current version was substituted.",
-                      "无法读取固定依据，未替换为当前版本。",
-                    )}
-                  </p>
-                ) : (
-                  <>
-                    {proof.data.data.length === 0 && (
-                      <p>
+                      {t("Customer declarations", "客户声明集合")}
+                    </h3>
+                    {customerProof.isSuccess && (
+                      <p className="text-sm text-muted-foreground">
                         {t(
-                          "This selected source contains no record for the address in this result.",
-                          "这份结果所用的该来源中，没有此地址的记录。",
+                          `${customerProof.data.count} fixed records in this source`,
+                          `该来源固定记录 ${customerProof.data.count} 条`,
                         )}
                       </p>
                     )}
-                    {proof.data.data.map((record) => (
-                      <section
-                        key={`${record.version_id}:${record.record_key}`}
-                        className="comparison-source-record space-y-3 border-y py-4 text-sm"
-                      >
-                        <h3 className="font-medium">
-                          {record.source === "CUSTOMER"
-                            ? t("Customer declaration", "客户声明")
-                            : t("CloudAtlas observation", "云图观测")}
-                        </h3>
-                        {record.source === "CUSTOMER" ? (
-                          <CustomerRecordFields
-                            fields={object(record.original.fields)}
-                          />
-                        ) : (
-                          <RecordFields
-                            record={{ fields: record.original }}
-                            domain={record.domain}
-                          />
+                    <div className="space-y-2 rounded border p-3">
+                      <h4 className="font-medium">
+                        {t(
+                          "Customer provenance and fixed version",
+                          "客户来源与固定版本",
                         )}
-                        <details className="rounded border p-3 text-sm">
-                          <summary className="cursor-pointer">
-                            {record.canonical_ip} · {record.domain} ·{" "}
-                            {t("Original source record", "原始来源记录")}
-                          </summary>
-                          <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-all text-xs">
-                            {JSON.stringify(
-                              {
-                                original: record.original,
-                                availability: record.availability,
-                              },
-                              null,
-                              2,
+                      </h4>
+                      <dl className="mt-2 grid gap-3">
+                        <div>
+                          <dt className="text-xs text-muted-foreground">
+                            {t("Customer file", "客户版本文件")}
+                          </dt>
+                          <dd className="break-words">
+                            {result.customer_filename}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-muted-foreground">
+                            {t("Customer applied at", "客户应用时间")}
+                          </dt>
+                          <dd>{date(result.customer_applied_at)}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs text-muted-foreground">
+                            {t("Customer data time range", "客户资料时间范围")}
+                          </dt>
+                          <dd>{t("Not provided", "未提供")}</dd>
+                        </div>
+                        <TechnicalDatum
+                          label={t("Customer upload ID", "客户上传 ID")}
+                          value={customerUpload}
+                        />
+                        <TechnicalDatum
+                          label={t(
+                            "Customer ledger revision ID",
+                            "客户台账修订 ID",
+                          )}
+                          value={customerRevision}
+                        />
+                        <div>
+                          <dt className="text-xs text-muted-foreground">
+                            {t(
+                              "Customer profile version",
+                              "客户资料 Profile 版本",
                             )}
-                          </pre>
-                          <TechnicalValue
-                            value={record.version_id}
-                            label={t("Fixed version", "固定版本")}
-                          />
-                          <TechnicalValue
-                            value={record.record_key}
-                            label={t("Source record", "来源记录")}
-                          />
-                        </details>
-                      </section>
-                    ))}
-                    <ResultPagination
-                      label={t("Evidence records", "依据记录")}
-                      count={proof.data.count}
-                      page={search.core_evidence_page ?? 0}
-                      pageSize={SIZE}
-                      onPageChange={(page) =>
-                        change({ core_evidence_page: page })
-                      }
-                    />
-                  </>
-                )}
-                {detail.data && (
+                          </dt>
+                          <dd>
+                            {customerProfileVersion === undefined ||
+                            customerProfileVersion === null
+                              ? t("Not provided", "未提供")
+                              : String(customerProfileVersion)}
+                          </dd>
+                        </div>
+                      </dl>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {t(
+                          "Customer records use this fixed upload or revision. The application time is not a raw record timestamp; no trustworthy customer time range was provided.",
+                          "客户记录使用该固定上传或修订版本。应用时间不是原始记录时间；未提供可信的客户资料时间范围。",
+                        )}
+                      </p>
+                    </div>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {t(
+                        "Port role: the declared start and end ports are a customer range. 0 is a value, missing stays not provided, and the range is not proof of listening, an open service or reachability.",
+                        "端口角色：起始端口与结束端口是客户声明范围。0 是有效值，缺失保持未提供；该范围不是监听、开放服务或可达证明。",
+                      )}
+                    </p>
+                    {!search.core_filter_invalid && (
+                      <EvidenceRecords
+                        source="customer"
+                        page={evidencePages.customer}
+                        data={customerProof.data}
+                        isPending={customerProof.isPending}
+                        isError={customerProof.isError}
+                        onPageChange={(page) =>
+                          changeEvidencePage("customer", page)
+                        }
+                      />
+                    )}
+                  </section>
+                  <section
+                    className="comparison-evidence-source space-y-3"
+                    aria-labelledby="cloud-evidence-heading"
+                  >
+                    <h3
+                      id="cloud-evidence-heading"
+                      ref={cloudEvidenceHeading}
+                      tabIndex={-1}
+                      className="min-w-0 break-words text-base font-semibold focus:outline-2 focus:outline-offset-2"
+                    >
+                      {t("CloudAtlas observations", "云图观测集合")}
+                    </h3>
+                    {cloudProof.isSuccess && (
+                      <p className="text-sm text-muted-foreground">
+                        {t(
+                          `${cloudProof.data.count} fixed records in this source`,
+                          `该来源固定记录 ${cloudProof.data.count} 条`,
+                        )}
+                      </p>
+                    )}
+                    {(["ip", "port"] as const).map((domain) => {
+                      const pin = cloudDomainPin(domain)
+                      const version = cloudVersion(domain)
+                      const complete = pin.complete
+                      const filter = pin.filter
+                      return (
+                        <section
+                          key={domain}
+                          className="space-y-2 rounded border p-3"
+                          aria-label={
+                            domain === "ip"
+                              ? t("CloudAtlas IP version", "云图 IP 固定版本")
+                              : t(
+                                  "CloudAtlas PORT version",
+                                  "云图 PORT 固定版本",
+                                )
+                          }
+                        >
+                          <h4 className="font-medium">
+                            {domain === "ip"
+                              ? t("CloudAtlas IP version", "云图 IP 固定版本")
+                              : t(
+                                  "CloudAtlas PORT version",
+                                  "云图 PORT 固定版本",
+                                )}
+                          </h4>
+                          <dl className="grid gap-3">
+                            <TechnicalDatum
+                              label={t("Fixed version ID", "固定版本 ID")}
+                              value={version}
+                            />
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t("Version domain", "版本域")}
+                              </dt>
+                              <dd>{domain.toUpperCase()}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t("Source space", "来源空间")}
+                              </dt>
+                              <dd className="break-all">
+                                {stringValue(pin.space_id) ??
+                                  stringValue(
+                                    object(object(result.pins).CLOUD).space_id,
+                                  ) ??
+                                  t("Not provided", "未提供")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t("Version status", "版本状态")}
+                              </dt>
+                              <dd>
+                                {stringValue(pin.status) ??
+                                  t("Not provided", "未提供")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t(
+                                  "Records in this source version",
+                                  "该来源版本记录数",
+                                )}
+                              </dt>
+                              <dd>
+                                {typeof pin.record_count === "number"
+                                  ? pin.record_count
+                                  : t("Not provided", "未提供")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t("Completeness", "完整性")}
+                              </dt>
+                              <dd>
+                                {typeof complete === "boolean"
+                                  ? complete
+                                    ? t("Complete", "完整")
+                                    : t("Incomplete", "不完整")
+                                  : t("Not provided", "未提供")}
+                                {typeof pin.expected_total === "number"
+                                  ? ` · ${t("Expected total", "预期总数")} ${pin.expected_total}`
+                                  : ""}
+                                {typeof pin.pages_read === "number"
+                                  ? ` · ${t("Pages read", "已读页数")} ${pin.pages_read}`
+                                  : ""}
+                                {stringValue(pin.stop_reason)
+                                  ? ` · ${t("Stop reason", "停止原因")} ${pin.stop_reason}`
+                                  : ""}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t("Version sort", "版本排序")}
+                              </dt>
+                              <dd>
+                                {stringValue(pin.sort) ??
+                                  t("Not provided", "未提供")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t("Collected at", "采集时间")}
+                              </dt>
+                              <dd>
+                                {cloudDomainTime(domain, "fetched_at")
+                                  ? date(cloudDomainTime(domain, "fetched_at"))
+                                  : t("Not provided", "未提供")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t("Published at", "发布时间")}
+                              </dt>
+                              <dd>
+                                {cloudDomainTime(domain, "published_at")
+                                  ? date(
+                                      cloudDomainTime(domain, "published_at"),
+                                    )
+                                  : t("Not provided", "未提供")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t("Retain until", "保留至")}
+                              </dt>
+                              <dd>
+                                {cloudDomainTime(domain, "retain_until")
+                                  ? date(
+                                      cloudDomainTime(domain, "retain_until"),
+                                    )
+                                  : t("Not provided", "未提供")}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">
+                                {t("Observation window", "观测窗口")}
+                              </dt>
+                              <dd>{t("Not provided", "未提供")}</dd>
+                            </div>
+                          </dl>
+                          <div>
+                            <p className="text-xs text-muted-foreground">
+                              {t(
+                                "Exact fixed source filter JSON",
+                                "固定来源筛选 JSON（原文）",
+                              )}
+                            </p>
+                            {filter === undefined ? (
+                              <p>{t("Not provided", "未提供")}</p>
+                            ) : (
+                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all text-xs">
+                                {JSON.stringify(filter, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            {t(
+                              "The filter is fixed source metadata. An empty object only means no filter was attached; it is not proof of universal coverage or a confirmed scope.",
+                              "筛选条件是固定来源元数据。空对象只表示未附加筛选，不等于全量覆盖或已确认范围。",
+                            )}
+                          </p>
+                        </section>
+                      )
+                    })}
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {t(
+                        "Port role: the IP block's live_port is a source-reported count; the PORT block's port and protocol are observations. Neither is a customer declaration or a NetFlow source-side port.",
+                        "端口角色：IP 块的存活端口是来源报数；PORT 块的端口与协议是观测值。两者都不是客户声明或 NetFlow 源侧端口。",
+                      )}
+                    </p>
+                    {!search.core_filter_invalid && (
+                      <EvidenceRecords
+                        source="cloud"
+                        page={evidencePages.cloud}
+                        data={cloudProof.data}
+                        isPending={cloudProof.isPending}
+                        isError={cloudProof.isError}
+                        onPageChange={(page) =>
+                          changeEvidencePage("cloud", page)
+                        }
+                      />
+                    )}
+                  </section>
+                </div>
+                {!search.core_filter_invalid && detail.data && (
                   <V2AnalysisReportsPanel
                     key={`${actor}:${projectId}:${result.id}:${search.binding}:${detail.data.address.address_key}`}
                     actor={actor}
@@ -2054,44 +2664,52 @@ export default function CoreComparisonResults({
                     addressKey={detail.data.address.address_key}
                   />
                 )}
-                <section
-                  className="space-y-2"
-                  aria-label={t("NetFlow corroboration", "NetFlow 佐证说明")}
-                >
-                  <h3 className="font-medium">
-                    {t("NetFlow corroboration", "NetFlow 佐证说明")}
-                  </h3>
-                  <p>
-                    {detail.data
-                      ? flowStatus(detail.data.address.canonical_ip)
-                      : t("Reading the address…", "正在读取地址…")}
-                  </p>
-                  {eReadable &&
-                    flows.isSuccess &&
-                    flows.data.data
-                      .filter(
-                        (row) =>
-                          row.canonical_ip ===
-                          detail.data?.address.canonical_ip,
-                      )
-                      .map((row) => (
-                        <p key={row.canonical_ip} className="text-sm">
-                          {t("Observation objects", "观测对象")}{" "}
-                          {row.observation_count} ·{" "}
-                          {eMeta.data?.record_count_semantics ===
-                          "unique_export_records"
-                            ? t("Unique export records", "去重后导出记录")
-                            : t("Source records", "源记录")}{" "}
-                          {row.source_records}
-                        </p>
-                      ))}
-                  <p className="text-sm text-muted-foreground">
-                    {t(
-                      "The actual observation window was not provided. Flow records do not prove simultaneous activity or listening services.",
-                      "未提供实际观测窗口。流量记录不证明同时活动或监听服务。",
-                    )}
-                  </p>
-                </section>
+                {!search.core_filter_invalid && (
+                  <section
+                    className="space-y-2"
+                    aria-label={t("NetFlow corroboration", "NetFlow 佐证说明")}
+                  >
+                    <h3 className="font-medium">
+                      {t("NetFlow corroboration", "NetFlow 佐证说明")}
+                    </h3>
+                    <p>
+                      {detail.data
+                        ? flowStatus(detail.data.address.canonical_ip)
+                        : t("Reading the address…", "正在读取地址…")}
+                    </p>
+                    {eReadable &&
+                      flows.isSuccess &&
+                      flows.data.data
+                        .filter(
+                          (row) =>
+                            row.canonical_ip ===
+                            detail.data?.address.canonical_ip,
+                        )
+                        .map((row) => (
+                          <p key={row.canonical_ip} className="text-sm">
+                            {t("Observation objects", "观测对象")}{" "}
+                            {row.observation_count} ·{" "}
+                            {eMeta.data?.record_count_semantics ===
+                            "unique_export_records"
+                              ? t("Unique export records", "去重后导出记录")
+                              : t("Source records", "源记录")}{" "}
+                            {row.source_records}
+                          </p>
+                        ))}
+                    <p className="text-sm text-muted-foreground">
+                      {t(
+                        "The actual observation window was not provided. Flow records do not prove simultaneous activity or listening services.",
+                        "未提供实际观测窗口。流量记录不证明同时活动或监听服务。",
+                      )}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {t(
+                        "NetFlow source-side ports are read only through the existing fixed Analysis and exact-IP observation entry below. This drawer does not read flow details inline. A source-side port read there is a source-side observation, not a listening-port proof.",
+                        "NetFlow 源侧端口只能通过下方现有的固定 Analysis 与精确 IP 观测入口读取；本抽屉不内联读取流量明细。那里读到的源侧端口是源侧观测值，不是监听端口证明。",
+                      )}
+                    </p>
+                  </section>
+                )}
                 <section
                   className="space-y-2"
                   aria-label={t("Limits and sources", "限制与来源")}
@@ -2107,24 +2725,26 @@ export default function CoreComparisonResults({
                   </p>
                   {materialLinks(result)}
                 </section>
-                {eReadable && eMeta.data?.analysis_id && (
-                  <Link
-                    className="block text-sm underline"
-                    to="/projects/$projectId/netflow-results"
-                    params={{ projectId }}
-                    search={{
-                      ...back,
-                      analysis: eMeta.data.analysis_id,
-                      dataset: eMeta.data.dataset_id ?? undefined,
-                      ip: detail.data?.address.canonical_ip,
-                    }}
-                  >
-                    {t(
-                      "Read the fixed NetFlow observations",
-                      "查看固定 NetFlow 观测",
-                    )}
-                  </Link>
-                )}
+                {!search.core_filter_invalid &&
+                  eReadable &&
+                  eMeta.data?.analysis_id && (
+                    <Link
+                      className="block text-sm underline"
+                      to="/projects/$projectId/netflow-results"
+                      params={{ projectId }}
+                      search={{
+                        ...back,
+                        analysis: eMeta.data.analysis_id,
+                        dataset: eMeta.data.dataset_id ?? undefined,
+                        ip: detail.data?.address.canonical_ip,
+                      }}
+                    >
+                      {t(
+                        "Read the fixed NetFlow observations",
+                        "查看固定 NetFlow 观测",
+                      )}
+                    </Link>
+                  )}
               </section>
             </SheetContent>
           </Sheet>
