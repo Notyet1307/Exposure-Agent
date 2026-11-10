@@ -72,7 +72,7 @@ test("customer replacement uses the real preview, preserves old versions and rec
     .click()
   await expect(first.getByText("Current", { exact: true })).toBeVisible()
   await expect(
-    page.getByText("Selection confirmed.", { exact: false }),
+    page.getByText("Operation confirmed.", { exact: false }),
   ).toBeVisible()
 
   const second = await upload("customer-upload-stage4-second.xlsx")
@@ -111,7 +111,7 @@ test("customer replacement uses the real preview, preserves old versions and rec
   ).toBeVisible()
   await expect(
     page.getByRole("button", { name: "Preview replacement" }),
-  ).toHaveCount(0)
+  ).toBeDisabled()
   expect(applies).toBe(1)
   expect(
     (await (await request.get(`${root}/customer-uploads`, { headers })).json())
@@ -122,7 +122,7 @@ test("customer replacement uses the real preview, preserves old versions and rec
     .getByRole("button", { name: "Recover result", exact: true })
     .click()
   await expect(
-    page.getByText("Replacement confirmed.", { exact: false }),
+    page.getByText("Operation confirmed.", { exact: false }),
   ).toBeVisible()
   await expect(
     page.getByText("Replacement outcome unknown", { exact: true }),

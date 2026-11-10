@@ -125,7 +125,7 @@ function warningFieldLabel(
 function WarningSummary({
   warnings,
 }: {
-  warnings: CustomerUploadWarningPublic[]
+  warnings: readonly CustomerUploadWarningPublic[]
 }) {
   const { t, translateValue } = useI18n()
   if (warnings.length === 0)
@@ -204,14 +204,16 @@ function UploadRows({
   uploads,
   currentUploadId,
   canSelect,
+  actionsDisabled,
   selectingUploadId,
   onSelect,
 }: {
   uploads: CustomerUploadPublic[]
   currentUploadId: string | null
   canSelect: boolean
+  actionsDisabled: boolean
   selectingUploadId: string | null
-  onSelect: (uploadId: string) => void
+  onSelect: (candidate: Candidate, trigger: HTMLButtonElement) => void
 }) {
   const { t, formatDate } = useI18n()
   if (uploads.length === 0) {
@@ -236,6 +238,7 @@ function UploadRows({
       </TableHeader>
       <TableBody>
         {uploads.map((upload) => {
+          const candidate = candidateFromUpload(upload)
           const isCurrent = upload.id === currentUploadId
           return (
             <TableRow key={upload.id}>
@@ -291,8 +294,10 @@ function UploadRows({
                     variant="outline"
                     size="sm"
                     loading={selectingUploadId === upload.id}
-                    disabled={selectingUploadId !== null}
-                    onClick={() => onSelect(upload.id)}
+                    disabled={actionsDisabled || selectingUploadId !== null}
+                    onClick={(event) =>
+                      onSelect(candidate, event.currentTarget)
+                    }
                   >
                     {currentUploadId
                       ? t("Preview replacement", "预览替换")
@@ -314,6 +319,100 @@ type ReplacementIntent = {
   request: ReplacementRequest
 }
 
+type Candidate = Readonly<{
+  id: string
+  name: string
+  profileId: string
+  profileVersion: number
+  recordCount: number
+  warnings: readonly CustomerUploadWarningPublic[]
+}>
+
+type PreviewValue = Readonly<{
+  candidate: Candidate
+  request: ReplacementRequest
+  impact: ReplacementPreview
+}>
+
+type FlowIssue = Readonly<{ message: string; diagnostic?: unknown }>
+
+type CandidateErrorReason = "read" | "version" | "profile" | "key" | "rejected"
+
+type Flow =
+  | { kind: "idle" }
+  | { kind: "file"; file: File | null; issue?: FlowIssue }
+  | { kind: "uploading"; file: File }
+  | { kind: "candidate"; candidate: Candidate; replacement: boolean }
+  | { kind: "previewing"; candidate: Candidate }
+  | { kind: "preview"; value: PreviewValue; issue?: FlowIssue }
+  | {
+      kind: "candidate-error"
+      candidate: Candidate | null
+      candidateId: string
+      reason: CandidateErrorReason
+      issue?: FlowIssue
+      diagnostic?: unknown
+    }
+  | { kind: "already-current"; candidate: Candidate }
+  | { kind: "preparing"; value: PreviewValue }
+  | {
+      kind: "operation"
+      intent: ReplacementIntent
+      candidate: Candidate | null
+      phase: "applying" | "unknown" | "missing"
+      recoveryError?: boolean
+      diagnostic?: unknown
+    }
+  | { kind: "confirmed"; receipt: ReplacementReceipt }
+
+const focusHeading =
+  "scroll-mt-32 outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+
+function candidateFromUpload(upload: CustomerUploadPublic): Candidate {
+  return {
+    id: upload.id,
+    name: upload.display_filename,
+    profileId: upload.profile_id,
+    profileVersion: upload.profile_version,
+    recordCount: upload.record_count,
+    warnings: upload.warnings,
+  }
+}
+
+function readSavedIntent(storage: string): ReplacementIntent | null {
+  try {
+    const item = JSON.parse(
+      sessionStorage.getItem(storage) ?? "null",
+    ) as ReplacementIntent | null
+    const id = (value: unknown, nullable = false) =>
+      (nullable && value === null) ||
+      (typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value))
+    return item &&
+      /^[A-Za-z0-9_-]{1,128}$/.test(item.key) &&
+      /^[a-f0-9]{64}$/.test(item.digest) &&
+      id(item.request?.candidate_upload_id) &&
+      id(item.request?.expected_profile_id) &&
+      id(item.request?.expected_upload_id, true) &&
+      id(item.request?.expected_revision_id, true)
+      ? item
+      : null
+  } catch {
+    return null
+  }
+}
+
+function clearStoredIntent(storage: string) {
+  sessionStorage.removeItem(storage)
+}
+
+function errorCode(error: unknown): string | null {
+  const detail = apiErrorDetail(error)
+  if (!detail || typeof detail !== "object" || Array.isArray(detail))
+    return null
+  const code = (detail as { code?: unknown }).code
+  return typeof code === "string" ? code : null
+}
+
 function ProjectInputs({
   project,
   actorId,
@@ -324,8 +423,15 @@ function ProjectInputs({
   const { t, message, formatDate } = useI18n()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const currentInputTitle = useRef<HTMLDivElement>(null)
-  const [selectedFilename, setSelectedFilename] = useState<string | null>(null)
+  const chooseFileButton = useRef<HTMLButtonElement>(null)
+  const candidateHeading = useRef<HTMLDivElement>(null)
+  const previewHeading = useRef<HTMLDivElement>(null)
+  const errorHeading = useRef<HTMLDivElement>(null)
+  const alreadyCurrentHeading = useRef<HTMLDivElement>(null)
+  const recoveryHeading = useRef<HTMLDivElement>(null)
+  const confirmedHeading = useRef<HTMLDivElement>(null)
+  const previewTrigger = useRef<HTMLButtonElement | null>(null)
+  const returnPreviewFocus = useRef(false)
   const search = useWorkspaceSearch()
   const navigate = useWorkspaceNavigate()
   const page = (search.upload_page ?? 1) - 1
@@ -338,48 +444,26 @@ function ProjectInputs({
       }),
     })
   }
-  const [fileMessage, setFileMessage] = useState<string | null>(null)
-  const [fileDiagnostic, setFileDiagnostic] = useState<unknown>(undefined)
-  const [selectionMessage, setSelectionMessage] = useState<string | null>(null)
-  const [selectionDiagnostic, setSelectionDiagnostic] =
-    useState<unknown>(undefined)
   const replacementStorage = `exposure:customer-replacement:${actorId}:${project.id}`
   const alive = useRef(true)
-  const starting = useRef(false)
-  const [preparing, setPreparing] = useState(false)
+  const flowTicket = useRef(0)
+  const operationTicket = useRef(0)
+  const busy = useRef<"upload" | "preview" | "prepare" | "apply" | null>(null)
+  const recoveryPending = useRef(false)
+  const [flow, setFlow] = useState<Flow>(() => {
+    const intent = readSavedIntent(replacementStorage)
+    return intent
+      ? { kind: "operation", intent, candidate: null, phase: "unknown" }
+      : { kind: "idle" }
+  })
+  const flowRef = useRef(flow)
+  flowRef.current = flow
   useEffect(() => {
     alive.current = true
     return () => {
       alive.current = false
     }
   }, [])
-  const [pendingReplacement, setPendingReplacement] =
-    useState<ReplacementIntent | null>(() => {
-      try {
-        const item = JSON.parse(
-          sessionStorage.getItem(replacementStorage) ?? "null",
-        ) as ReplacementIntent | null
-        const id = (value: unknown, nullable = false) =>
-          (nullable && value === null) ||
-          (typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value))
-        return item &&
-          /^[A-Za-z0-9_-]{1,128}$/.test(item.key) &&
-          /^[a-f0-9]{64}$/.test(item.digest) &&
-          id(item.request?.candidate_upload_id) &&
-          id(item.request?.expected_profile_id) &&
-          id(item.request?.expected_upload_id, true) &&
-          id(item.request?.expected_revision_id, true)
-          ? item
-          : null
-      } catch {
-        return null
-      }
-    })
-  const [canReplay, setCanReplay] = useState(false)
-  const [replacement, setReplacement] = useState<{
-    request: ReplacementRequest
-    preview: ReplacementPreview
-  } | null>(null)
 
   const profileQuery = useQuery({
     queryKey: ["customer-upload-profile", project.id],
@@ -401,45 +485,49 @@ function ProjectInputs({
   writable.current = !!uploadsQuery.data?.can_select && !uploadsQuery.isError
   const hasCurrentInput = useRef(false)
   hasCurrentInput.current = !!uploadsQuery.data?.current_customer_upload_id
-  const clearIntent = () => {
-    sessionStorage.removeItem(replacementStorage)
-    setPendingReplacement(null)
-    setCanReplay(false)
-  }
   useEffect(() => {
-    if (
-      uploadsQuery.data?.can_select === false ||
-      (uploadsQuery.isError &&
-        uploadsQuery.error instanceof ApiError &&
-        [401, 403, 404].includes(uploadsQuery.error.status))
-    ) {
-      setReplacement(null)
-      setPendingReplacement(null)
-      setCanReplay(false)
-      sessionStorage.removeItem(replacementStorage)
+    const readDenied =
+      uploadsQuery.isError &&
+      uploadsQuery.error instanceof ApiError &&
+      [401, 403, 404].includes(uploadsQuery.error.status)
+    const readOnly = uploadsQuery.data?.can_select === false
+    if (!readDenied && !readOnly) return
+    if (fileInputRef.current) fileInputRef.current.value = ""
+    if (!readDenied && flowRef.current.kind === "operation") {
+      // A readable Project can lose write access while a submitted operation
+      // is still resolvable through its saved receipt.
+      flowTicket.current += 1
+      return
     }
+    flowTicket.current += 1
+    operationTicket.current += 1
+    busy.current = null
+    clearStoredIntent(replacementStorage)
+    setFlow((current) =>
+      current.kind === "confirmed" ? current : { kind: "idle" },
+    )
   }, [
     uploadsQuery.data?.can_select,
     uploadsQuery.isError,
     uploadsQuery.error,
     replacementStorage,
   ])
+
   const uploadMutation = useMutation({
-    mutationFn: (file: File) =>
+    mutationFn: ({ file }: { file: File; ticket: number }) =>
       ProjectsService.createCustomerUpload({
         projectId: project.id,
         formData: { file },
       }),
-    onSuccess: async () => {
-      setFileMessage(
-        hasCurrentInput.current
-          ? "Upload accepted. Preview the replacement before applying it."
-          : "Upload accepted. Preview this file and set it as the current input.",
-      )
-      setFileDiagnostic(undefined)
+    onSuccess: async (upload, { ticket: uploadTicket }) => {
+      if (!alive.current || flowTicket.current !== uploadTicket) return
+      busy.current = null
+      setFlow({
+        kind: "candidate",
+        candidate: candidateFromUpload(upload),
+        replacement: hasCurrentInput.current,
+      })
       if (fileInputRef.current) fileInputRef.current.value = ""
-      setSelectedFilename(null)
-      setPage(0)
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["customer-uploads", project.id],
@@ -449,54 +537,151 @@ function ProjectInputs({
         }),
       ])
     },
-    onError: (error: Error) => {
+    onError: (error: Error, { file, ticket: uploadTicket }) => {
+      if (!alive.current || flowTicket.current !== uploadTicket) return
+      busy.current = null
       const failure = uploadError(error)
-      setFileMessage(failure.message)
-      setFileDiagnostic(failure.detail)
+      setFlow({
+        kind: "file",
+        file,
+        issue: { message: failure.message, diagnostic: failure.detail },
+      })
     },
   })
   const selectionMutation = useMutation({
-    mutationFn: async (uploadId: string) => {
+    mutationFn: async ({
+      candidate,
+      ticket: previewTicket,
+    }: {
+      candidate: Candidate
+      ticket: number
+    }) => {
       const current = await CustomerLedgerService.readCustomerLedger({
         projectId: project.id,
         skip: 0,
         limit: 1,
       })
       const request: ReplacementRequest = {
-        candidate_upload_id: uploadId,
+        candidate_upload_id: candidate.id,
         expected_upload_id: current.current_upload_id,
         expected_revision_id: current.current_revision_id,
         expected_profile_id: current.current_profile_id,
       }
-      const preview =
+      if (
+        current.current_upload_id !== null &&
+        current.current_upload_id === candidate.id
+      )
+        return {
+          kind: "already-current" as const,
+          candidate,
+          ticket: previewTicket,
+        }
+      const impact =
         await CustomerLedgerService.previewCustomerUploadReplacement({
           projectId: project.id,
           requestBody: request,
         })
-      return { request, preview }
+      return {
+        kind: "preview" as const,
+        candidate,
+        request,
+        impact,
+        ticket: previewTicket,
+      }
     },
     onSuccess: (result) => {
-      if (!alive.current || !writable.current) return
-      setReplacement(result)
-      setSelectionMessage(null)
-      setSelectionDiagnostic(undefined)
+      if (
+        !alive.current ||
+        flowTicket.current !== result.ticket ||
+        busy.current !== "preview"
+      )
+        return
+      busy.current = null
+      if (!writable.current) {
+        setFlow({
+          kind: "candidate-error",
+          candidate: result.candidate,
+          candidateId: result.candidate.id,
+          reason: "read",
+          issue: {
+            message: t(
+              "The current input could not be refreshed. Nothing was applied.",
+              "无法刷新当前输入，尚未应用任何内容。",
+            ),
+          },
+          diagnostic: {
+            code: "current_input_unavailable",
+            message:
+              "The current input could not be refreshed. Nothing was applied.",
+          },
+        })
+        return
+      }
+      if (result.kind === "already-current") {
+        setFlow({ kind: "already-current", candidate: result.candidate })
+        return
+      }
+      const { request, impact, candidate } = result
+      if (
+        impact.candidate_upload_id !== request.candidate_upload_id ||
+        impact.current_upload_id !== request.expected_upload_id ||
+        impact.current_revision_id !== request.expected_revision_id ||
+        impact.profile_id !== request.expected_profile_id
+      ) {
+        setFlow({
+          kind: "candidate-error",
+          candidate,
+          candidateId: candidate.id,
+          reason: "read",
+          issue: {
+            message: t(
+              "The preview response did not match the request identity. Nothing was applied.",
+              "预览响应与请求身份不一致，尚未应用任何内容。",
+            ),
+          },
+          diagnostic: {
+            code: "preview_identity_mismatch",
+            message:
+              "The preview response did not match the request identity. Nothing was applied.",
+          },
+        })
+        return
+      }
+      setFlow({
+        kind: "preview",
+        value: { candidate, request, impact },
+      })
     },
-    onError: (error) => {
-      if (alive.current) setSelectionDiagnostic(apiErrorDetail(error))
-      if (alive.current)
-        setSelectionMessage(
-          hasCurrentInput.current
-            ? t(
-                "Could not read the replacement preview. Reload the current version and try again.",
-                "无法读取替换预览，请重新读取当前版本后重试。",
-              )
-            : t(
-                "Could not read the selection preview. Reload the current version and try again.",
-                "无法读取选择预览，请重新读取当前版本后重试。",
-              ),
-        )
+    onError: (error, { candidate, ticket: previewTicket }) => {
+      if (
+        !alive.current ||
+        flowTicket.current !== previewTicket ||
+        busy.current !== "preview"
+      )
+        return
+      busy.current = null
+      setFlow({
+        kind: "candidate-error",
+        candidate,
+        candidateId: candidate.id,
+        reason: "read",
+        diagnostic: apiErrorDetail(error),
+      })
     },
   })
+  const previewCandidate = (
+    candidate: Candidate,
+    trigger: HTMLButtonElement | null,
+  ) => {
+    if (busy.current || !writable.current) return
+    // Previewing an accepted upload abandons any local file choice.
+    if (fileInputRef.current?.value) fileInputRef.current.value = ""
+    previewTrigger.current = trigger
+    const previewTicket = ++flowTicket.current
+    busy.current = "preview"
+    setFlow({ kind: "previewing", candidate })
+    selectionMutation.mutate({ candidate, ticket: previewTicket })
+  }
   const validReceipt = (
     receipt: ReplacementReceipt,
     intent: ReplacementIntent,
@@ -513,24 +698,12 @@ function ProjectInputs({
       throw new Error("Replacement receipt identity mismatch")
     return receipt
   }
-  const replacementSaved = async (intent: ReplacementIntent) => {
-    if (!alive.current || !writable.current) return
-    const selection = intent.request.expected_upload_id === null
-    clearIntent()
-    setReplacement(null)
-    setSelectionDiagnostic(undefined)
-    setSelectionMessage(
-      selection
-        ? t(
-            "Selection confirmed. This file is now the current input; history is unchanged.",
-            "选择已确认。此文件现为当前输入，历史版本保持不变。",
-          )
-        : t(
-            "Replacement confirmed. Current data has been reloaded; history is unchanged.",
-            "替换操作已确认。已重新读取当前数据，历史版本保持不变。",
-          ),
-    )
-    await Promise.all([
+  const finishConfirmed = (receipt: ReplacementReceipt) => {
+    clearStoredIntent(replacementStorage)
+    busy.current = null
+    operationTicket.current += 1
+    setFlow({ kind: "confirmed", receipt })
+    void Promise.all([
       queryClient.invalidateQueries({
         queryKey: ["customer-uploads", project.id],
       }),
@@ -543,11 +716,16 @@ function ProjectInputs({
       queryClient.invalidateQueries({
         queryKey: ["input-summary", project.id],
       }),
-    ])
-    if (alive.current) currentInputTitle.current?.focus()
+    ]).catch(() => undefined)
   }
   const applyReplacement = useMutation({
-    mutationFn: async (intent: ReplacementIntent) => {
+    mutationFn: async ({
+      intent,
+    }: {
+      intent: ReplacementIntent
+      candidate: Candidate | null
+      ticket: number
+    }) => {
       if ((await requestDigest(intent.request)) !== intent.digest)
         throw new Error("Invalid saved request")
       return validReceipt(
@@ -559,86 +737,128 @@ function ProjectInputs({
         intent,
       )
     },
-    onSuccess: (_receipt, intent) => replacementSaved(intent),
-    onError: (error, intent) => {
-      if (!alive.current) return
-      setCanReplay(false)
-      setSelectionDiagnostic(apiErrorDetail(error))
-      const selection = intent.request.expected_upload_id === null
-      if (
-        error instanceof ApiError &&
-        [400, 401, 403, 404, 409, 422].includes(error.status)
-      ) {
-        clearIntent()
-        setSelectionMessage(
-          error.status === 409
-            ? t(
-                "The current version or profile changed. This request was rejected; preview the latest version again.",
-                "当前版本或配置已变化，本次请求被拒绝，请重新预览最新版本。",
-              )
-            : selection
-              ? t(
-                  "Selection was rejected. Check access and the accepted file before previewing again.",
-                  "选择请求被拒绝，请核对权限与已接受文件后重新预览。",
-                )
-              : t(
-                  "Replacement was rejected. Check access and the accepted file before previewing again.",
-                  "替换请求被拒绝，请核对权限与已接受文件后重新预览。",
-                ),
-        )
-      } else {
-        setSelectionMessage(
-          selection
-            ? t(
-                "The selection outcome is unknown. Read the saved operation before submitting again.",
-                "选择结果尚未确认，请先读取原操作回执，再决定是否重新提交。",
-              )
-            : t(
-                "The replacement outcome is unknown. Read the saved operation before submitting again.",
-                "替换结果尚未确认，请先读取原操作回执，再决定是否重新提交。",
-              ),
-        )
+    onSuccess: (receipt, { ticket: applyTicket }) => {
+      if (!alive.current || operationTicket.current !== applyTicket) return
+      finishConfirmed(receipt)
+    },
+    onError: (error, { intent, candidate, ticket: applyTicket }) => {
+      if (!alive.current || operationTicket.current !== applyTicket) return
+      busy.current = null
+      const detail = apiErrorDetail(error)
+      const status = error instanceof ApiError ? error.status : null
+      if (status !== null && [400, 401, 403, 404, 409, 422].includes(status)) {
+        clearStoredIntent(replacementStorage)
+        operationTicket.current += 1
+        const code = errorCode(error)
+        if (
+          status === 409 &&
+          (code === "ledger_version_conflict" ||
+            code === "ledger_profile_changed")
+        ) {
+          setFlow({
+            kind: "candidate-error",
+            candidate,
+            candidateId: intent.request.candidate_upload_id,
+            reason: code === "ledger_profile_changed" ? "profile" : "version",
+            diagnostic: detail,
+          })
+          return
+        }
+        setFlow({
+          kind: "candidate-error",
+          candidate,
+          candidateId: intent.request.candidate_upload_id,
+          reason:
+            status === 409 && code === "ledger_key_conflict"
+              ? "key"
+              : "rejected",
+          diagnostic: detail,
+        })
+        return
       }
+      setFlow({
+        kind: "operation",
+        intent,
+        candidate,
+        phase: "unknown",
+        diagnostic: detail,
+      })
     },
   })
   const startReplacement = async () => {
-    if (
-      !replacement ||
-      pendingReplacement ||
-      starting.current ||
-      !writable.current
-    )
-      return
-    starting.current = true
-    setPreparing(true)
+    if (flow.kind !== "preview" || busy.current || !writable.current) return
+    const value = flow.value
+    const prepareTicket = ++operationTicket.current
+    busy.current = "prepare"
+    setFlow({ kind: "preparing", value })
     try {
-      const intent = {
+      const digest = await requestDigest(value.request)
+      if (
+        !alive.current ||
+        busy.current !== "prepare" ||
+        operationTicket.current !== prepareTicket
+      )
+        return
+      const intent: ReplacementIntent = {
         key: crypto.randomUUID(),
-        request: replacement.request,
-        digest: await requestDigest(replacement.request),
+        request: value.request,
+        digest,
       }
-      if (!alive.current || !writable.current) return
-      sessionStorage.setItem(replacementStorage, JSON.stringify(intent))
-      setPendingReplacement(intent)
-      setCanReplay(false)
-      setReplacement(null)
-      applyReplacement.mutate(intent)
+      try {
+        sessionStorage.setItem(replacementStorage, JSON.stringify(intent))
+      } catch {
+        busy.current = null
+        setFlow({
+          kind: "preview",
+          value,
+          issue: {
+            message: t(
+              "The request could not be saved. Nothing was submitted.",
+              "无法保存操作身份，尚未提交替换。",
+            ),
+          },
+        })
+        return
+      }
+      busy.current = "apply"
+      setFlow({
+        kind: "operation",
+        intent,
+        candidate: value.candidate,
+        phase: "applying",
+      })
+      applyReplacement.mutate({
+        intent,
+        candidate: value.candidate,
+        ticket: prepareTicket,
+      })
     } catch {
-      if (alive.current) setSelectionDiagnostic(undefined)
-      if (alive.current)
-        setSelectionMessage(
-          t(
+      if (
+        !alive.current ||
+        busy.current !== "prepare" ||
+        operationTicket.current !== prepareTicket
+      )
+        return
+      busy.current = null
+      setFlow({
+        kind: "preview",
+        value,
+        issue: {
+          message: t(
             "The request could not be saved. Nothing was submitted.",
             "无法保存操作身份，尚未提交替换。",
           ),
-        )
-    } finally {
-      starting.current = false
-      if (alive.current) setPreparing(false)
+        },
+      })
     }
   }
   const recoverReplacement = useMutation({
-    mutationFn: async (intent: ReplacementIntent) =>
+    mutationFn: async ({
+      intent,
+    }: {
+      intent: ReplacementIntent
+      ticket: number
+    }) =>
       validReceipt(
         await CustomerLedgerService.readCustomerUploadReplacement({
           projectId: project.id,
@@ -646,32 +866,136 @@ function ProjectInputs({
         }),
         intent,
       ),
-    onSuccess: (_receipt, intent) => replacementSaved(intent),
-    onError: (error) => {
-      if (!alive.current) return
-      setSelectionDiagnostic(apiErrorDetail(error))
-      const missing = error instanceof ApiError && error.status === 404
-      setCanReplay(missing && writable.current)
-      setSelectionMessage(
-        missing
-          ? t(
-              "No completed receipt yet. You may explicitly resend the same request with its original identity; the server will recover any committed operation.",
-              "尚无完成回执。可明确复用原标识重新提交同一请求，服务端会恢复任何已提交操作。",
-            )
-          : t(
-              "Could not read the operation. Keep its identity and retry this read.",
-              "无法读取操作回执。已保留原标识，请重试读取。",
-            ),
-      )
+    onSuccess: (receipt, { ticket: recoverTicket }) => {
+      if (!alive.current || operationTicket.current !== recoverTicket) return
+      finishConfirmed(receipt)
+    },
+    onError: (error, { intent, ticket: recoverTicket }) => {
+      if (!alive.current || operationTicket.current !== recoverTicket) return
+      const detail = apiErrorDetail(error)
+      const missing =
+        error instanceof ApiError &&
+        error.status === 404 &&
+        errorCode(error) === "ledger_replacement_not_found"
+      setFlow((current) => {
+        if (current.kind !== "operation" || current.intent.key !== intent.key)
+          return current
+        if (current.phase === "applying") return current
+        return {
+          ...current,
+          phase: missing ? "missing" : "unknown",
+          recoveryError: !missing,
+          diagnostic: detail,
+        }
+      })
+    },
+    onSettled: () => {
+      recoveryPending.current = false
     },
   })
+  const recoverOperation = (intent: ReplacementIntent) => {
+    if (recoveryPending.current) return
+    recoveryPending.current = true
+    recoverReplacement.mutate({ intent, ticket: operationTicket.current })
+  }
+  const resendReplacement = (
+    intent: ReplacementIntent,
+    candidate: Candidate | null,
+  ) => {
+    if (busy.current || recoveryPending.current || !writable.current) return
+    const applyTicket = ++operationTicket.current
+    busy.current = "apply"
+    setFlow({
+      kind: "operation",
+      intent,
+      candidate,
+      phase: "applying",
+    })
+    applyReplacement.mutate({ intent, candidate, ticket: applyTicket })
+  }
+  const cancelPreview = () => {
+    if (flow.kind !== "preview") return
+    flowTicket.current += 1
+    busy.current = null
+    if (fileInputRef.current?.value) fileInputRef.current.value = ""
+    returnPreviewFocus.current = true
+    setFlow({ kind: "idle" })
+  }
+  const submitUpload = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const file = flow.kind === "file" ? flow.file : null
+    if (!file) {
+      setFlow({
+        kind: "file",
+        file: null,
+        issue: {
+          message: t(
+            "Choose one XLSX file to upload.",
+            "请选择一个 XLSX 文件上传。",
+          ),
+        },
+      })
+      return
+    }
+    if (busy.current) return
+    const uploadTicket = ++flowTicket.current
+    busy.current = "upload"
+    setFlow({ kind: "uploading", file })
+    uploadMutation.mutate({ file, ticket: uploadTicket })
+  }
+
+  const focusKey =
+    flow.kind === "file" && flow.issue
+      ? "file-issue"
+      : flow.kind === "candidate"
+        ? `candidate:${flow.candidate.id}`
+        : flow.kind === "preview"
+          ? `preview:${flow.value.candidate.id}`
+          : flow.kind === "candidate-error"
+            ? `error:${flow.reason}:${flow.candidateId}`
+            : flow.kind === "already-current"
+              ? `already-current:${flow.candidate.id}`
+              : flow.kind === "operation" && flow.phase !== "applying"
+                ? `recovery:${flow.phase}:${flow.intent.key}`
+                : flow.kind === "confirmed"
+                  ? `confirmed:${flow.receipt.id}`
+                  : null
+  const focusTarget =
+    flow.kind === "file" || flow.kind === "candidate-error"
+      ? errorHeading
+      : flow.kind === "candidate"
+        ? candidateHeading
+        : flow.kind === "preview"
+          ? previewHeading
+          : flow.kind === "already-current"
+            ? alreadyCurrentHeading
+            : flow.kind === "operation"
+              ? recoveryHeading
+              : flow.kind === "confirmed"
+                ? confirmedHeading
+                : null
+  useEffect(() => {
+    if (!focusKey) return
+    const target = focusTarget?.current
+    if (!target) return
+    target.scrollIntoView({ block: "start" })
+    target.focus()
+  }, [focusKey, focusTarget])
+  useEffect(() => {
+    if (flow.kind !== "idle" || !returnPreviewFocus.current) return
+    returnPreviewFocus.current = false
+    const trigger = previewTrigger.current
+    previewTrigger.current = null
+    if (trigger?.isConnected) trigger.focus()
+    else chooseFileButton.current?.focus()
+  }, [flow.kind])
 
   if (profileQuery.isPending || uploadsQuery.isPending) {
     return (
       <p role="status">{t("Loading Project inputs…", "正在加载项目输入…")}</p>
     )
   }
-  if (profileQuery.isError || uploadsQuery.isError) {
+  if (profileQuery.isError) {
     return (
       <Alert variant="destructive">
         <AlertCircle />
@@ -687,24 +1011,50 @@ function ProjectInputs({
 
   const profile = profileQuery.data
   const uploads = uploadsQuery.data
-  const currentUpload = uploads.data.find(
+  const currentUpload = uploads?.data.find(
     (upload) => upload.id === uploads.current_customer_upload_id,
   )
   const canGoBack = page > 0
-  const canGoForward = (page + 1) * UPLOAD_PAGE_SIZE < uploads.count
-
-  const submitUpload = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const file = fileInputRef.current?.files?.[0]
-    if (!file) {
-      setFileMessage("Choose one XLSX file to upload.")
-      setFileDiagnostic(undefined)
-      return
-    }
-    setFileMessage(null)
-    setFileDiagnostic(undefined)
-    uploadMutation.mutate(file)
-  }
+  const canGoForward =
+    uploads !== undefined && (page + 1) * UPLOAD_PAGE_SIZE < uploads.count
+  const blocksWrites =
+    flow.kind === "uploading" ||
+    flow.kind === "previewing" ||
+    flow.kind === "preparing" ||
+    flow.kind === "operation"
+  const previewValue =
+    flow.kind === "preview"
+      ? flow.value
+      : flow.kind === "preparing"
+        ? flow.value
+        : null
+  const candidateErrorCopy =
+    flow.kind !== "candidate-error"
+      ? null
+      : flow.reason === "read"
+        ? t(
+            "The latest ledger could not be previewed. Nothing was applied; read the latest version and try again.",
+            "无法读取最新台账预览，尚未应用任何内容；请重新读取最新版本后重试。",
+          )
+        : flow.reason === "version"
+          ? t(
+              "The current version or profile changed. This request was rejected; preview the latest version again.",
+              "当前版本或配置已变化，本次请求被拒绝，请重新预览最新版本。",
+            )
+          : flow.reason === "profile"
+            ? t(
+                "The current profile changed. This request was rejected; preview the latest version again.",
+                "当前配置已变化，本次请求被拒绝，请重新预览最新版本。",
+              )
+            : flow.reason === "key"
+              ? t(
+                  "This operation key was already used for a different request. The rejected request was not retried; preview the file again to start a new request.",
+                  "此操作标识已用于不同的请求。被拒绝的请求未自动重试；请重新预览该文件以发起新请求。",
+                )
+              : t(
+                  "The request was rejected. Nothing was applied; check access and the accepted file before previewing again.",
+                  "请求被拒绝，尚未应用任何内容；请核对权限与已接受文件后重新预览。",
+                )
 
   return (
     <div className="space-y-6">
@@ -759,12 +1109,7 @@ function ProjectInputs({
 
       <Card>
         <CardHeader>
-          <CardTitle
-            ref={currentInputTitle}
-            role="heading"
-            aria-level={3}
-            tabIndex={-1}
-          >
+          <CardTitle role="heading" aria-level={3}>
             {t("Current Project input", "项目当前输入")}
           </CardTitle>
           <CardDescription>
@@ -775,7 +1120,30 @@ function ProjectInputs({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          {uploads.current_customer_upload_id ? (
+          {uploadsQuery.isError ? (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertTitle>
+                {t("Current input could not be read", "无法读取当前输入")}
+              </AlertTitle>
+              <AlertDescription className="space-y-2">
+                <p>
+                  {t(
+                    "The latest ownership could not be read. This separate failure does not change the submitted operation.",
+                    "无法读取最新当前输入；此独立失败不会改变已提交操作。",
+                  )}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void uploadsQuery.refetch()}
+                >
+                  {t("Retry current input", "重试读取当前输入")}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : uploads?.current_customer_upload_id ? (
             <div className="space-y-2">
               <p className="break-words font-medium">
                 {currentUpload?.display_filename ??
@@ -816,143 +1184,10 @@ function ProjectInputs({
               </AlertDescription>
             </Alert>
           )}
-          {selectionMessage && (
-            <div className="text-sm" role="status">
-              <p>{message(selectionMessage)}</p>
-              <DiagnosticDetails detail={selectionDiagnostic} />
-            </div>
-          )}
         </CardContent>
       </Card>
 
-      {replacement && (
-        <Card aria-live="polite">
-          <CardHeader>
-            <CardTitle>
-              {replacement.request.expected_upload_id === null
-                ? t("Selection preview", "选择预览")
-                : t("Replacement preview", "替换预览")}
-            </CardTitle>
-            <CardDescription>
-              {replacement.request.expected_upload_id === null
-                ? t(
-                    "Setting this file as the current input makes it the complete current register and clears local edits for it. It does not change history.",
-                    "将此文件设为当前输入后，它将成为完整的当前台账，并清除该文件的本地修订；不会改变历史版本。",
-                  )
-                : t(
-                    "Apply replaces the complete current register and clears local edits for the new file. It does not change history.",
-                    "应用会以新文件完整替换当前台账，并清除新文件的本地修订；不会改变历史版本。",
-                  )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <dl className="grid gap-3 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-muted-foreground">
-                  {t("Current records / IPs", "当前条目 / IP")}
-                </dt>
-                <dd>
-                  {replacement.preview.current_record_count} /{" "}
-                  {replacement.preview.current_unique_ips}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">
-                  {t("New records / IPs", "新条目 / IP")}
-                </dt>
-                <dd>
-                  {replacement.preview.candidate_record_count} /{" "}
-                  {replacement.preview.candidate_unique_ips}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">
-                  {t(
-                    "Added / removed / changed IPs",
-                    "新增 / 移出 / 声明变化 IP",
-                  )}
-                </dt>
-                <dd>
-                  {replacement.preview.added_ips} /{" "}
-                  {replacement.preview.removed_ips} /{" "}
-                  {replacement.preview.changed_ip_declarations}
-                </dd>
-              </div>
-            </dl>
-            <div className="flex flex-wrap gap-2">
-              <LoadingButton
-                type="button"
-                loading={preparing || applyReplacement.isPending}
-                disabled={!!pendingReplacement || !uploads.can_select}
-                onClick={() => void startReplacement()}
-              >
-                {replacement.request.expected_upload_id === null
-                  ? t("Set as current input", "设为当前输入")
-                  : t("Apply replacement", "应用替换")}
-              </LoadingButton>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={preparing || applyReplacement.isPending}
-                onClick={() => {
-                  setReplacement(null)
-                }}
-              >
-                {t("Cancel", "取消")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {pendingReplacement && (
-        <Alert>
-          <AlertTitle>
-            {applyReplacement.isPending
-              ? pendingReplacement.request.expected_upload_id === null
-                ? t("Setting current input…", "正在设置当前输入…")
-                : t("Applying replacement…", "正在应用替换…")
-              : pendingReplacement.request.expected_upload_id === null
-                ? t("Selection outcome unknown", "选择结果未知")
-                : t("Replacement outcome unknown", "替换结果未知")}
-          </AlertTitle>
-          <AlertDescription className="flex flex-wrap items-center gap-2">
-            <span>
-              {t(
-                "Recover the saved request before starting another change.",
-                "请先恢复已保存的请求，再开始新的更改。",
-              )}
-            </span>
-            <LoadingButton
-              type="button"
-              size="sm"
-              variant="outline"
-              loading={recoverReplacement.isPending}
-              disabled={applyReplacement.isPending}
-              onClick={() => recoverReplacement.mutate(pendingReplacement)}
-            >
-              {t("Recover result", "恢复结果")}
-            </LoadingButton>
-            {canReplay && (
-              <LoadingButton
-                type="button"
-                size="sm"
-                variant="outline"
-                loading={applyReplacement.isPending}
-                disabled={recoverReplacement.isPending || !uploads.can_select}
-                onClick={() => {
-                  setCanReplay(false)
-                  applyReplacement.mutate(pendingReplacement)
-                }}
-              >
-                {t("Resend original request", "复用原请求提交")}
-              </LoadingButton>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {uploads.can_upload ? (
+      {uploads?.can_upload ? (
         <Card>
           <CardHeader>
             <CardTitle>{t("Upload XLSX", "上传 XLSX")}</CardTitle>
@@ -981,104 +1216,548 @@ function ProjectInputs({
                     accept=".xlsx"
                     className="sr-only"
                     tabIndex={-1}
-                    disabled={uploadMutation.isPending}
-                    onChange={(event) =>
-                      setSelectedFilename(event.target.files?.[0]?.name ?? null)
+                    disabled={
+                      flow.kind === "uploading" ||
+                      flow.kind === "preparing" ||
+                      flow.kind === "operation"
                     }
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null
+                      flowTicket.current += 1
+                      if (busy.current === "preview") busy.current = null
+                      setFlow(file ? { kind: "file", file } : { kind: "idle" })
+                    }}
                   />
                   <Button
+                    ref={chooseFileButton}
                     type="button"
                     variant="outline"
-                    disabled={uploadMutation.isPending}
+                    disabled={
+                      flow.kind === "uploading" ||
+                      flow.kind === "preparing" ||
+                      flow.kind === "operation"
+                    }
                     onClick={() => fileInputRef.current?.click()}
                   >
                     {t("Choose file", "选择文件")}
                   </Button>
                   <span className="min-w-0 break-all text-sm">
-                    {selectedFilename ?? t("No file chosen", "未选择文件")}
+                    {flow.kind === "file"
+                      ? (flow.file?.name ?? t("No file chosen", "未选择文件"))
+                      : flow.kind === "uploading"
+                        ? flow.file.name
+                        : t("No file chosen", "未选择文件")}
                   </span>
                 </div>
               </div>
-              <LoadingButton type="submit" loading={uploadMutation.isPending}>
+              <LoadingButton
+                type="submit"
+                loading={flow.kind === "uploading"}
+                disabled={
+                  flow.kind === "previewing" ||
+                  flow.kind === "preparing" ||
+                  flow.kind === "operation"
+                }
+              >
                 <Upload />
                 {t("Upload", "上传")}
               </LoadingButton>
             </form>
-            {fileMessage && (
-              <div className="mt-3 text-sm" role="status">
-                <p>{message(fileMessage)}</p>
-                <DiagnosticDetails detail={fileDiagnostic} />
+            {flow.kind === "file" && flow.issue && (
+              <div
+                ref={errorHeading}
+                role="status"
+                tabIndex={-1}
+                data-testid="import-error-summary"
+                className={`mt-3 text-sm ${focusHeading}`}
+              >
+                <p>{message(flow.issue.message)}</p>
+                <DiagnosticDetails detail={flow.issue.diagnostic} />
               </div>
             )}
           </CardContent>
         </Card>
-      ) : (
-        !project.archived_at && (
-          <p className="text-sm text-muted-foreground">
-            {t(
-              "You have read-only access to CustomerUpload inputs for this Project.",
-              "您对此项目的客户上传输入仅有只读权限。",
-            )}
-          </p>
-        )
+      ) : uploads && !project.archived_at ? (
+        <p className="text-sm text-muted-foreground">
+          {t(
+            "You have read-only access to CustomerUpload inputs for this Project.",
+            "您对此项目的客户上传输入仅有只读权限。",
+          )}
+        </p>
+      ) : null}
+
+      {flow.kind === "candidate" && (
+        <Card aria-live="polite" data-testid="upload-candidate">
+          <CardHeader>
+            <CardTitle
+              ref={candidateHeading}
+              role="heading"
+              aria-level={3}
+              tabIndex={-1}
+              className={focusHeading}
+            >
+              {t("Accepted file", "已接受文件")}
+            </CardTitle>
+            <CardDescription>
+              {message(
+                flow.replacement
+                  ? t(
+                      "Upload accepted. Preview the replacement before applying it.",
+                      "上传已接受。应用前请先预览替换。",
+                    )
+                  : t(
+                      "Upload accepted. Preview this file and set it as the current input.",
+                      "上传已接受。请预览此文件并将其设为当前输入。",
+                    ),
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <p className="break-all font-medium">{flow.candidate.name}</p>
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  `${flow.candidate.recordCount} records`,
+                  `${flow.candidate.recordCount} 条记录`,
+                )}{" "}
+                · {t("Profile v", "配置版本 v")}
+                {flow.candidate.profileVersion}
+              </p>
+              <TechnicalValue
+                value={flow.candidate.id}
+                label={t("CustomerUpload ID", "客户上传 ID")}
+              />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium">{t("Warnings", "警告")}</h3>
+              <WarningSummary warnings={flow.candidate.warnings} />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={
+                !uploads?.can_select ||
+                !writable.current ||
+                busy.current !== null
+              }
+              onClick={(event) =>
+                previewCandidate(flow.candidate, event.currentTarget)
+              }
+            >
+              {t("Preview this file", "预览此文件")}
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("Accepted uploads", "已接受的上传")}</CardTitle>
-          <CardDescription>
-            <p>{t(`${uploads.count} total`, `共 ${uploads.count} 项`)}</p>
-            <p className="mt-1">
+      {flow.kind === "previewing" && (
+        <Card aria-live="polite">
+          <CardHeader>
+            <CardTitle
+              ref={previewHeading}
+              role="heading"
+              aria-level={3}
+              tabIndex={-1}
+              className={focusHeading}
+            >
+              {t("Reading preview…", "正在读取预览…")}
+            </CardTitle>
+            <CardDescription>
               {t(
-                "Derived XLSX files materialize supported fields only. The absence of an extra-column warning is not evidence that unsupported columns are retained.",
-                "派生 XLSX 仅写入受支持字段。没有额外列警告并不代表未受支持的列已被保留。",
+                "The server is reading the latest current input and building the impact preview.",
+                "服务器正在读取最新当前输入并生成影响预览。",
               )}
-            </p>
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <UploadRows
-            uploads={uploads.data}
-            currentUploadId={uploads.current_customer_upload_id}
-            canSelect={uploads.can_select && !pendingReplacement && !preparing}
-            selectingUploadId={
-              selectionMutation.isPending
-                ? (selectionMutation.variables ?? null)
-                : null
-            }
-            onSelect={(uploadId) => {
-              if (pendingReplacement || preparing) return
-              setSelectionMessage(null)
-              setSelectionDiagnostic(undefined)
-              setReplacement(null)
-              selectionMutation.mutate(uploadId)
-            }}
-          />
-          {(canGoBack || canGoForward) && (
-            <div className="flex items-center justify-end gap-2">
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="break-all font-medium">{flow.candidate.name}</p>
+            <TechnicalValue
+              value={flow.candidate.id}
+              label={t("CustomerUpload ID", "客户上传 ID")}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {previewValue && (
+        <Card aria-live="polite" data-testid="replacement-preview">
+          <CardHeader>
+            <CardTitle
+              ref={previewHeading}
+              role="heading"
+              aria-level={3}
+              tabIndex={-1}
+              className={focusHeading}
+            >
+              {previewValue.request.expected_upload_id === null
+                ? t("Selection preview", "选择预览")
+                : t("Replacement preview", "替换预览")}
+            </CardTitle>
+            <CardDescription>
+              {previewValue.request.expected_upload_id === null
+                ? t(
+                    "Setting this file as the current input makes it the complete current register and clears local edits for it. It does not change history.",
+                    "将此文件设为当前输入后，它将成为完整的当前台账，并清除该文件的本地修订；不会改变历史版本。",
+                  )
+                : t(
+                    "Apply replaces the complete current register and clears local edits for the new file. It does not change history.",
+                    "应用会以新文件完整替换当前台账，并清除新文件的本地修订；不会改变历史版本。",
+                  )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1">
+              <p className="break-all font-medium">
+                {previewValue.candidate.name}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  `${previewValue.candidate.recordCount} records`,
+                  `${previewValue.candidate.recordCount} 条记录`,
+                )}{" "}
+                · {t("Profile v", "配置版本 v")}
+                {previewValue.candidate.profileVersion}
+              </p>
+              <TechnicalValue
+                value={previewValue.candidate.id}
+                label={t("CustomerUpload ID", "客户上传 ID")}
+              />
+            </div>
+            <dl className="grid gap-3 text-sm sm:grid-cols-3">
+              <div>
+                <dt className="text-muted-foreground">
+                  {t("Current records / IPs", "当前条目 / IP")}
+                </dt>
+                <dd>
+                  {previewValue.impact.current_record_count} /{" "}
+                  {previewValue.impact.current_unique_ips}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">
+                  {t("New records / IPs", "新条目 / IP")}
+                </dt>
+                <dd>
+                  {previewValue.impact.candidate_record_count} /{" "}
+                  {previewValue.impact.candidate_unique_ips}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">
+                  {t(
+                    "Added / removed / changed IPs",
+                    "新增 / 移出 / 声明变化 IP",
+                  )}
+                </dt>
+                <dd>
+                  {previewValue.impact.added_ips} /{" "}
+                  {previewValue.impact.removed_ips} /{" "}
+                  {previewValue.impact.changed_ip_declarations}
+                </dd>
+              </div>
+            </dl>
+            <div>
+              <h3 className="text-sm font-medium">{t("Warnings", "警告")}</h3>
+              <WarningSummary warnings={previewValue.candidate.warnings} />
+            </div>
+            {flow.kind === "preview" && flow.issue && (
+              <div className="text-sm" role="status">
+                <p>{message(flow.issue.message)}</p>
+                <DiagnosticDetails detail={flow.issue.diagnostic} />
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <LoadingButton
+                type="button"
+                loading={flow.kind === "preparing"}
+                disabled={
+                  flow.kind === "preparing" ||
+                  !uploads?.can_select ||
+                  !writable.current ||
+                  busy.current !== null
+                }
+                onClick={() => void startReplacement()}
+              >
+                {previewValue.request.expected_upload_id === null
+                  ? t("Set as current input", "设为当前输入")
+                  : t("Apply replacement", "应用替换")}
+              </LoadingButton>
               <Button
                 type="button"
                 variant="outline"
-                disabled={!canGoBack}
-                onClick={() => setPage((current) => current - 1)}
+                disabled={flow.kind === "preparing"}
+                onClick={cancelPreview}
               >
-                {t("Previous", "上一页")}
-              </Button>
-              <span className="text-sm">
-                {t(`Page ${page + 1}`, `第 ${page + 1} 页`)}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!canGoForward}
-                onClick={() => setPage((current) => current + 1)}
-              >
-                {t("Next", "下一页")}
+                {t("Cancel", "取消")}
               </Button>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
+
+      {flow.kind === "candidate-error" && (
+        <Card aria-live="assertive" data-testid="import-error">
+          <CardHeader>
+            <CardTitle
+              ref={errorHeading}
+              role="heading"
+              aria-level={3}
+              tabIndex={-1}
+              className={focusHeading}
+            >
+              {flow.reason === "read"
+                ? t("Preview could not be read", "无法读取预览")
+                : flow.reason === "version"
+                  ? t("Current version changed", "当前版本已变化")
+                  : flow.reason === "profile"
+                    ? t("Current profile changed", "当前配置已变化")
+                    : flow.reason === "key"
+                      ? t("Operation key conflict", "操作标识冲突")
+                      : t("Request rejected", "请求被拒绝")}
+            </CardTitle>
+            <CardDescription>{candidateErrorCopy}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {flow.candidate && (
+              <div className="space-y-1">
+                <p className="break-all font-medium">{flow.candidate.name}</p>
+                <TechnicalValue
+                  value={flow.candidate.id}
+                  label={t("CustomerUpload ID", "客户上传 ID")}
+                />
+              </div>
+            )}
+            {flow.issue && (
+              <p className="text-sm">{message(flow.issue.message)}</p>
+            )}
+            <DiagnosticDetails detail={flow.diagnostic} />
+            {flow.candidate && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!uploads?.can_select || !writable.current}
+                onClick={(event) => {
+                  if (flow.candidate)
+                    previewCandidate(flow.candidate, event.currentTarget)
+                }}
+              >
+                {flow.reason === "version" || flow.reason === "profile"
+                  ? t(
+                      "Read latest version and preview again",
+                      "读取最新版本并重新预览",
+                    )
+                  : t("Preview this file again", "重新预览此文件")}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {flow.kind === "already-current" && (
+        <Card aria-live="polite" data-testid="already-current">
+          <CardHeader>
+            <CardTitle
+              ref={alreadyCurrentHeading}
+              role="heading"
+              aria-level={3}
+              tabIndex={-1}
+              className={focusHeading}
+            >
+              {t("File is already current", "文件已是当前输入")}
+            </CardTitle>
+            <CardDescription>
+              {t(
+                "This file is already the current input. No preview or apply is needed; existing manual revisions are unchanged.",
+                "此文件已是当前输入，无需预览或应用；现有本地修订保持不变。",
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <p className="break-all font-medium">{flow.candidate.name}</p>
+            <TechnicalValue
+              value={flow.candidate.id}
+              label={t("CustomerUpload ID", "客户上传 ID")}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {flow.kind === "operation" && (
+        <Alert data-testid="operation-state">
+          <AlertTitle
+            ref={recoveryHeading}
+            role="heading"
+            aria-level={3}
+            tabIndex={-1}
+            className={focusHeading}
+          >
+            {flow.phase === "applying"
+              ? flow.intent.request.expected_upload_id === null
+                ? t("Setting current input…", "正在设置当前输入…")
+                : t("Applying replacement…", "正在应用替换…")
+              : flow.intent.request.expected_upload_id === null
+                ? t("Selection outcome unknown", "选择结果未知")
+                : t("Replacement outcome unknown", "替换结果未知")}
+          </AlertTitle>
+          <AlertDescription className="space-y-3">
+            {flow.candidate && (
+              <div className="space-y-1">
+                <p className="break-all font-medium">{flow.candidate.name}</p>
+                <TechnicalValue
+                  value={flow.candidate.id}
+                  label={t("CustomerUpload ID", "客户上传 ID")}
+                />
+              </div>
+            )}
+            <p>
+              {flow.phase === "applying"
+                ? t(
+                    "The request is being submitted. New uploads and previews are disabled until its outcome is known; you can read its saved receipt.",
+                    "请求正在提交。在结果明确前，新的上传和预览已禁用；可读取已保存的回执。",
+                  )
+                : flow.phase === "missing"
+                  ? t(
+                      "No completed receipt yet. You may explicitly resend the same request with its original identity; the server will recover any committed operation.",
+                      "尚无完成回执。可明确复用原标识重新提交同一请求，服务端会恢复任何已提交操作。",
+                    )
+                  : flow.recoveryError
+                    ? t(
+                        "Could not read the operation. Keep its identity and retry this read.",
+                        "无法读取操作回执。已保留原标识，请重试读取。",
+                      )
+                    : t(
+                        "The outcome is unknown. Read the saved operation before submitting again.",
+                        "结果尚未确认，请先读取已保存的操作，再决定是否重新提交。",
+                      )}
+            </p>
+            <DiagnosticDetails detail={flow.diagnostic} />
+            <div className="flex flex-wrap items-center gap-2">
+              <LoadingButton
+                type="button"
+                size="sm"
+                variant="outline"
+                loading={recoverReplacement.isPending}
+                disabled={recoverReplacement.isPending}
+                onClick={() => recoverOperation(flow.intent)}
+              >
+                {t("Recover result", "恢复结果")}
+              </LoadingButton>
+              {flow.phase === "missing" && (
+                <LoadingButton
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    recoveryPending.current ||
+                    !uploads?.can_select ||
+                    !writable.current
+                  }
+                  onClick={() => resendReplacement(flow.intent, flow.candidate)}
+                >
+                  {t("Resend original request", "复用原请求提交")}
+                </LoadingButton>
+              )}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {flow.kind === "confirmed" && (
+        <Card aria-live="polite" data-testid="operation-confirmed">
+          <CardHeader>
+            <CardTitle
+              ref={confirmedHeading}
+              role="heading"
+              aria-level={3}
+              tabIndex={-1}
+              className={focusHeading}
+            >
+              {t("Operation confirmed.", "操作已确认。")}
+            </CardTitle>
+            <CardDescription>
+              {t(
+                "This confirmation covers the submitted operation only.",
+                "此确认仅针对已提交的操作。",
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button asChild variant="outline">
+              <Link
+                to="/projects/$projectId/netflow-correlation"
+                params={{ projectId: project.id }}
+                search={{}}
+              >
+                {t("Go to comparison results", "前往比对结果")}
+              </Link>
+            </Button>
+            <p className="text-sm text-muted-foreground">
+              {t(
+                "Opening comparison results only navigates. It does not generate comparison results or run a comparison.",
+                "打开比对结果仅进行导航，不会生成比对结果或运行比对。",
+              )}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {uploads && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("Accepted uploads", "已接受的上传")}</CardTitle>
+            <CardDescription>
+              <p>{t(`${uploads.count} total`, `共 ${uploads.count} 项`)}</p>
+              <p className="mt-1">
+                {t(
+                  "Derived XLSX files materialize supported fields only. The absence of an extra-column warning is not evidence that unsupported columns are retained.",
+                  "派生 XLSX 仅写入受支持字段。没有额外列警告并不代表未受支持的列已被保留。",
+                )}
+              </p>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <UploadRows
+              uploads={uploads.data}
+              currentUploadId={uploads.current_customer_upload_id}
+              canSelect={uploads.can_select}
+              actionsDisabled={blocksWrites || !writable.current}
+              selectingUploadId={
+                flow.kind === "previewing"
+                  ? flow.candidate.id
+                  : flow.kind === "preparing"
+                    ? flow.value.candidate.id
+                    : null
+              }
+              onSelect={(candidate, trigger) =>
+                previewCandidate(candidate, trigger)
+              }
+            />
+            {(canGoBack || canGoForward) && (
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!canGoBack || blocksWrites}
+                  onClick={() => setPage((current) => current - 1)}
+                >
+                  {t("Previous", "上一页")}
+                </Button>
+                <span className="text-sm">
+                  {t(`Page ${page + 1}`, `第 ${page + 1} 页`)}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!canGoForward || blocksWrites}
+                  onClick={() => setPage((current) => current + 1)}
+                >
+                  {t("Next", "下一页")}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
