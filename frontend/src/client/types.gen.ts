@@ -553,6 +553,19 @@ export type CloudSnapshotPublic = {
     content_sha256: string;
 };
 
+export type CloudSourceFact = {
+    source_instance_id: string;
+    instance_id: string;
+    space_id: (string | null);
+    enabled: boolean;
+    data_access_enabled: boolean;
+    validation_status: string;
+};
+
+export type CloudSummary = {
+    sources: Array<CloudSourceFact>;
+};
+
 export type Comparison = {
     record_key: string;
     version_id: string;
@@ -760,6 +773,13 @@ export type state7 = 'AVAILABLE' | 'NO_RESULT' | 'MULTIPLE_SCOPES';
 export type CustomerSelection = {
     upload_id: string;
     revision_id?: (string | null);
+};
+
+export type CustomerSummary = {
+    applied_upload_id: (string | null);
+    applied_revision_id: (string | null);
+    accepted_upload_count: number;
+    unapplied_upload_count: number;
 };
 
 export type CustomerUploadProfilePublic = {
@@ -1363,6 +1383,15 @@ export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
 
+export type InputSummary = {
+    contract_version?: "input-summary-v1";
+    project_id: string;
+    customer: CustomerSummary;
+    cloud: CloudSummary;
+    core_readiness: app__domain__comparison_results__Readiness;
+    netflow: (NetFlowRead | NetFlowReadFailed);
+};
+
 export type InvestigationFact = {
     text: string;
     citation_ids: Array<(string)>;
@@ -1864,6 +1893,32 @@ export type NetFlowError = {
 
 export type NetFlowErrorDetail = {
     code: string;
+};
+
+export type NetFlowRead = {
+    dataset_count: (number | null);
+    current_dataset_id: (string | null);
+    read_state?: "READ";
+    scope_id: (string | null);
+    scopes: Array<NetFlowScopeFact>;
+    current_analysis_id: (string | null);
+    latest_attempt_status: (string | null);
+    latest_attempt_error_code: (string | null);
+};
+
+export type NetFlowReadFailed = {
+    dataset_count: (number | null);
+    current_dataset_id: (string | null);
+    read_state?: "READ_FAILED";
+    error_status: (number | null);
+    error_code: string;
+};
+
+export type NetFlowScopeFact = {
+    scope_id: string;
+    network_namespace: string;
+    collection_scope: (string | null);
+    label: string;
 };
 
 export type NetFlowSelection = {
@@ -3287,6 +3342,12 @@ export type GovernanceRunsRerunGovernanceRunResponse = (GovernanceRunActionPubli
 export type HealthHealthLiveResponse = (boolean);
 
 export type HealthHealthReadyResponse = (boolean);
+
+export type ReadInputSummaryData = {
+    projectId: string;
+};
+
+export type ReadInputSummaryResponse = (InputSummary);
 
 export type IpResultsReadGovernanceRunSourcesData = {
     governanceRunId: string;

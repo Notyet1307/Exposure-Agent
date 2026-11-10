@@ -874,10 +874,11 @@ test("source refresh preserves an unsubmitted exact-IP draft and fixed local cou
   const refreshStarted = Promise.withResolvers<void>()
   const releaseRefresh = Promise.withResolvers<void>()
   let sourceReads = 0
+  let refreshing = false
   await page.route("**/external-assets/sources", async (route) => {
     if (route.request().method() !== "GET") return route.fallback()
     sourceReads += 1
-    if (sourceReads > 1) {
+    if (refreshing) {
       refreshStarted.resolve()
       await releaseRefresh.promise
     }
@@ -887,9 +888,11 @@ test("source refresh preserves an unsubmitted exact-IP draft and fixed local cou
   const input = page.getByLabel("Exact IP (IPv4 or IPv6)")
   await input.fill("2001:db8::7")
   await input.focus()
+  const readsBeforeRefresh = sourceReads
+  refreshing = true
   await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
   await refreshStarted.promise
-  expect(sourceReads).toBeGreaterThan(1)
+  expect(sourceReads).toBeGreaterThan(readsBeforeRefresh)
   await expect(input).toHaveValue("2001:db8::7")
   await expect(input).toBeFocused()
   await expect(

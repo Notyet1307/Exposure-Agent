@@ -72,7 +72,7 @@ test("customer replacement uses the real preview, preserves old versions and rec
     .click()
   await expect(first.getByText("Current", { exact: true })).toBeVisible()
   await expect(
-    page.getByText("Selection confirmed.", { exact: false }),
+    page.getByText("Operation confirmed.", { exact: false }),
   ).toBeVisible()
 
   const second = await upload("customer-upload-stage4-second.xlsx")
@@ -111,7 +111,7 @@ test("customer replacement uses the real preview, preserves old versions and rec
   ).toBeVisible()
   await expect(
     page.getByRole("button", { name: "Preview replacement" }),
-  ).toHaveCount(0)
+  ).toBeDisabled()
   expect(applies).toBe(1)
   expect(
     (await (await request.get(`${root}/customer-uploads`, { headers })).json())
@@ -122,7 +122,7 @@ test("customer replacement uses the real preview, preserves old versions and rec
     .getByRole("button", { name: "Recover result", exact: true })
     .click()
   await expect(
-    page.getByText("Replacement confirmed.", { exact: false }),
+    page.getByText("Operation confirmed.", { exact: false }),
   ).toBeVisible()
   await expect(
     page.getByText("Replacement outcome unknown", { exact: true }),
@@ -644,4 +644,177 @@ test("real evidence revocation rejects a delayed response without clearing C+A",
     }),
   ).toBeVisible()
   expect(writes).toEqual([])
+})
+
+test("real input summary reads stored readiness without writing", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(120_000)
+  page.setDefaultTimeout(15_000)
+  const { mkdir, readFile } = await import("node:fs/promises")
+  const { execFileSync } = await import("node:child_process")
+  const repo = path.resolve(fileURLToPath(new URL("../..", import.meta.url)))
+  execFileSync(
+    "uv",
+    ["run", "python", "../scripts/seed-product-logic-acceptance.py", "core"],
+    { cwd: path.join(repo, "backend"), stdio: "pipe" },
+  )
+  const fixture = JSON.parse(
+    await readFile(process.env.PRODUCT_LOGIC_FIXTURE!, "utf8"),
+  )
+  const login = await request.post(`${api}/api/v1/login/access-token`, {
+    form: {
+      username: process.env.FIRST_SUPERUSER!,
+      password: process.env.FIRST_SUPERUSER_PASSWORD!,
+    },
+  })
+  expect(login.ok()).toBeTruthy()
+  const token = (await login.json()).access_token as string
+  const headers = { Authorization: `Bearer ${token}` }
+  const root = `${api}/api/v1/projects/${fixture.project_id}`
+  const readinessResponse = await request.get(
+    `${root}/comparison-results/readiness`,
+    {
+      headers,
+      params: {
+        source_instance_id: fixture.source_id,
+        network_namespace: fixture.namespace,
+      },
+    },
+  )
+  expect(readinessResponse.status()).toBe(200)
+  const readiness = await readinessResponse.json()
+  expect(readiness.state).toBe("SCOPE_CONFIRMATION_REQUIRED")
+  const created = await request.post(`${root}/comparison-results`, {
+    headers: { ...headers, "Idempotency-Key": crypto.randomUUID() },
+    data: {
+      selection: readiness.selection,
+      expected_input_sha256: readiness.input_sha256,
+      expected_current_result_id: readiness.expected_current_result_id,
+      scope_evidence: "Synthetic input-summary browser scope confirmation",
+    },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const reported = await (
+    await request.get(`${root}/input-summary`, { headers })
+  ).json()
+  expect(reported).toMatchObject({
+    contract_version: "input-summary-v1",
+    project_id: fixture.project_id,
+    customer: {
+      applied_upload_id: fixture.customer_upload_id,
+      accepted_upload_count: 2,
+      unapplied_upload_count: 1,
+    },
+    core_readiness: {
+      contract_version: "core-comparison-v2",
+      state: "READY",
+    },
+    netflow: {
+      dataset_count: 0,
+      current_dataset_id: null,
+      read_state: "READ",
+    },
+  })
+  expect(reported.cloud.sources).toHaveLength(1)
+  expect(reported.cloud.sources[0]).toMatchObject({
+    instance_id: "synthetic-core",
+    enabled: false,
+    data_access_enabled: true,
+  })
+  await page.addInitScript(
+    (value) => localStorage.setItem("access_token", value),
+    token,
+  )
+  const summaryResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${fixture.project_id}/input-summary`,
+  )
+  await page.goto(`/?project=${fixture.project_id}&view=inputs`)
+  expect((await summaryResponse).status()).toBe(200)
+  const panel = page.locator("[data-input-readiness]")
+  await expect(panel.locator("[data-readiness-state]")).toHaveAttribute(
+    "data-readiness-state",
+    "READY",
+  )
+  await expect(
+    panel.getByText(
+      "The applied customer register and published CloudAtlas data are ready.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(
+    panel.getByRole("heading", { name: "Customer register", exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel.getByRole("heading", { name: "CloudAtlas", exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel.getByRole("heading", { name: "NetFlow (optional)", exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel.getByText(`Applied input: ${fixture.customer_upload_id}`, {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(
+    panel.getByText("Accepted uploads: 2", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel.getByText("Accepted but not applied: 1", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel.getByText(
+      "Published version candidates: synthetic-core (published candidate (metadata only))",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(
+    panel.getByText("Accepted datasets: 0", { exact: true }),
+  ).toBeVisible()
+  const comparisonLink = panel.getByRole("link", {
+    name: "Open comparison results",
+    exact: true,
+  })
+  await expect(comparisonLink).toBeVisible()
+  const evidence = process.env.PRODUCT_LOGIC_EVIDENCE
+  if (evidence) {
+    await mkdir(evidence, { recursive: true })
+    await page.setViewportSize({ width: 1366, height: 950 })
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.screenshot({
+      path: path.join(evidence, "input-readiness-ready-en-1366.png"),
+      fullPage: true,
+    })
+  }
+  const writes: string[] = []
+  const observe = (req: import("@playwright/test").Request) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(req.method()))
+      writes.push(`${req.method()} ${new URL(req.url()).pathname}`)
+  }
+  page.on("request", observe)
+  const reloaded = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${fixture.project_id}/input-summary`,
+  )
+  await page.reload()
+  expect((await reloaded).status()).toBe(200)
+  await expect(panel.locator("[data-readiness-state]")).toHaveAttribute(
+    "data-readiness-state",
+    "READY",
+  )
+  page.off("request", observe)
+  expect(writes).toEqual([])
+  await comparisonLink.click()
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/${fixture.project_id}/netflow-correlation`),
+  )
+  await expect(
+    page.getByRole("heading", { name: "Comparison results", exact: true }),
+  ).toBeVisible()
 })

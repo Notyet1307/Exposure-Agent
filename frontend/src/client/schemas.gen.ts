@@ -1821,6 +1821,61 @@ export const CloudSnapshotPublicSchema = {
     title: 'CloudSnapshotPublic'
 } as const;
 
+export const CloudSourceFactSchema = {
+    properties: {
+        source_instance_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Source Instance Id'
+        },
+        instance_id: {
+            type: 'string',
+            title: 'Instance Id'
+        },
+        space_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Space Id'
+        },
+        enabled: {
+            type: 'boolean',
+            title: 'Enabled'
+        },
+        data_access_enabled: {
+            type: 'boolean',
+            title: 'Data Access Enabled'
+        },
+        validation_status: {
+            type: 'string',
+            title: 'Validation Status'
+        }
+    },
+    type: 'object',
+    required: ['source_instance_id', 'instance_id', 'space_id', 'enabled', 'data_access_enabled', 'validation_status'],
+    title: 'CloudSourceFact'
+} as const;
+
+export const CloudSummarySchema = {
+    properties: {
+        sources: {
+            items: {
+                '$ref': '#/components/schemas/CloudSourceFact'
+            },
+            type: 'array',
+            title: 'Sources'
+        }
+    },
+    type: 'object',
+    required: ['sources'],
+    title: 'CloudSummary'
+} as const;
+
 export const ComparisonSchema = {
     properties: {
         record_key: {
@@ -2814,6 +2869,46 @@ export const CustomerSelectionSchema = {
     type: 'object',
     required: ['upload_id'],
     title: 'CustomerSelection'
+} as const;
+
+export const CustomerSummarySchema = {
+    properties: {
+        applied_upload_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Applied Upload Id'
+        },
+        applied_revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Applied Revision Id'
+        },
+        accepted_upload_count: {
+            type: 'integer',
+            title: 'Accepted Upload Count'
+        },
+        unapplied_upload_count: {
+            type: 'integer',
+            title: 'Unapplied Upload Count'
+        }
+    },
+    type: 'object',
+    required: ['applied_upload_id', 'applied_revision_id', 'accepted_upload_count', 'unapplied_upload_count'],
+    title: 'CustomerSummary'
 } as const;
 
 export const CustomerUploadProfilePublicSchema = {
@@ -6336,6 +6431,52 @@ export const IPSourceComparisonsPublicSchema = {
     title: 'IPSourceComparisonsPublic'
 } as const;
 
+export const InputSummarySchema = {
+    properties: {
+        contract_version: {
+            type: 'string',
+            const: 'input-summary-v1',
+            title: 'Contract Version',
+            default: 'input-summary-v1'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        customer: {
+            '$ref': '#/components/schemas/CustomerSummary'
+        },
+        cloud: {
+            '$ref': '#/components/schemas/CloudSummary'
+        },
+        core_readiness: {
+            '$ref': '#/components/schemas/app__domain__comparison_results__Readiness'
+        },
+        netflow: {
+            oneOf: [
+                {
+                    '$ref': '#/components/schemas/NetFlowRead'
+                },
+                {
+                    '$ref': '#/components/schemas/NetFlowReadFailed'
+                }
+            ],
+            title: 'Netflow',
+            discriminator: {
+                propertyName: 'read_state',
+                mapping: {
+                    READ: '#/components/schemas/NetFlowRead',
+                    READ_FAILED: '#/components/schemas/NetFlowReadFailed'
+                }
+            }
+        }
+    },
+    type: 'object',
+    required: ['project_id', 'customer', 'cloud', 'core_readiness', 'netflow'],
+    title: 'InputSummary'
+} as const;
+
 export const InvestigationFactSchema = {
     properties: {
         text: {
@@ -8282,6 +8423,178 @@ export const NetFlowErrorDetailSchema = {
     type: 'object',
     required: ['code'],
     title: 'NetFlowErrorDetail'
+} as const;
+
+export const NetFlowReadSchema = {
+    properties: {
+        dataset_count: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Dataset Count'
+        },
+        current_dataset_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Dataset Id'
+        },
+        read_state: {
+            type: 'string',
+            const: 'READ',
+            title: 'Read State',
+            default: 'READ'
+        },
+        scope_id: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Scope Id'
+        },
+        scopes: {
+            items: {
+                '$ref': '#/components/schemas/NetFlowScopeFact'
+            },
+            type: 'array',
+            title: 'Scopes'
+        },
+        current_analysis_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Analysis Id'
+        },
+        latest_attempt_status: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Attempt Status'
+        },
+        latest_attempt_error_code: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Latest Attempt Error Code'
+        }
+    },
+    type: 'object',
+    required: ['dataset_count', 'current_dataset_id', 'scope_id', 'scopes', 'current_analysis_id', 'latest_attempt_status', 'latest_attempt_error_code'],
+    title: 'NetFlowRead'
+} as const;
+
+export const NetFlowReadFailedSchema = {
+    properties: {
+        dataset_count: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Dataset Count'
+        },
+        current_dataset_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Current Dataset Id'
+        },
+        read_state: {
+            type: 'string',
+            const: 'READ_FAILED',
+            title: 'Read State',
+            default: 'READ_FAILED'
+        },
+        error_status: {
+            anyOf: [
+                {
+                    type: 'integer'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Status'
+        },
+        error_code: {
+            type: 'string',
+            title: 'Error Code'
+        }
+    },
+    type: 'object',
+    required: ['dataset_count', 'current_dataset_id', 'error_status', 'error_code'],
+    title: 'NetFlowReadFailed'
+} as const;
+
+export const NetFlowScopeFactSchema = {
+    properties: {
+        scope_id: {
+            type: 'string',
+            title: 'Scope Id'
+        },
+        network_namespace: {
+            type: 'string',
+            title: 'Network Namespace'
+        },
+        collection_scope: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Collection Scope'
+        },
+        label: {
+            type: 'string',
+            title: 'Label'
+        }
+    },
+    type: 'object',
+    required: ['scope_id', 'network_namespace', 'collection_scope', 'label'],
+    title: 'NetFlowScopeFact'
 } as const;
 
 export const NetFlowSelectionSchema = {

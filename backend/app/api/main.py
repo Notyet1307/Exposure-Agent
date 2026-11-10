@@ -11,6 +11,7 @@ from app.api.routes import (
     external_assets,
     governance_reports,
     governance_runs,
+    input_summary,
     ip_results,
     login,
     manual_reviews,
@@ -52,3 +53,4 @@ api_router.include_router(netflow_processing.router)
 api_router.include_router(netflow_reviews.router)
 api_router.include_router(source_correlations.router)
 api_router.include_router(comparison_results.router)
+api_router.include_router(input_summary.router)

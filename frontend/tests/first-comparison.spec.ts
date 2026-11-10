@@ -101,7 +101,7 @@ test("administrator completes a historical Run through explicit compatibility co
       page.getByRole("button", { name: "Set as current input", exact: true }),
     )
     await expect(
-      page.getByRole("heading", { name: "Current Project input", exact: true }),
+      page.getByRole("heading", { name: "Operation confirmed.", exact: true }),
     ).toBeFocused()
     if (mode !== "absent") {
       await uploadByKeyboard(page, "NetFlow dataset file", {

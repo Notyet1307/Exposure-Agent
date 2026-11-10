@@ -1,4 +1,4 @@
-import type { FileChooser } from "@playwright/test"
+import type { FileChooser, Locator } from "@playwright/test"
 import type { CloudAtlasSourcePublic } from "../src/client"
 import { requestDigest } from "../src/lib/ledgerIntent"
 import { expect, type Page, type Route, test } from "./fixtures"
@@ -192,6 +192,77 @@ const northNetflowDatasets = [
     created_at: "2026-07-31T13:00:00Z",
   },
 ]
+function inputSummary(projectId: string) {
+  return {
+    contract_version: "input-summary-v1",
+    project_id: projectId,
+    customer: {
+      applied_upload_id: null,
+      applied_revision_id: null,
+      accepted_upload_count: 1,
+      unapplied_upload_count: 1,
+    },
+    cloud: { sources: [] },
+    core_readiness: {
+      contract_version: "core-comparison-v2",
+      project_id: projectId,
+      state: "CUSTOMER_NOT_READY",
+      reason_code: "customer_not_ready",
+      scope_key: "a".repeat(64),
+      scope_confirmation_id: null,
+      selection: {
+        network_namespace: "north",
+        customer: null,
+        cloud: null,
+        netflow: null,
+        history_run_id: null,
+      },
+      input_sha256: "b".repeat(64),
+      expected_current_result_id: null,
+      customer: null,
+      customer_filename: null,
+      customer_applied_at: null,
+      clouds: [],
+      scope_choices: [],
+      can_generate: false,
+      can_write: true,
+      can_confirm_scope: false,
+      sources: [
+        {
+          source: "CUSTOMER",
+          state: "NOT_PROVIDED",
+          read_state: "NOT_PROVIDED",
+          coverage_state: "NOT_APPLICABLE",
+          source_records: null,
+          source_addresses: null,
+          source_objects: null,
+          metadata: {},
+        },
+        {
+          source: "CLOUD",
+          state: "NOT_PROVIDED",
+          read_state: "NOT_PROVIDED",
+          coverage_state: "NOT_APPLICABLE",
+          source_records: null,
+          source_addresses: null,
+          source_objects: null,
+          metadata: {},
+        },
+      ],
+    },
+    netflow: {
+      read_state: "READ",
+      dataset_count: 0,
+      current_dataset_id: null,
+      scope_id: null,
+      scopes: [],
+      current_analysis_id: null,
+      latest_attempt_status: null,
+      latest_attempt_error_code: null,
+    },
+  }
+}
+
 const netflowDatasets = {
   [projects[0].id]: {
     data: northNetflowDatasets,
@@ -277,6 +348,11 @@ async function mockDashboardApi(page: Page) {
       })
       return
     }
+    const summaryMatch = url.pathname.match(/projects\/([^/]+)\/input-summary$/)
+    if (summaryMatch && request.method() === "GET") {
+      await route.fulfill({ json: inputSummary(summaryMatch[1]) })
+      return
+    }
     const uploadsMatch = url.pathname.match(
       /projects\/([^/]+)\/customer-uploads$/,
     )
@@ -337,6 +413,75 @@ async function mockDashboardApi(page: Page) {
     }
     await route.fallback()
   })
+}
+
+const operatorId = "30000000-0000-0000-0000-000000000001"
+
+function ledgerRead(
+  currentUploadId: string | null,
+  currentRevisionId: string | null = null,
+  currentProfileId = profiles[projects[0].id].id,
+) {
+  return {
+    project_id: projects[0].id,
+    current_upload_id: currentUploadId,
+    current_revision_id: currentRevisionId,
+    current_profile_id: currentProfileId,
+    data: [],
+    count: 0,
+  }
+}
+
+function replacementReceipt({
+  candidateId,
+  expectedUploadId,
+  expectedRevisionId,
+  expectedProfileId,
+  digest,
+}: {
+  candidateId: string
+  expectedUploadId: string | null
+  expectedRevisionId: string | null
+  expectedProfileId: string
+  digest: string
+}) {
+  return {
+    id: "91000000-0000-0000-0000-000000000099",
+    project_id: projects[0].id,
+    created_by: operatorId,
+    candidate_upload_id: candidateId,
+    expected_upload_id: expectedUploadId,
+    expected_revision_id: expectedRevisionId,
+    expected_profile_id: expectedProfileId,
+    request_sha256: digest,
+    created_at: projects[0].created_at,
+  }
+}
+
+async function uploadXlsx(page: Page, name: string) {
+  const input = page.getByLabel("XLSX file")
+  await input.setInputFiles({
+    name,
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("mock workbook"),
+  })
+  await page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
+}
+
+async function tabTo(page: Page, target: Locator) {
+  for (let index = 0; index < 8; index += 1) {
+    if (await target.evaluate((element) => element === document.activeElement))
+      return
+    await page.keyboard.press("Tab")
+  }
+  expect(
+    await target.evaluate((element) => element === document.activeElement),
+  ).toBe(true)
 }
 
 test.beforeEach(async ({ page }) => {
@@ -729,9 +874,9 @@ test("selects an accepted upload as the current Project input", async ({
   ).toBeVisible()
   await expect(page.getByText("Current", { exact: true }).first()).toBeVisible()
   await expect(
-    page.getByText(
-      "Selection confirmed. This file is now the current input; history is unchanged.",
-    ),
+    page.getByTestId("operation-confirmed").getByText("Operation confirmed.", {
+      exact: true,
+    }),
   ).toBeVisible()
   expect(replacementRequests).toBe(1)
 
@@ -1077,7 +1222,9 @@ for (const status of [201, 200]) {
       ),
     ).toBeVisible()
     await expect(fileInput).toHaveValue("")
-    await expect(page.getByText("new-assets.xlsx")).toBeVisible()
+    await expect(
+      page.getByTestId("upload-candidate").getByText("new-assets.xlsx"),
+    ).toBeVisible()
   })
 }
 
@@ -2321,6 +2468,7 @@ test("recovers a lost selection response after refresh and resends the same iden
   const recoveryFound = false
   let receipt: Record<string, unknown> | null = null
   const keys: string[] = []
+  const bodies: Array<Record<string, unknown>> = []
   await page.route(
     `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
     (route) =>
@@ -2363,6 +2511,7 @@ test("recovers a lost selection response after refresh and resends the same iden
     async (route) => {
       keys.push(route.request().headers()["idempotency-key"] ?? "")
       const body = route.request().postDataJSON()
+      bodies.push(body)
       receipt = {
         id: "91000000-0000-0000-0000-000000000003",
         project_id: projects[0].id,
@@ -2412,19 +2561,2165 @@ test("recovers a lost selection response after refresh and resends the same iden
   await expect(
     page.getByText("Selection outcome unknown", { exact: true }),
   ).toBeVisible()
-  await page.getByRole("button", { name: "Recover result" }).click()
+  const recover = page.getByRole("button", { name: "Recover result" })
+  await expect(recover).toBeVisible()
+  await recover.click()
   await expect(
     page.getByText("No completed receipt yet.", { exact: false }),
   ).toBeVisible()
   await page.getByRole("button", { name: "Resend original request" }).click()
   await expect(
-    page.getByText(
-      "Selection confirmed. This file is now the current input; history is unchanged.",
-    ),
+    page.getByTestId("operation-confirmed").getByText("Operation confirmed.", {
+      exact: true,
+    }),
   ).toBeVisible()
   expect(keys).toHaveLength(2)
   expect(keys[0]).toBe(keys[1])
+  expect(bodies).toHaveLength(2)
+  expect(bodies[0]).toEqual(bodies[1])
   expect(currentUploadId).toBe(candidate.id)
+})
+
+test("requires an explicit preview and one explicit apply for a first import", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const candidate = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000011",
+    display_filename: "explicit-first.xlsx",
+    raw_sha256: "1".repeat(64),
+    record_count: 3,
+  }
+  let accepted = false
+  let currentUploadId: string | null = null
+  let previewRequests = 0
+  let applyRequests = 0
+  let summaryReads = 0
+  const previewBodies: Array<Record<string, unknown>> = []
+  const applyBodies: Array<Record<string, unknown>> = []
+  const applyKeys: string[] = []
+  const writes: string[] = []
+  page.on("request", (request) => {
+    if (
+      ["POST", "PUT", "PATCH", "DELETE"].includes(request.method()) &&
+      request.url().includes("/api/v1/projects/")
+    )
+      writes.push(`${request.method()} ${new URL(request.url()).pathname}`)
+  })
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/input-summary`,
+    (route) => {
+      summaryReads += 1
+      return route.fulfill({ json: inputSummary(projects[0].id) })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(currentUploadId) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    async (route) => {
+      previewRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      previewBodies.push(body)
+      return route.fulfill({
+        json: {
+          candidate_upload_id: candidate.id,
+          current_upload_id: body.expected_upload_id,
+          current_revision_id: body.expected_revision_id,
+          profile_id: body.expected_profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: 3,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyRequests += 1
+      applyKeys.push(route.request().headers()["idempotency-key"] ?? "")
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      applyBodies.push(body)
+      currentUploadId = candidate.id
+      return route.fulfill({
+        json: replacementReceipt({
+          candidateId: candidate.id,
+          expectedUploadId: body.expected_upload_id as string | null,
+          expectedRevisionId: body.expected_revision_id as string | null,
+          expectedProfileId: body.expected_profile_id as string,
+          digest: await requestDigest(body),
+        }),
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        accepted = true
+        return route.fulfill({ status: 201, json: candidate })
+      }
+      return route.fulfill({
+        json: {
+          data: accepted ? [first, candidate] : [first],
+          count: accepted ? 2 : 1,
+          current_customer_upload_id: currentUploadId,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await uploadXlsx(page, "explicit-first.xlsx")
+  const candidateCard = page.getByTestId("upload-candidate")
+  await expect(
+    candidateCard.getByText(
+      "Upload accepted. Preview this file and set it as the current input.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(
+    candidateCard.getByText("explicit-first.xlsx", { exact: true }),
+  ).toBeVisible()
+  expect(previewRequests).toBe(0)
+  expect(applyRequests).toBe(0)
+
+  await candidateCard.getByRole("button", { name: "Preview this file" }).click()
+  const previewCard = page.getByTestId("replacement-preview")
+  await expect(previewCard).toBeVisible()
+  expect(previewRequests).toBe(1)
+  expect(previewBodies[0]).toEqual({
+    candidate_upload_id: candidate.id,
+    expected_upload_id: null,
+    expected_revision_id: null,
+    expected_profile_id: profiles[projects[0].id].id,
+  })
+  await expect(
+    previewCard.getByText("explicit-first.xlsx", { exact: true }),
+  ).toBeVisible()
+  await expect(previewCard.getByText("0 / 0", { exact: true })).toBeVisible()
+  await expect(previewCard.getByText("3 / 1", { exact: true })).toBeVisible()
+  await expect(
+    previewCard.getByText("1 / 0 / 0", { exact: true }),
+  ).toBeVisible()
+  await expect(previewCard.getByText(/Declared owner/)).toBeVisible()
+  expect(applyRequests).toBe(0)
+
+  const summaryBeforeApply = summaryReads
+  await previewCard
+    .getByRole("button", { name: "Set as current input" })
+    .click()
+  const confirmation = page.getByTestId("operation-confirmed")
+  await expect(confirmation).toBeVisible()
+  await expect(
+    confirmation.getByRole("heading", { name: "Operation confirmed." }),
+  ).toBeFocused()
+  expect(applyRequests).toBe(1)
+  expect(applyBodies[0]).toEqual(previewBodies[0])
+  expect(applyKeys).toHaveLength(1)
+  expect(applyKeys[0].length).toBeGreaterThan(0)
+  const link = confirmation.getByRole("link", {
+    name: "Go to comparison results",
+  })
+  await expect(link).toBeVisible()
+  const href = await link.getAttribute("href")
+  expect(href).not.toBeNull()
+  const destination = new URL(href!, "http://127.0.0.1:5183")
+  expect(destination.pathname).toBe(
+    `/projects/${projects[0].id}/netflow-correlation`,
+  )
+  expect(destination.search).toBe("")
+  await expect.poll(() => summaryReads).toBeGreaterThan(summaryBeforeApply)
+
+  const writesBeforeNavigation = writes.length
+  await link.click()
+  await expect
+    .poll(() => new URL(page.url()).pathname)
+    .toBe(`/projects/${projects[0].id}/netflow-correlation`)
+  expect(previewRequests).toBe(1)
+  expect(applyRequests).toBe(1)
+  expect(writes.length).toBe(writesBeforeNavigation)
+})
+
+test("requires an explicit preview for a replacement upload and applies once", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const candidate = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000012",
+    display_filename: "replacement-upload.xlsx",
+    raw_sha256: "2".repeat(64),
+    record_count: 4,
+  }
+  let accepted = false
+  let currentUploadId: string | null = first.id
+  let previewRequests = 0
+  let applyRequests = 0
+  const previewBodies: Array<Record<string, unknown>> = []
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(currentUploadId) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    async (route) => {
+      previewRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      previewBodies.push(body)
+      return route.fulfill({
+        json: {
+          candidate_upload_id: candidate.id,
+          current_upload_id: body.expected_upload_id,
+          current_revision_id: body.expected_revision_id,
+          profile_id: body.expected_profile_id,
+          current_record_count: 2,
+          current_unique_ips: 1,
+          candidate_record_count: 4,
+          candidate_unique_ips: 1,
+          added_ips: 2,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      currentUploadId = candidate.id
+      return route.fulfill({
+        json: replacementReceipt({
+          candidateId: candidate.id,
+          expectedUploadId: body.expected_upload_id as string | null,
+          expectedRevisionId: body.expected_revision_id as string | null,
+          expectedProfileId: body.expected_profile_id as string,
+          digest: await requestDigest(body),
+        }),
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        accepted = true
+        return route.fulfill({ status: 201, json: candidate })
+      }
+      return route.fulfill({
+        json: {
+          data: accepted ? [first, candidate] : [first],
+          count: accepted ? 2 : 1,
+          current_customer_upload_id: currentUploadId,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await uploadXlsx(page, "replacement-upload.xlsx")
+  const candidateCard = page.getByTestId("upload-candidate")
+  await expect(
+    candidateCard.getByText(
+      "Upload accepted. Preview the replacement before applying it.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await candidateCard.getByRole("button", { name: "Preview this file" }).click()
+  const previewCard = page.getByTestId("replacement-preview")
+  await expect(previewCard).toBeVisible()
+  expect(previewRequests).toBe(1)
+  expect(previewBodies[0]).toEqual({
+    candidate_upload_id: candidate.id,
+    expected_upload_id: first.id,
+    expected_revision_id: null,
+    expected_profile_id: profiles[projects[0].id].id,
+  })
+  expect(applyRequests).toBe(0)
+  await previewCard.getByRole("button", { name: "Apply replacement" }).click()
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(applyRequests).toBe(1)
+  const currentCard = page.locator('[data-slot="card"]').filter({
+    has: page.getByRole("heading", { name: "Current Project input" }),
+  })
+  await expect(
+    currentCard.getByText("replacement-upload.xlsx", { exact: true }),
+  ).toBeVisible()
+})
+
+test("previews a 200 dedupe candidate from the response without changing the upload page", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const older = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000013",
+    display_filename: "older-page-item.xlsx",
+    raw_sha256: "3".repeat(64),
+  }
+  const candidate = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000014",
+    display_filename: "dedupe-page-two.xlsx",
+    raw_sha256: "4".repeat(64),
+    record_count: 5,
+  }
+  let previewRequests = 0
+  let applyRequests = 0
+  const previewBodies: Array<Record<string, unknown>> = []
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    async (route) => {
+      previewRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      previewBodies.push(body)
+      return route.fulfill({
+        json: {
+          candidate_upload_id: candidate.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: candidate.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: candidate.record_count,
+          candidate_unique_ips: 2,
+          added_ips: 2,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      return route.fulfill({ status: 500 })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST")
+        return route.fulfill({ status: 200, json: candidate })
+      return route.fulfill({
+        json: {
+          data: [older],
+          count: 11,
+          current_customer_upload_id: null,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs&upload_page=2`)
+  await expect(page.getByText("Page 2", { exact: true })).toBeVisible()
+  await uploadXlsx(page, candidate.display_filename)
+  const candidateCard = page.getByTestId("upload-candidate")
+  await expect(
+    candidateCard.getByText(candidate.display_filename, { exact: true }),
+  ).toBeVisible()
+  expect(new URL(page.url()).searchParams.get("upload_page")).toBe("2")
+  await expect(page.getByText("Page 2", { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole("row").filter({ hasText: candidate.display_filename }),
+  ).toHaveCount(0)
+  expect(previewRequests).toBe(0)
+  await candidateCard.getByRole("button", { name: "Preview this file" }).click()
+  await expect(
+    page
+      .getByTestId("replacement-preview")
+      .getByText(candidate.display_filename, { exact: true }),
+  ).toBeVisible()
+  expect(previewRequests).toBe(1)
+  expect(previewBodies[0]).toEqual({
+    candidate_upload_id: candidate.id,
+    expected_upload_id: null,
+    expected_revision_id: null,
+    expected_profile_id: profiles[projects[0].id].id,
+  })
+  expect(applyRequests).toBe(0)
+})
+
+test("shows an already-current dedupe candidate without preview or apply", async ({
+  page,
+}) => {
+  const candidate = uploads[projects[0].id].data[0]
+  const revisionId = "70000000-0000-0000-0000-000000000001"
+  let previewRequests = 0
+  let applyRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) =>
+      route.fulfill({
+        json: ledgerRead(candidate.id, revisionId, candidate.profile_id),
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      previewRequests += 1
+      return route.fulfill({
+        json: {
+          candidate_upload_id: candidate.id,
+          current_upload_id: candidate.id,
+          current_revision_id: revisionId,
+          profile_id: candidate.profile_id,
+          current_record_count: candidate.record_count,
+          current_unique_ips: 1,
+          candidate_record_count: candidate.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 0,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      return route.fulfill({ status: 500 })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST")
+        return route.fulfill({ status: 200, json: candidate })
+      return route.fulfill({
+        json: {
+          data: [candidate],
+          count: 1,
+          current_customer_upload_id: candidate.id,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await uploadXlsx(page, candidate.display_filename)
+  const candidateCard = page.getByTestId("upload-candidate")
+  await expect(
+    candidateCard.getByText(
+      "Upload accepted. Preview the replacement before applying it.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await candidateCard.getByRole("button", { name: "Preview this file" }).click()
+  const alreadyCurrent = page.getByTestId("already-current")
+  await expect(alreadyCurrent).toBeVisible()
+  await expect(
+    alreadyCurrent.getByRole("heading", { name: "File is already current" }),
+  ).toBeFocused()
+  await expect(
+    alreadyCurrent.getByText(
+      "This file is already the current input. No preview or apply is needed; existing manual revisions are unchanged.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  expect(previewRequests).toBe(0)
+  expect(applyRequests).toBe(0)
+  await expect(
+    page.getByRole("button", { name: "Set as current input" }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("button", { name: "Apply replacement" }),
+  ).toHaveCount(0)
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: candidate.display_filename })
+      .getByText("Current", { exact: true }),
+  ).toBeVisible()
+})
+
+test("returns focus to the preview trigger when the preview is cancelled", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  let previewRequests = 0
+  let applyRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      previewRequests += 1
+      return route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      return route.fulfill({ status: 500 })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  const trigger = page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+  await trigger.click()
+  const previewCard = page.getByTestId("replacement-preview")
+  await expect(
+    previewCard.getByRole("heading", { name: "Selection preview" }),
+  ).toBeFocused()
+  await previewCard.getByRole("button", { name: "Cancel" }).click()
+  await expect(trigger).toBeFocused()
+  await expect(previewCard).toHaveCount(0)
+  expect(previewRequests).toBe(1)
+  expect(applyRequests).toBe(0)
+})
+
+test("keeps the chosen file after a 422 and retries the upload", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const candidate = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000015",
+    display_filename: "retry-422.xlsx",
+    raw_sha256: "5".repeat(64),
+    record_count: 2,
+  }
+  let accepted = false
+  let uploadRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        uploadRequests += 1
+        if (uploadRequests === 1)
+          return route.fulfill({
+            status: 422,
+            json: {
+              detail: {
+                code: "unsupported_workbook",
+                message: "The workbook could not be read.",
+                row: 2,
+                column: 3,
+              },
+            },
+          })
+        accepted = true
+        return route.fulfill({ status: 201, json: candidate })
+      }
+      return route.fulfill({
+        json: {
+          data: accepted ? [first, candidate] : [first],
+          count: accepted ? 2 : 1,
+          current_customer_upload_id: null,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await uploadXlsx(page, "retry-422.xlsx")
+  const errorSummary = page.getByTestId("import-error-summary")
+  await expect(
+    errorSummary.getByText("The workbook could not be read.", { exact: true }),
+  ).toBeVisible()
+  await expect(errorSummary).toBeFocused()
+  const input = page.getByLabel("XLSX file")
+  expect(
+    await input.evaluate(
+      (element) => (element as HTMLInputElement).files?.[0]?.name,
+    ),
+  ).toBe("retry-422.xlsx")
+  expect(uploadRequests).toBe(1)
+
+  await page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
+  await expect(page.getByTestId("upload-candidate")).toBeVisible()
+  await expect(
+    page
+      .getByTestId("upload-candidate")
+      .getByText("retry-422.xlsx", { exact: true }),
+  ).toBeVisible()
+  expect(uploadRequests).toBe(2)
+  await expect(
+    page
+      .getByTestId("upload-candidate")
+      .getByRole("heading", { name: "Accepted file" }),
+  ).toBeFocused()
+})
+
+test("discards a late preview after a different local file is chosen", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const second = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000016",
+    display_filename: "second-choice.xlsx",
+    raw_sha256: "6".repeat(64),
+  }
+  let previewRequests = 0
+  let applyRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    async (route) => {
+      previewRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      return route.fulfill({
+        json: {
+          candidate_upload_id: body.candidate_upload_id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      return route.fulfill({ status: 500 })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST")
+        return route.fulfill({ status: 201, json: second })
+      return route.fulfill({
+        json: {
+          data: [first, second],
+          count: 2,
+          current_customer_upload_id: null,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  const trigger = page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+  const previewResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/customer-ledger/replacements/preview"),
+  )
+  await trigger.click()
+  const input = page.getByLabel("XLSX file")
+  await input.setInputFiles({
+    name: "second-choice.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("mock workbook"),
+  })
+  await expect(
+    page.getByText("second-choice.xlsx", { exact: true }),
+  ).toBeVisible()
+  await previewResponse
+  await page.waitForTimeout(100)
+  await expect(page.getByTestId("replacement-preview")).toHaveCount(0)
+  await expect(
+    page.getByText("second-choice.xlsx", { exact: true }),
+  ).toBeVisible()
+  expect(previewRequests).toBe(1)
+  expect(applyRequests).toBe(0)
+
+  await page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+    .click()
+  await expect(
+    page
+      .getByTestId("upload-candidate")
+      .getByText("second-choice.xlsx", { exact: true }),
+  ).toBeVisible()
+  expect(previewRequests).toBe(1)
+  expect(applyRequests).toBe(0)
+})
+
+test("ignores a late preview and apply after switching Projects", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  let currentUploadId: string | null = null
+  let applyRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(currentUploadId) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      const receipt = replacementReceipt({
+        candidateId: first.id,
+        expectedUploadId: body.expected_upload_id as string | null,
+        expectedRevisionId: body.expected_revision_id as string | null,
+        expectedProfileId: body.expected_profile_id as string,
+        digest: await requestDigest(body),
+      })
+      currentUploadId = first.id
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+    .click()
+  await page
+    .getByTestId("replacement-preview")
+    .getByRole("button", { name: "Set as current input" })
+    .click()
+  const projectSelect = page.getByRole("combobox", { name: "Project" })
+  await projectSelect.selectOption(projects[1].id)
+  const focusAfterSwitch = await page.evaluate(
+    () => document.activeElement?.outerHTML ?? null,
+  )
+  await page.waitForTimeout(800)
+  await expect(projectSelect).toHaveValue(projects[1].id)
+  expect(
+    await page.evaluate(() => document.activeElement?.outerHTML ?? null),
+  ).toBe(focusAfterSwitch)
+  await expect(page.getByText("No accepted uploads yet.")).toBeVisible()
+  await expect(page.getByTestId("operation-confirmed")).toHaveCount(0)
+  await expect(page.getByTestId("replacement-preview")).toHaveCount(0)
+  await expect(page.getByText("Selection outcome unknown")).toHaveCount(0)
+  expect(applyRequests).toBe(1)
+})
+
+test("freezes the preview during digest and submits one apply for a double click", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  let currentUploadId: string | null = null
+  let applyRequests = 0
+  const applyKeys: string[] = []
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(currentUploadId) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyRequests += 1
+      applyKeys.push(route.request().headers()["idempotency-key"] ?? "")
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      currentUploadId = first.id
+      return route.fulfill({
+        json: replacementReceipt({
+          candidateId: first.id,
+          expectedUploadId: body.expected_upload_id as string | null,
+          expectedRevisionId: body.expected_revision_id as string | null,
+          expectedProfileId: body.expected_profile_id as string,
+          digest: await requestDigest(body),
+        }),
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+    .click()
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  await page.evaluate(() => {
+    const original = crypto.subtle.digest.bind(crypto.subtle)
+    crypto.subtle.digest = (async (algorithm, data) => {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      return original(algorithm, data)
+    }) as typeof crypto.subtle.digest
+  })
+  const apply = page.getByRole("button", { name: "Set as current input" })
+  await apply.evaluate((element) => {
+    const button = element as HTMLElement
+    button.click()
+    button.click()
+  })
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  await expect(apply).toBeDisabled()
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(applyRequests).toBe(1)
+  expect(applyKeys).toHaveLength(1)
+})
+
+test("does not submit when the replacement intent cannot be saved", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  let applyRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      return route.fulfill({ status: 500 })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+    .click()
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem
+    Storage.prototype.setItem = function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (key.startsWith("exposure:customer-replacement:"))
+        throw new DOMException("Storage quota exceeded", "QuotaExceededError")
+      return original.call(this, key, value)
+    }
+  })
+  await page.getByRole("button", { name: "Set as current input" }).click()
+  await expect(
+    page.getByText("The request could not be saved. Nothing was submitted."),
+  ).toBeVisible()
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Set as current input" }),
+  ).toBeEnabled()
+  expect(applyRequests).toBe(0)
+  expect(
+    await page.evaluate(() =>
+      Object.keys(sessionStorage).filter((key) =>
+        key.startsWith("exposure:customer-replacement:"),
+      ),
+    ),
+  ).toEqual([])
+})
+
+for (const conflict of [
+  {
+    code: "ledger_version_conflict",
+    title: "Current version changed",
+    copy: "The current version or profile changed. This request was rejected; preview the latest version again.",
+  },
+  {
+    code: "ledger_profile_changed",
+    title: "Current profile changed",
+    copy: "The current profile changed. This request was rejected; preview the latest version again.",
+  },
+] as const) {
+  test(`retains the candidate after a 409 ${conflict.code} and re-previews explicitly`, async ({
+    page,
+  }) => {
+    const first = uploads[projects[0].id].data[0]
+    const second = {
+      ...first,
+      id: "20000000-0000-0000-0000-000000000017",
+      display_filename: "conflict-candidate.xlsx",
+      raw_sha256: "7".repeat(64),
+      record_count: 3,
+    }
+    const newerUploadId = "20000000-0000-0000-0000-000000000018"
+    const newerRevisionId = "70000000-0000-0000-0000-000000000018"
+    const newerProfileId = "10000000-0000-0000-0000-000000000099"
+    let ledger = ledgerRead(first.id)
+    let currentUploadId: string | null = first.id
+    let previewRequests = 0
+    let applyRequests = 0
+    const previewBodies: Array<Record<string, unknown>> = []
+    const applyBodies: Array<Record<string, unknown>> = []
+    const applyKeys: string[] = []
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+      (route) => route.fulfill({ json: ledger }),
+    )
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+      (route) => {
+        previewRequests += 1
+        const body = route.request().postDataJSON() as Record<string, unknown>
+        previewBodies.push(body)
+        return route.fulfill({
+          json: {
+            candidate_upload_id: second.id,
+            current_upload_id: body.expected_upload_id,
+            current_revision_id: body.expected_revision_id,
+            profile_id: body.expected_profile_id,
+            current_record_count: first.record_count,
+            current_unique_ips: 1,
+            candidate_record_count: second.record_count,
+            candidate_unique_ips: 1,
+            added_ips: 0,
+            removed_ips: 0,
+            changed_ip_declarations: 1,
+          },
+        })
+      },
+    )
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+      async (route) => {
+        applyRequests += 1
+        const body = route.request().postDataJSON() as Record<string, unknown>
+        applyBodies.push(body)
+        applyKeys.push(route.request().headers()["idempotency-key"] ?? "")
+        if (applyRequests === 1)
+          return route.fulfill({
+            status: 409,
+            json: {
+              detail: {
+                code: conflict.code,
+                message: "The current input changed.",
+              },
+            },
+          })
+        currentUploadId = second.id
+        return route.fulfill({
+          json: replacementReceipt({
+            candidateId: second.id,
+            expectedUploadId: body.expected_upload_id as string | null,
+            expectedRevisionId: body.expected_revision_id as string | null,
+            expectedProfileId: body.expected_profile_id as string,
+            digest: await requestDigest(body),
+          }),
+        })
+      },
+    )
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+      async (route) => {
+        if (route.request().method() === "POST")
+          return route.fulfill({ status: 201, json: second })
+        return route.fulfill({
+          json: {
+            data: [first, second],
+            count: 2,
+            current_customer_upload_id: currentUploadId,
+            can_upload: true,
+            can_select: true,
+          },
+        })
+      },
+    )
+    await page.goto(`/?project=${projects[0].id}&view=inputs`)
+    await page
+      .getByRole("row")
+      .filter({ hasText: second.display_filename })
+      .getByRole("button", { name: "Preview replacement" })
+      .click()
+    await page
+      .getByTestId("replacement-preview")
+      .getByRole("button", { name: "Apply replacement" })
+      .click()
+    const errorCard = page.getByTestId("import-error")
+    await expect(
+      errorCard.getByRole("heading", { name: conflict.title }),
+    ).toBeFocused()
+    await expect(
+      errorCard.getByText(conflict.copy, { exact: true }),
+    ).toBeVisible()
+    await expect(
+      errorCard.getByText(second.display_filename, { exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByText("Selection outcome unknown", { exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole("button", { name: "Resend original request" }),
+    ).toHaveCount(0)
+    expect(previewRequests).toBe(1)
+    expect(applyRequests).toBe(1)
+
+    if (conflict.code === "ledger_version_conflict")
+      ledger = ledgerRead(newerUploadId, newerRevisionId)
+    else ledger = ledgerRead(first.id, null, newerProfileId)
+    await errorCard
+      .getByRole("button", { name: "Read latest version and preview again" })
+      .click()
+    await expect(page.getByTestId("replacement-preview")).toBeVisible()
+    expect(previewRequests).toBe(2)
+    expect(applyRequests).toBe(1)
+    if (conflict.code === "ledger_version_conflict") {
+      expect(previewBodies[1]).toEqual({
+        candidate_upload_id: second.id,
+        expected_upload_id: newerUploadId,
+        expected_revision_id: newerRevisionId,
+        expected_profile_id: profiles[projects[0].id].id,
+      })
+    } else {
+      expect(previewBodies[1]).toEqual({
+        candidate_upload_id: second.id,
+        expected_upload_id: first.id,
+        expected_revision_id: null,
+        expected_profile_id: newerProfileId,
+      })
+    }
+
+    await page
+      .getByTestId("replacement-preview")
+      .getByRole("button", { name: "Apply replacement" })
+      .click()
+    await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+    expect(applyRequests).toBe(2)
+    expect(applyBodies[1]).toEqual(previewBodies[1])
+    expect(applyKeys[0]).not.toBe(applyKeys[1])
+  })
+}
+
+test("clears a 409 key conflict without masquerading as a version change or retrying", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const second = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000019",
+    display_filename: "key-conflict.xlsx",
+    raw_sha256: "8".repeat(64),
+  }
+  let previewRequests = 0
+  let applyRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(first.id) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      previewRequests += 1
+      return route.fulfill({
+        json: {
+          candidate_upload_id: second.id,
+          current_upload_id: first.id,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: first.record_count,
+          current_unique_ips: 1,
+          candidate_record_count: second.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 0,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      return route.fulfill({
+        status: 409,
+        json: {
+          detail: {
+            code: "ledger_key_conflict",
+            message: "This operation key belongs to another request.",
+          },
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST")
+        return route.fulfill({ status: 201, json: second })
+      return route.fulfill({
+        json: {
+          data: [first, second],
+          count: 2,
+          current_customer_upload_id: first.id,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page
+    .getByRole("row")
+    .filter({ hasText: second.display_filename })
+    .getByRole("button", { name: "Preview replacement" })
+    .click()
+  await page
+    .getByTestId("replacement-preview")
+    .getByRole("button", { name: "Apply replacement" })
+    .click()
+  const errorCard = page.getByTestId("import-error")
+  await expect(
+    errorCard.getByRole("heading", { name: "Operation key conflict" }),
+  ).toBeVisible()
+  await expect(
+    errorCard.getByText(/already used for a different request/),
+  ).toBeVisible()
+  await expect(
+    page.getByText(
+      "The current version or profile changed. This request was rejected; preview the latest version again.",
+    ),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("button", { name: "Resend original request" }),
+  ).toHaveCount(0)
+  expect(previewRequests).toBe(1)
+  expect(applyRequests).toBe(1)
+  expect(
+    await page.evaluate(() =>
+      Object.keys(sessionStorage).filter((key) =>
+        key.startsWith("exposure:customer-replacement:"),
+      ),
+    ),
+  ).toEqual([])
+  await errorCard
+    .getByRole("button", { name: "Preview this file again" })
+    .click()
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  expect(previewRequests).toBe(2)
+  expect(applyRequests).toBe(1)
+})
+
+for (const mismatch of [
+  {
+    field: "candidate_upload_id",
+    value: "20000000-0000-0000-0000-000000000098",
+  },
+  {
+    field: "current_upload_id",
+    value: "20000000-0000-0000-0000-000000000097",
+  },
+  {
+    field: "current_revision_id",
+    value: "70000000-0000-0000-0000-000000000096",
+  },
+  {
+    field: "profile_id",
+    value: "10000000-0000-0000-0000-000000000095",
+  },
+] as const) {
+  test(`rejects a preview identity mismatch in ${mismatch.field}`, async ({
+    page,
+  }) => {
+    const first = uploads[projects[0].id].data[0]
+    let applyRequests = 0
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+      (route) => route.fulfill({ json: ledgerRead(null) }),
+    )
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+      (route) =>
+        route.fulfill({
+          json: {
+            candidate_upload_id: first.id,
+            current_upload_id: null,
+            current_revision_id: null,
+            profile_id: first.profile_id,
+            current_record_count: 0,
+            current_unique_ips: 0,
+            candidate_record_count: first.record_count,
+            candidate_unique_ips: 1,
+            added_ips: 1,
+            removed_ips: 0,
+            changed_ip_declarations: 0,
+            [mismatch.field]: mismatch.value,
+          },
+        }),
+    )
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+      (route) => {
+        applyRequests += 1
+        return route.fulfill({ status: 500 })
+      },
+    )
+    await page.goto(`/?project=${projects[0].id}&view=inputs`)
+    await page
+      .getByRole("row")
+      .filter({ hasText: first.display_filename })
+      .getByRole("button", { name: "Preview selection" })
+      .click()
+    const errorCard = page.getByTestId("import-error")
+    await expect(
+      errorCard.getByRole("heading", { name: "Preview could not be read" }),
+    ).toBeVisible()
+    await expect(
+      errorCard.getByText(
+        "The preview response did not match the request identity. Nothing was applied.",
+        { exact: true },
+      ),
+    ).toBeVisible()
+    await expect(page.getByTestId("replacement-preview")).toHaveCount(0)
+    await expect(
+      page.getByRole("button", { name: "Set as current input" }),
+    ).toHaveCount(0)
+    expect(applyRequests).toBe(0)
+  })
+}
+
+test("recovers a committed 503 operation without submitting again", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  let currentUploadId: string | null = null
+  let applyRequests = 0
+  let recoveryRequests = 0
+  let receipt: Record<string, unknown> | null = null
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      receipt = replacementReceipt({
+        candidateId: first.id,
+        expectedUploadId: body.expected_upload_id as string | null,
+        expectedRevisionId: body.expected_revision_id as string | null,
+        expectedProfileId: body.expected_profile_id as string,
+        digest: await requestDigest(body),
+      })
+      return route.fulfill({
+        status: 503,
+        json: {
+          detail: {
+            code: "ledger_commit_unknown",
+            message: "The commit outcome is unknown.",
+          },
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/*`,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      recoveryRequests += 1
+      currentUploadId = first.id
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST")
+        return route.fulfill({ status: 201, json: first })
+      return route.fulfill({
+        json: {
+          data: [first],
+          count: 1,
+          current_customer_upload_id: currentUploadId,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+    .click()
+  await page
+    .getByTestId("replacement-preview")
+    .getByRole("button", { name: "Set as current input" })
+    .click()
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+  expect(recoveryRequests).toBe(0)
+  const uploadForm = page.locator("form").filter({
+    has: page.getByLabel("XLSX file"),
+  })
+  const uploadButton = uploadForm.getByRole("button", {
+    name: "Upload",
+    exact: true,
+  })
+  const chooseFile = uploadForm.getByRole("button", {
+    name: "Choose file",
+    exact: true,
+  })
+  const rowPreview = page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+  await expect(uploadButton).toBeDisabled()
+  await expect(chooseFile).toBeDisabled()
+  await expect(rowPreview).toBeDisabled()
+  await expect(
+    page.getByRole("button", { name: "Recover result" }),
+  ).toBeEnabled()
+  await page.getByRole("button", { name: "Recover result" }).click()
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(recoveryRequests).toBe(1)
+  expect(applyRequests).toBe(1)
+  await expect(uploadButton).toBeEnabled()
+  await expect(chooseFile).toBeEnabled()
+  const currentCard = page.locator('[data-slot="card"]').filter({
+    has: page.getByRole("heading", { name: "Current Project input" }),
+  })
+  await expect(
+    currentCard.getByText(first.display_filename, { exact: true }),
+  ).toBeVisible()
+})
+
+test("keeps the intent and hides resend after a generic recovery 404", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  let applyRequests = 0
+  let recoveryRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      return route.abort("connectionfailed")
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/*`,
+    (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      recoveryRequests += 1
+      return route.fulfill({
+        status: 404,
+        json: { detail: { code: "not_found", message: "Not found." } },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+    .click()
+  await page
+    .getByTestId("replacement-preview")
+    .getByRole("button", { name: "Set as current input" })
+    .click()
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Recover result" }).click()
+  await expect(
+    page.getByText(
+      "Could not read the operation. Keep its identity and retry this read.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  expect(recoveryRequests).toBe(1)
+  expect(applyRequests).toBe(1)
+  await expect(
+    page.getByRole("button", { name: "Resend original request" }),
+  ).toHaveCount(0)
+  expect(
+    await page.evaluate(
+      () =>
+        Object.keys(sessionStorage).filter((key) =>
+          key.startsWith("exposure:customer-replacement:"),
+        ).length,
+    ),
+  ).toBe(1)
+  await expect(
+    page.getByRole("button", { name: "Recover result" }),
+  ).toBeEnabled()
+})
+
+test("confirms a historical receipt without claiming it is still current", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const second = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000020",
+    display_filename: "newer-current.xlsx",
+    raw_sha256: "9".repeat(64),
+    record_count: 5,
+  }
+  let currentUploadId: string | null = null
+  let applyRequests = 0
+  let receipt: Record<string, unknown> | null = null
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      receipt = replacementReceipt({
+        candidateId: first.id,
+        expectedUploadId: body.expected_upload_id as string | null,
+        expectedRevisionId: body.expected_revision_id as string | null,
+        expectedProfileId: body.expected_profile_id as string,
+        digest: await requestDigest(body),
+      })
+      return route.abort("connectionfailed")
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/*`,
+    (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      currentUploadId = second.id
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST")
+        return route.fulfill({ status: 201, json: first })
+      return route.fulfill({
+        json: {
+          data: [first, second],
+          count: 2,
+          current_customer_upload_id: currentUploadId,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+    .click()
+  await page
+    .getByTestId("replacement-preview")
+    .getByRole("button", { name: "Set as current input" })
+    .click()
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Recover result" }).click()
+  const confirmation = page.getByTestId("operation-confirmed")
+  await expect(confirmation).toBeVisible()
+  await expect(
+    confirmation.getByText(first.display_filename, { exact: true }),
+  ).toHaveCount(0)
+  const currentCard = page.locator('[data-slot="card"]').filter({
+    has: page.getByRole("heading", { name: "Current Project input" }),
+  })
+  await expect(
+    currentCard.getByText(second.display_filename, { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: second.display_filename })
+      .getByText("Current", { exact: true }),
+  ).toBeVisible()
+  expect(applyRequests).toBe(1)
+})
+
+test("clears a saved replacement intent when accepted-upload reads are forbidden", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id as keyof typeof uploads].data[0]
+  const request = {
+    candidate_upload_id: first.id,
+    expected_upload_id: null,
+    expected_revision_id: null,
+    expected_profile_id: first.profile_id,
+  }
+  const storageKey = `exposure:customer-replacement:${operatorId}:${projects[0].id}`
+  const savedIntent = {
+    key: "saved-denied-intent",
+    digest: await requestDigest(request),
+    request,
+  }
+  await page.addInitScript(
+    ([key, intent]) => {
+      sessionStorage.setItem(key, JSON.stringify(intent))
+    },
+    [storageKey, savedIntent] as const,
+  )
+  let uploadPosts = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) => {
+      if (route.request().method() === "POST") {
+        uploadPosts += 1
+        return route.fulfill({ status: 201, json: first })
+      }
+      return route.fulfill({
+        status: 403,
+        json: { detail: { code: "forbidden", message: "Forbidden." } },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await expect(
+    page.getByText("Current input could not be read", { exact: true }),
+  ).toBeVisible({ timeout: 15_000 })
+  expect(uploadPosts).toBe(0)
+  await expect(page.getByTestId("operation-state")).toHaveCount(0)
+  await expect(
+    page.getByRole("button", { name: "Recover result" }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toHaveCount(0)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Object.keys(sessionStorage).filter((key) =>
+            key.startsWith("exposure:customer-replacement:"),
+          ).length,
+      ),
+    )
+    .toBe(0)
+})
+
+test("keeps confirmation and shows a separate current-read failure with retry", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  let currentUploadId: string | null = null
+  let failCurrentRead = false
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      const receipt = replacementReceipt({
+        candidateId: first.id,
+        expectedUploadId: body.expected_upload_id as string | null,
+        expectedRevisionId: body.expected_revision_id as string | null,
+        expectedProfileId: body.expected_profile_id as string,
+        digest: await requestDigest(body),
+      })
+      currentUploadId = first.id
+      failCurrentRead = true
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST")
+        return route.fulfill({ status: 201, json: first })
+      if (failCurrentRead)
+        return route.fulfill({
+          status: 500,
+          json: { detail: { code: "internal_error", message: "Read failed." } },
+        })
+      return route.fulfill({
+        json: {
+          data: [first],
+          count: 1,
+          current_customer_upload_id: currentUploadId,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+    .click()
+  await page
+    .getByTestId("replacement-preview")
+    .getByRole("button", { name: "Set as current input" })
+    .click()
+  const confirmation = page.getByTestId("operation-confirmed")
+  await expect(confirmation).toBeVisible()
+  await expect(
+    page.getByText("Current input could not be read", { exact: true }),
+  ).toBeVisible({ timeout: 15_000 })
+  await expect(confirmation).toBeVisible()
+  failCurrentRead = false
+  await page.getByRole("button", { name: "Retry current input" }).click()
+  const currentCard = page.locator('[data-slot="card"]').filter({
+    has: page.getByRole("heading", { name: "Current Project input" }),
+  })
+  await expect(
+    currentCard.getByText(first.display_filename, { exact: true }),
+  ).toBeVisible()
+  await expect(confirmation).toBeVisible()
+  await expect(
+    page.getByText("Current input could not be read", { exact: true }),
+  ).toHaveCount(0)
+})
+
+test("shows a recoverable read error when the current input becomes unavailable during preview", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id as keyof typeof uploads].data[0]
+  let failCurrentReads = false
+  let failedUploadsReadGateUsed = false
+  let releaseFailedUploadsRead: () => void = () => undefined
+  const failedUploadsReadGate = new Promise<void>((resolve) => {
+    releaseFailedUploadsRead = resolve
+  })
+  let previewRequests = 0
+  let releasePreview: () => void = () => undefined
+  const previewGate = new Promise<void>((resolve) => {
+    releasePreview = resolve
+  })
+  let applyRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    async (route) => {
+      previewRequests += 1
+      if (previewRequests === 1) await previewGate
+      return route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: first.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      return route.fulfill({ status: 500 })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        failCurrentReads = true
+        return route.fulfill({ status: 201, json: first })
+      }
+      if (failCurrentReads) {
+        if (!failedUploadsReadGateUsed) {
+          failedUploadsReadGateUsed = true
+          await failedUploadsReadGate
+        }
+        return route.fulfill({
+          status: 500,
+          json: { detail: { code: "internal_error", message: "Read failed." } },
+        })
+      }
+      return route.fulfill({
+        json: {
+          data: [first],
+          count: 1,
+          current_customer_upload_id: null,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await uploadXlsx(page, "preview-current-read-race.xlsx")
+  await expect(page.getByTestId("upload-candidate")).toBeVisible()
+  await page.getByRole("button", { name: "Preview this file" }).click()
+  await expect.poll(() => previewRequests).toBe(1)
+  releaseFailedUploadsRead()
+  await expect(
+    page.getByText("Current input could not be read", { exact: true }),
+  ).toBeVisible({ timeout: 15_000 })
+  failCurrentReads = false
+  releasePreview()
+  await expect(page.getByTestId("import-error")).toBeVisible()
+  await expect(
+    page.getByText(
+      "The current input could not be refreshed. Nothing was applied.",
+    ),
+  ).toBeVisible()
+  await expect(page.getByText("Reading preview…", { exact: true })).toHaveCount(
+    0,
+  )
+  await expect(page.getByTestId("replacement-preview")).toHaveCount(0)
+  const previewAgain = page.getByRole("button", {
+    name: "Preview this file again",
+  })
+  await expect(previewAgain).toBeDisabled()
+  expect(applyRequests).toBe(0)
+  await page.getByRole("button", { name: "Retry current input" }).click()
+  await expect(
+    page.getByText("Current input could not be read", { exact: true }),
+  ).toHaveCount(0)
+  await expect(previewAgain).toBeEnabled()
+  await previewAgain.click()
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Set as current input" }),
+  ).toBeEnabled()
+  expect(previewRequests).toBe(2)
+  expect(applyRequests).toBe(0)
+})
+
+test("keeps long candidate names and the full keyboard journey usable at 390px", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const longName = `${"long-candidate-filename-".repeat(6)}.xlsx`
+  const candidate = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000021",
+    display_filename: longName,
+    raw_sha256: "a".repeat(64),
+  }
+  let accepted = false
+  let currentUploadId: string | null = null
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: candidate.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: candidate.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: candidate.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 1,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      currentUploadId = candidate.id
+      return route.fulfill({
+        json: replacementReceipt({
+          candidateId: candidate.id,
+          expectedUploadId: body.expected_upload_id as string | null,
+          expectedRevisionId: body.expected_revision_id as string | null,
+          expectedProfileId: body.expected_profile_id as string,
+          digest: await requestDigest(body),
+        }),
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        accepted = true
+        return route.fulfill({ status: 201, json: candidate })
+      }
+      return route.fulfill({
+        json: {
+          data: accepted ? [first, candidate] : [first],
+          count: accepted ? 2 : 1,
+          current_customer_upload_id: currentUploadId,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  const customerForm = page
+    .locator("form")
+    .filter({ has: page.getByLabel("XLSX file") })
+  const picker = customerForm.getByRole("button", {
+    name: "Choose file",
+    exact: true,
+  })
+  await picker.focus()
+  await expect(picker).toBeFocused()
+  const input = page.getByLabel("XLSX file")
+  await input.setInputFiles({
+    name: longName,
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("mock workbook"),
+  })
+  await expect(page.getByText(longName, { exact: true })).toBeVisible()
+  const upload = page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+  await upload.focus()
+  await page.keyboard.press("Enter")
+  const candidateHeading = page
+    .getByTestId("upload-candidate")
+    .getByRole("heading", { name: "Accepted file" })
+  await expect(candidateHeading).toBeFocused()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(390)
+  const preview = page
+    .getByTestId("upload-candidate")
+    .getByRole("button", { name: "Preview this file" })
+  await tabTo(page, preview)
+  await page.keyboard.press("Enter")
+  const previewHeading = page
+    .getByTestId("replacement-preview")
+    .getByRole("heading", { name: "Selection preview" })
+  await expect(previewHeading).toBeFocused()
+  const apply = page.getByRole("button", { name: "Set as current input" })
+  await tabTo(page, apply)
+  const applyBounds = await apply.boundingBox()
+  expect(applyBounds).not.toBeNull()
+  expect(applyBounds!.x).toBeGreaterThanOrEqual(0)
+  expect(applyBounds!.x + applyBounds!.width).toBeLessThanOrEqual(390)
+  await page.keyboard.press("Enter")
+  const confirmedHeading = page
+    .getByTestId("operation-confirmed")
+    .getByRole("heading", { name: "Operation confirmed." })
+  await expect(confirmedHeading).toBeFocused()
+  const link = page.getByRole("link", { name: "Go to comparison results" })
+  await tabTo(page, link)
+  await expect(link).toBeVisible()
+  const linkBounds = await link.boundingBox()
+  expect(linkBounds).not.toBeNull()
+  expect(linkBounds!.x).toBeGreaterThanOrEqual(0)
+  expect(linkBounds!.x + linkBounds!.width).toBeLessThanOrEqual(390)
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(390)
+})
+
+test("keeps 409 and recovery headings and actions keyboard-reachable at 390px", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const second = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000022",
+    display_filename: "narrow-conflict.xlsx",
+    raw_sha256: "b".repeat(64),
+  }
+  let ledger = ledgerRead(first.id)
+  let applyRequests = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledger }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      return route.fulfill({
+        json: {
+          candidate_upload_id: second.id,
+          current_upload_id: body.expected_upload_id,
+          current_revision_id: body.expected_revision_id,
+          profile_id: body.expected_profile_id,
+          current_record_count: first.record_count,
+          current_unique_ips: 1,
+          candidate_record_count: second.record_count,
+          candidate_unique_ips: 1,
+          added_ips: 0,
+          removed_ips: 0,
+          changed_ip_declarations: 1,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      if (applyRequests === 1)
+        return route.fulfill({
+          status: 409,
+          json: {
+            detail: {
+              code: "ledger_version_conflict",
+              message: "The current input changed.",
+            },
+          },
+        })
+      return route.fulfill({
+        status: 503,
+        json: {
+          detail: {
+            code: "ledger_commit_unknown",
+            message: "The commit outcome is unknown.",
+          },
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST")
+        return route.fulfill({ status: 201, json: second })
+      return route.fulfill({
+        json: {
+          data: [first, second],
+          count: 2,
+          current_customer_upload_id: first.id,
+          can_upload: true,
+          can_select: true,
+        },
+      })
+    },
+  )
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page
+    .getByRole("row")
+    .filter({ hasText: second.display_filename })
+    .getByRole("button", { name: "Preview replacement" })
+    .click()
+  await page
+    .getByTestId("replacement-preview")
+    .getByRole("button", { name: "Apply replacement" })
+    .click()
+  const errorHeading = page
+    .getByTestId("import-error")
+    .getByRole("heading", { name: "Current version changed" })
+  await expect(errorHeading).toBeFocused()
+  const rePreview = page.getByRole("button", {
+    name: "Read latest version and preview again",
+  })
+  await tabTo(page, rePreview)
+  const rePreviewBounds = await rePreview.boundingBox()
+  expect(rePreviewBounds).not.toBeNull()
+  expect(rePreviewBounds!.x).toBeGreaterThanOrEqual(0)
+  expect(rePreviewBounds!.x + rePreviewBounds!.width).toBeLessThanOrEqual(390)
+  ledger = ledgerRead("20000000-0000-0000-0000-000000000023")
+  await page.keyboard.press("Enter")
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  await page
+    .getByTestId("replacement-preview")
+    .getByRole("button", { name: "Apply replacement" })
+    .click()
+  const recoveryHeading = page
+    .getByTestId("operation-state")
+    .getByRole("heading", { name: "Replacement outcome unknown" })
+  await expect(recoveryHeading).toBeFocused()
+  const recover = page.getByRole("button", { name: "Recover result" })
+  await tabTo(page, recover)
+  const recoverBounds = await recover.boundingBox()
+  expect(recoverBounds).not.toBeNull()
+  expect(recoverBounds!.x).toBeGreaterThanOrEqual(0)
+  expect(recoverBounds!.x + recoverBounds!.width).toBeLessThanOrEqual(390)
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(390)
+  expect(applyRequests).toBe(2)
 })
 
 test("labels ledger diagnostics as ledger rows, never worksheet rows", async ({
@@ -2549,3 +4844,849 @@ test("delivery measures five upload feedback samples and preserves rejection", a
   }
   recordFeedback("upload", samples)
 })
+
+function replacementPreview(
+  candidate: { id: string; profile_id: string; record_count: number },
+  request: {
+    expected_upload_id?: unknown
+    expected_revision_id?: unknown
+    expected_profile_id?: unknown
+  },
+) {
+  const replacing =
+    request.expected_upload_id !== null &&
+    request.expected_upload_id !== undefined
+  return {
+    candidate_upload_id: candidate.id,
+    current_upload_id: request.expected_upload_id ?? null,
+    current_revision_id: request.expected_revision_id ?? null,
+    profile_id: request.expected_profile_id,
+    current_record_count: replacing ? candidate.record_count : 0,
+    current_unique_ips: replacing ? 1 : 0,
+    candidate_record_count: candidate.record_count,
+    candidate_unique_ips: 1,
+    added_ips: replacing ? 0 : 1,
+    removed_ips: 0,
+    changed_ip_declarations: 0,
+  }
+}
+
+test("keeps the visible file, native picker, and upload request consistent after cancelling a preview", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const accepted = {
+    ...first,
+    id: "20000000-0000-0000-0000-000000000030",
+    display_filename: "after-cancel.xlsx",
+    raw_sha256: "7".repeat(64),
+  }
+  let previewRequests = 0
+  let applyRequests = 0
+  let uploadRequests = 0
+  const uploadedNames: string[] = []
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      previewRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      return route.fulfill({ json: replacementPreview(first, body) })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    (route) => {
+      applyRequests += 1
+      return route.fulfill({ status: 500 })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        uploadRequests += 1
+        const match = /filename="([^"]+)"/.exec(
+          route.request().postData() ?? "",
+        )
+        uploadedNames.push(match?.[1] ?? "")
+        return route.fulfill({ status: 201, json: accepted })
+      }
+      return route.fulfill({ json: uploads[projects[0].id] })
+    },
+  )
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  const input = page.getByLabel("XLSX file", { exact: true })
+  await input.setInputFiles({
+    name: "hidden-local.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("hidden local workbook"),
+  })
+  await expect(
+    page.getByText("hidden-local.xlsx", { exact: true }),
+  ).toBeVisible()
+  const trigger = page
+    .getByRole("row")
+    .filter({ hasText: first.display_filename })
+    .getByRole("button", { name: "Preview selection" })
+  await trigger.focus()
+  await page.keyboard.press("Enter")
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  const cancel = page
+    .getByTestId("replacement-preview")
+    .getByRole("button", { name: "Cancel", exact: true })
+  await cancel.focus()
+  await page.keyboard.press("Enter")
+  await expect(trigger).toBeFocused()
+  await expect(
+    page
+      .locator("#customer-inputs")
+      .getByText("No file chosen", { exact: true }),
+  ).toBeVisible()
+  const nativeFilesBeforeUpload = await input.evaluate((element) =>
+    Array.from((element as HTMLInputElement).files ?? []).map(
+      (file) => file.name,
+    ),
+  )
+  const upload = page
+    .locator("form")
+    .filter({ has: input })
+    .getByRole("button", { name: "Upload", exact: true })
+  await upload.focus()
+  await page.keyboard.press("Enter")
+  await page.waitForTimeout(300)
+  const nativeFilesAfterUpload = await input.evaluate((element) =>
+    Array.from((element as HTMLInputElement).files ?? []).map(
+      (file) => file.name,
+    ),
+  )
+  expect({
+    nativeFilesBeforeUpload,
+    nativeFilesAfterUpload,
+    uploadRequests,
+  }).toEqual({
+    nativeFilesBeforeUpload: [],
+    nativeFilesAfterUpload: [],
+    uploadRequests: 0,
+  })
+  await expect(page.getByTestId("import-error-summary")).toContainText(
+    "Choose one XLSX file to upload.",
+  )
+  expect(previewRequests).toBe(1)
+  expect(applyRequests).toBe(0)
+  await expect(page.getByText("Project input is not ready.")).toBeVisible()
+
+  const chooserPromise = page.waitForEvent("filechooser")
+  const chooseFile = page
+    .locator("#customer-inputs")
+    .getByRole("button", { name: "Choose file", exact: true })
+  await chooseFile.focus()
+  await page.keyboard.press("Enter")
+  const chooser = await chooserPromise
+  await chooser.setFiles({
+    name: "after-cancel.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from("reselect workbook"),
+  })
+  await expect(
+    page.getByText("after-cancel.xlsx", { exact: true }),
+  ).toBeVisible()
+  await upload.focus()
+  await page.keyboard.press("Enter")
+  await expect(page.getByTestId("upload-candidate")).toBeVisible()
+  expect(uploadRequests).toBe(1)
+  expect(uploadedNames).toEqual(["after-cancel.xlsx"])
+  await expect(
+    page
+      .getByTestId("upload-candidate")
+      .getByText("after-cancel.xlsx", { exact: true }),
+  ).toBeVisible()
+  expect(applyRequests).toBe(0)
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390)
+})
+
+test("keeps a submitted operation when a readable project becomes read-only", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const storageKey = `exposure:customer-replacement:${operatorId}:${projects[0].id}`
+  let canSelect = true
+  let applyRequests = 0
+  let recoveryRequests = 0
+  let recoveryKey = ""
+  let receipt: Record<string, unknown> | null = null
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      return route.fulfill({ json: replacementPreview(first, body) })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyRequests += 1
+      const body = route.request().postDataJSON()
+      receipt = replacementReceipt({
+        candidateId: first.id,
+        expectedUploadId: body.expected_upload_id,
+        expectedRevisionId: body.expected_revision_id,
+        expectedProfileId: body.expected_profile_id,
+        digest: await requestDigest(body),
+      })
+      return route.fulfill({
+        status: 503,
+        json: {
+          detail: {
+            code: "ledger_commit_unknown",
+            message: "The commit outcome is unknown.",
+          },
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/*`,
+    (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      recoveryRequests += 1
+      recoveryKey = new URL(route.request().url()).pathname
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) => {
+      if (route.request().method() === "POST") return route.fallback()
+      return route.fulfill({
+        json: {
+          data: [first],
+          count: 1,
+          current_customer_upload_id: null,
+          can_upload: canSelect,
+          can_select: canSelect,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page.getByRole("button", { name: "Preview selection" }).click()
+  await page.getByRole("button", { name: "Set as current input" }).click()
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+  const saved = await page.evaluate(
+    (key) => sessionStorage.getItem(key),
+    storageKey,
+  )
+  if (!saved) throw new Error("Expected a saved replacement intent")
+  canSelect = false
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
+  await expect(
+    page.getByText(
+      "You have read-only access to CustomerUpload inputs for this Project.",
+    ),
+  ).toBeVisible()
+  expect(
+    await page.evaluate((key) => sessionStorage.getItem(key), storageKey),
+  ).toBe(saved)
+  const recover = page.getByRole("button", { name: "Recover result" })
+  await expect(recover).toBeVisible()
+  await expect(recover).toBeEnabled()
+  expect(applyRequests).toBe(1)
+  await recover.click()
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(recoveryRequests).toBe(1)
+  expect(recoveryKey.endsWith(JSON.parse(saved).key)).toBe(true)
+  expect(applyRequests).toBe(1)
+})
+
+test("keeps a read-only intent after a structured missing receipt and resends only after writability returns", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const storageKey = `exposure:customer-replacement:${operatorId}:${projects[0].id}`
+  let canSelect = true
+  let applyAttempts = 0
+  let recoveryRequests = 0
+  const applyKeys: string[] = []
+  const applyBodies: Record<string, unknown>[] = []
+  let receipt: Record<string, unknown> | null = null
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      return route.fulfill({ json: replacementPreview(first, body) })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyAttempts += 1
+      const body = route.request().postDataJSON()
+      applyKeys.push(route.request().headers()["idempotency-key"] ?? "")
+      applyBodies.push(body)
+      receipt = replacementReceipt({
+        candidateId: first.id,
+        expectedUploadId: body.expected_upload_id,
+        expectedRevisionId: body.expected_revision_id,
+        expectedProfileId: body.expected_profile_id,
+        digest: await requestDigest(body),
+      })
+      if (applyAttempts === 1)
+        return route.fulfill({
+          status: 503,
+          json: {
+            detail: {
+              code: "ledger_commit_unknown",
+              message: "The commit outcome is unknown.",
+            },
+          },
+        })
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/*`,
+    (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      recoveryRequests += 1
+      return route.fulfill({
+        status: 404,
+        json: {
+          detail: {
+            code: "ledger_replacement_not_found",
+            message: "No completed replacement receipt.",
+          },
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) => {
+      if (route.request().method() === "POST") return route.fallback()
+      return route.fulfill({
+        json: {
+          data: [first],
+          count: 1,
+          current_customer_upload_id: null,
+          can_upload: canSelect,
+          can_select: canSelect,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page.getByRole("button", { name: "Preview selection" }).click()
+  await page.getByRole("button", { name: "Set as current input" }).click()
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+  const saved = await page.evaluate(
+    (key) => sessionStorage.getItem(key),
+    storageKey,
+  )
+  if (!saved) throw new Error("Expected a saved replacement intent")
+  canSelect = false
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
+  await expect(
+    page.getByText(
+      "You have read-only access to CustomerUpload inputs for this Project.",
+    ),
+  ).toBeVisible()
+  const recover = page.getByRole("button", { name: "Recover result" })
+  await expect(recover).toBeVisible()
+  await recover.click()
+  await expect(
+    page.getByText("No completed receipt yet.", { exact: false }),
+  ).toBeVisible()
+  const resend = page.getByRole("button", { name: "Resend original request" })
+  await expect(resend).toBeVisible()
+  await expect(resend).toBeDisabled()
+  expect(recoveryRequests).toBe(1)
+  expect(applyAttempts).toBe(1)
+  expect(
+    await page.evaluate((key) => sessionStorage.getItem(key), storageKey),
+  ).toBe(saved)
+
+  canSelect = true
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
+  await expect(
+    page.getByText(
+      "You have read-only access to CustomerUpload inputs for this Project.",
+    ),
+  ).toHaveCount(0)
+  await expect(resend).toBeEnabled()
+  await resend.click()
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(applyAttempts).toBe(2)
+  expect(applyKeys[0]).toBe(applyKeys[1])
+  expect(applyBodies[0]).toEqual(applyBodies[1])
+})
+
+test("keeps an in-flight apply resolvable when write access is downgraded", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const storageKey = `exposure:customer-replacement:${operatorId}:${projects[0].id}`
+  let canSelect = true
+  let applyRequests = 0
+  let recoveryRequests = 0
+  let releaseApply: () => void = () => undefined
+  const applyGate = new Promise<void>((resolve) => {
+    releaseApply = resolve
+  })
+  let receipt: Record<string, unknown> | null = null
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      return route.fulfill({ json: replacementPreview(first, body) })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyRequests += 1
+      const body = route.request().postDataJSON()
+      receipt = replacementReceipt({
+        candidateId: first.id,
+        expectedUploadId: body.expected_upload_id,
+        expectedRevisionId: body.expected_revision_id,
+        expectedProfileId: body.expected_profile_id,
+        digest: await requestDigest(body),
+      })
+      await applyGate
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/*`,
+    (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      recoveryRequests += 1
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) => {
+      if (route.request().method() === "POST") return route.fallback()
+      return route.fulfill({
+        json: {
+          data: [first],
+          count: 1,
+          current_customer_upload_id: null,
+          can_upload: canSelect,
+          can_select: canSelect,
+        },
+      })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page.getByRole("button", { name: "Preview selection" }).click()
+  await page.getByRole("button", { name: "Set as current input" }).click()
+  await expect(
+    page.getByText("Setting current input…", { exact: true }),
+  ).toBeVisible()
+  expect(applyRequests).toBe(1)
+  const saved = await page.evaluate(
+    (key) => sessionStorage.getItem(key),
+    storageKey,
+  )
+  if (!saved) throw new Error("Expected a saved replacement intent")
+  canSelect = false
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")))
+  await expect(
+    page.getByText(
+      "You have read-only access to CustomerUpload inputs for this Project.",
+    ),
+  ).toBeVisible()
+  try {
+    expect(
+      await page.evaluate((key) => sessionStorage.getItem(key), storageKey),
+    ).toBe(saved)
+    await expect(
+      page.getByText("Setting current input…", { exact: true }),
+    ).toBeVisible()
+    const recover = page.getByRole("button", { name: "Recover result" })
+    await expect(recover).toBeVisible()
+    await expect(recover).toBeEnabled()
+  } finally {
+    releaseApply()
+  }
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(applyRequests).toBe(1)
+  expect(recoveryRequests).toBe(0)
+})
+
+test("restores a saved operation and its read-only receipt recovery at 390px", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const storageKey = `exposure:customer-replacement:${operatorId}:${projects[0].id}`
+  const request = {
+    candidate_upload_id: first.id,
+    expected_upload_id: null,
+    expected_revision_id: null,
+    expected_profile_id: first.profile_id,
+  }
+  const savedIntent = {
+    key: "saved-readable-intent",
+    digest: await requestDigest(request),
+    request,
+  }
+  const receipt = replacementReceipt({
+    candidateId: first.id,
+    expectedUploadId: null,
+    expectedRevisionId: null,
+    expectedProfileId: first.profile_id,
+    digest: savedIntent.digest,
+  })
+  let applyRequests = 0
+  let recoveryRequests = 0
+  let recoveryKey = ""
+  await page.addInitScript(
+    ([key, intent]) => {
+      sessionStorage.setItem(key, JSON.stringify(intent))
+    },
+    [storageKey, savedIntent] as const,
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) => {
+      if (route.request().method() === "POST") {
+        applyRequests += 1
+        return route.fulfill({ status: 500 })
+      }
+      return route.fulfill({
+        json: {
+          data: [first],
+          count: 1,
+          current_customer_upload_id: null,
+          can_upload: false,
+          can_select: false,
+        },
+      })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/*`,
+    (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      recoveryRequests += 1
+      recoveryKey = new URL(route.request().url()).pathname
+      return route.fulfill({ json: receipt })
+    },
+  )
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await expect(
+    page.getByText(
+      "You have read-only access to CustomerUpload inputs for this Project.",
+    ),
+  ).toBeVisible()
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+  expect(
+    await page.evaluate((key) => sessionStorage.getItem(key), storageKey),
+  ).toBe(JSON.stringify(savedIntent))
+  const recoveryHeading = page
+    .getByTestId("operation-state")
+    .getByRole("heading", { name: "Selection outcome unknown" })
+  await recoveryHeading.focus()
+  await page.keyboard.press("Tab")
+  const recover = page.getByRole("button", { name: "Recover result" })
+  await expect(recover).toBeFocused()
+  const bounds = await recover.boundingBox()
+  expect(bounds).not.toBeNull()
+  expect(bounds!.x).toBeGreaterThanOrEqual(0)
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
+  await page.keyboard.press("Enter")
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(recoveryRequests).toBe(1)
+  expect(recoveryKey.endsWith(savedIntent.key)).toBe(true)
+  expect(applyRequests).toBe(0)
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390)
+})
+
+test("does not confirm a receipt whose Project or actor identity differs", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const storageKey = `exposure:customer-replacement:${operatorId}:${projects[0].id}`
+  const request = {
+    candidate_upload_id: first.id,
+    expected_upload_id: null,
+    expected_revision_id: null,
+    expected_profile_id: first.profile_id,
+  }
+  const savedIntent = {
+    key: "saved-identity-intent",
+    digest: await requestDigest(request),
+    request,
+  }
+  const valid = replacementReceipt({
+    candidateId: first.id,
+    expectedUploadId: null,
+    expectedRevisionId: null,
+    expectedProfileId: first.profile_id,
+    digest: savedIntent.digest,
+  })
+  let variant: "project" | "actor" | "valid" = "project"
+  let recoveryRequests = 0
+  await page.addInitScript(
+    ([key, intent]) => {
+      sessionStorage.setItem(key, JSON.stringify(intent))
+    },
+    [storageKey, savedIntent] as const,
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          data: [first],
+          count: 1,
+          current_customer_upload_id: null,
+          can_upload: false,
+          can_select: false,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/*`,
+    (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      recoveryRequests += 1
+      if (variant === "project")
+        return route.fulfill({
+          json: { ...valid, project_id: projects[1].id },
+        })
+      if (variant === "actor")
+        return route.fulfill({
+          json: {
+            ...valid,
+            created_by: "30000000-0000-0000-0000-000000000099",
+          },
+        })
+      return route.fulfill({ json: valid })
+    },
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+  const recover = page.getByRole("button", { name: "Recover result" })
+  await recover.click()
+  await expect(
+    page.getByText(
+      "Could not read the operation. Keep its identity and retry this read.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  expect(await page.getByTestId("operation-confirmed").count()).toBe(0)
+  expect(
+    await page.evaluate((key) => sessionStorage.getItem(key), storageKey),
+  ).toBe(JSON.stringify(savedIntent))
+  variant = "actor"
+  await recover.click()
+  await expect.poll(() => recoveryRequests).toBe(2)
+  await expect(
+    page.getByText(
+      "Could not read the operation. Keep its identity and retry this read.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  expect(await page.getByTestId("operation-confirmed").count()).toBe(0)
+  variant = "valid"
+  await recover.click()
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(recoveryRequests).toBe(3)
+})
+
+test("keeps one Project's saved operation when an old Project's read-only response arrives", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  const request = {
+    candidate_upload_id: first.id,
+    expected_upload_id: null,
+    expected_revision_id: null,
+    expected_profile_id: first.profile_id,
+  }
+  const digest = await requestDigest(request)
+  const intentA = { key: "saved-project-a-intent", digest, request }
+  const intentB = { key: "saved-project-b-intent", digest, request }
+  const storageA = `exposure:customer-replacement:${operatorId}:${projects[0].id}`
+  const storageB = `exposure:customer-replacement:${operatorId}:${projects[1].id}`
+  await page.addInitScript(
+    ([firstKey, firstIntent, secondKey, secondIntent]) => {
+      sessionStorage.setItem(firstKey, JSON.stringify(firstIntent))
+      sessionStorage.setItem(secondKey, JSON.stringify(secondIntent))
+    },
+    [storageA, intentA, storageB, intentB] as const,
+  )
+  let aUploadReads = 0
+  let bUploadReads = 0
+  let releaseA: () => void = () => undefined
+  const aGate = new Promise<void>((resolve) => {
+    releaseA = resolve
+  })
+  let recoveryPath = ""
+  await page.route("**/api/v1/projects/**", async (route) => {
+    const url = new URL(route.request().url())
+    const match = url.pathname.match(/projects\/([^/]+)\/customer-uploads$/)
+    if (!match || route.request().method() !== "GET") return route.fallback()
+    if (match[1] === projects[0].id) {
+      aUploadReads += 1
+      await aGate
+    } else {
+      bUploadReads += 1
+    }
+    return route.fulfill({
+      json: {
+        data: [first],
+        count: 1,
+        current_customer_upload_id: null,
+        can_upload: false,
+        can_select: false,
+      },
+    })
+  })
+  await page.route(
+    `**/api/v1/projects/${projects[1].id}/customer-ledger/replacements/*`,
+    (route) => {
+      if (route.request().method() !== "GET") return route.fallback()
+      recoveryPath = new URL(route.request().url()).pathname
+      return route.fulfill({
+        json: {
+          ...replacementReceipt({
+            candidateId: first.id,
+            expectedUploadId: null,
+            expectedRevisionId: null,
+            expectedProfileId: first.profile_id,
+            digest,
+          }),
+          project_id: projects[1].id,
+        },
+      })
+    },
+  )
+  await page.route(
+    "**/api/v1/projects/**/customer-ledger/replacements",
+    (route) => route.fulfill({ status: 500 }),
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await expect.poll(() => aUploadReads).toBeGreaterThanOrEqual(1)
+  await page
+    .getByRole("combobox", { name: "Project" })
+    .selectOption(projects[1].id)
+  await expect(
+    page.getByText("Selection outcome unknown", { exact: true }),
+  ).toBeVisible()
+  expect(bUploadReads).toBeGreaterThanOrEqual(1)
+  expect(
+    await page.evaluate((key) => sessionStorage.getItem(key), storageB),
+  ).toBe(JSON.stringify(intentB))
+  releaseA()
+  await page.waitForTimeout(300)
+  expect(
+    await page.evaluate((key) => sessionStorage.getItem(key), storageA),
+  ).toBe(JSON.stringify(intentA))
+  expect(
+    await page.evaluate((key) => sessionStorage.getItem(key), storageB),
+  ).toBe(JSON.stringify(intentB))
+  const recover = page.getByRole("button", { name: "Recover result" })
+  await expect(recover).toBeVisible()
+  await recover.click()
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(recoveryPath.endsWith(intentB.key)).toBe(true)
+  expect(recoveryPath.endsWith(intentA.key)).toBe(false)
+  expect(
+    await page.evaluate((key) => sessionStorage.getItem(key), storageA),
+  ).toBe(JSON.stringify(intentA))
+})
+
+for (const status of [401, 404]) {
+  test(`clears a saved operation when accepted-upload reads are denied with ${status}`, async ({
+    page,
+  }) => {
+    const first = uploads[projects[0].id].data[0]
+    const storageKey = `exposure:customer-replacement:${operatorId}:${projects[0].id}`
+    const request = {
+      candidate_upload_id: first.id,
+      expected_upload_id: null,
+      expected_revision_id: null,
+      expected_profile_id: first.profile_id,
+    }
+    const savedIntent = {
+      key: "saved-denied-intent",
+      digest: await requestDigest(request),
+      request,
+    }
+    await page.addInitScript(
+      ([key, intent]) => {
+        sessionStorage.setItem(key, JSON.stringify(intent))
+      },
+      [storageKey, savedIntent] as const,
+    )
+    let uploadPosts = 0
+    await page.route(
+      `**/api/v1/projects/${projects[0].id}/customer-uploads*`,
+      (route) => {
+        if (route.request().method() === "POST") {
+          uploadPosts += 1
+          return route.fulfill({ status: 201, json: first })
+        }
+        return route.fulfill({
+          status,
+          json: { detail: { code: "forbidden", message: "Forbidden." } },
+        })
+      },
+    )
+    await page.goto(`/?project=${projects[0].id}&view=inputs`)
+    await expect(
+      page.getByText("Current input could not be read", { exact: true }),
+    ).toBeVisible({ timeout: 20_000 })
+    expect(uploadPosts).toBe(0)
+    await expect(page.getByTestId("operation-state")).toHaveCount(0)
+    await expect(
+      page.getByRole("button", { name: "Recover result" }),
+    ).toHaveCount(0)
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            Object.keys(sessionStorage).filter((key) =>
+              key.startsWith("exposure:customer-replacement:"),
+            ).length,
+        ),
+      )
+      .toBe(0)
+  })
+}

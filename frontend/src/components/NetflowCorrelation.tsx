@@ -23,6 +23,7 @@ import {
 import { NetflowAnalysisActions } from "@/components/NetflowAnalysisActions"
 import { NetflowContextForm } from "@/components/NetflowContextForm"
 import { NetflowFilters } from "@/components/NetflowFilters"
+import { useNetflowProgress } from "@/components/NetflowProgress"
 import { NetflowScopeControl } from "@/components/NetflowScopeControl"
 import { NetflowTaskAnswers } from "@/components/NetflowTaskAnswers"
 import { ResultPagination } from "@/components/ResultPagination"
@@ -321,6 +322,7 @@ export default function NetflowCorrelation({
   const { t, formatDate } = useI18n()
   const { user } = useAuth()
   const router = useRouter()
+  const cache = useQueryClient()
   const navigate = useCallback<Navigate>(
     (options) =>
       navigateSearch({
@@ -354,10 +356,18 @@ export default function NetflowCorrelation({
     search.cloudIpVersion,
     search.cloudPortVersion,
   ])
+  const progressScope = useMemo(() => ["netflow-correlation", scope], [scope])
   const readErrors = useScopeCleanup(scope)
   const accessError = readErrors.scopeAccess ?? readErrors.summary
+  const [progressDenial, setProgressDenial] = useState<{
+    scope: string
+    error: unknown
+  }>()
+  const deniedRefusal =
+    progressDenial?.scope === scope ? progressDenial.error : undefined
   const identityError = Boolean(search.identityErrors?.length)
-  const readable = (kind: string) => !accessError && !readErrors[kind]
+  const readable = (kind: string) =>
+    !accessError && !deniedRefusal && !readErrors[kind]
   const independentInput = useRef<
     Partial<NetflowCorrelationSearch> | undefined
   >(
@@ -371,7 +381,7 @@ export default function NetflowCorrelation({
       : undefined,
   )
   const scopeRef = useRef(scope)
-  scopeRef.current = accessError ? "denied" : scope
+  scopeRef.current = accessError || deniedRefusal ? "denied" : scope
   useEffect(() => {
     scopeRef.current = scope
     return () => {
@@ -736,12 +746,37 @@ export default function NetflowCorrelation({
     analyses.data?.data.find(
       (analysis) => analysis.analysis_id === search.analysis,
     )
+  const progress = useNetflowProgress({
+    scope: progressScope,
+    projectId,
+    analysis: selectedAnalysis,
+  })
+  const progressRefusal =
+    progress.problem === "refusal" ? progress.error : undefined
+  // An explicit progress refusal revokes the pinned correlation rows too. The
+  // same-correlation cache clear is the existing denial path for read errors.
+  useEffect(() => {
+    if (!progressRefusal) return
+    setProgressDenial({ scope, error: progressRefusal })
+    scopeRef.current = "denied"
+    const filters = {
+      predicate: (query: { queryKey: readonly unknown[] }) =>
+        query.queryKey[0] === "netflow-correlation" &&
+        query.queryKey[1] === scope,
+    }
+    void cache.cancelQueries(filters)
+    cache.removeQueries(filters)
+  }, [cache, progressRefusal, scope])
   const selectedUpload =
     fixedUpload.data?.data[0] ??
     uploads.data?.data.find((upload) => upload.id === search.customerUpload)
   const summary = useQuery({
     queryKey: ["netflow-correlation", scope, "summary", search.revision],
-    enabled: Boolean(search.revision) && !accessError && !identityError,
+    enabled:
+      Boolean(search.revision) &&
+      !accessError &&
+      !deniedRefusal &&
+      !identityError,
     queryFn: () =>
       SourceCorrelationsService.summary({
         projectId,
@@ -749,7 +784,7 @@ export default function NetflowCorrelation({
       }),
     retry: false,
     staleTime: 0,
-    refetchInterval: accessError ? false : 5000,
+    refetchInterval: accessError || deniedRefusal ? false : 5000,
   })
   const netflowPin = summary.data?.pins.NETFLOW
   const pinnedCloudMode =
@@ -810,7 +845,7 @@ export default function NetflowCorrelation({
           pinnedCloud.port_version_id === search.cloudPortVersion)),
   )
   const revisionIdentity =
-    identityMatches && !summary.isError && !accessError
+    identityMatches && !summary.isError && !accessError && !deniedRefusal
       ? summary.data
       : undefined
   const pinnedInputSearch = useMemo(
@@ -1438,10 +1473,10 @@ export default function NetflowCorrelation({
         </p>
       </section>
     )
-  if (accessError)
+  if (accessError || deniedRefusal || progressRefusal)
     return (
       <section className="space-y-3">
-        <ErrorNotice error={accessError} />
+        <ErrorNotice error={accessError ?? deniedRefusal ?? progressRefusal} />
         {!readErrors.scopeAccess && independentInput.current && (
           <Button
             variant="outline"
@@ -1457,7 +1492,7 @@ export default function NetflowCorrelation({
             )}
           </Button>
         )}
-        {accessError.status !== 401 && (
+        {accessError?.status !== 401 && (
           <Button
             variant="outline"
             onClick={() => void navigate({ search: () => ({}) })}
@@ -2139,6 +2174,11 @@ export default function NetflowCorrelation({
                 onAnalysis={(value) => {
                   void analyses.refetch()
                   change({ analysis: value.analysis_id, tab: "summary" }, true)
+                }}
+                progress={progress}
+                onRefresh={() => {
+                  void analyses.refetch()
+                  void fixedAnalysis.refetch()
                 }}
               />
             )}

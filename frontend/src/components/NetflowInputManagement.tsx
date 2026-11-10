@@ -9,6 +9,7 @@ import {
 import { NetflowAnalysisActions } from "@/components/NetflowAnalysisActions"
 import { NetflowBulkRegistration } from "@/components/NetflowBulkRegistration"
 import { NetflowContextForm } from "@/components/NetflowContextForm"
+import { useNetflowProgress } from "@/components/NetflowProgress"
 import { ResultPagination } from "@/components/ResultPagination"
 import { Button } from "@/components/ui/button"
 import { useI18n } from "@/lib/i18n"
@@ -193,6 +194,7 @@ export function NetflowInputManagement({
     void cache.invalidateQueries({ queryKey: [...key, "contexts"] })
     void cache.invalidateQueries({ queryKey: [...key, "context"] })
     void cache.invalidateQueries({ queryKey: [...key, "analyses"] })
+    void cache.invalidateQueries({ queryKey: ["input-summary", projectId] })
   }
   const failed =
     datasets.isError ||
@@ -201,11 +203,24 @@ export function NetflowInputManagement({
     currentContext.isError
   const allowed = canWrite && !!datasets.data?.can_select && !failed
   const current = failed ? undefined : currentContext.data
+  // Prefer the refreshed row for the same analysis id so a terminal status or
+  // a cancellation is not stuck at the row first selected.
+  const refreshedAnalysis = selectedAnalysis
+    ? analyses.data?.data.find(
+        (row) => row.analysis_id === selectedAnalysis.analysis_id,
+      )
+    : undefined
+  const effectiveAnalysis = refreshedAnalysis ?? selectedAnalysis
   const actionAnalysis =
-    selectedAnalysis &&
-    selectedAnalysis.context_revision_id === current?.context_revision_id
-      ? selectedAnalysis
+    effectiveAnalysis &&
+    effectiveAnalysis.context_revision_id === current?.context_revision_id
+      ? effectiveAnalysis
       : undefined
+  const progress = useNetflowProgress({
+    scope: key,
+    projectId,
+    analysis: actionAnalysis,
+  })
   if (!validExplicit)
     return (
       <p role="alert">
@@ -246,6 +261,9 @@ export function NetflowInputManagement({
           projectId={projectId}
           onRegistered={(id) => {
             void cache.invalidateQueries({ queryKey: key })
+            void cache.invalidateQueries({
+              queryKey: ["input-summary", projectId],
+            })
             onDatasetChange(id)
           }}
         />
@@ -335,6 +353,15 @@ export function NetflowInputManagement({
               onAnalysis={(value) => {
                 setSelectedAnalysis(value)
                 refresh()
+              }}
+              progress={progress}
+              onRefresh={() => {
+                void cache.invalidateQueries({
+                  queryKey: [...key, "analyses"],
+                })
+                void cache.invalidateQueries({
+                  queryKey: ["input-summary", projectId],
+                })
               }}
             />
           )}

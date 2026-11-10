@@ -224,8 +224,7 @@ async function ledgerJourney(page, project, ledger) {
   ok(receipt.candidate_upload_id === uploadInfo.id && receipt.expected_upload_id === null,
     'apply receipt ' + JSON.stringify(receipt));
   ok(receipt.project_id === project.id, 'apply receipt project mismatch');
-  await page.getByText('Selection confirmed. This file is now the current input; history is unchanged.',
-    {exact: true}).waitFor();
+  await page.getByText('Operation confirmed.', {exact: true}).waitFor();
   await uploadRow.getByText('Current', {exact: true}).waitFor();
   const afterApply = await listUploads();
   ok(afterApply.current_customer_upload_id === uploadInfo.id,
