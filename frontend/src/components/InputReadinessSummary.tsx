@@ -57,12 +57,14 @@ function netflowRead(value: Summary["netflow"]): NetFlowReadFields | undefined {
 
 function customerContradiction(value: Summary): boolean {
   const readiness = value.core_readiness.customer
-  const applied = value.customer.applied_upload_id
-  if (applied && readiness?.upload_id && applied !== readiness.upload_id)
-    return true
-  const revision = value.customer.applied_revision_id
-  return Boolean(
-    revision && readiness?.revision_id && revision !== readiness.revision_id,
+  // Only a present readiness selection is an observation to compare; a
+  // short-circuited or unavailable readiness read remains unknown.
+  if (!readiness) return false
+  return (
+    (value.customer.applied_upload_id ?? null) !==
+      (readiness.upload_id ?? null) ||
+    (value.customer.applied_revision_id ?? null) !==
+      (readiness.revision_id ?? null)
   )
 }
 
@@ -131,14 +133,18 @@ export default function InputReadinessSummary({
   }, [hard])
   const reason =
     summary.error instanceof Error ? summary.error.message : undefined
+  // Never trust only a boolean latch: cached data can pass its material
+  // deadline while a retry is pending. The current deadline stays authoritative.
+  const dataExpired = data ? deadline <= Date.now() : false
   const deadlineReached =
-    expiring || reason === "input_summary_deadline_expired"
+    dataExpired ||
+    (expiring && !data) ||
+    reason === "input_summary_deadline_expired"
   const identityFailed = reason === "input_summary_identity_mismatch"
   const usable = data && !summary.isError && !deadlineReached ? data : undefined
   const stale = summary.isFetching && Boolean(usable)
   const retry = () => {
     setBlocked(false)
-    setExpiring(false)
     void refetch()
   }
   const heading = (
@@ -232,7 +238,10 @@ export default function InputReadinessSummary({
   const known = (count: number | null | undefined) =>
     count === null || count === undefined ? t("Unknown", "未知") : String(count)
   const publication = {
-    PUBLISHED: t("readable published version", "有已发布可读版本"),
+    PUBLISHED: t(
+      "published candidate (metadata only)",
+      "已发布候选（仅元数据）",
+    ),
     EXPIRED: t("expired version only", "仅有已到期版本"),
     NOT_PUBLISHED: t("no published version", "尚无已发布版本"),
   }

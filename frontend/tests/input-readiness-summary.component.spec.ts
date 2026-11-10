@@ -627,6 +627,21 @@ test("read failed and metadata unavailable are distinct from empty", async ({
       { exact: true },
     ),
   ).toBeVisible()
+  await expect(
+    panel(page).getByText(
+      /cloudatlas-north \(published candidate \(metadata only\)\)/,
+    ),
+  ).toBeVisible()
+  await expect(panel(page).getByText(/readable published version/)).toHaveCount(
+    0,
+  )
+  await expect(
+    panel(page)
+      .getByText("Material: Read status not reached; unknown.", {
+        exact: true,
+      })
+      .last(),
+  ).toBeVisible()
   state = "METADATA_UNAVAILABLE"
   await page.reload()
   await expect(verdict(page)).toHaveAttribute(
@@ -809,6 +824,86 @@ test("idle material expiry withholds ready and refreshes by GET", async ({
   await expect.poll(() => requests).toBeGreaterThan(1)
 })
 
+test("expired material stays hidden while a retry GET is pending", async ({
+  page,
+}) => {
+  const deadline = new Date(Date.now() + 3000).toISOString()
+  const freshDeadline = new Date(Date.now() + 3_600_000).toISOString()
+  let hold = false
+  let signalFirstHeld: () => void = () => {}
+  const firstHeld = new Promise<void>((resolve) => {
+    signalFirstHeld = resolve
+  })
+  let releaseHeld: () => void = () => {}
+  const heldGate = new Promise<void>((resolve) => {
+    releaseHeld = resolve
+  })
+  const payload = (retainUntil: string) =>
+    summary(projects[0].id, {
+      core_readiness: readiness("READY", {
+        sources: [
+          customerSource(),
+          cloudSource({
+            metadata: { domains: { ip: { retain_until: retainUntil } } },
+          }),
+        ],
+      }),
+    })
+  await mockDashboard(page, async (route) => {
+    if (!hold) {
+      await route.fulfill({ json: payload(deadline) })
+      return
+    }
+    signalFirstHeld()
+    await heldGate
+    await route.fulfill({ json: payload(freshDeadline) }).catch(() => {})
+  })
+  await open(page)
+  await expect(verdict(page)).toHaveAttribute("data-readiness-state", "READY")
+  hold = true
+  await expect(
+    panel(page).getByText(
+      "A known material deadline has passed. No ready claim is shown; a fresh GET is required.",
+      { exact: true },
+    ),
+  ).toBeVisible({ timeout: 10_000 })
+  await firstHeld
+  await expect(
+    panel(page).getByText("Records: 2 · Addresses: 2", { exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    panel(page).getByText(/read valid non-empty; coverage sufficient/),
+  ).toHaveCount(0)
+  await expect(
+    panel(page).getByText(/published candidate \(metadata only\)/),
+  ).toHaveCount(0)
+  await panel(page).getByRole("button", { name: "Retry", exact: true }).click()
+  await page.waitForTimeout(250)
+  await expect(
+    panel(page).getByText(
+      "A known material deadline has passed. No ready claim is shown; a fresh GET is required.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(
+    panel(page).getByText("Records: 2 · Addresses: 2", { exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    panel(page).getByText(/read valid non-empty; coverage sufficient/),
+  ).toHaveCount(0)
+  releaseHeld()
+  await expect(verdict(page)).toHaveAttribute("data-readiness-state", "READY")
+  await expect(
+    panel(page).getByText("Records: 2 · Addresses: 2", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel(page).getByText(/published candidate \(metadata only\)/),
+  ).toBeVisible()
+  await expect(panel(page).getByText(/readable published version/)).toHaveCount(
+    0,
+  )
+})
+
 test("a late response past its own material deadline is rejected", async ({
   page,
 }) => {
@@ -934,4 +1029,99 @@ test("a late response from the previous actor never renders", async ({
     }),
   ).toHaveCount(0)
   await expect(verdict(page)).toHaveAttribute("data-readiness-state", "READY")
+})
+
+test("nullable customer identities compare only against a readiness selection", async ({
+  page,
+}) => {
+  const revisionId = "40000000-0000-0000-0000-000000000001"
+  let payload = summary(projects[0].id, {
+    customer: {
+      applied_upload_id: null,
+      applied_revision_id: null,
+      accepted_upload_count: 1,
+      unapplied_upload_count: 1,
+    },
+  })
+  await mockDashboard(page, (route) => route.fulfill({ json: payload }))
+  await open(page)
+  await expect(panel(page).getByRole("alert")).toContainText(
+    "The applied input pointer and readiness selection disagree.",
+  )
+  await expect(verdict(page)).toHaveCount(0)
+  await expect(
+    panel(page).getByText("Applied input: None", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    panel(page).getByText(
+      "The applied customer register and published CloudAtlas data are ready.",
+      { exact: true },
+    ),
+  ).toHaveCount(0)
+
+  payload = summary(projects[0].id)
+  await page.reload()
+  await expect(verdict(page)).toHaveAttribute("data-readiness-state", "READY")
+  await expect(panel(page).getByRole("alert")).toHaveCount(0)
+
+  payload = summary(projects[0].id, {
+    core_readiness: readiness("READY", {
+      customer: { upload_id: uploadId, revision_id: revisionId },
+    }),
+  })
+  await page.reload()
+  await expect(panel(page).getByRole("alert")).toContainText(
+    "The applied input pointer and readiness selection disagree.",
+  )
+  await expect(verdict(page)).toHaveCount(0)
+
+  payload = summary(projects[0].id, {
+    customer: {
+      applied_upload_id: uploadId,
+      applied_revision_id: revisionId,
+      accepted_upload_count: 1,
+      unapplied_upload_count: 0,
+    },
+  })
+  await page.reload()
+  await expect(panel(page).getByRole("alert")).toContainText(
+    "The applied input pointer and readiness selection disagree.",
+  )
+  await expect(verdict(page)).toHaveCount(0)
+
+  payload = summary(projects[0].id, {
+    core_readiness: readiness("CUSTOMER_NOT_READY", {
+      project_id: projects[0].id,
+      selection: null,
+      customer: null,
+      sources: [],
+    }),
+  })
+  await page.reload()
+  await expect(verdict(page)).toHaveAttribute(
+    "data-readiness-state",
+    "CUSTOMER_NOT_READY",
+  )
+  await expect(panel(page).getByRole("alert")).toHaveCount(0)
+
+  payload = summary(projects[0].id, {
+    customer: {
+      applied_upload_id: null,
+      applied_revision_id: null,
+      accepted_upload_count: 0,
+      unapplied_upload_count: 0,
+    },
+    core_readiness: readiness("CUSTOMER_NOT_READY", {
+      project_id: projects[0].id,
+      selection: null,
+      customer: null,
+      sources: [],
+    }),
+  })
+  await page.reload()
+  await expect(verdict(page)).toHaveAttribute(
+    "data-readiness-state",
+    "CUSTOMER_NOT_READY",
+  )
+  await expect(panel(page).getByRole("alert")).toHaveCount(0)
 })

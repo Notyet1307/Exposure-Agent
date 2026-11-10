@@ -768,7 +768,7 @@ test("real input summary reads stored readiness without writing", async ({
   ).toBeVisible()
   await expect(
     panel.getByText(
-      "Published version candidates: synthetic-core (readable published version)",
+      "Published version candidates: synthetic-core (published candidate (metadata only))",
       { exact: true },
     ),
   ).toBeVisible()
