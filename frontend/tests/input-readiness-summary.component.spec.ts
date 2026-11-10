@@ -795,7 +795,11 @@ test("optional NetFlow failure does not block core and facts stay separate", asy
 test("idle material expiry withholds ready and refreshes by GET", async ({
   page,
 }) => {
-  const deadline = new Date(Date.now() + 3000).toISOString()
+  // Date stays fixed across navigation while timers run for React Query notifications.
+  const fixed = new Date("2026-11-10T00:00:00Z")
+  await page.clock.install({ time: fixed })
+  await page.clock.setFixedTime(fixed)
+  const deadline = new Date(fixed.getTime() + 3000).toISOString()
   let requests = 0
   await mockDashboard(page, (route) => {
     requests += 1
@@ -814,21 +818,28 @@ test("idle material expiry withholds ready and refreshes by GET", async ({
   })
   await open(page)
   await expect(verdict(page)).toHaveAttribute("data-readiness-state", "READY")
+  const beforeExpiry = requests
+  await page.clock.setFixedTime(fixed.getTime() + 3000)
+  await page.clock.fastForward(3001)
   await expect(
     panel(page).getByText(
       "A known material deadline has passed. No ready claim is shown; a fresh GET is required.",
       { exact: true },
     ),
-  ).toBeVisible({ timeout: 10_000 })
+  ).toBeVisible()
   await expect(verdict(page)).toHaveCount(0)
-  await expect.poll(() => requests).toBeGreaterThan(1)
+  await expect.poll(() => requests).toBeGreaterThan(beforeExpiry)
 })
 
 test("expired material stays hidden while a retry GET is pending", async ({
   page,
 }) => {
-  const deadline = new Date(Date.now() + 3000).toISOString()
-  const freshDeadline = new Date(Date.now() + 3_600_000).toISOString()
+  // Date stays fixed across navigation while timers run for React Query notifications.
+  const fixed = new Date("2026-11-10T00:00:00Z")
+  await page.clock.install({ time: fixed })
+  await page.clock.setFixedTime(fixed)
+  const deadline = new Date(fixed.getTime() + 3000).toISOString()
+  const freshDeadline = new Date(fixed.getTime() + 3_600_000).toISOString()
   let hold = false
   let signalFirstHeld: () => void = () => {}
   const firstHeld = new Promise<void>((resolve) => {
@@ -861,6 +872,8 @@ test("expired material stays hidden while a retry GET is pending", async ({
   await open(page)
   await expect(verdict(page)).toHaveAttribute("data-readiness-state", "READY")
   hold = true
+  await page.clock.setFixedTime(fixed.getTime() + 3000)
+  await page.clock.fastForward(3001)
   await expect(
     panel(page).getByText(
       "A known material deadline has passed. No ready claim is shown; a fresh GET is required.",
