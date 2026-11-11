@@ -25,6 +25,7 @@ import IPAssets from "@/components/IPAssets"
 import NetFlowDatasets from "@/components/NetFlowDatasets"
 import { NetflowInputManagement } from "@/components/NetflowInputManagement"
 import ProjectPreparation from "@/components/ProjectPreparation"
+import { ReplacementPreviewDetails } from "@/components/ReplacementPreviewDetails"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -332,6 +333,7 @@ type PreviewValue = Readonly<{
   candidate: Candidate
   request: ReplacementRequest
   impact: ReplacementPreview
+  generation: string
 }>
 
 type FlowIssue = Readonly<{ message: string; diagnostic?: unknown }>
@@ -649,7 +651,12 @@ function ProjectInputs({
       }
       setFlow({
         kind: "preview",
-        value: { candidate, request, impact },
+        value: {
+          candidate,
+          request,
+          impact,
+          generation: crypto.randomUUID(),
+        },
       })
     },
     onError: (error, { candidate, ticket: previewTicket }) => {
@@ -681,6 +688,41 @@ function ProjectInputs({
     busy.current = "preview"
     setFlow({ kind: "previewing", candidate })
     selectionMutation.mutate({ candidate, ticket: previewTicket })
+  }
+  const previewConflict = (
+    generation: string,
+    reason: "version" | "profile",
+  ) => {
+    const current = flowRef.current
+    if (
+      current.kind !== "preview" ||
+      current.value.generation !== generation ||
+      busy.current !== null
+    ) {
+      return
+    }
+    // This only invalidates the matching unsubmitted preview; once preparation
+    // or submission has started, its own ticket and idempotency key govern it.
+    flowTicket.current += 1
+    busy.current = null
+    setFlow({
+      kind: "candidate-error",
+      candidate: current.value.candidate,
+      candidateId: current.value.candidate.id,
+      reason,
+      issue: {
+        message:
+          reason === "version"
+            ? t(
+                "The current input changed while this preview was open. Nothing was applied; preview the latest version again.",
+                "此预览打开期间当前输入已变化。尚未应用任何内容；请重新预览最新版本。",
+              )
+            : t(
+                "The current profile changed while this preview was open. Nothing was applied; preview the latest version again.",
+                "此预览打开期间当前配置已变化。尚未应用任何内容；请重新预览最新版本。",
+              ),
+      },
+    })
   }
   const validReceipt = (
     receipt: ReplacementReceipt,
@@ -1456,6 +1498,17 @@ function ProjectInputs({
                 </dd>
               </div>
             </dl>
+            {flow.kind === "preview" && (
+              <ReplacementPreviewDetails
+                key={previewValue.generation}
+                actorId={actorId}
+                projectId={project.id}
+                request={previewValue.request}
+                summary={previewValue.impact}
+                generation={previewValue.generation}
+                onConflict={previewConflict}
+              />
+            )}
             <div>
               <h3 className="text-sm font-medium">{t("Warnings", "警告")}</h3>
               <WarningSummary warnings={previewValue.candidate.warnings} />
