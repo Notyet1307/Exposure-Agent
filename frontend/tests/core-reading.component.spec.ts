@@ -1,13 +1,13 @@
 import { comparisonReturnFields } from "../src/lib/comparisonReturn"
 import { expect, type Page, test } from "./fixtures"
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, baseURL }) => {
+  if (!baseURL)
+    throw new Error("The core-reading guard requires Playwright's baseURL")
+  const allowedOrigin = new URL(baseURL).origin
   await page.context().route("**/*", (route) => {
     const url = new URL(route.request().url())
-    if (
-      url.origin !== "http://127.0.0.1:5185" ||
-      url.pathname.startsWith("/api/")
-    )
+    if (url.origin !== allowedOrigin || url.pathname.startsWith("/api/"))
       return route.abort("blockedbyclient")
     return route.continue()
   })
@@ -2478,7 +2478,7 @@ test("fixed provenance, distinct versions and times, explicit zero and hostile r
 
 test("both columns and stacked narrow layouts keep reading controls reachable without overflow", async ({
   page,
-}) => {
+}, testInfo) => {
   await serveEvidencePage(page)
   await page.goto(evidenceBase)
   const drawer = evidenceDrawer(page)
@@ -2525,7 +2525,7 @@ test("both columns and stacked narrow layouts keep reading controls reachable wi
       .click()
     await expect(cloudHeading).toBeFocused()
     await page.screenshot({
-      path: `/Users/yet/ops/tasks/exposure2026/evidence-comparison-20261110/implementation/screenshots/evidence-sources-${width}.png`,
+      path: testInfo.outputPath(`evidence-sources-${width}.png`),
       fullPage: false,
     })
   }
