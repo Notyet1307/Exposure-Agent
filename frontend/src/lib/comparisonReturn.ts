@@ -1,3 +1,5 @@
+import { comparisonPageMax } from "./comparisonEvidencePages"
+
 export const comparisonClasses = [
   "all",
   "both",
@@ -18,7 +20,17 @@ export type ComparisonReturn = {
   back_address?: string
   back_evidence?: "customer" | "cloud"
   back_evidence_page?: number
+  back_customer_page?: number
+  back_cloud_page?: number
   back_extra_page?: number
+}
+
+const optionalPage = (value: unknown) => {
+  if (value === undefined) return undefined
+  const page = Number(value)
+  return Number.isSafeInteger(page) && page >= 0 && page <= comparisonPageMax
+    ? page
+    : undefined
 }
 
 export function comparisonReturnFields(value: object): ComparisonReturn {
@@ -51,6 +63,8 @@ export function comparisonReturnFields(value: object): ComparisonReturn {
       Number(s.back_evidence_page) >= 0
         ? Number(s.back_evidence_page)
         : 0,
+    back_customer_page: optionalPage(s.back_customer_page),
+    back_cloud_page: optionalPage(s.back_cloud_page),
     back_extra_page:
       Number.isSafeInteger(Number(s.back_extra_page)) &&
       Number(s.back_extra_page) >= 0

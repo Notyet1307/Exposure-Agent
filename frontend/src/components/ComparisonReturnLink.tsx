@@ -28,6 +28,8 @@ export function ComparisonReturnLink({
           core_address: back.back_address,
           core_evidence: back.back_evidence,
           core_evidence_page: back.back_evidence_page,
+          core_customer_page: back.back_customer_page,
+          core_cloud_page: back.back_cloud_page,
           core_extra_page: back.back_extra_page,
         }}
       >
