@@ -2196,6 +2196,69 @@ export type Registered = {
     counts_state: string;
 };
 
+/**
+ * The fixed preview basis. Nullable expected IDs are required keys here.
+ */
+export type ReplacementDetailBasis = {
+    candidate_upload_id: string;
+    expected_upload_id: (string | null);
+    expected_revision_id: (string | null);
+    expected_profile_id: string;
+};
+
+export type ReplacementDetailGroup = {
+    canonical_ip: string;
+    current_records: number;
+    candidate_records: number;
+};
+
+/**
+ * Lossless detail-only numeric cell; ledger storage keeps its original Cell.
+ */
+export type ReplacementDetailNumber = {
+    kind: "number";
+    numeric_type: 'integer' | 'float';
+    value: string;
+};
+
+export type numeric_type = 'integer' | 'float';
+
+export type ReplacementDetailRecord = {
+    entry_id: string;
+    position: number;
+    canonical_ip: string;
+    fields: {
+        [key: string]: (string | boolean | TemporalCell | ReplacementDetailNumber | null);
+    };
+};
+
+export type ReplacementDetailsRequest = {
+    basis: ReplacementDetailBasis;
+    selector: (ReplacementGroupSelector | ReplacementRecordSelector);
+};
+
+export type ReplacementGroupPage = {
+    actor_id: string;
+    project_id: string;
+    basis: ReplacementDetailBasis;
+    selector: ReplacementGroupSelector;
+    kind: "groups";
+    category: 'added' | 'removed' | 'changed';
+    skip: number;
+    limit: number;
+    total_groups: number;
+    groups: Array<ReplacementDetailGroup>;
+};
+
+export type category = 'added' | 'removed' | 'changed';
+
+export type ReplacementGroupSelector = {
+    kind: "groups";
+    category: 'added' | 'removed' | 'changed';
+    skip?: number;
+    limit?: number;
+};
+
 export type ReplacementPreview = {
     candidate_upload_id: string;
     current_upload_id: (string | null);
@@ -2220,6 +2283,32 @@ export type ReplacementReceipt = {
     expected_profile_id: string;
     request_sha256: string;
     created_at: string;
+};
+
+export type ReplacementRecordPage = {
+    actor_id: string;
+    project_id: string;
+    basis: ReplacementDetailBasis;
+    selector: ReplacementRecordSelector;
+    kind: "records";
+    category: 'added' | 'removed' | 'changed';
+    canonical_ip: string;
+    side: 'current' | 'candidate';
+    skip: number;
+    limit: number;
+    total_records: number;
+    records: Array<ReplacementDetailRecord>;
+};
+
+export type side2 = 'current' | 'candidate';
+
+export type ReplacementRecordSelector = {
+    kind: "records";
+    category: 'added' | 'removed' | 'changed';
+    canonical_ip: string;
+    side: 'current' | 'candidate';
+    skip?: number;
+    limit?: number;
 };
 
 export type ReplacementRequest = {
@@ -3164,6 +3253,13 @@ export type CustomerLedgerReadCustomerLedgerOperationData = {
 };
 
 export type CustomerLedgerReadCustomerLedgerOperationResponse = (app__domain__customer_ledger__RevisionPublic);
+
+export type CustomerLedgerReadCustomerUploadReplacementDetailsData = {
+    projectId: string;
+    requestBody: ReplacementDetailsRequest;
+};
+
+export type CustomerLedgerReadCustomerUploadReplacementDetailsResponse = ((ReplacementGroupPage | ReplacementRecordPage));
 
 export type ExternalAssetsReadExternalSourcesData = {
     projectId: string;

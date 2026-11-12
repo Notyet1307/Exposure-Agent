@@ -1654,7 +1654,14 @@ test("fixed material return preserves both source pages and the legacy return fi
   )
   await expect(sourcePageNav(page, "customer")).toContainText("Page 2 of 2")
   await expect(sourcePageNav(page, "cloud")).toContainText("Page 2 of 2")
-  await page.getByText("View the materials used here", { exact: true }).click()
+  // The non-modal evidence sheet covers the page; keyboard activation keeps
+  // the fixed address and both source pages in the URL.
+  const materials = page.getByText("View the materials used here", {
+    exact: true,
+  })
+  await materials.focus()
+  await expect(materials).toBeFocused()
+  await page.keyboard.press("Enter")
   const material = page
     .getByRole("link", {
       name: "Read the customer version used here",
@@ -1665,7 +1672,10 @@ test("fixed material return preserves both source pages and the legacy return fi
   const materialQuery = new URL(href!, "http://synthetic.test").searchParams
   expect(materialQuery.get("back_customer_page")).toBe("1")
   expect(materialQuery.get("back_cloud_page")).toBe("1")
-  await material.click()
+  await expect(material).toBeVisible()
+  await material.focus()
+  await expect(material).toBeFocused()
+  await page.keyboard.press("Enter")
   await expect(page).toHaveURL(/customer-ledger/)
   await page
     .getByRole("link", { name: "Return to comparison results", exact: true })
@@ -2257,13 +2267,18 @@ test("a late old evidence page response cannot replace the selected source page"
 test("expiry while the drawer is open clears fixed contents and closes the drawer", async ({
   page,
 }) => {
-  const deadline = new Date(Date.now() + 1500).toISOString()
+  // The controlled clock keeps the deadline open through the dev-server load;
+  // expiry is advanced only after the drawer is visible.
+  const now = Date.now()
+  const deadline = new Date(now + 60_000).toISOString()
   const expires = structuredClone(pinnedSummary)
   expires.pins.CLOUD.domains.ip.retain_until = deadline
   expires.pins.CLOUD.domains.port.retain_until = deadline
   await serveEvidencePage(page, { summary: expires })
+  await page.clock.install({ time: now })
   await page.goto(evidenceBase)
   await expect(evidenceDrawer(page)).toBeVisible()
+  await page.clock.fastForward(61_000)
   await expect(
     page.getByText(
       "The selected data has expired. Restricted contents have been cleared.",

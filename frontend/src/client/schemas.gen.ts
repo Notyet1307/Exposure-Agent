@@ -9915,6 +9915,258 @@ export const RegisteredSchema = {
     title: 'Registered'
 } as const;
 
+export const ReplacementDetailBasisSchema = {
+    properties: {
+        candidate_upload_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Candidate Upload Id'
+        },
+        expected_upload_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Upload Id'
+        },
+        expected_revision_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Expected Revision Id'
+        },
+        expected_profile_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Expected Profile Id'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['candidate_upload_id', 'expected_upload_id', 'expected_revision_id', 'expected_profile_id'],
+    title: 'ReplacementDetailBasis',
+    description: 'The fixed preview basis. Nullable expected IDs are required keys here.'
+} as const;
+
+export const ReplacementDetailGroupSchema = {
+    properties: {
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        current_records: {
+            type: 'integer',
+            title: 'Current Records'
+        },
+        candidate_records: {
+            type: 'integer',
+            title: 'Candidate Records'
+        }
+    },
+    type: 'object',
+    required: ['canonical_ip', 'current_records', 'candidate_records'],
+    title: 'ReplacementDetailGroup'
+} as const;
+
+export const ReplacementDetailNumberSchema = {
+    properties: {
+        kind: {
+            type: 'string',
+            const: 'number',
+            title: 'Kind'
+        },
+        numeric_type: {
+            type: 'string',
+            enum: ['integer', 'float'],
+            title: 'Numeric Type'
+        },
+        value: {
+            type: 'string',
+            title: 'Value'
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['kind', 'numeric_type', 'value'],
+    title: 'ReplacementDetailNumber',
+    description: 'Lossless detail-only numeric cell; ledger storage keeps its original Cell.'
+} as const;
+
+export const ReplacementDetailRecordSchema = {
+    properties: {
+        entry_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Entry Id'
+        },
+        position: {
+            type: 'integer',
+            title: 'Position'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        fields: {
+            additionalProperties: {
+                anyOf: [
+                    {
+                        type: 'string',
+                        maxLength: 32767
+                    },
+                    {
+                        type: 'boolean'
+                    },
+                    {
+                        '$ref': '#/components/schemas/TemporalCell'
+                    },
+                    {
+                        '$ref': '#/components/schemas/ReplacementDetailNumber'
+                    },
+                    {
+                        type: 'null'
+                    }
+                ]
+            },
+            propertyNames: {
+                enum: ['asset_ip', 'start_port', 'end_port', 'is_web', 'web_url', 'service_type', 'asset_owner', 'asset_department', 'port_owner', 'department', 'serial']
+            },
+            type: 'object',
+            title: 'Fields'
+        }
+    },
+    type: 'object',
+    required: ['entry_id', 'position', 'canonical_ip', 'fields'],
+    title: 'ReplacementDetailRecord'
+} as const;
+
+export const ReplacementDetailsRequestSchema = {
+    properties: {
+        basis: {
+            '$ref': '#/components/schemas/ReplacementDetailBasis'
+        },
+        selector: {
+            oneOf: [
+                {
+                    '$ref': '#/components/schemas/ReplacementGroupSelector'
+                },
+                {
+                    '$ref': '#/components/schemas/ReplacementRecordSelector'
+                }
+            ],
+            title: 'Selector',
+            discriminator: {
+                propertyName: 'kind',
+                mapping: {
+                    groups: '#/components/schemas/ReplacementGroupSelector',
+                    records: '#/components/schemas/ReplacementRecordSelector'
+                }
+            }
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['basis', 'selector'],
+    title: 'ReplacementDetailsRequest'
+} as const;
+
+export const ReplacementGroupPageSchema = {
+    properties: {
+        actor_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Actor Id'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        basis: {
+            '$ref': '#/components/schemas/ReplacementDetailBasis'
+        },
+        selector: {
+            '$ref': '#/components/schemas/ReplacementGroupSelector'
+        },
+        kind: {
+            type: 'string',
+            const: 'groups',
+            title: 'Kind'
+        },
+        category: {
+            type: 'string',
+            enum: ['added', 'removed', 'changed'],
+            title: 'Category'
+        },
+        skip: {
+            type: 'integer',
+            title: 'Skip'
+        },
+        limit: {
+            type: 'integer',
+            title: 'Limit'
+        },
+        total_groups: {
+            type: 'integer',
+            title: 'Total Groups'
+        },
+        groups: {
+            items: {
+                '$ref': '#/components/schemas/ReplacementDetailGroup'
+            },
+            type: 'array',
+            title: 'Groups'
+        }
+    },
+    type: 'object',
+    required: ['actor_id', 'project_id', 'basis', 'selector', 'kind', 'category', 'skip', 'limit', 'total_groups', 'groups'],
+    title: 'ReplacementGroupPage'
+} as const;
+
+export const ReplacementGroupSelectorSchema = {
+    properties: {
+        kind: {
+            type: 'string',
+            const: 'groups',
+            title: 'Kind'
+        },
+        category: {
+            type: 'string',
+            enum: ['added', 'removed', 'changed'],
+            title: 'Category'
+        },
+        skip: {
+            type: 'integer',
+            maximum: 9007199254740991,
+            minimum: 0,
+            title: 'Skip',
+            default: 0
+        },
+        limit: {
+            type: 'integer',
+            maximum: 25,
+            minimum: 1,
+            title: 'Limit',
+            default: 25
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['kind', 'category'],
+    title: 'ReplacementGroupSelector'
+} as const;
+
 export const ReplacementPreviewSchema = {
     properties: {
         candidate_upload_id: {
@@ -10049,6 +10301,112 @@ export const ReplacementReceiptSchema = {
     type: 'object',
     required: ['id', 'project_id', 'created_by', 'candidate_upload_id', 'expected_upload_id', 'expected_revision_id', 'expected_profile_id', 'request_sha256', 'created_at'],
     title: 'ReplacementReceipt'
+} as const;
+
+export const ReplacementRecordPageSchema = {
+    properties: {
+        actor_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Actor Id'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        basis: {
+            '$ref': '#/components/schemas/ReplacementDetailBasis'
+        },
+        selector: {
+            '$ref': '#/components/schemas/ReplacementRecordSelector'
+        },
+        kind: {
+            type: 'string',
+            const: 'records',
+            title: 'Kind'
+        },
+        category: {
+            type: 'string',
+            enum: ['added', 'removed', 'changed'],
+            title: 'Category'
+        },
+        canonical_ip: {
+            type: 'string',
+            title: 'Canonical Ip'
+        },
+        side: {
+            type: 'string',
+            enum: ['current', 'candidate'],
+            title: 'Side'
+        },
+        skip: {
+            type: 'integer',
+            title: 'Skip'
+        },
+        limit: {
+            type: 'integer',
+            title: 'Limit'
+        },
+        total_records: {
+            type: 'integer',
+            title: 'Total Records'
+        },
+        records: {
+            items: {
+                '$ref': '#/components/schemas/ReplacementDetailRecord'
+            },
+            type: 'array',
+            title: 'Records'
+        }
+    },
+    type: 'object',
+    required: ['actor_id', 'project_id', 'basis', 'selector', 'kind', 'category', 'canonical_ip', 'side', 'skip', 'limit', 'total_records', 'records'],
+    title: 'ReplacementRecordPage'
+} as const;
+
+export const ReplacementRecordSelectorSchema = {
+    properties: {
+        kind: {
+            type: 'string',
+            const: 'records',
+            title: 'Kind'
+        },
+        category: {
+            type: 'string',
+            enum: ['added', 'removed', 'changed'],
+            title: 'Category'
+        },
+        canonical_ip: {
+            type: 'string',
+            maxLength: 45,
+            minLength: 1,
+            title: 'Canonical Ip'
+        },
+        side: {
+            type: 'string',
+            enum: ['current', 'candidate'],
+            title: 'Side'
+        },
+        skip: {
+            type: 'integer',
+            maximum: 9007199254740991,
+            minimum: 0,
+            title: 'Skip',
+            default: 0
+        },
+        limit: {
+            type: 'integer',
+            maximum: 10,
+            minimum: 1,
+            title: 'Limit',
+            default: 10
+        }
+    },
+    additionalProperties: false,
+    type: 'object',
+    required: ['kind', 'category', 'canonical_ip', 'side'],
+    title: 'ReplacementRecordSelector'
 } as const;
 
 export const ReplacementRequestSchema = {

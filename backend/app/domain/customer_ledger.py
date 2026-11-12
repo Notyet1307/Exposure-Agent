@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import ipaddress
 import json
+import math
+import re
 import tempfile
 import uuid
 from collections import Counter
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -25,6 +28,7 @@ from pydantic import (
     FiniteFloat,
     StrictBool,
     StrictInt,
+    model_validator,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, col, select
@@ -105,6 +109,45 @@ Cell = (
     | StrictBool
     | None
     | TemporalCell
+)
+
+_DETAIL_INTEGER_TEXT = re.compile(r"^(?:0|-?[1-9][0-9]*)$")
+_DETAIL_FLOAT_TEXT = re.compile(
+    r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$"
+)
+
+
+class ReplacementDetailNumber(BaseModel):
+    """Lossless detail-only numeric cell; ledger storage keeps its original Cell."""
+
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["number"]
+    numeric_type: Literal["integer", "float"]
+    value: str
+
+    @model_validator(mode="after")
+    def _validate_value(self) -> ReplacementDetailNumber:
+        if self.numeric_type == "integer":
+            if _DETAIL_INTEGER_TEXT.fullmatch(self.value) is None:
+                raise ValueError("detail_number_invalid")
+            return self
+        if _DETAIL_FLOAT_TEXT.fullmatch(self.value) is None:
+            raise ValueError("detail_number_invalid")
+        try:
+            finite = math.isfinite(float(self.value))
+        except ValueError:
+            finite = False
+        if not finite:
+            raise ValueError("detail_number_invalid")
+        return self
+
+
+DetailCell = (
+    Annotated[Text, Field(max_length=32767)]
+    | StrictBool
+    | None
+    | TemporalCell
+    | ReplacementDetailNumber
 )
 
 
@@ -189,6 +232,91 @@ class ReplacementPreview(BaseModel):
     added_ips: int
     removed_ips: int
     changed_ip_declarations: int
+
+
+class ReplacementDetailBasis(BaseModel):
+    """The fixed preview basis. Nullable expected IDs are required keys here."""
+
+    model_config = ConfigDict(extra="forbid")
+    candidate_upload_id: uuid.UUID
+    expected_upload_id: uuid.UUID | None
+    expected_revision_id: uuid.UUID | None
+    expected_profile_id: uuid.UUID
+
+
+DetailCategory = Literal["added", "removed", "changed"]
+DETAIL_SKIP_MAX = 9007199254740991
+
+
+class ReplacementGroupSelector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["groups"]
+    category: DetailCategory
+    skip: int = Field(default=0, ge=0, le=DETAIL_SKIP_MAX)
+    limit: int = Field(default=25, ge=1, le=25)
+
+
+class ReplacementRecordSelector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["records"]
+    category: DetailCategory
+    canonical_ip: Annotated[str, Field(min_length=1, max_length=45)]
+    side: Literal["current", "candidate"]
+    skip: int = Field(default=0, ge=0, le=DETAIL_SKIP_MAX)
+    limit: int = Field(default=10, ge=1, le=10)
+
+
+ReplacementDetailSelector = Annotated[
+    ReplacementGroupSelector | ReplacementRecordSelector,
+    Field(discriminator="kind"),
+]
+
+
+class ReplacementDetailsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    basis: ReplacementDetailBasis
+    selector: ReplacementDetailSelector
+
+
+class ReplacementDetailGroup(BaseModel):
+    canonical_ip: str
+    current_records: int
+    candidate_records: int
+
+
+class ReplacementDetailRecord(BaseModel):
+    entry_id: uuid.UUID
+    position: int
+    canonical_ip: str
+    fields: dict[FieldName, DetailCell]
+
+
+class ReplacementGroupPage(BaseModel):
+    actor_id: uuid.UUID
+    project_id: uuid.UUID
+    basis: ReplacementDetailBasis
+    selector: ReplacementGroupSelector
+    kind: Literal["groups"]
+    category: DetailCategory
+    skip: int
+    limit: int
+    total_groups: int
+    groups: list[ReplacementDetailGroup]
+
+
+class ReplacementRecordPage(BaseModel):
+    actor_id: uuid.UUID
+    project_id: uuid.UUID
+    basis: ReplacementDetailBasis
+    selector: ReplacementRecordSelector
+    kind: Literal["records"]
+    category: DetailCategory
+    canonical_ip: str
+    side: Literal["current", "candidate"]
+    skip: int
+    limit: int
+    total_records: int
+    records: list[ReplacementDetailRecord]
 
 
 class ReplacementReceipt(BaseModel):
@@ -434,37 +562,201 @@ def _declaration(row: LedgerEntry) -> str:
     return json.dumps(row.fields, sort_keys=True, ensure_ascii=False, default=str)
 
 
-def replacement_preview(
-    session: Session, project: Project, request: ReplacementRequest
-) -> ReplacementPreview:
-    candidate, current_rows, candidate_rows = _replacement_rows(
-        session, project, request
-    )
-    current_active = [row for row in current_rows if not row.archived]
-    candidate_active = [row for row in candidate_rows if not row.archived]
+@dataclass(frozen=True, slots=True)
+class _LedgerComparison:
+    """One request-local pure comparison of active source declarations."""
+
+    current_active: tuple[LedgerEntry, ...]
+    candidate_active: tuple[LedgerEntry, ...]
+    current_by_ip: dict[str, Counter[str]]
+    candidate_by_ip: dict[str, Counter[str]]
+    current_records_by_ip: dict[str, int]
+    candidate_records_by_ip: dict[str, int]
+    current_ips: frozenset[str]
+    candidate_ips: frozenset[str]
+    added_ips: frozenset[str]
+    removed_ips: frozenset[str]
+    changed_ips: frozenset[str]
+
+
+def _compare_rows(
+    current_rows: list[LedgerEntry], candidate_rows: list[LedgerEntry]
+) -> _LedgerComparison:
+    current_active = tuple(row for row in current_rows if not row.archived)
+    candidate_active = tuple(row for row in candidate_rows if not row.archived)
     current_by_ip: dict[str, Counter[str]] = {}
     candidate_by_ip: dict[str, Counter[str]] = {}
     for row in current_active:
         current_by_ip.setdefault(row.canonical_ip, Counter())[_declaration(row)] += 1
     for row in candidate_active:
         candidate_by_ip.setdefault(row.canonical_ip, Counter())[_declaration(row)] += 1
-    current_ips = set(current_by_ip)
-    candidate_ips = set(candidate_by_ip)
+    current_ips = frozenset(current_by_ip)
+    candidate_ips = frozenset(candidate_by_ip)
+    return _LedgerComparison(
+        current_active=current_active,
+        candidate_active=candidate_active,
+        current_by_ip=current_by_ip,
+        candidate_by_ip=candidate_by_ip,
+        current_records_by_ip={
+            ip: sum(counter.values()) for ip, counter in current_by_ip.items()
+        },
+        candidate_records_by_ip={
+            ip: sum(counter.values()) for ip, counter in candidate_by_ip.items()
+        },
+        current_ips=current_ips,
+        candidate_ips=candidate_ips,
+        added_ips=candidate_ips - current_ips,
+        removed_ips=current_ips - candidate_ips,
+        changed_ips=frozenset(
+            ip
+            for ip in current_ips & candidate_ips
+            if current_by_ip[ip] != candidate_by_ip[ip]
+        ),
+    )
+
+
+def replacement_preview(
+    session: Session, project: Project, request: ReplacementRequest
+) -> ReplacementPreview:
+    candidate, current_rows, candidate_rows = _replacement_rows(
+        session, project, request
+    )
+    comparison = _compare_rows(current_rows, candidate_rows)
     return ReplacementPreview(
         candidate_upload_id=candidate.id,
         current_upload_id=project.current_customer_upload_id,
         current_revision_id=project.current_customer_ledger_revision_id,
         profile_id=project.current_customer_upload_profile_id,
-        current_record_count=len(current_active),
-        current_unique_ips=len(current_ips),
-        candidate_record_count=len(candidate_active),
-        candidate_unique_ips=len(candidate_ips),
-        added_ips=len(candidate_ips - current_ips),
-        removed_ips=len(current_ips - candidate_ips),
-        changed_ip_declarations=sum(
-            current_by_ip[ip] != candidate_by_ip[ip]
-            for ip in current_ips & candidate_ips
-        ),
+        current_record_count=len(comparison.current_active),
+        current_unique_ips=len(comparison.current_ips),
+        candidate_record_count=len(comparison.candidate_active),
+        candidate_unique_ips=len(comparison.candidate_ips),
+        added_ips=len(comparison.added_ips),
+        removed_ips=len(comparison.removed_ips),
+        changed_ip_declarations=len(comparison.changed_ips),
+    )
+
+
+def _detail_ip_sort_key(value: str) -> tuple[int, int]:
+    address = ipaddress.ip_address(value)
+    return address.version, int(address)
+
+
+def _detail_category_ips(
+    comparison: _LedgerComparison, category: DetailCategory
+) -> frozenset[str]:
+    if category == "added":
+        return comparison.added_ips
+    if category == "removed":
+        return comparison.removed_ips
+    return comparison.changed_ips
+
+
+def _detail_request(basis: ReplacementDetailBasis) -> ReplacementRequest:
+    return ReplacementRequest(
+        candidate_upload_id=basis.candidate_upload_id,
+        expected_upload_id=basis.expected_upload_id,
+        expected_revision_id=basis.expected_revision_id,
+        expected_profile_id=basis.expected_profile_id,
+    )
+
+
+def _detail_cell(value: Cell) -> DetailCell:
+    """Tag numbers only in the detail projection; storage and old APIs stay unchanged."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return ReplacementDetailNumber(
+            kind="number", numeric_type="integer", value=str(value)
+        )
+    if isinstance(value, float):
+        return ReplacementDetailNumber(
+            kind="number", numeric_type="float", value=repr(value)
+        )
+    return value
+
+
+def replacement_details(
+    session: Session,
+    project: Project,
+    *,
+    actor_id: uuid.UUID,
+    request: ReplacementDetailsRequest,
+) -> ReplacementGroupPage | ReplacementRecordPage:
+    _candidate, current_rows, candidate_rows = _replacement_rows(
+        session, project, _detail_request(request.basis)
+    )
+    comparison = _compare_rows(current_rows, candidate_rows)
+    selector = request.selector
+    category_ips = _detail_category_ips(comparison, selector.category)
+    if isinstance(selector, ReplacementGroupSelector):
+        ordered = sorted(category_ips, key=_detail_ip_sort_key)
+        groups = ordered[selector.skip : selector.skip + selector.limit]
+        return ReplacementGroupPage(
+            actor_id=actor_id,
+            project_id=project.id,
+            basis=request.basis,
+            selector=selector,
+            kind="groups",
+            category=selector.category,
+            skip=selector.skip,
+            limit=selector.limit,
+            total_groups=len(ordered),
+            groups=[
+                ReplacementDetailGroup(
+                    canonical_ip=ip,
+                    current_records=comparison.current_records_by_ip.get(ip, 0),
+                    candidate_records=comparison.candidate_records_by_ip.get(ip, 0),
+                )
+                for ip in groups
+            ],
+        )
+    try:
+        canonical_ip = normalize_ip(selector.canonical_ip)
+    except IPRecordContractError:
+        raise LedgerError(
+            "ledger_diff_selector_invalid",
+            422,
+            diagnostic=Diagnostic(
+                code="ledger_diff_selector_invalid", field="canonical_ip"
+            ),
+        ) from None
+    if canonical_ip not in category_ips:
+        raise LedgerError("ledger_diff_group_not_found", 404)
+    side_rows = (
+        comparison.current_active
+        if selector.side == "current"
+        else comparison.candidate_active
+    )
+    rows = sorted(
+        (row for row in side_rows if row.canonical_ip == canonical_ip),
+        key=lambda row: (row.position, row.entry_id),
+    )
+    page = rows[selector.skip : selector.skip + selector.limit]
+    return ReplacementRecordPage(
+        actor_id=actor_id,
+        project_id=project.id,
+        basis=request.basis,
+        selector=selector.model_copy(update={"canonical_ip": canonical_ip}),
+        kind="records",
+        category=selector.category,
+        canonical_ip=canonical_ip,
+        side=selector.side,
+        skip=selector.skip,
+        limit=selector.limit,
+        total_records=len(rows),
+        records=[
+            ReplacementDetailRecord(
+                entry_id=row.entry_id,
+                position=row.position,
+                canonical_ip=row.canonical_ip,
+                fields={
+                    name: _detail_cell(field_value)
+                    for name, field_value in row.fields.items()
+                },
+            )
+            for row in page
+        ],
     )
 
 

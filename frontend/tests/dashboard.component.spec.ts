@@ -5690,3 +5690,1508 @@ for (const status of [401, 404]) {
       .toBe(0)
   })
 }
+
+type DetailBody = {
+  basis: {
+    candidate_upload_id: string
+    expected_upload_id: string | null
+    expected_revision_id: string | null
+    expected_profile_id: string
+  }
+  selector:
+    | { kind: "groups"; category: string; skip: number; limit: number }
+    | {
+        kind: "records"
+        category: string
+        canonical_ip: string
+        side: string
+        skip: number
+        limit: number
+      }
+}
+
+function detailEnvelope(body: DetailBody, page: Record<string, unknown>) {
+  const { basis, selector } = body
+  return {
+    actor_id: operatorId,
+    project_id: projects[0].id,
+    basis: { ...basis },
+    selector: { ...selector },
+    ...page,
+  }
+}
+
+async function previewSelectionWithDetails(
+  page: Page,
+  details: (route: Route, body: DetailBody) => Promise<void> | void,
+  impact: Record<string, unknown> = {},
+  ledger?: (route: Route) => Promise<void> | void,
+) {
+  const first = uploads[projects[0].id].data[0]
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) =>
+      ledger ? ledger(route) : route.fulfill({ json: ledgerRead(null) }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: 3,
+          candidate_unique_ips: 2,
+          added_ips: 2,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+          ...impact,
+        },
+      }),
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/details`,
+    (route) => details(route, route.request().postDataJSON() as DetailBody),
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page.getByRole("button", { name: "Preview selection" }).click()
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  return first
+}
+
+function exactDetailFields() {
+  return {
+    asset_ip: "10.0.0.1",
+    start_port: { kind: "number", numeric_type: "integer", value: "443" },
+    end_port: { kind: "number", numeric_type: "integer", value: "8443" },
+    is_web: true,
+    web_url: null,
+    service_type: `long service ${"x".repeat(220)}`,
+    asset_department: { kind: "date", value: "2026-01-02" },
+    port_owner: "1",
+    department: "",
+    serial: { kind: "datetime", value: "2026-01-02T03:04:05" },
+  }
+}
+
+test("binds exact grouped source details to the fixed preview and pages both sides", async ({
+  page,
+}) => {
+  const detailBodies: DetailBody[] = []
+  const writes: string[] = []
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().includes("/api/v1/projects/")
+    )
+      writes.push(new URL(request.url()).pathname)
+  })
+  const first = await previewSelectionWithDetails(
+    page,
+    (route, body) => {
+      detailBodies.push(body)
+      if (body.selector.kind === "groups") {
+        const { skip, limit, category } = body.selector
+        const total = 27
+        const groups = Array.from(
+          { length: Math.max(0, Math.min(limit, total - skip)) },
+          (_, offset) => {
+            const index = skip + offset
+            const canonical_ip =
+              index === 1
+                ? "2001:db8:85a3::8a2e:370:7334"
+                : `10.0.0.${index + 1}`
+            return {
+              canonical_ip,
+              current_records: 0,
+              candidate_records: index === 0 ? 12 : 1,
+            }
+          },
+        )
+        return route.fulfill({
+          json: detailEnvelope(body, {
+            kind: "groups",
+            category,
+            skip,
+            limit,
+            total_groups: total,
+            groups,
+          }),
+        })
+      }
+      const { category, canonical_ip, side, skip, limit } = body.selector
+      const total =
+        side === "current" ? 0 : canonical_ip === "10.0.0.1" ? 12 : 1
+      const records =
+        side === "current"
+          ? []
+          : Array.from(
+              { length: Math.max(0, Math.min(limit, total - skip)) },
+              (_, offset) => ({
+                entry_id: `40000000-0000-0000-0000-${String(
+                  skip + offset + 1,
+                ).padStart(12, "0")}`,
+                position: skip + offset + 1,
+                canonical_ip,
+                fields: exactDetailFields(),
+              }),
+            )
+      return route.fulfill({
+        json: detailEnvelope(body, {
+          kind: "records",
+          category,
+          canonical_ip,
+          side,
+          skip,
+          limit,
+          total_records: total,
+          records,
+        }),
+      })
+    },
+    {
+      candidate_record_count: 38,
+      candidate_unique_ips: 27,
+      added_ips: 27,
+    },
+  )
+
+  const preview = page.getByTestId("replacement-preview")
+  await expect(
+    preview.getByText(
+      "First selection: all 38 candidate records across 27 IPs are reported as added IPs. Removed and changed IPs stay 0; no record is paired across files.",
+    ),
+  ).toBeVisible()
+  const added = preview.getByRole("button", { name: "Added IPs: 27" })
+  await added.click()
+  await expect(added).toHaveAttribute("aria-expanded", "true")
+  await expect(preview.getByText("Added IPs: 27 IP groups")).toBeVisible()
+  await expect(preview.getByText("1–25 of 27")).toBeVisible()
+  expect(detailBodies[0]).toEqual({
+    basis: {
+      candidate_upload_id: first.id,
+      expected_upload_id: null,
+      expected_revision_id: null,
+      expected_profile_id: first.profile_id,
+    },
+    selector: { kind: "groups", category: "added", skip: 0, limit: 25 },
+  })
+
+  const groupsPanel = preview.getByRole("region", { name: "Added IPs detail" })
+  await groupsPanel.getByRole("button", { name: "Next" }).click()
+  await expect(preview.getByText("26–27 of 27")).toBeVisible()
+  expect(detailBodies.at(-1)?.selector.skip).toBe(25)
+  await groupsPanel.getByRole("button", { name: "Previous" }).click()
+  await expect(preview.getByText("1–25 of 27")).toBeVisible()
+
+  const firstGroup = preview
+    .locator("li")
+    .filter({ has: page.getByText("10.0.0.1", { exact: true }) })
+  await firstGroup
+    .getByRole("button", { name: "Inspect source records" })
+    .click()
+  const currentSide = preview.getByRole("region", {
+    name: "Current source declarations",
+  })
+  const candidateSide = preview.getByRole("region", {
+    name: "Candidate source declarations",
+  })
+  await expect(
+    currentSide.getByText(
+      "No current source declarations for this IP in this preview.",
+    ),
+  ).toBeVisible()
+  await expect(
+    preview.getByText(
+      "Records from different files cannot be reliably matched. Current and candidate sections list each file's declarations independently; similar positions or the same IP do not imply correspondence.",
+    ),
+  ).toBeVisible()
+  await expect(
+    candidateSide.getByText("Source declaration 1", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    candidateSide.getByText("Source declaration 2", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    preview.getByText("Position and record ID are local to this file only."),
+  ).toHaveCount(10)
+  for (const [label, count] of [
+    ["Missing key", 10],
+    ["Empty string", 10],
+    ["null", 10],
+    ["integer", 20],
+    ["boolean", 10],
+    ["date", 10],
+    ["datetime", 10],
+    ["text", 30],
+  ] as const) {
+    await expect(
+      candidateSide.getByText(
+        label,
+        label === "Empty string" ? { exact: false } : { exact: true },
+      ),
+    ).toHaveCount(count)
+  }
+  await expect(
+    candidateSide.getByText(/long service x{10}/).first(),
+  ).toBeVisible()
+
+  const recordBodies = detailBodies.filter(
+    (body) => body.selector.kind === "records",
+  )
+  expect(
+    recordBodies.some(
+      (body) =>
+        body.selector.kind === "records" &&
+        body.selector.side === "current" &&
+        body.selector.canonical_ip === "10.0.0.1" &&
+        body.selector.skip === 0,
+    ),
+  ).toBe(true)
+  expect(
+    recordBodies.some(
+      (body) =>
+        body.selector.kind === "records" &&
+        body.selector.side === "candidate" &&
+        body.selector.canonical_ip === "10.0.0.1" &&
+        body.selector.skip === 0,
+    ),
+  ).toBe(true)
+
+  await expect(preview.getByText("1–10 of 12")).toBeVisible()
+  const candidatePager = preview.getByRole("navigation", {
+    name: "Candidate source records pagination",
+  })
+  await candidatePager.getByRole("button", { name: "Next" }).click()
+  await expect(preview.getByText("11–12 of 12")).toBeVisible()
+  await expect(candidatePager.getByText("11–12 of 12")).toBeFocused()
+  expect(
+    detailBodies.some(
+      (body) =>
+        body.selector.kind === "records" &&
+        body.selector.side === "candidate" &&
+        body.selector.skip === 10,
+    ),
+  ).toBe(true)
+  await expect(
+    candidateSide.getByText("Source declaration 11", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    candidateSide.getByText("Source declaration 12", { exact: true }),
+  ).toBeVisible()
+
+  await page.setViewportSize({ width: 320, height: 900 })
+  const fits = await preview.evaluate(
+    (element) => element.scrollWidth <= element.clientWidth + 1,
+  )
+  expect(fits).toBe(true)
+
+  await preview.getByRole("button", { name: "Close records" }).click()
+  await expect(
+    firstGroup.getByRole("button", { name: "Inspect source records" }),
+  ).toBeFocused()
+  await preview.getByRole("button", { name: "Close details" }).click()
+  await expect(added).toBeFocused()
+  expect(
+    writes.some(
+      (path) =>
+        path.endsWith("/customer-ledger/replacements") &&
+        !path.endsWith("/preview") &&
+        !path.endsWith("/details"),
+    ),
+  ).toBe(false)
+})
+
+test("fails closed when detail identity or totals do not match the preview", async ({
+  page,
+}) => {
+  await previewSelectionWithDetails(page, (route, body) => {
+    if (body.selector.kind !== "groups") {
+      return route.fulfill({ status: 500 })
+    }
+    return route.fulfill({
+      json: detailEnvelope(body, {
+        actor_id: "30000000-0000-0000-0000-000000000002",
+        kind: "groups",
+        category: body.selector.category,
+        skip: body.selector.skip,
+        limit: body.selector.limit,
+        total_groups: 2,
+        groups: [],
+      }),
+    })
+  })
+  const preview = page.getByTestId("replacement-preview")
+  await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+  await expect(
+    preview.getByRole("heading", {
+      name: "Detail did not match the fixed preview",
+    }),
+  ).toBeVisible()
+  await expect(
+    preview.getByText(
+      "The source detail response failed its identity or total check. No detail is shown and nothing was applied.",
+    ),
+  ).toBeVisible()
+  await expect(preview.getByText("Bounded source detail")).toHaveCount(0)
+  await expect(
+    preview.getByRole("button", { name: "Set as current input" }),
+  ).toBeVisible()
+})
+
+test("hides detail on denial and distinguishes a missing group from a receipt", async ({
+  page,
+}) => {
+  let denied = true
+  await previewSelectionWithDetails(page, (route, _body) => {
+    if (denied) {
+      return route.fulfill({
+        status: 403,
+        json: { detail: { code: "forbidden" } },
+      })
+    }
+    return route.fulfill({
+      status: 404,
+      json: { detail: { code: "ledger_diff_group_not_found" } },
+    })
+  })
+  const preview = page.getByTestId("replacement-preview")
+  await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+  await expect(
+    preview.getByRole("heading", { name: "Detail access denied" }),
+  ).toBeVisible()
+  await expect(preview.getByText("10.0.0.1")).toHaveCount(0)
+  await expect(preview.getByTestId("operation-state")).toHaveCount(0)
+
+  denied = false
+  await preview.getByRole("button", { name: "Close details" }).count()
+  await page.getByRole("button", { name: "Cancel", exact: true }).click()
+  await expect(preview).toHaveCount(0)
+  await page.getByRole("button", { name: "Preview selection" }).click()
+  const nextPreview = page.getByTestId("replacement-preview")
+  await nextPreview.getByRole("button", { name: "Added IPs: 2" }).click()
+  await expect(
+    nextPreview.getByRole("heading", {
+      name: "Detail no longer matches the preview",
+    }),
+  ).toBeVisible()
+  await expect(
+    nextPreview.getByText(
+      /close this preview and read the latest version again/i,
+    ),
+  ).toBeVisible()
+  await expect(nextPreview.getByText("Selection outcome unknown")).toHaveCount(
+    0,
+  )
+})
+
+test("invalidates only the matching unsubmitted preview on a detail conflict", async ({
+  page,
+}) => {
+  let previewRequests = 0
+  let groupRequests = 0
+  const applyPaths: string[] = []
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/customer-ledger/replacements")
+    )
+      applyPaths.push(new URL(request.url()).pathname)
+  })
+  await previewSelectionWithDetails(page, (route, body) => {
+    if (body.selector.kind === "groups") {
+      groupRequests += 1
+      if (groupRequests === 1) {
+        return route.fulfill({
+          status: 409,
+          json: { detail: { code: "ledger_version_conflict" } },
+        })
+      }
+      return route.fulfill({
+        json: detailEnvelope(body, {
+          kind: "groups",
+          category: body.selector.category,
+          skip: body.selector.skip,
+          limit: body.selector.limit,
+          total_groups: 2,
+          groups: [
+            {
+              canonical_ip: "10.0.0.1",
+              current_records: 0,
+              candidate_records: 2,
+            },
+            {
+              canonical_ip: "10.0.0.2",
+              current_records: 0,
+              candidate_records: 1,
+            },
+          ],
+        }),
+      })
+    }
+    return route.fulfill({ status: 500 })
+  })
+  page.on("request", (request) => {
+    if (request.url().includes("/customer-ledger/replacements/preview"))
+      previewRequests += 1
+  })
+  const preview = page.getByTestId("replacement-preview")
+  await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+  await expect(
+    page.getByRole("heading", { name: "Current version changed" }),
+  ).toBeVisible()
+  await expect(preview).toHaveCount(0)
+  const again = page.getByRole("button", {
+    name: "Read latest version and preview again",
+  })
+  await expect(again).toBeVisible()
+  const previewsBefore = previewRequests
+  await again.click()
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  expect(previewRequests).toBeGreaterThan(previewsBefore)
+  const nextPreview = page.getByTestId("replacement-preview")
+  await nextPreview.getByRole("button", { name: "Added IPs: 2" }).click()
+  const firstGroup = nextPreview
+    .locator("li")
+    .filter({ has: page.getByText("10.0.0.1", { exact: true }) })
+  await expect(
+    firstGroup.getByRole("button", { name: "Inspect source records" }),
+  ).toBeVisible()
+  expect(applyPaths).toEqual([])
+})
+
+test("refuses a preview whose current tuple changed while it was open", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  let ledger = ledgerRead(null)
+  let ledgerReads = 0
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger?*`,
+    (route) => {
+      ledgerReads += 1
+      return route.fulfill({ json: ledger })
+    },
+  )
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements/preview`,
+    (route) =>
+      route.fulfill({
+        json: {
+          candidate_upload_id: first.id,
+          current_upload_id: null,
+          current_revision_id: null,
+          profile_id: first.profile_id,
+          current_record_count: 0,
+          current_unique_ips: 0,
+          candidate_record_count: 3,
+          candidate_unique_ips: 2,
+          added_ips: 2,
+          removed_ips: 0,
+          changed_ip_declarations: 0,
+        },
+      }),
+  )
+  await page.goto(`/?project=${projects[0].id}&view=inputs`)
+  await page.getByRole("button", { name: "Preview selection" }).click()
+  await expect(page.getByTestId("replacement-preview")).toBeVisible()
+  await page.waitForLoadState("networkidle")
+  const settledReads = ledgerReads
+  ledger = ledgerRead("20000000-0000-0000-0000-000000000099")
+  await page.bringToFront()
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("focus"))
+    window.dispatchEvent(new Event("visibilitychange"))
+  })
+  await expect.poll(() => ledgerReads).toBeGreaterThan(settledReads)
+  await expect(
+    page.getByRole("heading", { name: "Current version changed" }),
+  ).toBeVisible()
+  await expect(page.getByTestId("replacement-preview")).toHaveCount(0)
+  await expect(
+    page.getByRole("button", { name: "Read latest version and preview again" }),
+  ).toBeVisible()
+})
+
+test("explains a preview with no differences and an empty category", async ({
+  page,
+}) => {
+  await previewSelectionWithDetails(
+    page,
+    (route, body) => {
+      return route.fulfill({
+        json: detailEnvelope(body, {
+          kind: "groups",
+          category: "added",
+          skip: 0,
+          limit: 25,
+          total_groups: 0,
+          groups: [],
+        }),
+      })
+    },
+    {
+      candidate_record_count: 0,
+      candidate_unique_ips: 0,
+      added_ips: 0,
+    },
+  )
+  const preview = page.getByTestId("replacement-preview")
+  await expect(
+    preview.getByText(
+      "No added, removed or changed IP declarations in this preview.",
+    ),
+  ).toBeVisible()
+  await preview.getByRole("button", { name: "Added IPs: 0" }).click()
+  await expect(
+    preview.getByText("No added IP groups in this preview."),
+  ).toBeVisible()
+})
+
+test("maps a detail profile conflict to the explicit profile re-preview", async ({
+  page,
+}) => {
+  const applyPaths: string[] = []
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/customer-ledger/replacements")
+    )
+      applyPaths.push(new URL(request.url()).pathname)
+  })
+  await previewSelectionWithDetails(page, (route) => {
+    return route.fulfill({
+      status: 409,
+      json: { detail: { code: "ledger_profile_changed" } },
+    })
+  })
+  const preview = page.getByTestId("replacement-preview")
+  await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+  await expect(
+    page.getByRole("heading", { name: "Current profile changed" }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", {
+      name: "Read latest version and preview again",
+    }),
+  ).toBeVisible()
+  await expect(preview).toHaveCount(0)
+  expect(applyPaths).toEqual([])
+})
+
+function groupPageFor(body: DetailBody) {
+  return {
+    kind: "groups",
+    category: body.selector.category,
+    skip: body.selector.skip,
+    limit: body.selector.limit,
+    total_groups: 2,
+    groups: [
+      { canonical_ip: "10.0.0.1", current_records: 0, candidate_records: 2 },
+      { canonical_ip: "10.0.0.2", current_records: 0, candidate_records: 1 },
+    ],
+  }
+}
+
+function recordPageFor(
+  body: DetailBody,
+  totals: { current: number; candidate: number },
+) {
+  if (body.selector.kind !== "records") throw new Error("records expected")
+  const selector = body.selector
+  const expectedTotal =
+    selector.side === "current" ? totals.current : totals.candidate
+  const length = Math.max(
+    0,
+    Math.min(selector.limit, expectedTotal - selector.skip),
+  )
+  return {
+    kind: "records",
+    category: selector.category,
+    canonical_ip: selector.canonical_ip,
+    side: selector.side,
+    skip: selector.skip,
+    limit: selector.limit,
+    total_records: expectedTotal,
+    records: Array.from({ length }, (_, offset) => ({
+      entry_id: `43000000-0000-0000-0000-${String(
+        selector.skip + offset + 1,
+      ).padStart(12, "0")}`,
+      position: selector.skip + offset + 1,
+      canonical_ip: selector.canonical_ip,
+      fields: exactDetailFields(),
+    })),
+  }
+}
+
+test("renders complete tagged detail values including lossless numbers and whitespace", async ({
+  page,
+}) => {
+  const serviceText = "  leading and trailing  "
+  const maximumText = `  ${"m".repeat(32767 - 4)}  `
+  const fields = {
+    asset_ip: "10.0.0.1",
+    start_port: {
+      kind: "number",
+      numeric_type: "integer",
+      value: "9007199254740993",
+    },
+    end_port: {
+      kind: "number",
+      numeric_type: "integer",
+      value: "-9007199254740993",
+    },
+    is_web: true,
+    web_url: null,
+    service_type: serviceText,
+    asset_department: { kind: "datetime", value: "2026-01-02T03:04:05" },
+    port_owner: { kind: "number", numeric_type: "float", value: "1.5" },
+    department: "",
+    serial: maximumText,
+  }
+  await previewSelectionWithDetails(
+    page,
+    (route, body) => {
+      if (body.selector.kind === "groups") {
+        return route.fulfill({
+          json: detailEnvelope(body, {
+            kind: "groups",
+            category: "added",
+            skip: 0,
+            limit: 25,
+            total_groups: 1,
+            groups: [
+              {
+                canonical_ip: "10.0.0.1",
+                current_records: 0,
+                candidate_records: 1,
+              },
+            ],
+          }),
+        })
+      }
+      const { side, skip, limit } = body.selector
+      if (side === "current") {
+        return route.fulfill({
+          json: detailEnvelope(body, {
+            kind: "records",
+            category: "added",
+            canonical_ip: "10.0.0.1",
+            side,
+            skip,
+            limit,
+            total_records: 0,
+            records: [],
+          }),
+        })
+      }
+      return route.fulfill({
+        json: detailEnvelope(body, {
+          kind: "records",
+          category: "added",
+          canonical_ip: "10.0.0.1",
+          side,
+          skip,
+          limit,
+          total_records: 1,
+          records: [
+            {
+              entry_id: "44000000-0000-0000-0000-000000000001",
+              position: 1,
+              canonical_ip: "10.0.0.1",
+              fields,
+            },
+          ],
+        }),
+      })
+    },
+    {
+      candidate_record_count: 1,
+      candidate_unique_ips: 1,
+      added_ips: 1,
+    },
+  )
+  const preview = page.getByTestId("replacement-preview")
+  await preview.getByRole("button", { name: "Added IPs: 1" }).click()
+  const firstGroup = preview
+    .locator("li")
+    .filter({ has: page.getByText("10.0.0.1", { exact: true }) })
+  await firstGroup
+    .getByRole("button", { name: "Inspect source records" })
+    .click()
+  const side = preview.getByRole("region", {
+    name: "Candidate source declarations",
+  })
+  const field = (label: string) =>
+    side
+      .locator("dt")
+      .filter({ hasText: new RegExp(`^${label}$`) })
+      .locator("xpath=following-sibling::dd")
+  const exactText = (label: string) =>
+    field(label).locator("span > span").first()
+
+  await expect(field("Asset IP")).toContainText("10.0.0.1")
+  await expect(field("Start port")).toContainText("9007199254740993")
+  await expect(field("Start port")).toContainText("integer")
+  await expect(field("End port")).toContainText("-9007199254740993")
+  await expect(field("Port owner")).toContainText("1.5")
+  await expect(field("Port owner")).toContainText("float")
+  await expect(field("Web interface")).toContainText("true")
+  await expect(field("Web URL")).toContainText("null")
+  await expect(field("Declared owner")).toContainText("Missing key")
+  await expect(field("Department")).toContainText('""')
+  await expect(field("Asset department")).toContainText("2026-01-02T03:04:05")
+  expect(await exactText("Service").textContent()).toBe(serviceText)
+  const maximum = await exactText("Source number").textContent()
+  expect(maximum).toBe(maximumText)
+  expect(maximum?.length).toBe(32767)
+})
+
+for (const [name, value] of [
+  ["raw JavaScript number", Number("9007199254740993")],
+  [
+    "leading-zero integer tag",
+    { kind: "number", numeric_type: "integer", value: "0900" },
+  ],
+  [
+    "non-finite float tag",
+    { kind: "number", numeric_type: "float", value: "nan" },
+  ],
+] as const) {
+  test(`fails closed on a ${name} in detail fields`, async ({ page }) => {
+    await previewSelectionWithDetails(page, (route, body) => {
+      if (body.selector.kind === "groups") {
+        return route.fulfill({
+          json: detailEnvelope(body, {
+            kind: "groups",
+            category: "added",
+            skip: 0,
+            limit: 25,
+            total_groups: 2,
+            groups: [
+              {
+                canonical_ip: "10.0.0.1",
+                current_records: 0,
+                candidate_records: 2,
+              },
+              {
+                canonical_ip: "10.0.0.2",
+                current_records: 0,
+                candidate_records: 1,
+              },
+            ],
+          }),
+        })
+      }
+      const { category, canonical_ip, side, skip, limit } = body.selector
+      const current = side === "current"
+      return route.fulfill({
+        json: detailEnvelope(body, {
+          kind: "records",
+          category,
+          canonical_ip,
+          side,
+          skip,
+          limit,
+          total_records: current ? 0 : 2,
+          records: current
+            ? []
+            : [
+                {
+                  entry_id: "45000000-0000-0000-0000-000000000001",
+                  position: 1,
+                  canonical_ip,
+                  fields: { ...exactDetailFields(), serial: value },
+                },
+                {
+                  entry_id: "45000000-0000-0000-0000-000000000002",
+                  position: 2,
+                  canonical_ip,
+                  fields: exactDetailFields(),
+                },
+              ],
+        }),
+      })
+    })
+    const preview = page.getByTestId("replacement-preview")
+    await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+    const firstGroup = preview
+      .locator("li")
+      .filter({ has: page.getByText("10.0.0.1", { exact: true }) })
+    await firstGroup
+      .getByRole("button", { name: "Inspect source records" })
+      .click()
+    await expect(
+      preview.getByRole("heading", {
+        name: "Detail did not match the fixed preview",
+      }),
+    ).toBeVisible()
+    await expect(preview.getByText("9007199254740992")).toHaveCount(0)
+    await expect(preview.getByText("unsupported value")).toHaveCount(0)
+  })
+}
+
+const currentBasisDenials = [
+  { name: "401", status: 401, body: { detail: { code: "unauthorized" } } },
+  { name: "403", status: 403, body: { detail: { code: "forbidden" } } },
+  { name: "404", status: 404, body: { detail: { code: "not_found" } } },
+  {
+    name: "inactive 400",
+    status: 400,
+    body: { detail: "Inactive user" },
+  },
+] as const
+
+for (const denial of currentBasisDenials) {
+  test(`denies and clears detail when the current-basis read alone returns ${denial.name}`, async ({
+    page,
+  }) => {
+    let deny = false
+    let ledgerReads = 0
+    let groupsRequests = 0
+    const heldRecords: Route[] = []
+    await previewSelectionWithDetails(
+      page,
+      (route, body) => {
+        if (body.selector.kind === "groups") {
+          groupsRequests += 1
+          return route.fulfill({
+            json: detailEnvelope(body, {
+              kind: "groups",
+              category: "added",
+              skip: 0,
+              limit: 25,
+              total_groups: 2,
+              groups: [
+                {
+                  canonical_ip: "10.0.0.1",
+                  current_records: 0,
+                  candidate_records: 2,
+                },
+                {
+                  canonical_ip: "10.0.0.2",
+                  current_records: 0,
+                  candidate_records: 1,
+                },
+              ],
+            }),
+          })
+        }
+        heldRecords.push(route)
+      },
+      {},
+      (route) => {
+        ledgerReads += 1
+        if (deny) {
+          return route.fulfill({ status: denial.status, json: denial.body })
+        }
+        return route.fulfill({ json: ledgerRead(null) })
+      },
+    )
+    const preview = page.getByTestId("replacement-preview")
+    await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+    const firstGroup = preview
+      .locator("li")
+      .filter({ has: page.getByText("10.0.0.1", { exact: true }) })
+    await firstGroup
+      .getByRole("button", { name: "Inspect source records" })
+      .click()
+    await expect.poll(() => heldRecords.length).toBeGreaterThan(0)
+    await expect(preview.getByText("10.0.0.1", { exact: true })).toHaveCount(2)
+    const settledReads = ledgerReads
+    deny = true
+    await page.bringToFront()
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("focus"))
+      window.dispatchEvent(new Event("visibilitychange"))
+    })
+    await expect.poll(() => ledgerReads).toBeGreaterThan(settledReads)
+    await expect(
+      preview.getByRole("heading", { name: "Detail access denied" }),
+    ).toBeVisible()
+    await expect(preview.getByText("10.0.0.1", { exact: true })).toHaveCount(0)
+    await expect(preview.getByTestId("operation-state")).toHaveCount(0)
+    await expect(preview.getByTestId("operation-confirmed")).toHaveCount(0)
+    for (const route of heldRecords) {
+      try {
+        await route.fulfill({ status: 500 })
+      } catch {
+        // The unmounted generation may have aborted its reads.
+      }
+    }
+    const beforeFreshPreview = groupsRequests
+    deny = false
+    await page.getByRole("button", { name: "Cancel", exact: true }).click()
+    await page.getByRole("button", { name: "Preview selection" }).click()
+    await expect(page.getByTestId("replacement-preview")).toBeVisible()
+    const nextPreview = page.getByTestId("replacement-preview")
+    await nextPreview.getByRole("button", { name: "Added IPs: 2" }).click()
+    await expect.poll(() => groupsRequests).toBeGreaterThan(beforeFreshPreview)
+  })
+}
+
+test("unmounts detail while apply preparation owns the flow and ignores a late detail 409", async ({
+  page,
+}) => {
+  const first = uploads[projects[0].id].data[0]
+  let applyRequests = 0
+  const heldRecords: Route[] = []
+  await page.route(
+    `**/api/v1/projects/${projects[0].id}/customer-ledger/replacements`,
+    async (route) => {
+      applyRequests += 1
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      return route.fulfill({
+        json: replacementReceipt({
+          candidateId: first.id,
+          expectedUploadId: body.expected_upload_id as string | null,
+          expectedRevisionId: body.expected_revision_id as string | null,
+          expectedProfileId: body.expected_profile_id as string,
+          digest: await requestDigest(body),
+        }),
+      })
+    },
+  )
+  await previewSelectionWithDetails(page, (route, body) => {
+    if (body.selector.kind === "groups") {
+      return route.fulfill({
+        json: detailEnvelope(body, {
+          kind: "groups",
+          category: "added",
+          skip: 0,
+          limit: 25,
+          total_groups: 2,
+          groups: [
+            {
+              canonical_ip: "10.0.0.1",
+              current_records: 0,
+              candidate_records: 2,
+            },
+            {
+              canonical_ip: "10.0.0.2",
+              current_records: 0,
+              candidate_records: 1,
+            },
+          ],
+        }),
+      })
+    }
+    heldRecords.push(route)
+  })
+  const preview = page.getByTestId("replacement-preview")
+  await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+  const firstGroup = preview
+    .locator("li")
+    .filter({ has: page.getByText("10.0.0.1", { exact: true }) })
+  await firstGroup
+    .getByRole("button", { name: "Inspect source records" })
+    .click()
+  await expect.poll(() => heldRecords.length).toBeGreaterThan(0)
+  await page.evaluate(() => {
+    const original = crypto.subtle.digest.bind(crypto.subtle)
+    const target = window as unknown as { __releaseDigest?: () => void }
+    target.__releaseDigest = undefined
+    let held = false
+    crypto.subtle.digest = (async (algorithm, data) => {
+      // Hold only the preparation digest; apply re-hashes after it releases.
+      if (!held) {
+        held = true
+        await new Promise<void>((resolve) => {
+          target.__releaseDigest = resolve
+        })
+      }
+      return original(algorithm, data)
+    }) as typeof crypto.subtle.digest
+  })
+  const apply = preview.getByRole("button", { name: "Set as current input" })
+  await apply.click()
+  await expect(apply).toHaveAttribute("aria-busy", "true")
+  await expect(preview.getByText("Bounded source detail")).toHaveCount(0)
+  for (const route of heldRecords) {
+    try {
+      await route.fulfill({
+        status: 409,
+        json: { detail: { code: "ledger_version_conflict" } },
+      })
+    } catch {
+      // The unmounted detail generation may have aborted its reads.
+    }
+  }
+  await expect(
+    page.getByRole("heading", { name: "Current version changed" }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("button", { name: "Read latest version and preview again" }),
+  ).toHaveCount(0)
+  await page.evaluate(() => {
+    const target = window as unknown as { __releaseDigest?: () => void }
+    target.__releaseDigest?.()
+  })
+  await expect(page.getByTestId("operation-confirmed")).toBeVisible()
+  expect(applyRequests).toBe(1)
+})
+
+for (const late of [
+  {
+    name: "success",
+    response: (body: DetailBody) => ({
+      json: detailEnvelope(body, {
+        kind: "groups",
+        category: body.selector.category,
+        skip: body.selector.skip,
+        limit: body.selector.limit,
+        total_groups: 2,
+        groups: [
+          {
+            canonical_ip: "10.0.0.9",
+            current_records: 0,
+            candidate_records: 2,
+          },
+          {
+            canonical_ip: "10.0.0.10",
+            current_records: 0,
+            candidate_records: 1,
+          },
+        ],
+      }),
+    }),
+  },
+  {
+    name: "conflict",
+    response: () => ({
+      status: 409,
+      json: { detail: { code: "ledger_version_conflict" } },
+    }),
+  },
+] as const) {
+  test(`ignores a late detail ${late.name} after cancel and same-tuple re-preview`, async ({
+    page,
+  }) => {
+    let holdFirst = true
+    let groupRequests = 0
+    const held: Array<{ route: Route; body: DetailBody }> = []
+    await previewSelectionWithDetails(page, (route, body) => {
+      if (body.selector.kind !== "groups") return route.fulfill({ status: 500 })
+      groupRequests += 1
+      if (holdFirst) {
+        held.push({ route, body })
+        return
+      }
+      return route.fulfill({
+        json: detailEnvelope(body, {
+          kind: "groups",
+          category: "added",
+          skip: 0,
+          limit: 25,
+          total_groups: 2,
+          groups: [
+            {
+              canonical_ip: "10.0.0.7",
+              current_records: 0,
+              candidate_records: 2,
+            },
+            {
+              canonical_ip: "10.0.0.8",
+              current_records: 0,
+              candidate_records: 1,
+            },
+          ],
+        }),
+      })
+    })
+    const preview = page.getByTestId("replacement-preview")
+    await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+    await expect.poll(() => held.length).toBe(1)
+    await page.getByRole("button", { name: "Cancel", exact: true }).click()
+    await expect(preview).toHaveCount(0)
+    holdFirst = false
+    await page.getByRole("button", { name: "Preview selection" }).click()
+    const nextPreview = page.getByTestId("replacement-preview")
+    await expect(nextPreview).toBeVisible()
+    await nextPreview.getByRole("button", { name: "Added IPs: 2" }).click()
+    await expect(
+      nextPreview.getByText("10.0.0.7", { exact: true }),
+    ).toBeVisible()
+    for (const item of held) {
+      try {
+        await item.route.fulfill(late.response(item.body))
+      } catch {
+        // The replaced generation may have aborted its read.
+      }
+    }
+    await expect(
+      nextPreview.getByRole("heading", { name: "Current version changed" }),
+    ).toHaveCount(0)
+    await expect(
+      nextPreview.getByRole("button", {
+        name: "Read latest version and preview again",
+      }),
+    ).toHaveCount(0)
+    await expect(
+      nextPreview.getByText("10.0.0.7", { exact: true }),
+    ).toBeVisible()
+    await expect(
+      nextPreview.getByText("10.0.0.9", { exact: true }),
+    ).toHaveCount(0)
+    expect(groupRequests).toBe(2)
+  })
+}
+
+for (const late of [
+  {
+    name: "success",
+    response: (body: DetailBody) => ({
+      json: detailEnvelope(body, {
+        kind: "groups",
+        category: body.selector.category,
+        skip: body.selector.skip,
+        limit: body.selector.limit,
+        total_groups: 2,
+        groups: [
+          {
+            canonical_ip: "10.0.0.9",
+            current_records: 0,
+            candidate_records: 2,
+          },
+          {
+            canonical_ip: "10.0.0.10",
+            current_records: 0,
+            candidate_records: 1,
+          },
+        ],
+      }),
+    }),
+  },
+  {
+    name: "conflict",
+    response: () => ({
+      status: 409,
+      json: { detail: { code: "ledger_version_conflict" } },
+    }),
+  },
+] as const) {
+  test(`ignores a late detail ${late.name} after a project scope switch`, async ({
+    page,
+  }) => {
+    let holdFirst = true
+    const held: Array<{ route: Route; body: DetailBody }> = []
+    await previewSelectionWithDetails(page, (route, body) => {
+      if (body.selector.kind !== "groups") return route.fulfill({ status: 500 })
+      if (holdFirst) {
+        held.push({ route, body })
+        return
+      }
+      return route.fulfill({
+        json: detailEnvelope(body, {
+          kind: "groups",
+          category: "added",
+          skip: 0,
+          limit: 25,
+          total_groups: 2,
+          groups: [
+            {
+              canonical_ip: "10.0.0.7",
+              current_records: 0,
+              candidate_records: 2,
+            },
+            {
+              canonical_ip: "10.0.0.8",
+              current_records: 0,
+              candidate_records: 1,
+            },
+          ],
+        }),
+      })
+    })
+    const preview = page.getByTestId("replacement-preview")
+    await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+    await expect.poll(() => held.length).toBe(1)
+    const projectSelect = page.getByRole("combobox", { name: "Project" })
+    await projectSelect.selectOption(projects[1].id)
+    await expect(page.getByTestId("replacement-preview")).toHaveCount(0)
+    await projectSelect.selectOption(projects[0].id)
+    holdFirst = false
+    await page.getByRole("button", { name: "Preview selection" }).click()
+    const nextPreview = page.getByTestId("replacement-preview")
+    await expect(nextPreview).toBeVisible()
+    await nextPreview.getByRole("button", { name: "Added IPs: 2" }).click()
+    await expect(
+      nextPreview.getByText("10.0.0.7", { exact: true }),
+    ).toBeVisible()
+    for (const item of held) {
+      try {
+        await item.route.fulfill(late.response(item.body))
+      } catch {
+        // The replaced project scope may have aborted its read.
+      }
+    }
+    await expect(
+      nextPreview.getByRole("heading", { name: "Current version changed" }),
+    ).toHaveCount(0)
+    await expect(
+      nextPreview.getByRole("button", {
+        name: "Read latest version and preview again",
+      }),
+    ).toHaveCount(0)
+    await expect(
+      nextPreview.getByText("10.0.0.7", { exact: true }),
+    ).toBeVisible()
+    await expect(
+      nextPreview.getByText("10.0.0.9", { exact: true }),
+    ).toHaveCount(0)
+  })
+}
+
+test("pages two independently nonempty detail sides with independent offsets and totals", async ({
+  page,
+}) => {
+  // The fixed current upload is distinct so the candidate stays previewable.
+  const currentUploadId = "70000000-0000-0000-0000-000000000001"
+  const currentRevisionId = "71000000-0000-0000-0000-000000000001"
+  const bodies: DetailBody[] = []
+  await previewSelectionWithDetails(
+    page,
+    (route, body) => {
+      bodies.push(body)
+      if (body.selector.kind === "groups") {
+        return route.fulfill({
+          json: detailEnvelope(body, {
+            kind: "groups",
+            category: "changed",
+            skip: 0,
+            limit: 25,
+            total_groups: 1,
+            groups: [
+              {
+                canonical_ip: "10.0.0.1",
+                current_records: 12,
+                candidate_records: 12,
+              },
+            ],
+          }),
+        })
+      }
+      const { side, skip, limit } = body.selector
+      return route.fulfill({
+        json: detailEnvelope(body, {
+          kind: "records",
+          category: "changed",
+          canonical_ip: "10.0.0.1",
+          side,
+          skip,
+          limit,
+          total_records: 12,
+          records: Array.from(
+            { length: Math.max(0, Math.min(limit, 12 - skip)) },
+            (_, offset) => ({
+              entry_id: `46000000-0000-0000-0000-${String(
+                skip + offset + 1,
+              ).padStart(12, "0")}`,
+              position: skip + offset + 1,
+              canonical_ip: "10.0.0.1",
+              fields: {
+                asset_ip: "10.0.0.1",
+                service_type: `${side}-${skip + offset + 1}`,
+              },
+            }),
+          ),
+        }),
+      })
+    },
+    {
+      current_upload_id: currentUploadId,
+      current_revision_id: currentRevisionId,
+      current_record_count: 12,
+      current_unique_ips: 1,
+      candidate_record_count: 12,
+      candidate_unique_ips: 1,
+      added_ips: 0,
+      removed_ips: 0,
+      changed_ip_declarations: 1,
+    },
+    (route) =>
+      route.fulfill({ json: ledgerRead(currentUploadId, currentRevisionId) }),
+  )
+  const preview = page.getByTestId("replacement-preview")
+  await preview
+    .getByRole("button", { name: "Changed declaration IPs: 1" })
+    .click()
+  const firstGroup = preview
+    .locator("li")
+    .filter({ has: page.getByText("10.0.0.1", { exact: true }) })
+  await firstGroup
+    .getByRole("button", { name: "Inspect source records" })
+    .click()
+  const currentSide = preview.getByRole("region", {
+    name: "Current source declarations",
+  })
+  const candidateSide = preview.getByRole("region", {
+    name: "Candidate source declarations",
+  })
+  await expect(currentSide.getByText("1–10 of 12")).toBeVisible()
+  await expect(candidateSide.getByText("1–10 of 12")).toBeVisible()
+  await currentSide.getByRole("button", { name: "Next" }).click()
+  await expect(currentSide.getByText("11–12 of 12")).toBeVisible()
+  await expect(candidateSide.getByText("1–10 of 12")).toBeVisible()
+  await expect(
+    currentSide.getByText("current-11", { exact: true }),
+  ).toBeVisible()
+  await expect(
+    candidateSide.getByText("candidate-11", { exact: true }),
+  ).toHaveCount(0)
+  await candidateSide.getByRole("button", { name: "Next" }).click()
+  await expect(candidateSide.getByText("11–12 of 12")).toBeVisible()
+  await expect(
+    candidateSide.getByText("candidate-11", { exact: true }),
+  ).toBeVisible()
+  const recordBodies = bodies.filter((body) => body.selector.kind === "records")
+  expect(
+    recordBodies.some(
+      (body) =>
+        body.selector.kind === "records" &&
+        body.selector.side === "current" &&
+        body.selector.skip === 0 &&
+        body.selector.limit === 10,
+    ),
+  ).toBe(true)
+  expect(
+    recordBodies.some(
+      (body) =>
+        body.selector.kind === "records" &&
+        body.selector.side === "current" &&
+        body.selector.skip === 10 &&
+        body.selector.limit === 10,
+    ),
+  ).toBe(true)
+  expect(
+    recordBodies.some(
+      (body) =>
+        body.selector.kind === "records" &&
+        body.selector.side === "candidate" &&
+        body.selector.skip === 0 &&
+        body.selector.limit === 10,
+    ),
+  ).toBe(true)
+  expect(
+    recordBodies.some(
+      (body) =>
+        body.selector.kind === "records" &&
+        body.selector.side === "candidate" &&
+        body.selector.skip === 10 &&
+        body.selector.limit === 10,
+    ),
+  ).toBe(true)
+})
+
+const mismatchCases: Array<{
+  name: string
+  layer: "groups" | "records"
+  mutate: (page: Record<string, unknown>) => void
+}> = [
+  {
+    name: "actor",
+    layer: "groups",
+    mutate: (value) => {
+      value.actor_id = "30000000-0000-0000-0000-000000000002"
+    },
+  },
+  {
+    name: "project",
+    layer: "groups",
+    mutate: (value) => {
+      value.project_id = projects[1].id
+    },
+  },
+  {
+    name: "full basis",
+    layer: "groups",
+    mutate: (value) => {
+      const basis = value.basis as Record<string, unknown>
+      basis.expected_revision_id = "90000000-0000-0000-0000-000000000001"
+    },
+  },
+  {
+    name: "selector",
+    layer: "groups",
+    mutate: (value) => {
+      const selector = value.selector as Record<string, unknown>
+      selector.skip = 1
+    },
+  },
+  {
+    name: "side",
+    layer: "records",
+    mutate: (value) => {
+      value.side = "current"
+    },
+  },
+  {
+    name: "offset",
+    layer: "records",
+    mutate: (value) => {
+      value.skip = 10
+    },
+  },
+  {
+    name: "limit",
+    layer: "records",
+    mutate: (value) => {
+      value.limit = 5
+    },
+  },
+  {
+    name: "total",
+    layer: "records",
+    mutate: (value) => {
+      value.total_records = 3
+    },
+  },
+]
+
+function detailResponseFor(
+  body: DetailBody,
+  mismatch?: (typeof mismatchCases)[number],
+): Record<string, unknown> {
+  const response = detailEnvelope(
+    body,
+    body.selector.kind === "groups"
+      ? groupPageFor(body)
+      : recordPageFor(body, { current: 0, candidate: 2 }),
+  )
+  const layerMatches =
+    mismatch !== undefined &&
+    (mismatch.layer === "groups"
+      ? body.selector.kind === "groups"
+      : body.selector.kind === "records" && body.selector.side === "candidate")
+  if (mismatch !== undefined && layerMatches) mismatch.mutate(response)
+  return response
+}
+
+for (const mismatch of mismatchCases) {
+  test(`fails closed when only the ${mismatch.name} mismatch is present`, async ({
+    page,
+  }) => {
+    await previewSelectionWithDetails(page, (route, body) =>
+      route.fulfill({ json: detailResponseFor(body, mismatch) }),
+    )
+    const preview = page.getByTestId("replacement-preview")
+    await preview.getByRole("button", { name: "Added IPs: 2" }).click()
+    if (mismatch.layer === "records") {
+      const firstGroup = preview
+        .locator("li")
+        .filter({ has: page.getByText("10.0.0.1", { exact: true }) })
+      await firstGroup
+        .getByRole("button", { name: "Inspect source records" })
+        .click()
+    }
+    await expect(
+      preview.getByRole("heading", {
+        name: "Detail did not match the fixed preview",
+      }),
+    ).toBeVisible()
+  })
+}

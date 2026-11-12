@@ -1,7 +1,13 @@
+import logging
 import uuid
-from typing import Annotated
+from collections.abc import Callable, Coroutine
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from sqlmodel import col, select
 
 from app.api.deps import CurrentUser, SessionDep
@@ -18,6 +24,66 @@ from app.domain.models import CustomerLedgerRevision, Project, ProjectRole
 router = APIRouter(
     prefix="/projects/{project_id}/customer-ledger", tags=["customer-ledger"]
 )
+
+logger = logging.getLogger(__name__)
+
+
+_UNION_TAG_INVALID_MESSAGE = "Input tag does not match any of the expected tags."
+
+
+def _sanitized_validation_error(
+    error: RequestValidationError,
+) -> RequestValidationError:
+    errors: list[dict[str, Any]] = []
+    for item in error.errors():
+        sanitized = dict(item)
+        if sanitized.get("type") == "union_tag_invalid":
+            context = sanitized.get("ctx")
+            if isinstance(context, dict):
+                context = dict(context)
+                context.pop("tag", None)
+                sanitized["ctx"] = context
+            sanitized["msg"] = _UNION_TAG_INVALID_MESSAGE
+        errors.append(sanitized)
+    return RequestValidationError(errors, body=error.body)
+
+
+class _PrivateNoStoreRoute(APIRoute):
+    """Keep one detail endpoint's success and errors out of shared caches."""
+
+    def get_route_handler(
+        self,
+    ) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def private_no_store(request: Request) -> Response:
+            try:
+                response = await handler(request)
+            except RequestValidationError as error:
+                sanitizer = cast(
+                    Callable[
+                        [Request, RequestValidationError],
+                        Coroutine[Any, Any, Response],
+                    ],
+                    request.app.exception_handlers[RequestValidationError],
+                )
+                response = await sanitizer(request, _sanitized_validation_error(error))
+            except HTTPException as error:
+                response = await http_exception_handler(request, error)
+            except Exception:
+                logger.exception("Unexpected customer-ledger detail failure")
+                response = JSONResponse(
+                    status_code=500,
+                    content={"detail": "Internal Server Error"},
+                )
+            response.headers["Cache-Control"] = "private, no-store"
+            return response
+
+        return private_no_store
+
+
+detail_router = APIRouter(route_class=_PrivateNoStoreRoute)
+
 Key = Annotated[
     str,
     Header(
@@ -143,6 +209,34 @@ def preview_customer_upload_replacement(
         raise _error(error) from None
 
 
+@detail_router.post(
+    "/replacements/details",
+    response_model=service.ReplacementGroupPage | service.ReplacementRecordPage,
+)
+def read_customer_upload_replacement_details(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    project_id: uuid.UUID,
+    body: service.ReplacementDetailsRequest,
+) -> service.ReplacementGroupPage | service.ReplacementRecordPage:
+    project = get_authorized_project(
+        session=session,
+        user=current_user,
+        project_id=project_id,
+        allowed_roles=PROJECT_READ_ROLES,
+    )
+    try:
+        return service.replacement_details(
+            session,
+            project,
+            actor_id=current_user.id,
+            request=body,
+        )
+    except service.LedgerError as error:
+        raise _error(error) from None
+
+
 @router.post(
     "/replacements", response_model=service.ReplacementReceipt, status_code=201
 )
@@ -255,3 +349,6 @@ def read_customer_ledger_operation(
             status_code=404, detail={"code": "ledger_operation_not_found"}
         )
     return service.public_revision(record)
+
+
+router.include_router(detail_router)
