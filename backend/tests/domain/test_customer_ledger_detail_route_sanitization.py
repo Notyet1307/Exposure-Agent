@@ -14,8 +14,9 @@ NEUTRAL_MESSAGE = "Input tag does not match any of the expected tags."
 
 def _details_app() -> FastAPI:
     app = FastAPI()
-    app.add_exception_handler(
-        RequestValidationError, sanitized_validation_exception_handler
+    # FastAPI's typed decorator is how app/main.py registers the real sanitizer.
+    app.exception_handler(RequestValidationError)(
+        sanitized_validation_exception_handler
     )
     router = APIRouter(route_class=_PrivateNoStoreRoute)
 

@@ -1176,8 +1176,12 @@ def test_replacement_details_groups_records_paging_and_offsets(
 
 
 def test_replacement_details_multiplicity_counts_and_change_sets(
-    client: TestClient, superuser_token_headers: dict[str, str]
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     root, initial = _new_project(client, superuser_token_headers)
     a = ["192.0.2.10", 443, 443, "否", None]
     base = _upload(
@@ -1370,8 +1374,12 @@ def test_replacement_details_multiplicity_counts_and_change_sets(
 
 
 def test_replacement_details_first_selection_counts_are_ip_and_record_honest(
-    client: TestClient, superuser_token_headers: dict[str, str]
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     root, initial = _new_project(client, superuser_token_headers)
     rows = [
         ["192.0.2.60", 443, 443, "否", None],
@@ -1461,8 +1469,12 @@ def test_replacement_details_first_selection_counts_are_ip_and_record_honest(
 
 
 def test_replacement_details_preserve_exact_typed_cell_values(
-    client: TestClient, superuser_token_headers: dict[str, str]
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     root, initial = _new_project(client, superuser_token_headers)
     address = "192.0.2.50"
     base = _upload(
@@ -1614,8 +1626,12 @@ def test_replacement_details_preserve_exact_typed_cell_values(
 
 
 def test_replacement_details_tagged_numbers_survive_transport_losslessly(
-    client: TestClient, superuser_token_headers: dict[str, str]
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     root, initial = _new_project(client, superuser_token_headers)
     address = "192.0.2.55"
     base = _upload(
@@ -1792,8 +1808,12 @@ def test_replacement_detail_number_tags_reject_malformed_shapes() -> None:
 
 
 def test_replacement_details_exclude_archive_and_management_only_changes(
-    client: TestClient, superuser_token_headers: dict[str, str]
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     root, initial = _new_project(client, superuser_token_headers)
     a = ["192.0.2.70", 443, 443, "否", None]
     b = ["192.0.2.71", 443, 443, "否", None]
@@ -1950,8 +1970,12 @@ def test_replacement_details_exclude_archive_and_management_only_changes(
 
 
 def test_replacement_details_keep_canonical_ip_and_original_text(
-    client: TestClient, superuser_token_headers: dict[str, str]
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     root, initial = _new_project(client, superuser_token_headers)
     short = "2001:db8::1"
     expanded = "2001:0db8:0000:0000:0000:0000:0000:0001"
@@ -2466,8 +2490,12 @@ def test_replacement_details_unexpected_failures_are_sanitized_and_no_store(
 
 
 def test_replacement_details_revision_only_basis_conflict(
-    client: TestClient, superuser_token_headers: dict[str, str]
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(settings, "ARTIFACT_ROOT", tmp_path)
     root, initial = _new_project(client, superuser_token_headers)
     address = "192.0.2.85"
     base = _upload(
