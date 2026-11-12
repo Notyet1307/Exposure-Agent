@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router"
 import type { AnalysisReportsService } from "@/client"
 import { CustomerRecordFields } from "@/components/CustomerRecordFields"
 import { RecordFields } from "@/components/ExternalAssets"
+import { chapterTitles } from "@/components/reportChapters"
 import { TechnicalValue } from "@/components/TechnicalValue"
 import { comparisonUuid } from "@/lib/comparisonReturn"
 import { useI18n } from "@/lib/i18n"
@@ -19,11 +20,19 @@ export function V2ReportContent({
   report,
   compact = false,
   print = false,
+  anchorPrefix,
 }: {
   report: V2Report
   compact?: boolean
   print?: boolean
+  anchorPrefix?: string
 }) {
+  const anchorId = (id: string) =>
+    anchorPrefix ? `${anchorPrefix}-${id}` : undefined
+  const headingClass = (base: string) =>
+    anchorPrefix
+      ? `${base} scroll-mt-28 rounded outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2`
+      : base
   const { t, formatDate } = useI18n()
   const material = report.material
   if (!report.readable || !material) return null
@@ -199,48 +208,50 @@ export function V2ReportContent({
       </div>
     )
   }
-  const titles: Record<string, [string, string]> = {
-    conclusion: ["This comparison's conclusion", "本轮核对结论"],
-    differences: ["Main differences and their meaning", "主要差异及业务含义"],
-    priority: ["Objects to verify first", "建议核实的重点对象"],
-    netflow: ["NetFlow observations and limits", "NetFlow 佐证与限制"],
-    next_steps: ["Suggested next steps", "下一步建议"],
-    appendix: ["Data scope and evidence", "数据范围与证据附录"],
-    known_facts: ["Known facts", "已知事实"],
-    possible_explanations: ["Possible explanations", "可能解释"],
-    missing_evidence: ["Missing evidence", "尚缺依据"],
-    next_checks: ["Suggested checks", "建议核实"],
-  }
   const addressFact = report.address_key
     ? `fact:${report.result_id}:${report.address_key}`
     : null
   return (
     <div className="min-w-0 space-y-6">
       <section className="space-y-3">
-        <h3 className="font-semibold">
+        <h3
+          id={anchorId("facts")}
+          tabIndex={anchorPrefix ? -1 : undefined}
+          className={headingClass("font-semibold")}
+        >
           {addressFact
-            ? t("Fixed address facts", "固定地址事实")
-            : t("Fixed comparison facts", "固定核对事实")}
+            ? t(...chapterTitles.address_facts)
+            : t(...chapterTitles.facts)}
         </h3>
         {counts(material.summary)}
         {addressFact && fact(addressFact)}
       </section>
       {text ? (
         compact ? (
-          <div className="space-y-4">{text.summary.map(claim)}</div>
+          <div className="space-y-4">
+            {[...new Set(text.summary)].map(claim)}
+          </div>
         ) : (
           text.sections.map((section) => (
             <section key={section.id} className="min-w-0 space-y-4">
-              <h3 className="text-lg font-semibold">
-                {t(...titles[section.id])}
+              <h3
+                id={anchorId(section.id)}
+                tabIndex={anchorPrefix ? -1 : undefined}
+                className={headingClass("text-lg font-semibold")}
+              >
+                {t(...chapterTitles[section.id])}
               </h3>
-              {section.claim_ids.map(claim)}
+              {[...new Set(section.claim_ids)].map(claim)}
             </section>
           ))
         )
       ) : (
         <section className="space-y-3">
-          <h3 className="font-semibold">
+          <h3
+            id={anchorId("fixed-data")}
+            tabIndex={anchorPrefix ? -1 : undefined}
+            className={headingClass("font-semibold")}
+          >
             {t("Fixed data report", "固定资料报告")}
           </h3>
           {counts(material.summary)}
@@ -254,8 +265,12 @@ export function V2ReportContent({
       )}
       {!!text?.priority_cases.length && (
         <section className="space-y-4">
-          <h3 className="font-semibold">
-            {t("Suggested verification order", "建议核实顺序")}
+          <h3
+            id={anchorId("priority_cases")}
+            tabIndex={anchorPrefix ? -1 : undefined}
+            className={headingClass("font-semibold")}
+          >
+            {t(...chapterTitles.priority_cases)}
           </h3>
           <ol className="list-decimal space-y-4 pl-5">
             {text.priority_cases.map((value) => {
@@ -279,7 +294,13 @@ export function V2ReportContent({
         </section>
       )}
       <section className="space-y-3">
-        <h3 className="font-semibold">{t("Data limits", "资料限制")}</h3>
+        <h3
+          id={anchorId("limits")}
+          tabIndex={anchorPrefix ? -1 : undefined}
+          className={headingClass("font-semibold")}
+        >
+          {t(...chapterTitles.limits)}
+        </h3>
         <p>
           {t("Addresses sampled", "地址样本")}{" "}
           {display(material.coverage.sampled_addresses)} /{" "}
@@ -308,8 +329,12 @@ export function V2ReportContent({
       </section>
       {!compact && (
         <section className="min-w-0 space-y-3">
-          <h3 className="font-semibold">
-            {t("Fixed source versions", "固定来源版本")}
+          <h3
+            id={anchorId("sources")}
+            tabIndex={anchorPrefix ? -1 : undefined}
+            className={headingClass("font-semibold")}
+          >
+            {t(...chapterTitles.sources)}
           </h3>
           <p className="text-sm">
             {t("Customer upload", "客户上传版本")}{" "}
