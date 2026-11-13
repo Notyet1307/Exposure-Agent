@@ -389,7 +389,8 @@ export function runComponentTests(candidate: string, output: string): Counts {
       cwd: join(candidate, "frontend"),
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
-      timeout: 600_000,
+      // The 539-test CI run with failure traces exceeded the old ten-minute budget.
+      timeout: 900_000,
       env: {
         ...process.env,
         CI: "true",
