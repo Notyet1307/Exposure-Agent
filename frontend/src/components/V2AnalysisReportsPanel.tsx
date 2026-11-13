@@ -3,10 +3,19 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnalysisReportsService as API, ApiError } from "@/client"
 import { ResultPagination } from "@/components/ResultPagination"
+import {
+  buildChapterMembership,
+  chapterTitles,
+} from "@/components/reportChapters"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { type V2Report, V2ReportContent } from "@/components/V2ReportContent"
+import {
+  type V2Report,
+  V2ReportContent,
+  type V2Text,
+} from "@/components/V2ReportContent"
+import { V2ReportHistory } from "@/components/V2ReportHistory"
 import { isInactiveAccountError } from "@/hooks/useAuth"
 import { comparisonUuid } from "@/lib/comparisonReturn"
 import { useI18n } from "@/lib/i18n"
@@ -77,6 +86,45 @@ const unreadableProblem = (reason: string | null | undefined): ReadProblem => {
   if (reason === "v2_report_material_unavailable") return "unavailable"
   if (reason === "v2_report_material_invalid") return "invalid"
   return "unreadable"
+}
+type V2DraftValues = {
+  claims: Record<string, string>
+  cases: Record<string, { why_review: string; next_check: string }>
+}
+type DraftConflict = "none" | "conflict" | "changed" | "confirmed"
+type V2Draft = {
+  scopeKey: string
+  projectId: string
+  reportId: string
+  baselineRevision: number
+  baseline: V2DraftValues
+  current: V2DraftValues
+  conflict: DraftConflict
+  reread: "idle" | "done" | "failed"
+  latestRevision?: number
+  latestStatus?: V2Report["status"]
+}
+const draftValues = (text: V2Text): V2DraftValues => ({
+  claims: Object.fromEntries(
+    text.claims
+      .filter((claim) => claim.type !== "fact")
+      .map((claim) => [claim.id, "text" in claim ? claim.text : ""]),
+  ),
+  cases: Object.fromEntries(
+    text.priority_cases.map((value) => [
+      value.address_key,
+      { why_review: value.why_review, next_check: value.next_check },
+    ]),
+  ),
+})
+const sameDraftValues = (left: V2DraftValues, right: V2DraftValues) =>
+  JSON.stringify(left) === JSON.stringify(right)
+const revealElement = (id: string | undefined) => {
+  if (!id) return
+  const element = document.getElementById(id)
+  if (!element) return
+  element.focus({ preventScroll: true })
+  element.scrollIntoView({ block: "center", behavior: "instant" })
 }
 type HistoryRevision = { selected: string; revision: number }
 const retainHistoryRevision = (
@@ -163,6 +211,7 @@ export function V2AnalysisReportsPanel({
   const [selected, setSelected] = useState<string>()
   const [full, setFull] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [printing, setPrinting] = useState(false)
   const submitting = useRef(false)
   const [error, setError] = useState("")
   const [blocked, setBlocked] = useState(false)
@@ -171,12 +220,8 @@ export function V2AnalysisReportsPanel({
   const historyRevisionRef = useRef<HistoryRevision | null>(null)
   const historyScopeRef = useRef("")
   const readEpoch = useRef(0)
-  const [editing, setEditing] = useState(false)
-  const [editRevision, setEditRevision] = useState(0)
-  const [edits, setEdits] = useState<Record<string, string>>({})
-  const [caseEdits, setCaseEdits] = useState<
-    Record<string, { why_review: string; next_check: string }>
-  >({})
+  const [draft, setDraft] = useState<V2Draft | null>(null)
+  const editing = draft !== null
   const [printReport, setPrintReport] = useState<V2Report>()
   const supplement = includeFlow ? bindingId : null
   const body: Body = useMemo(
@@ -370,9 +415,7 @@ export function V2AnalysisReportsPanel({
     setSelected(undefined)
     setPage(0)
     setFull(false)
-    setEditing(false)
-    setEdits({})
-    setCaseEdits({})
+    setDraft(null)
     setError("")
     setBlocked(false)
     setReadProblem(null)
@@ -421,9 +464,7 @@ export function V2AnalysisReportsPanel({
     if (!refusal(observedProblem)) return
     readEpoch.current += 1
     setBlocked(true)
-    setEditing(false)
-    setEdits({})
-    setCaseEdits({})
+    setDraft(null)
     setPrintReport(undefined)
     void cache.cancelQueries({ queryKey: prefix })
     cache.removeQueries({ queryKey: prefix })
@@ -437,9 +478,7 @@ export function V2AnalysisReportsPanel({
         readEpoch.current += 1
         setBlocked(true)
         setReadProblem("expired")
-        setEditing(false)
-        setEdits({})
-        setCaseEdits({})
+        setDraft(null)
         setPrintReport(undefined)
         void cache.cancelQueries({ queryKey: prefix })
         cache.removeQueries({ queryKey: prefix })
@@ -533,77 +572,188 @@ export function V2AnalysisReportsPanel({
       if (alive.current) setBusy(false)
     }
   }
+  const blockWith = (problem: ReadProblem) => {
+    readEpoch.current += 1
+    setDraft(null)
+    setPrintReport(undefined)
+    setBlocked(true)
+    setReadProblem(problem)
+    void cache.cancelQueries({ queryKey: prefix })
+    cache.removeQueries({ queryKey: prefix })
+  }
   const startEdit = () => {
-    if (!report?.text) return
-    setEditRevision(report.revision)
-    setEdits(
-      Object.fromEntries(
-        report.text.claims
-          .filter((claim) => claim.type !== "fact")
-          .map((claim) => [claim.id, "text" in claim ? claim.text : ""]),
-      ),
-    )
-    setCaseEdits(
-      Object.fromEntries(
-        report.text.priority_cases.map((value) => [
-          value.address_key,
-          { why_review: value.why_review, next_check: value.next_check },
-        ]),
-      ),
-    )
-    setEditing(true)
+    if (!report?.text || draft || busy) return
+    setDraft({
+      scopeKey,
+      projectId,
+      reportId: report.id,
+      baselineRevision: report.revision,
+      baseline: draftValues(report.text),
+      current: draftValues(report.text),
+      conflict: "none",
+      reread: "idle",
+      latestRevision: report.revision,
+      latestStatus: report.status,
+    })
+    setError("")
     setFull(true)
   }
-  const write = async (confirm = false) => {
-    if (!report || submitting.current) return
-    const requested = report.id
+  const draftConflict: DraftConflict | null = !draft
+    ? null
+    : draft.conflict !== "none"
+      ? draft.conflict
+      : !report
+        ? null
+        : report.id !== draft.reportId || report.status !== "DRAFT"
+          ? "confirmed"
+          : report.revision !== draft.baselineRevision
+            ? "changed"
+            : null
+  const conflictMessage = (kind: DraftConflict) =>
+    kind === "confirmed"
+      ? t(
+          "This report was confirmed while you were editing. Your text is kept for copying, but it cannot be saved or confirmed.",
+          "编辑期间此报告已被确认。你的文字会保留供复制，但不能保存或再次确认。",
+        )
+      : kind === "conflict"
+        ? t(
+            "This version changed since it was read. Your unsaved edits are kept; re-read the same version before saving or confirming again.",
+            "读取后此版本已发生变化。未保存的编辑会保留；请重读同一版本后再保存或确认。",
+          )
+        : t(
+            "This report has another revision. Your text is retained; saving against the old revision will be rejected.",
+            "报告已有另一份修订。你的文字仍保留，但不能覆盖新修订。",
+          )
+  const clearDraft = () => {
+    setDraft(null)
+    setError("")
+  }
+  const saveDraft = async () => {
+    if (!draft || !report || submitting.current) return
+    const captured = draft
+    if (scope.current !== scopeKey || captured.scopeKey !== scopeKey) return
+    if (
+      selectedRef.current !== captured.reportId ||
+      report.id !== captured.reportId
+    ) {
+      setError(
+        t(
+          "The selected report changed. Your draft is retained; reopen the current report's draft.",
+          "所选报告已变化。草稿仍保留；请重新打开当前报告的草稿。",
+        ),
+      )
+      return
+    }
+    if (
+      report.status !== "DRAFT" ||
+      report.revision !== captured.baselineRevision
+    ) {
+      setDraft((current) =>
+        current === captured
+          ? {
+              ...captured,
+              conflict: report.status !== "DRAFT" ? "confirmed" : "changed",
+            }
+          : current,
+      )
+      return
+    }
+    const epoch = readEpoch.current
     submitting.current = true
     setBusy(true)
     setError("")
     try {
-      const value = confirm
-        ? await API.confirmV2AnalysisReport({
-            projectId,
-            analysisReportId: report.id,
-            requestBody: { expected_revision: report.revision },
-          })
-        : await API.updateV2AnalysisReport({
-            projectId,
-            analysisReportId: report.id,
-            requestBody: {
-              expected_revision: editRevision,
-              edits,
-              case_edits: caseEdits,
-            },
-          })
-      verify(value)
+      const value = verify(
+        await API.updateV2AnalysisReport({
+          projectId: captured.projectId,
+          analysisReportId: captured.reportId,
+          requestBody: {
+            expected_revision: captured.baselineRevision,
+            edits: captured.current.claims,
+            case_edits: captured.current.cases,
+          },
+        }),
+      )
+      if (!alive.current) return
+      if (
+        scope.current !== scopeKey ||
+        selectedRef.current !== captured.reportId
+      )
+        return
+      if (readEpoch.current !== epoch) return
+      if (value.id !== captured.reportId)
+        throw new Error("report_identity_mismatch")
+      setDraft((current) => (current === captured ? null : current))
+      cache.setQueryData([...prefix, "detail", value.id], value)
+      void cache.invalidateQueries({ queryKey: [...prefix, "versions"] })
+    } catch (reason) {
+      if (!alive.current) return
+      if (
+        scope.current !== scopeKey ||
+        selectedRef.current !== captured.reportId
+      )
+        return
+      if (readEpoch.current !== epoch) return
+      const problem = classifyReadProblem(reason)
+      if (refusal(problem)) {
+        blockWith(problem)
+        return
+      }
+      if (reason instanceof ApiError && reason.status === 409) {
+        setDraft((current) =>
+          current === captured
+            ? { ...captured, conflict: "conflict", reread: "idle" }
+            : current,
+        )
+        setError("")
+      } else {
+        setError(
+          t(
+            "This version could not be saved or confirmed. Re-read it to check permissions, material access or a revision conflict.",
+            "无法保存或确认此版本。请重读，核对权限、材料可读性或修订冲突。",
+          ),
+        )
+      }
+    } finally {
+      submitting.current = false
+      if (alive.current) setBusy(false)
+    }
+  }
+  const confirmReport = async () => {
+    if (!report || draft || submitting.current) return
+    const requested = report.id
+    const revision = report.revision
+    const epoch = readEpoch.current
+    submitting.current = true
+    setBusy(true)
+    setError("")
+    try {
+      const value = verify(
+        await API.confirmV2AnalysisReport({
+          projectId,
+          analysisReportId: requested,
+          requestBody: { expected_revision: revision },
+        }),
+      )
       if (!alive.current) return
       if (scope.current !== scopeKey || selectedRef.current !== requested)
         return
+      if (readEpoch.current !== epoch) return
       if (value.id !== requested) throw new Error("report_identity_mismatch")
-      setEditing(false)
-      setEdits({})
-      setCaseEdits({})
       cache.setQueryData([...prefix, "detail", value.id], value)
       void cache.invalidateQueries({ queryKey: [...prefix, "versions"] })
     } catch (reason) {
       if (!alive.current) return
       if (scope.current !== scopeKey || selectedRef.current !== requested)
         return
+      if (readEpoch.current !== epoch) return
       const problem = classifyReadProblem(reason)
       if (refusal(problem)) {
-        readEpoch.current += 1
-        setEditing(false)
-        setEdits({})
-        setCaseEdits({})
-        setPrintReport(undefined)
-        setBlocked(true)
-        setReadProblem(problem)
-        void cache.cancelQueries({ queryKey: prefix })
-        cache.removeQueries({ queryKey: prefix })
+        blockWith(problem)
+        return
       }
       setError(
-        reason instanceof ApiError && reason.status === 409 && !refusal(problem)
+        reason instanceof ApiError && reason.status === 409
           ? t(
               "This version changed since it was read. Your unsaved edits are kept; re-read the same version before saving or confirming again.",
               "读取后此版本已发生变化。未保存的编辑会保留；请重读同一版本后再保存或确认。",
@@ -618,12 +768,105 @@ export function V2AnalysisReportsPanel({
       if (alive.current) setBusy(false)
     }
   }
+  const rereadDraft = async () => {
+    if (!draft || submitting.current) return
+    const captured = draft
+    const epoch = readEpoch.current
+    submitting.current = true
+    setBusy(true)
+    setError("")
+    try {
+      const value = verify(
+        await API.readV2AnalysisReport({
+          projectId: captured.projectId,
+          analysisReportId: captured.reportId,
+        }),
+      )
+      if (!alive.current) return
+      if (
+        scope.current !== scopeKey ||
+        selectedRef.current !== captured.reportId
+      )
+        return
+      if (readEpoch.current !== epoch) return
+      if (value.id !== captured.reportId)
+        throw new Error("report_identity_mismatch")
+      if (!value.readable) {
+        blockWith(unreadableProblem(value.unavailable_reason))
+        return
+      }
+      cache.setQueryData([...prefix, "detail", value.id], value)
+      setDraft((current) =>
+        current === captured
+          ? {
+              ...captured,
+              reread: "done",
+              latestRevision: value.revision,
+              latestStatus: value.status,
+              conflict:
+                value.status !== "DRAFT"
+                  ? "confirmed"
+                  : value.revision !== captured.baselineRevision
+                    ? "changed"
+                    : captured.conflict,
+            }
+          : current,
+      )
+    } catch (reason) {
+      if (!alive.current) return
+      if (
+        scope.current !== scopeKey ||
+        selectedRef.current !== captured.reportId
+      )
+        return
+      if (readEpoch.current !== epoch) return
+      const problem = classifyReadProblem(reason)
+      if (refusal(problem)) {
+        blockWith(problem)
+        return
+      }
+      setDraft((current) =>
+        current === captured ? { ...captured, reread: "failed" } : current,
+      )
+      setError(
+        t(
+          "This report could not be read temporarily. Your draft is kept; re-read the same report before saving or discarding.",
+          "此报告暂时无法读取。草稿会保留；请重读同一报告后再保存或放弃。",
+        ),
+      )
+    } finally {
+      submitting.current = false
+      if (alive.current) setBusy(false)
+    }
+  }
+  const restartDraft = () => {
+    if (!draft || submitting.current) return
+    const latest = cache.getQueryData<V2Report>([
+      ...prefix,
+      "detail",
+      draft.reportId,
+    ])
+    if (latest?.status !== "DRAFT" || !latest.readable || !latest.text) return
+    setDraft({
+      scopeKey,
+      projectId,
+      reportId: latest.id,
+      baselineRevision: latest.revision,
+      baseline: draftValues(latest.text),
+      current: draftValues(latest.text),
+      conflict: "none",
+      reread: "idle",
+      latestRevision: latest.revision,
+      latestStatus: latest.status,
+    })
+    setError("")
+  }
   const print = async () => {
     if (!report || submitting.current) return
     const requested = report.id
     const epoch = readEpoch.current
     submitting.current = true
-    setBusy(true)
+    setPrinting(true)
     setError("")
     try {
       const value = verify(
@@ -640,9 +883,7 @@ export function V2AnalysisReportsPanel({
       if (!value.readable || !value.material) {
         readEpoch.current += 1
         setPrintReport(undefined)
-        setEditing(false)
-        setEdits({})
-        setCaseEdits({})
+        setDraft(null)
         setBlocked(true)
         setReadProblem(unreadableProblem(value.unavailable_reason))
         void cache.cancelQueries({ queryKey: prefix })
@@ -667,9 +908,7 @@ export function V2AnalysisReportsPanel({
       if (value.valid_until && Date.parse(value.valid_until) <= Date.now()) {
         readEpoch.current += 1
         setPrintReport(undefined)
-        setEditing(false)
-        setEdits({})
-        setCaseEdits({})
+        setDraft(null)
         setBlocked(true)
         setReadProblem("expired")
         void cache.cancelQueries({ queryKey: prefix })
@@ -693,9 +932,7 @@ export function V2AnalysisReportsPanel({
       const problem = classifyReadProblem(reason)
       if (refusal(problem)) {
         readEpoch.current += 1
-        setEditing(false)
-        setEdits({})
-        setCaseEdits({})
+        setDraft(null)
         setBlocked(true)
         setReadProblem(problem)
         void cache.cancelQueries({ queryKey: prefix })
@@ -725,7 +962,7 @@ export function V2AnalysisReportsPanel({
       document.body.removeAttribute("data-v2-print")
       submitting.current = false
       if (alive.current) {
-        setBusy(false)
+        setPrinting(false)
         setPrintReport(undefined)
       }
     }
@@ -763,25 +1000,31 @@ export function V2AnalysisReportsPanel({
       "只有明确生成才会调用模型；浏览和刷新只读。",
     ],
   }
-  const dirty =
-    report?.text &&
-    (JSON.stringify(edits) !==
-      JSON.stringify(
-        Object.fromEntries(
-          report.text.claims
-            .filter((claim) => claim.type !== "fact")
-            .map((claim) => [claim.id, "text" in claim ? claim.text : ""]),
-        ),
-      ) ||
-      JSON.stringify(caseEdits) !==
-        JSON.stringify(
-          Object.fromEntries(
-            report.text.priority_cases.map((value) => [
-              value.address_key,
-              { why_review: value.why_review, next_check: value.next_check },
-            ]),
-          ),
-        ))
+  const draftDirty = draft
+    ? !sameDraftValues(draft.baseline, draft.current)
+    : false
+  const chapterMembership = report?.text
+    ? buildChapterMembership(report.text)
+    : null
+  const anchorPrefix = report ? `${report.id}-chapter` : ""
+  const editorGroupId = (group: string) => `${report?.id}-edit-${group}`
+  const claimEditorId = (id: string) => `${draft?.reportId}-claim-${id}`
+  const caseEditorId = (key: string, field: "why_review" | "next_check") =>
+    `${draft?.reportId}-case-${key}-${field}`
+  const firstClaimEditor = (ids: string[]) => {
+    const first = ids[0]
+    return first ? claimEditorId(first) : undefined
+  }
+  const locatorTarget = (section: string) => {
+    if (!draft || !chapterMembership) return `${anchorPrefix}-${section}`
+    const group = chapterMembership.groups.find((item) => item.id === section)
+    if (!group) return `${anchorPrefix}-${section}`
+    const canonical = group.canonicalIds[0]
+    if (canonical) return claimEditorId(canonical)
+    const shared = group.sharedIds[0]
+    if (shared) return claimEditorId(shared)
+    return editorGroupId(section)
+  }
   const heading = addressKey
     ? t("Explain this difference", "解释此差异")
     : t("AI interpretation for this comparison", "本轮 AI 解读")
@@ -796,7 +1039,7 @@ export function V2AnalysisReportsPanel({
             <select
               className="block rounded border bg-background p-2"
               value={audience}
-              disabled={busy || editing || !!pending}
+              disabled={busy || printing || editing || !!pending}
               onChange={(event) =>
                 setAudience(
                   event.target.value === "operations"
@@ -815,7 +1058,7 @@ export function V2AnalysisReportsPanel({
           <select
             className="block rounded border bg-background p-2"
             value={reportLanguage}
-            disabled={busy || editing || !!pending}
+            disabled={busy || printing || editing || !!pending}
             onChange={(event) =>
               setReportLanguage(event.target.value === "en" ? "en" : "zh")
             }
@@ -828,7 +1071,7 @@ export function V2AnalysisReportsPanel({
           <Label className="flex items-center gap-2">
             <Checkbox
               checked={includeFlow}
-              disabled={busy || editing || !!pending}
+              disabled={busy || printing || editing || !!pending}
               onCheckedChange={(value) => setIncludeFlow(value === true)}
             />
             {t("Use this fixed NetFlow supplement", "使用此固定 NetFlow 辅证")}
@@ -840,6 +1083,7 @@ export function V2AnalysisReportsPanel({
               !ready.data?.can_create ||
               ready.isError ||
               busy ||
+              printing ||
               editing ||
               !!pending ||
               report?.status === "GENERATING" ||
@@ -904,7 +1148,7 @@ export function V2AnalysisReportsPanel({
         <Button
           size="sm"
           variant="outline"
-          disabled={busy}
+          disabled={busy || printing}
           onClick={() => {
             setBlocked(false)
             setReadProblem(null)
@@ -936,7 +1180,10 @@ export function V2AnalysisReportsPanel({
           )}
         </p>
       ) : (
-        <>
+        <fieldset className="min-w-0 space-y-2" disabled={editing || busy}>
+          <legend className="sr-only">
+            {t("Report version controls", "报告版本控件")}
+          </legend>
           <Label className="block min-w-0 space-y-2">
             {t("Saved report version", "已保存报告版本")}
             <select
@@ -944,6 +1191,7 @@ export function V2AnalysisReportsPanel({
               value={selected ?? ""}
               disabled={editing || busy}
               onChange={(event) => {
+                if (editing || busy) return
                 selectedRef.current = event.target.value
                 setSelected(event.target.value)
                 setError("")
@@ -964,12 +1212,29 @@ export function V2AnalysisReportsPanel({
             page={page}
             pageSize={25}
             onPageChange={(next) => {
+              if (draft || editing || busy) {
+                setError(
+                  t(
+                    "Save or discard your draft before changing report versions or pages.",
+                    "更改报告版本或翻页前，请先保存或放弃草稿。",
+                  ),
+                )
+                return
+              }
               selectedRef.current = undefined
               setSelected(undefined)
               setPage(next)
             }}
           />
-        </>
+          {(draft || busy) && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {t(
+                "Report version and page changes are unavailable until the current operation ends or the draft is saved or discarded.",
+                "在保存或放弃草稿、或当前操作结束前，不能更改报告版本或翻页。",
+              )}
+            </p>
+          )}
+        </fieldset>
       )}
       {readProblem && <p role="alert">{t(...problemMessage(readProblem))}</p>}
       {report && (
@@ -1002,24 +1267,139 @@ export function V2AnalysisReportsPanel({
                   )}
                 </p>
               )}
-              <V2ReportContent report={report} compact={!full} />
+              {full && chapterMembership && (
+                <nav
+                  aria-label={t("Report chapters", "报告章节")}
+                  className="flex min-w-0 flex-wrap gap-2"
+                >
+                  {draft &&
+                    chapterMembership.groups.some(
+                      (group) => group.id === "summary",
+                    ) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-auto whitespace-normal"
+                        onClick={() =>
+                          revealElement(
+                            firstClaimEditor(chapterMembership.summaryIds) ??
+                              editorGroupId("summary"),
+                          )
+                        }
+                      >
+                        {t(...chapterTitles.summary)}
+                      </Button>
+                    )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-auto whitespace-normal"
+                    onClick={() =>
+                      revealElement(
+                        draft
+                          ? locatorTarget("facts")
+                          : `${anchorPrefix}-facts`,
+                      )
+                    }
+                  >
+                    {t(
+                      ...(addressKey
+                        ? chapterTitles.address_facts
+                        : chapterTitles.facts),
+                    )}
+                  </Button>
+                  {report.text?.sections.map((section) => (
+                    <Button
+                      key={section.id}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-auto whitespace-normal"
+                      onClick={() => revealElement(locatorTarget(section.id))}
+                    >
+                      {t(...chapterTitles[section.id])}
+                    </Button>
+                  ))}
+                  {report.text?.priority_cases.length ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-auto whitespace-normal"
+                      onClick={() =>
+                        revealElement(
+                          draft
+                            ? caseEditorId(
+                                report.text!.priority_cases[0].address_key,
+                                "why_review",
+                              )
+                            : `${anchorPrefix}-priority_cases`,
+                        )
+                      }
+                    >
+                      {t(...chapterTitles.priority_cases)}
+                    </Button>
+                  ) : null}
+                  {draft && chapterMembership.unplacedIds.length > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-auto whitespace-normal"
+                      onClick={() =>
+                        revealElement(
+                          firstClaimEditor(chapterMembership.unplacedIds) ??
+                            editorGroupId("unplaced"),
+                        )
+                      }
+                    >
+                      {t(...chapterTitles.unplaced)}
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-auto whitespace-normal"
+                    onClick={() => revealElement(`${anchorPrefix}-limits`)}
+                  >
+                    {t(...chapterTitles.limits)}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-auto whitespace-normal"
+                    onClick={() => revealElement(`${anchorPrefix}-sources`)}
+                  >
+                    {t(...chapterTitles.sources)}
+                  </Button>
+                </nav>
+              )}
+              <V2ReportContent
+                report={report}
+                compact={!full}
+                anchorPrefix={full ? anchorPrefix : undefined}
+              />
               {full && (
                 <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {report.status === "DRAFT" &&
                       versions.data?.can_create &&
-                      !editing && (
+                      !draft && (
                         <>
                           <Button
                             variant="outline"
-                            disabled={busy}
+                            disabled={busy || printing}
                             onClick={startEdit}
                           >
                             {t("Edit interpretation", "编辑解读")}
                           </Button>
                           <Button
-                            disabled={busy}
-                            onClick={() => void write(true)}
+                            disabled={busy || printing}
+                            onClick={() => void confirmReport()}
                           >
                             {t("Confirm this report version", "确认此报告版本")}
                           </Button>
@@ -1027,7 +1407,7 @@ export function V2AnalysisReportsPanel({
                       )}
                     <Button
                       variant="outline"
-                      disabled={busy || editing || !report.material}
+                      disabled={busy || printing || editing || !report.material}
                       onClick={() => void print()}
                     >
                       {t("Print report", "打印报告")}
@@ -1039,93 +1419,295 @@ export function V2AnalysisReportsPanel({
                       "确认仅针对此报告版本，不证明资产归属、漏洞或已完成处置。已打印文件无法远程收回，请遵守材料用途与留存期限。",
                     )}
                   </p>
-                  {editing && (
+                  {draft && draftConflict !== "confirmed" && (
                     <form
                       className="space-y-4"
                       onSubmit={(event) => {
                         event.preventDefault()
-                        void write()
+                        void saveDraft()
                       }}
                     >
                       <p>
                         {t(
-                          "Only interpretation and suggested checks are editable; facts and references remain fixed.",
-                          "仅可编辑解释与建议核实；事实和引用保持固定。",
+                          "Only interpretation and suggested checks are editable; facts and references remain fixed. Save stays a draft; confirmation is a separate action.",
+                          "仅可编辑解释与建议核实；事实和引用保持固定。保存仍为草稿，确认是独立操作。",
                         )}
                       </p>
-                      {editRevision !== report.revision && (
-                        <p role="alert">
-                          {t(
-                            "This report has another revision. Your text is retained; saving against the old revision will be rejected.",
-                            "报告已有另一份修订。你的文字仍保留，但不能覆盖新修订。",
-                          )}
-                        </p>
-                      )}
-                      {Object.entries(edits).map(([id, value]) => (
-                        <Label key={id} className="block space-y-2">
-                          {t("Interpretation", "解读正文")} · {id}
-                          <textarea
-                            aria-label={`${t("Interpretation", "解读正文")} · ${id}`}
-                            id={`${report.id}-claim-${id}`}
-                            className="block min-h-24 w-full rounded border bg-background p-3"
-                            value={value}
-                            maxLength={2000}
-                            disabled={busy}
-                            onChange={(event) =>
-                              setEdits({ ...edits, [id]: event.target.value })
-                            }
-                          />
-                        </Label>
-                      ))}
-                      {Object.entries(caseEdits).map(([key, value]) => (
-                        <div key={key} className="space-y-3">
-                          {(["why_review", "next_check"] as const).map(
-                            (field) => (
-                              <Label key={field} className="block space-y-2">
-                                {field === "why_review"
-                                  ? t(
-                                      "Why verify this object",
-                                      "为何核实此对象",
-                                    )
-                                  : t("What to verify next", "下一步核实什么")}
-                                <textarea
-                                  className="block min-h-20 w-full rounded border bg-background p-3"
-                                  value={value[field]}
-                                  maxLength={2000}
+                      {draftConflict && (
+                        <div
+                          role="alert"
+                          className="space-y-2 rounded border p-3"
+                        >
+                          <p>{conflictMessage(draftConflict)}</p>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() => void rereadDraft()}
+                            >
+                              {t("Re-read this report", "重读此报告")}
+                            </Button>
+                            {draft.reread === "done" &&
+                              draft.latestStatus === "DRAFT" && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
                                   disabled={busy}
-                                  onChange={(event) =>
-                                    setCaseEdits({
-                                      ...caseEdits,
-                                      [key]: {
-                                        ...value,
-                                        [field]: event.target.value,
-                                      },
-                                    })
-                                  }
-                                />
-                              </Label>
-                            ),
+                                  onClick={restartDraft}
+                                >
+                                  {t(
+                                    "Discard and restart from latest revision",
+                                    "放弃并从最新修订重新开始",
+                                  )}
+                                </Button>
+                              )}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={clearDraft}
+                            >
+                              {t("Discard draft", "放弃草稿")}
+                            </Button>
+                          </div>
+                          {draft.reread === "done" && (
+                            <p className="text-sm">
+                              {draft.latestStatus === "DRAFT"
+                                ? t(
+                                    `The same report is readable at draft revision ${draft.latestRevision}. Your text was not rebased; copy it if needed, then explicitly discard and restart.`,
+                                    `同一报告在当前草稿修订 ${draft.latestRevision} 可读。你的文字未被自动重定基准；如需保留请先复制，再显式放弃并重新开始。`,
+                                  )
+                                : t(
+                                    `The same report is confirmed at revision ${draft.latestRevision}. Your text remains available for copying until you discard it.`,
+                                    `同一报告已在修订 ${draft.latestRevision} 确认。你的文字会保留供复制，直到你显式放弃。`,
+                                  )}
+                            </p>
                           )}
                         </div>
+                      )}
+                      {chapterMembership?.groups.map((group) => (
+                        <section
+                          key={group.id}
+                          aria-label={t(...group.title)}
+                          className="min-w-0 space-y-3 rounded border p-3"
+                        >
+                          <h4
+                            id={editorGroupId(group.id)}
+                            tabIndex={-1}
+                            className="scroll-mt-28 rounded font-medium outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                          >
+                            {t(...group.title)}
+                          </h4>
+                          {group.canonicalIds.map((id) => {
+                            const others = (
+                              chapterMembership.memberships.get(id) ?? []
+                            ).filter(
+                              (chapter) =>
+                                chapter !== chapterMembership.canonical.get(id),
+                            )
+                            return (
+                              <div key={id} className="min-w-0 space-y-1">
+                                <Label className="block space-y-2">
+                                  {t("Interpretation", "解读正文")} · {id}
+                                  <textarea
+                                    aria-label={`${t("Interpretation", "解读正文")} · ${id}`}
+                                    id={claimEditorId(id)}
+                                    className="block min-h-24 w-full min-w-0 rounded border bg-background p-3"
+                                    value={draft.current.claims[id] ?? ""}
+                                    maxLength={2000}
+                                    disabled={busy}
+                                    onChange={(event) =>
+                                      setDraft((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              current: {
+                                                ...current.current,
+                                                claims: {
+                                                  ...current.current.claims,
+                                                  [id]: event.target.value,
+                                                },
+                                              },
+                                            }
+                                          : current,
+                                      )
+                                    }
+                                  />
+                                </Label>
+                                {others.length > 0 && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {t("Also appears in", "同时出现在")}:{" "}
+                                    {others
+                                      .map((chapter) =>
+                                        t(...chapterTitles[chapter]),
+                                      )
+                                      .join(" · ")}
+                                  </p>
+                                )}
+                              </div>
+                            )
+                          })}
+                          {group.sharedIds.map((id) => (
+                            <div
+                              key={id}
+                              className="flex min-w-0 flex-wrap items-center gap-2 text-sm"
+                            >
+                              <span className="break-words text-muted-foreground">
+                                {t("Shared claim", "共享条目")} · {id}
+                              </span>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="h-auto whitespace-normal"
+                                aria-label={`Focus shared claim ${id}`}
+                                onClick={() => revealElement(claimEditorId(id))}
+                              >
+                                {t("Focus its single editor", "定位唯一编辑框")}
+                              </Button>
+                            </div>
+                          ))}
+                        </section>
                       ))}
-                      <div className="flex gap-2">
-                        <Button type="submit" disabled={busy || !dirty}>
+                      {Object.keys(draft.current.cases).length > 0 && (
+                        <section
+                          aria-label={t(...chapterTitles.priority_cases)}
+                          className="min-w-0 space-y-3 rounded border p-3"
+                        >
+                          <h4
+                            id={editorGroupId("priority_cases")}
+                            tabIndex={-1}
+                            className="scroll-mt-28 rounded font-medium outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                          >
+                            {t(...chapterTitles.priority_cases)}
+                          </h4>
+                          {Object.entries(draft.current.cases).map(
+                            ([key, value]) => (
+                              <div
+                                key={key}
+                                className="min-w-0 space-y-3 rounded border p-3"
+                              >
+                                <p className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                                  {key}
+                                </p>
+                                {(["why_review", "next_check"] as const).map(
+                                  (field) => {
+                                    const label =
+                                      field === "why_review"
+                                        ? t(
+                                            "Why verify this object",
+                                            "为何核实此对象",
+                                          )
+                                        : t(
+                                            "What to verify next",
+                                            "下一步核实什么",
+                                          )
+                                    return (
+                                      <Label
+                                        key={field}
+                                        className="block space-y-2"
+                                      >
+                                        {label}
+                                        <textarea
+                                          aria-label={`${label} · ${key}`}
+                                          id={caseEditorId(key, field)}
+                                          className="block min-h-20 w-full min-w-0 rounded border bg-background p-3"
+                                          value={value[field]}
+                                          maxLength={2000}
+                                          disabled={busy}
+                                          onChange={(event) =>
+                                            setDraft((current) =>
+                                              current
+                                                ? {
+                                                    ...current,
+                                                    current: {
+                                                      ...current.current,
+                                                      cases: {
+                                                        ...current.current
+                                                          .cases,
+                                                        [key]: {
+                                                          ...current.current
+                                                            .cases[key],
+                                                          [field]:
+                                                            event.target.value,
+                                                        },
+                                                      },
+                                                    },
+                                                  }
+                                                : current,
+                                            )
+                                          }
+                                        />
+                                      </Label>
+                                    )
+                                  },
+                                )}
+                              </div>
+                            ),
+                          )}
+                        </section>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="submit"
+                          disabled={busy || !draftDirty || !!draftConflict}
+                        >
                           {t("Save report revision", "保存报告修订")}
                         </Button>
                         <Button
                           type="button"
                           variant="outline"
                           disabled={busy}
-                          onClick={() => {
-                            setEditing(false)
-                            setEdits({})
-                            setCaseEdits({})
-                          }}
+                          onClick={clearDraft}
                         >
                           {t("Cancel edits", "取消编辑")}
                         </Button>
                       </div>
                     </form>
+                  )}
+                  {draft && draftConflict === "confirmed" && (
+                    <section
+                      aria-label={t("Unsaved draft text", "未保存草稿正文")}
+                      className="space-y-3 rounded border p-3"
+                    >
+                      <p role="status">{conflictMessage("confirmed")}</p>
+                      {Object.entries(draft.current.claims).map(
+                        ([id, value]) => (
+                          <div key={id} className="min-w-0 space-y-1">
+                            <p className="text-sm font-medium">
+                              {t("Interpretation", "解读正文")} · {id}
+                            </p>
+                            <pre className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
+                              {value}
+                            </pre>
+                          </div>
+                        ),
+                      )}
+                      {Object.entries(draft.current.cases).map(
+                        ([key, value]) => (
+                          <div key={key} className="min-w-0 space-y-1">
+                            <p className="break-words text-sm font-medium [overflow-wrap:anywhere]">
+                              {key}
+                            </p>
+                            <pre className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
+                              {value.why_review}
+                            </pre>
+                            <pre className="whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
+                              {value.next_check}
+                            </pre>
+                          </div>
+                        ),
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={clearDraft}
+                      >
+                        {t("Discard draft", "放弃草稿")}
+                      </Button>
+                    </section>
                   )}
                   {report.original_output && (
                     <details className="space-y-3">
@@ -1144,23 +1726,19 @@ export function V2AnalysisReportsPanel({
                     <summary className="cursor-pointer">
                       {t("Human revision history", "人工修订历史")}
                     </summary>
-                    {history.isError ? (
-                      <p role="alert">
-                        {t(
-                          "Revision history cannot be read.",
-                          "修订历史不可读。",
-                        )}
-                      </p>
-                    ) : (
-                      history.data?.map((value, index) => (
-                        <pre
-                          key={index}
-                          className="max-h-60 overflow-auto whitespace-pre-wrap break-all text-xs"
-                        >
-                          {JSON.stringify(value, null, 2)}
-                        </pre>
-                      ))
-                    )}
+                    <V2ReportHistory
+                      reportId={report.id}
+                      verifiedText={report.text}
+                      status={
+                        history.isPending
+                          ? "pending"
+                          : history.isError
+                            ? "error"
+                            : "success"
+                      }
+                      value={history.data}
+                      onRetry={() => void history.refetch()}
+                    />
                   </details>
                 </div>
               )}

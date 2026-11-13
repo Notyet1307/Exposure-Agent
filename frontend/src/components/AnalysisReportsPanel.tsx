@@ -69,6 +69,12 @@ function readRecovery(storageKey: string) {
   }
 }
 
+const revealChapter = (id: string) => {
+  const element = document.getElementById(id)
+  if (!element) return
+  element.focus({ preventScroll: true })
+  element.scrollIntoView({ block: "center", behavior: "instant" })
+}
 type ReadProblem =
   | "temporary"
   | "permission"
@@ -455,10 +461,20 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
     OBTAINED_TOOL_READ: t("Read-only query", "只读查询"),
     MANUAL_REVIEW: t("Manual review", "人工记录"),
   }
-  const renderText = (text: AnalysisReportText) =>
+  const renderText = (text: AnalysisReportText, anchored = false) =>
     textFields.map(([field, en, zh]) => (
       <div key={field} className="min-w-0 max-w-prose space-y-1">
-        <h4 className="font-medium">{t(en, zh)}</h4>
+        <h4
+          id={anchored ? `${formId}-chapter-${field}` : undefined}
+          tabIndex={anchored ? -1 : undefined}
+          className={
+            anchored
+              ? "scroll-mt-28 rounded font-medium outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              : "font-medium"
+          }
+        >
+          {t(en, zh)}
+        </h4>
         <p className="whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">
           {text[field]}
         </p>
@@ -658,6 +674,12 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
                 : t("Legacy connection", "历史连接")}
             </span>
           </div>
+          <p className="max-w-prose text-sm text-muted-foreground">
+            {t(
+              "Per-revision saved history is unavailable for legacy analysis reports. The revision number only protects against conflicting overwrites; it is not a readable revision history.",
+              "旧版分析报告不提供逐修订的已保存历史。修订号仅用于防止冲突覆盖，并不是可阅读的修订历史。",
+            )}
+          </p>
           {current.status === "GENERATING" && (
             <p role="status">
               {t(
@@ -701,11 +723,36 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
             </Alert>
           )}
           {current.text && (
+            <nav
+              aria-label={t("Report chapters", "报告章节")}
+              className="flex min-w-0 flex-wrap gap-2"
+            >
+              {textFields.map(([field, en, zh]) => (
+                <Button
+                  key={field}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-auto whitespace-normal"
+                  onClick={() =>
+                    revealChapter(
+                      editing
+                        ? `${formId}-${field}`
+                        : `${formId}-chapter-${field}`,
+                    )
+                  }
+                >
+                  {t(en, zh)}
+                </Button>
+              ))}
+            </nav>
+          )}
+          {current.text && (
             <section
               aria-label={t("Report narrative", "报告正文")}
               className="min-w-0 space-y-3 text-sm"
             >
-              {renderText(current.text)}
+              {renderText(current.text, true)}
             </section>
           )}
           <p className="text-sm">
@@ -914,7 +961,7 @@ function AnalysisReportsPanelForActor(scope: Scope & { actor: string }) {
                   </label>
                   <textarea
                     id={`${formId}-${field}`}
-                    className="block min-h-56 w-full min-w-0 resize-y rounded-md border bg-background p-3 text-sm leading-relaxed"
+                    className="block min-h-56 w-full min-w-0 scroll-mt-28 resize-y rounded-md border bg-background p-3 text-sm leading-relaxed"
                     rows={10}
                     required
                     maxLength={8000}

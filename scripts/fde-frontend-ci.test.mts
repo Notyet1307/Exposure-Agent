@@ -157,6 +157,62 @@ test("rejects incomplete, global-error and non-JSON reports", () => {
   assert.throws(() => playwrightCounts(result(), 1), /exit status/)
 })
 
+for (const scenario of ["failed", "malformed", "missing"] as const) {
+  test(`preserves component diagnostics for a ${scenario} report without accepting failure`, (t) => {
+    const root = mkdtempSync(join(tmpdir(), "fde-evidence-test-"))
+    t.after(() => rmSync(root, { recursive: true, force: true }))
+    mkdirSync(join(root, "frontend"))
+    const bin = join(root, "bin")
+    mkdirSync(bin)
+    const output = join(root, "result.json")
+    const report = result()
+    report.suites[0].specs[0].tests[0].results[0].status = "failed"
+    report.suites[0].specs[0].tests[0].status = "unexpected"
+    report.stats.expected--
+    report.stats.unexpected++
+    const raw = scenario === "malformed" ? "{incomplete" : JSON.stringify(report)
+    writeFileSync(
+      join(bin, "bunx"),
+      `#!/usr/bin/env node
+const assert = require("node:assert/strict")
+const { writeFileSync } = require("node:fs")
+assert.deepEqual(process.argv.slice(2), ["playwright", "test", "--project=component", "--workers=1", "--retries=0", "--fail-on-flaky-tests", "--reporter=line,json", "--trace=retain-on-failure"])
+assert.equal(process.env.CI, "true")
+${scenario === "missing" ? "" : `writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_FILE, ${JSON.stringify(raw)})`}
+console.log("tests/example.component.spec.ts:42 > failed assertion")
+console.error("runner diagnostic")
+process.exit(1)
+`,
+      { mode: 0o755 },
+    )
+    const execution = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        "--input-type=module",
+        "-e",
+        `import { runComponentTests } from ${JSON.stringify(new URL("./fde-frontend-ci.mts", import.meta.url).href)};
+const counts = runComponentTests(${JSON.stringify(root)}, ${JSON.stringify(output)});
+console.log(JSON.stringify(counts));
+process.exitCode = counts.failures + counts.errors > 0 ? 1 : 0;`,
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      },
+    )
+    assert.equal(execution.status, 1, execution.stderr)
+    assert.match(execution.stdout, /example\.component\.spec\.ts:42 > failed assertion/)
+    assert.match(execution.stderr, /runner diagnostic/)
+    assert.match(readFileSync(`${output}.stdout.log`, "utf8"), /failed assertion/)
+    assert.match(readFileSync(`${output}.stderr.log`, "utf8"), /runner diagnostic/)
+    if (scenario !== "missing")
+      assert.equal(readFileSync(`${output}.playwright.json`, "utf8"), raw)
+    if (scenario === "failed")
+      assert.match(execution.stdout, /"failures":1/)
+  })
+}
+
 function git(repo: string, ...args: string[]) {
   const r = spawnSync("git", ["-C", repo, ...args], { encoding: "utf8" })
   assert.equal(r.status, 0, r.stderr)
@@ -389,10 +445,14 @@ test("workflow has one static job, unique safe steps and an independent final re
     "utf8",
   )
   const names = [...workflow.matchAll(/^ {6}- name: (.+)$/gm)].map((m) => m[1])
-  assert.equal(names.length, 9)
+  assert.equal(names.length, 10)
   assert.equal(new Set(names).size, names.length)
   assert(names.every((name) => !/[\\/]/.test(name)))
   assert.equal(names.at(-1), "Project report")
   assert.match(workflow, /- name: Project report\n {8}if: always\(\)/)
+  assert.match(workflow, /- name: Preserve component evidence\n {8}if: always\(\)/)
+  assert.match(workflow, /name: fde-frontend-\$\{\{ github.run_id \}\}-attempt-\$\{\{ github.run_attempt \}\}/)
+  assert.match(workflow, /fde-frontend-result\.json\*/)
+  assert.match(workflow, /candidate\/frontend\/test-results/)
   for (const path of sourcePaths) assert(workflow.includes(path))
 })

@@ -1665,6 +1665,58 @@ test.describe("Analysis reports", () => {
     )
   })
 
+  test("legacy reports locate all four fields and state that revision history is unavailable", async ({
+    page,
+  }) => {
+    const record = analysisVersion(0)
+    await page.route(analysisPath, (route) => {
+      const path = new URL(route.request().url()).pathname
+      return route.fulfill({
+        json: path.endsWith(`/${record.id}`)
+          ? record
+          : { data: [record], count: 1, can_create: true },
+      })
+    })
+    await openReport(page)
+    const panel = page.getByRole("region", {
+      name: "AI analysis reports",
+      exact: true,
+    })
+    await expect(
+      panel.getByText(
+        "Per-revision saved history is unavailable for legacy analysis reports. The revision number only protects against conflicting overwrites; it is not a readable revision history.",
+        { exact: true },
+      ),
+    ).toBeVisible()
+    const nav = panel.getByRole("navigation", { name: "Report chapters" })
+    const fields = [
+      "Business summary",
+      "Key differences",
+      "Investigation and verification progress",
+      "Next steps",
+    ]
+    await expect(nav.getByRole("button")).toHaveCount(4)
+    for (const field of fields) {
+      await nav.getByRole("button", { name: field, exact: true }).click()
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.activeElement?.getAttribute("id")),
+        )
+        .toMatch(/-chapter-/)
+    }
+    await panel
+      .getByRole("button", { name: "Edit narrative", exact: true })
+      .click()
+    await expect(panel.getByRole("textbox")).toHaveCount(4)
+    for (const field of fields) {
+      await nav.getByRole("button", { name: field, exact: true }).click()
+      await expect(panel.getByLabel(field, { exact: true })).toBeFocused()
+    }
+    await expect(panel.getByText(/Before revision|After revision/)).toHaveCount(
+      0,
+    )
+  })
+
   test("keeps an explicitly selected old version and its update notice through unknown and failed generation", async ({
     page,
   }) => {
