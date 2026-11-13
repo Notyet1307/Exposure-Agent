@@ -59,6 +59,16 @@ jobs:
           FDE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           FDE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: env -u NODE_OPTIONS node --experimental-strip-types approved-ci/scripts/fde-frontend-ci.mts checks candidate "$RUNNER_TEMP/fde-frontend-result.json"
+      - name: Preserve component evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fde-frontend-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/fde-frontend-result.json*
+            candidate/frontend/test-results
+          retention-days: 30
+          if-no-files-found: warn
       - name: Project report
         if: always()
         env:

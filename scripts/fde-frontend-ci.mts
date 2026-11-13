@@ -354,35 +354,7 @@ function runChecks(trusted: string, candidate: string, output: string): number {
     candidate,
   )
   run("frontend-build", "bun", ["run", "build"], join(candidate, "frontend"))
-  const execution = spawnSync(
-    "bunx",
-    [
-      "playwright",
-      "test",
-      "--project=component",
-      "--workers=1",
-      "--retries=0",
-      "--fail-on-flaky-tests",
-      "--reporter=json",
-    ],
-    {
-      cwd: join(candidate, "frontend"),
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: 600_000,
-      env: {
-        ...process.env,
-        CI: "true",
-        NODE_OPTIONS: "",
-        PLAYWRIGHT_JSON_OUTPUT_FILE: "",
-        PLAYWRIGHT_JSON_OUTPUT_NAME: "",
-        PLAYWRIGHT_JSON_OUTPUT_DIR: "",
-      },
-    },
-  )
-  process.stderr.write(execution.stderr ?? "")
-  assert(execution.status !== null, "Playwright did not complete")
-  checks.push(playwrightCounts(JSON.parse(execution.stdout), execution.status))
+  checks.push(runComponentTests(candidate, output))
   assert.deepEqual(
     identity(trusted, candidate),
     before,
@@ -397,6 +369,47 @@ function runChecks(trusted: string, candidate: string, output: string): number {
   )
     ? 1
     : 0
+}
+
+export function runComponentTests(candidate: string, output: string): Counts {
+  const reportPath = resolve(`${output}.playwright.json`)
+  const execution = spawnSync(
+    "bunx",
+    [
+      "playwright",
+      "test",
+      "--project=component",
+      "--workers=1",
+      "--retries=0",
+      "--fail-on-flaky-tests",
+      "--reporter=line,json",
+      "--trace=retain-on-failure",
+    ],
+    {
+      cwd: join(candidate, "frontend"),
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: 600_000,
+      env: {
+        ...process.env,
+        CI: "true",
+        NODE_OPTIONS: "",
+        PLAYWRIGHT_JSON_OUTPUT_FILE: reportPath,
+        PLAYWRIGHT_JSON_OUTPUT_NAME: "",
+        PLAYWRIGHT_JSON_OUTPUT_DIR: "",
+      },
+    },
+  )
+  // Preserve runner output even if the JSON report is missing or invalid.
+  writeFileSync(`${output}.stdout.log`, execution.stdout ?? "")
+  writeFileSync(`${output}.stderr.log`, execution.stderr ?? "")
+  process.stdout.write(execution.stdout ?? "")
+  process.stderr.write(execution.stderr ?? "")
+  assert(execution.status !== null, "Playwright did not complete")
+  return playwrightCounts(
+    JSON.parse(readFileSync(reportPath, "utf8")),
+    execution.status,
+  )
 }
 
 function main(): void {
