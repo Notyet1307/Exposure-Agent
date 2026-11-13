@@ -14,8 +14,6 @@ const ref = `core:${result}`
 const countRef = `fact:${result}:counts`
 const addressKey = `addr:${"a".repeat(64)}`
 const addressRef = `fact:${result}:${addressKey}`
-const screenshots =
-  "/Users/yet/ops/tasks/exposure2026/report-sections-20261112/rework-01/author/tests/screenshots"
 const conflictBody = {
   detail: {
     code: "analysis_report_revision_conflict",
@@ -1730,7 +1728,7 @@ test("a delayed refusal clears a collapsed draft instead of reviving it", async 
 
 test("375 and 390 pixels stay inside the viewport with wrapping editors and keyboard reachability", async ({
   page,
-}) => {
+}, testInfo) => {
   const world = makeWorld()
   world.reports[reportId] = reportFor(reportId, {
     revision: 2,
@@ -1757,7 +1755,7 @@ test("375 and 390 pixels stay inside the viewport with wrapping editors and keyb
     expect(read.document).toBeLessThanOrEqual(read.viewport + 1)
     expect(read.panel).toBeLessThanOrEqual(read.panelClient + 1)
     await page.screenshot({
-      path: `${screenshots}/item10-report-${width}-read.png`,
+      path: testInfo.outputPath(`item10-report-${width}-read.png`),
       fullPage: true,
     })
 
@@ -1845,7 +1843,7 @@ test("375 and 390 pixels stay inside the viewport with wrapping editors and keyb
     expect(edit.document).toBeLessThanOrEqual(edit.viewport + 1)
     expect(edit.panel).toBeLessThanOrEqual(edit.panelClient + 1)
     await page.screenshot({
-      path: `${screenshots}/item10-report-${width}-edit.png`,
+      path: testInfo.outputPath(`item10-report-${width}-edit.png`),
       fullPage: true,
     })
   }
