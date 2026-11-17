@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-GitHub Issues are the repository's only task-status, dependency, and authorization surface. They must cite the approved Git Spec path and commit. `AGENTS.md` defines the execution and publication lifecycle: Codync dispatches work, Claude Code runs the implementation with pstack methods, and the project owner holds goal, design, route, and acceptance. Behavior authority is the pinned Spec, not this tracker.
+GitHub Issues are the repository's only task-status, dependency, and authorization surface. They must cite the approved Git Spec path and commit. [AGENTS.md](../../AGENTS.md#claude-code--pstack-工作流) defines the execution and publication lifecycle, the default entry, and the task-level engine scope. The project owner holds goal, design, route, and acceptance. Behavior authority is the pinned Spec, not this tracker.
 
 ## Scope and reads
 
@@ -19,8 +19,6 @@ GitHub Issues are the repository's only task-status, dependency, and authorizati
 ## Mutations and completion
 
 - Use `gh` or another already authorized GitHub-native capability for repository, search, PR, push, and CI operations.
-- Keep implementation, verification, commit, push, PR, CI/review, merge, deployment when required, and Issue closure as separately authorized and verified lifecycle states. A finished pstack step does not authorize the next state.
-- The project owner organizes independent, non-author Standards and Spec reviews against the pinned Spec before merge; the original implementer fixes blockers and the reviewers re-review. Independent business acceptance is separate from those code reviews. Record PASS / FAIL / BLOCKED / NOT_RUN; human risk-accept is a separate decision.
-- Close the Issue only after its PR is merged and any required deployment acceptance is complete or explicitly not applicable.
+- Lifecycle states, independent Standards and Spec review, evidence labels, retries, and Issue closure follow [AGENTS.md](../../AGENTS.md#claude-code--pstack-工作流) and [ADR-0016](../adr/0016-pin-approved-spec-and-issue-status.md). Record PASS / FAIL / BLOCKED / NOT_RUN; human risk-accept is a separate decision.
 
-There is no Controller, Admission, release-graph, or ready-label automatic authorization in the current workflow. Normal task dispatch by the project owner is not Controller or Admission. `/to-spec` and `/to-tickets` remain available as methods; `delivery-gate.md` is historical and is not a current entry.
+`/to-spec` and `/to-tickets` remain available as methods; `delivery-gate.md` is historical and is not a current entry.

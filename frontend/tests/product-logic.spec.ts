@@ -316,7 +316,7 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
     .click()
   await page
     .getByRole("link", {
-      name: "Read the CloudAtlas version used here",
+      name: "Read the CloudAtlas IP version used here",
       exact: true,
     })
     .click()
