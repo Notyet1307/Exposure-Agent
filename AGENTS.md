@@ -30,7 +30,7 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 
 `frontend/src/client/**` 和 `frontend/src/routeTree.gen.ts` 是生成文件，仅在 API Contract 或路由生成相关任务中按需读取，禁止手工编辑。API 变更后使用 `bash scripts/generate-client.sh` 更新客户端。
 
-任务规划、实现、审阅和发布通过 Codync 入口，在 Claude Code 中按 pstack 方法执行，并使用 GitHub 原生能力。仓库内遗留的 pi-ticket-planning、HerdrHarness、Wayfinder、Admission、Delivery Graph、Frontier 和 Controller 材料仅视为历史文档，不作为当前流程入口。
+任务规划、实现、审阅和发布默认通过 Codync 入口，在 Claude Code 中按 pstack 方法执行，并使用 GitHub 原生能力。已明确授权的任务级 Cindy/Pi 运行可沿任务专属入口执行同一方法；默认入口不变，也不构成项目级迁移、权限或全局配置变更。仓库内遗留的 pi-ticket-planning、HerdrHarness、Wayfinder、Admission、Delivery Graph、Frontier 和 Controller 材料仅视为历史文档，不作为当前流程入口。
 
 文档事实源索引见 `docs/README.md`。
 
@@ -45,11 +45,11 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 
 ## Claude Code + pstack 工作流
 
-- 任务入口是 Codync。总管持有目标、设计、路线与验收；获派的项目工匠在单独实现上下文中完成修改、验证、普通测试和证据交回。同一候选同一时间只有一个源码写入者。
-- 实现运行在 Claude Code，开发方法使用 pstack；所选 pstack 步骤要求的验证与独立审阅不得省略。
+- 任务入口默认是 Codync。总管持有目标、设计、路线与验收；获派的项目工匠在单独实现上下文中完成修改、验证、普通测试和证据交回。已明确授权的任务级 Cindy/Pi 运行按上文入口范围使用任务专属入口。同一候选同一时间只有一个源码写入者。
+- 实现默认运行在 Claude Code，开发方法使用 pstack；已明确授权的任务级 Cindy/Pi 运行按上文入口范围执行。所选 pstack 步骤要求的验证与独立审阅不得省略。
 - 只实现当前对话已确认的 GitHub Issue；行为预期以该 Issue 引用的批准 Spec 为准。
 - 实现完成后，总管组织非作者的独立审阅，分别按仓库 Standards 与批准 Spec 两轴进行；发现 blocker 时由原实现者修复并重新审阅。独立业务验收与该两轴代码审阅分开，不互相替代。
-- commit、push、创建 PR、merge、部署和关闭 Issue 各是独立生命周期状态，各自需要明确授权与验收；pstack 步骤结束不构成对下一状态的授权。
+- 明确授权的实现任务，约定验证通过后可在已核对的任务分支或 worktree 本地 commit，沿用任务的提交条件与指定收口者，不另加报告审批；只读请求、明确禁止、暂停及既有停止点继续有效。只提交本任务内容并保留其他改动；本地候选或复现 commit 继续既定验证，不代表必需审阅或独立业务验收通过。交付读回实际完整 SHA、文件范围与验证状态。commit、push、创建 PR、merge、部署和关闭 Issue 分开报告，远端状态与关闭仍各需明确授权及验收，pstack 步骤结束不构成对下一状态的授权。
 - 远端生命周期逐项验收：push 前确认本地提交和验证结果，merge 前确认所需 CI/Review，关闭 Issue 前确认 PR 已合并且任务要求的部署验收已完成或明确不适用。
 - GitHub 分支保护、必需 CI 和 Review 门禁始终有效。
 - 不设置独立 Controller、Admission 或 ready-label 自动授权；总管的正常派工与任务分派不属于这些机制。
@@ -82,6 +82,7 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 
 ## 仓库工作流入口
 
+- [验证入口](.claude/skills/verify-exposure2026/SKILL.md)与 [Feature Map](.claude/skills/verify-exposure2026/features/README.md)
 - Issue tracker：`docs/agents/issue-tracker.md`
 - Triage labels：`docs/agents/triage-labels.md`
 - Domain docs：`docs/agents/domain.md`

@@ -4,15 +4,13 @@
 
 ## 方法
 
-默认入口是 Codync。总管持有目标、设计、路线与验收；项目工匠执行获派的实现、普通测试与证据交回。实现运行在 Claude Code，开发方法使用 pstack；任务状态与协作使用 GitHub 原生 Issue/PR/CI。`/to-spec` 与 `/to-tickets` 仍可作为方法使用；所选 pstack 步骤要求的验证与独立审阅照常执行，不省略。[delivery-gate.md](delivery-gate.md) 是历史说明，不是当前入口，也不自动授权实施。不要恢复 Controller、Release Graph 或 ready-label 自动授权；总管的正常派工不属于这些机制。
+默认入口是 Codync。总管持有目标、设计、路线与验收；项目工匠执行获派的实现、普通测试与证据交回。实现使用 pstack；运行引擎与入口范围遵循 [AGENTS.md](../../AGENTS.md#claude-code--pstack-工作流)。任务状态与协作使用 GitHub 原生 Issue/PR/CI。`/to-spec` 与 `/to-tickets` 仍可作为方法使用；所选 pstack 步骤要求的验证与独立审阅照常执行，不省略。[delivery-gate.md](delivery-gate.md) 是历史说明，不是当前入口，也不自动授权实施。
 
 模型分工由部署环境的项目工匠与总管配置决定；本仓库不固定 provider 映射。
 
 ## 默认动作
 
-获派的项目工匠负责已确认 Issue 的修改、验证、普通测试与证据交回。commit、push、创建 PR、merge、部署和关闭 Issue 各是独立生命周期状态，各自需要明确授权与验收；pstack 步骤结束不构成对下一状态的授权。同一候选同一时间只有一个源码写入者；只读核对可并行。
-
-实现完成后，总管组织非作者的独立 Standards 与 Spec 两轴审阅；独立业务验收另记，不用代码审阅代替。
+获派的项目工匠负责已确认 Issue 的修改、验证、普通测试与证据交回。生命周期、授权、单写者与审阅边界以 [AGENTS.md](../../AGENTS.md#claude-code--pstack-工作流) 为准；结果标签、重试与人工风险接受以 [ADR-0016](../adr/0016-pin-approved-spec-and-issue-status.md) 为准。只读核对可并行。
 
 ## 记忆
 

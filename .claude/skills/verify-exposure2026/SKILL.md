@@ -6,12 +6,12 @@ description: Verify Exposure2026 through a disposable synthetic PostgreSQL and r
 # Exposure2026 verification pilot
 
 ## Launch
-Use the project interpreter and the prepare/run commands below. Set `TASK_ID` for the task and choose a new `RUN_ROOT` for each frozen bundle. The prepare command freezes seven assets and records their identity. Bare `verify-exposure2026.py` does not freeze assets or record verification-asset identity.
+Use the project interpreter and the prepare/run commands below. Set `TASK_ID` for the task and choose a new `RUN_ROOT` for each frozen bundle. The prepare command freezes eight listed assets and records their identity. The list covers six skill files and two helper scripts. It does not freeze `features/reports.md`, `features/netflow-progress.md`, `features/core-comparison.md`, or any other map file, and it does not certify the whole map. Bare `verify-exposure2026.py` does not freeze assets or record verification-asset identity.
 
 Run this block with `MODE=prepare` before the journey. After the journey, keep the same `RUN_ROOT`, set `MODE=check`, and run the same block again. Check mode compares both copies with the original manifest and verifies unchanged product HEAD. Do not refresh the frozen copies after a failure.
 
 ```bash
-export SOURCE_REPO=/Users/yet/Developer/exposure2026
+export SOURCE_REPO=${SOURCE_REPO:?Bind SOURCE_REPO to the clean worktree under verification}
 export TASK_ID=customer-ledger-verification-pilot-20261107
 export RUN_ROOT="${RUN_ROOT:-/Users/yet/ops/tasks/exposure2026/$TASK_ID/run-$(date -u +%Y%m%dT%H%M%SZ)}"
 export MODE="${MODE:-prepare}"
@@ -133,7 +133,7 @@ PY_RUN
 
 The subprocess return code is written before this block exits, including negative-test failures. Do not use a background shell's completion code as the test result. After the run, execute the Launch block with `MODE=check`; require `check.exit` to be `0`.
 
-- `RUN_ROOT/verification/` holds the seven assets at their original relative paths, including both sibling scripts.
+- `RUN_ROOT/verification/` holds the eight listed assets at their original relative paths, including both sibling scripts. This list is the complete frozen set; it is not an identity check of every feature-map file.
 - `RUN_ROOT/frozen-assets.json` binds the product HEAD and source repository to each live/frozen SHA-256 and frozen path.
 - `RUN_ROOT/evidence/` holds the ledger result, UI result, screenshots, fixtures and retained artifact. Other journeys use `evidence-<name>/`; the helper creates these directories.
 - `RUN_ROOT/<name>.log`, `<name>.exit` and `<name>.command.json` record each helper invocation. `prepare.log`/`prepare.exit` and `check.log`/`check.exit` record the beginning and ending identity checks.

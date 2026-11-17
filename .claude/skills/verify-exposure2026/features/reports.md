@@ -65,37 +65,85 @@ The V2 panel keeps the full report readable and adds a chapter locator before th
 ### Tests, real journey and residual limits
 
 - New focused coverage: `frontend/tests/report-sections.component.spec.ts` (24 tests) covers the wrong-report PATCH regression with a forced page/version change; disabled and handler-guarded pagination during a gated in-flight save; locator-before-body DOM order and keyboard activation in read/edit; chapter locators, the single shared editor and summary-locator gating when every summary claim is also in a section; unplaced-claim history prose and affected group; server-valid repeated summary/section pointers with one canonical editor and no duplicate React keys; selected/predecessor validation against the current verified structure for initial, gap, identically corrupted pair, one bad predecessor, valid control and missing current text; gap selected-body rendering; address reports; save/confirm separation and read-only toggles; adjacent, initial, gap, empty, missing-metadata, invalid and failed history; ordinary conflict, confirmed-after-conflict, temporary reread failure, collapsed delayed refusal, 403/material-410 reread races with late readable responses and a fresh-reread control; and 375/390 overflow, wrapping and keyboard reachability. The legacy locator/notice test lives in `frontend/tests/reports.component.spec.ts`.
-- Existing suites remain green: `report-sections` 24, `v2-reports` 60, `reports` 53, `core-reading` 33, run against the managed Vite at `http://127.0.0.1:5192` with the evidence-local config `/Users/yet/ops/tasks/exposure2026/report-sections-20261112/rework-01/author/tests/playwright.evidence.config.cjs` (workers 1, retries 0, no `webServer`). The earlier implementation config remains valid evidence for its own run.
-- Real API/PG Chromium journey, no route mocks: `/Users/yet/ops/tasks/exposure2026/report-sections-20261112/implementation/author/browser/real-journey.spec.ts`, config `.../tests/playwright.browser.config.cjs`, logs/screenshots under `.../implementation/author/browser/`. The read leg verified the saved draft revision 2 and its 2/1 adjacent history. The write leg saved revision 3, a second API writer advanced revision 4 and caused a real 409, explicit reread did not rebase, restart saved revision 5, confirmation produced revision 6, and direct PATCH/confirm on the confirmed report both returned 409 `analysis_report_not_editable`. Browser writes were only the two same-report PATCHes and the confirm POST; no generation/create POST occurred. The fixture draft is now CONFIRMED revision 6, so the write leg is not idempotent; do not rerun it without reseeding.
-- Rework-01 actual-backend read replay, no route mocks: `/Users/yet/ops/tasks/exposure2026/report-sections-20261112/rework-01/author/browser/real-read.spec.ts` with config `.../browser/playwright.config.cjs`. At 1280 and 375 it read CONFIRMED revision 6 and snapshots 1–6, asserted the chapter navigation is before the first report content by DOM order and bounding box, activated the first locator by keyboard, rendered before-2/after-3 prose and the confirmation-only step, and recorded 15 GET requests with zero writes. Screenshots, `run.log` and `readback-{1280,375}.json` live under `.../rework-01/author/browser/`. The earlier real write journey remains the unchanged write-path evidence; the new reread race is mock/probe-only and does not prove real permission revocation.
+- Historical 2026-11-12 item10 evidence, not the current recipe: `report-sections` 24, `v2-reports` 60, `reports` 53, `core-reading` 33, run against the managed Vite at `http://127.0.0.1:5192` with the evidence-local config `/Users/yet/ops/tasks/exposure2026/report-sections-20261112/rework-01/author/tests/playwright.evidence.config.cjs` (workers 1, retries 0, no `webServer`). That config points at its own task checkout. Do not reuse it for another candidate.
+- Historical 2026-11-12 evidence, not a current run: real API/PG Chromium journey, no route mocks: `/Users/yet/ops/tasks/exposure2026/report-sections-20261112/implementation/author/browser/real-journey.spec.ts`, config `.../tests/playwright.browser.config.cjs`, logs/screenshots under `.../implementation/author/browser/`. The read leg verified the saved draft revision 2 and its 2/1 adjacent history. The write leg saved revision 3, a second API writer advanced revision 4 and caused a real 409, explicit reread did not rebase, restart saved revision 5, confirmation produced revision 6, and direct PATCH/confirm on the confirmed report both returned 409 `analysis_report_not_editable`. Browser writes were only the two same-report PATCHes and the confirm POST; no generation/create POST occurred. The fixture draft is now CONFIRMED revision 6, so the write leg is not idempotent; do not rerun it without reseeding.
+- Historical 2026-11-12 evidence, not a current run: rework-01 actual-backend read replay, no route mocks: `/Users/yet/ops/tasks/exposure2026/report-sections-20261112/rework-01/author/browser/real-read.spec.ts` with config `.../browser/playwright.config.cjs`. At 1280 and 375 it read CONFIRMED revision 6 and snapshots 1–6, asserted the chapter navigation is before the first report content by DOM order and bounding box, activated the first locator by keyboard, rendered before-2/after-3 prose and the confirmation-only step, and recorded 15 GET requests with zero writes. Screenshots, `run.log` and `readback-{1280,375}.json` live under `.../rework-01/author/browser/`. The earlier real write journey remains the unchanged write-path evidence; the new reread race is mock/probe-only and does not prove real permission revocation.
 - Still out of scope/unchanged: no report permalink, no pre-edit version selection memory guarantee, the report body's evidence link still replaces URL search, the 560px address drawer still needs `Close evidence` before narrow page content is usable, and the real browser print dialog was not opened (print reauthorization remains covered by component tests with `window.print` stubbed).
 
 ## Managed Vite + component tests
 
-Start Vite only through the managed dev-server tool (`mcp__chat__start_dev_server`) in `frontend` with `bun run dev -- --host 127.0.0.1`; do not use shell background/nohup. Point `PLAYWRIGHT_BASE_URL` at that managed URL. Every component-test command below must pass an evidence-local config through `--config`; the repository `playwright.config.ts` declares `webServer` and is not acceptable for component verification. Its `reuseExistingServer: !CI` only reuses an already reachable URL; when the managed endpoint is unavailable, the repository config launches `bun run dev` before anyone can intervene.
+Start Vite only through the managed dev-server tool (`mcp__chat__start_dev_server`) in `frontend` with `bun run dev -- --host 127.0.0.1`; do not use shell background/nohup. Point `PLAYWRIGHT_BASE_URL` at that managed URL. If no managed endpoint is available, browser tests are BLOCKED. Do not start, or test starting, any unapproved listener.
 
-If the managed endpoint is unavailable, browser tests are BLOCKED. Do not start, or test starting, any unapproved listener, and do not fall back to the repository config or to any config that declares `webServer`.
+Every component-test command must pass an evidence-local config through `--config`. The repository `playwright.config.ts` declares `webServer` and is not acceptable for component verification. Its `reuseExistingServer: !CI` only reuses an already reachable URL; when the managed endpoint is unavailable, the repository config launches `bun run dev` before anyone can intervene. Never fall back to the repository config or to any config that declares `webServer`.
 
-Create the evidence-local config outside the repository under the task evidence directory. Omit `webServer` (or set it to `undefined`). Example for evidence root `<evidence-root>`.
+Create the evidence-local config outside the repository under the task evidence directory. Bind `SOURCE_REPO` to the source worktree under verification, `EVIDENCE_ROOT` to a new evidence directory outside that worktree, and `PLAYWRIGHT_BASE_URL` to the managed Vite URL. This component recipe verifies the worktree as it stands, including an uncommitted candidate. Do not apply the helper's committed-HEAD restriction here. The config has no `webServer` and fails when a required variable is unset.
 
 ```js
-// <evidence-root>/playwright.evidence.config.cjs
+// $EVIDENCE_ROOT/playwright.evidence.config.cjs
+const assert = require("node:assert/strict")
+const sourceRepo = process.env.SOURCE_REPO
+const evidenceRoot = process.env.EVIDENCE_ROOT
+const baseURL = process.env.PLAYWRIGHT_BASE_URL
+assert(sourceRepo, "Set SOURCE_REPO to the source worktree under verification")
+assert(evidenceRoot, "Set EVIDENCE_ROOT to a new evidence directory")
+assert(baseURL, "Set PLAYWRIGHT_BASE_URL to the managed Vite URL")
+
 module.exports = {
-  testDir: "/Users/yet/Developer/exposure2026-result-reading-20261110/frontend/tests",
+  testDir: `${sourceRepo}/frontend/tests`,
   testMatch: /.*\.component\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   retries: 0,
   preserveOutput: "always",
   reporter: "line",
-  outputDir: "<evidence-root>/test-results",
-  use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:5184",
-  },
+  outputDir: `${evidenceRoot}/test-results`,
+  use: { baseURL },
 }
 ```
 
-For this task `<evidence-root>` is `/Users/yet/ops/tasks/exposure2026/result-reading-20261110/rework-01`, the config is `/Users/yet/ops/tasks/exposure2026/result-reading-20261110/rework-01/playwright.evidence.config.cjs`, and `outputDir` is `/Users/yet/ops/tasks/exposure2026/result-reading-20261110/rework-01/test-results`.
+Bind the three variables and record the source identity before the run. The exported values must name the same source worktree the managed dev-server receipt names.
+
+```sh
+export SOURCE_REPO="${SOURCE_REPO:?Set SOURCE_REPO to the source worktree under verification}"
+export EVIDENCE_ROOT="${EVIDENCE_ROOT:?Set EVIDENCE_ROOT to a new evidence directory}"
+export PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:?Set PLAYWRIGHT_BASE_URL to the managed Vite URL}"
+mkdir -p "$EVIDENCE_ROOT"
+(cd "$SOURCE_REPO" && pwd -P) > "$EVIDENCE_ROOT/source-path.txt"
+git -C "$SOURCE_REPO" rev-parse HEAD > "$EVIDENCE_ROOT/source-head.txt"
+git -C "$SOURCE_REPO" status --porcelain=v1 > "$EVIDENCE_ROOT/source-status.txt"
+git -C "$SOURCE_REPO" diff > "$EVIDENCE_ROOT/source.diff"
+git -C "$SOURCE_REPO" diff --cached > "$EVIDENCE_ROOT/source-staged.diff"
+git -C "$SOURCE_REPO" ls-files --others --exclude-standard > "$EVIDENCE_ROOT/source-untracked.txt"
+while IFS= read -r file; do
+  if [ -L "$SOURCE_REPO/$file" ]; then
+    printf 'symlink  %s -> %s\n' "$file" "$(readlink "$SOURCE_REPO/$file")"
+  elif [ -f "$SOURCE_REPO/$file" ]; then
+    printf '%s  %s\n' "$(git -C "$SOURCE_REPO" hash-object -- "$file")" "$file"
+  fi
+done < "$EVIDENCE_ROOT/source-untracked.txt" > "$EVIDENCE_ROOT/source-untracked-hashes.txt"
+```
+
+After the managed dev-server starts or is selected, compare its receipt's `cwd` with `(cd "$SOURCE_REPO/frontend" && pwd -P)` before running the browser tests. If they differ, stop. The browser would otherwise test another checkout.
+
+Run the four suites from the bound worktree.
+
+```sh
+cd "$SOURCE_REPO/frontend"
+../node_modules/.bin/playwright test tests/core-reading.component.spec.ts --config "$EVIDENCE_ROOT/playwright.evidence.config.cjs" --reporter=line
+../node_modules/.bin/playwright test tests/v2-reports.component.spec.ts --config "$EVIDENCE_ROOT/playwright.evidence.config.cjs" --reporter=line
+../node_modules/.bin/playwright test tests/reports.component.spec.ts --config "$EVIDENCE_ROOT/playwright.evidence.config.cjs" --reporter=line
+../node_modules/.bin/playwright test tests/report-sections.component.spec.ts --config "$EVIDENCE_ROOT/playwright.evidence.config.cjs" --reporter=line
+```
+
+The CLI spec path selects the intended file. The config fixes one worker, zero retries, and line output.
+
+Recent report coverage lives in `report-sections.component.spec.ts` (item10 chapter/draft/history/conflict matrices). Recent reading-entry coverage lives in `core-reading.component.spec.ts` (focus cycle, URL invariance, sticky-header clearance at three widths, keyboard traversal, open materials/drawer cycle, deep-link and material round trip) and `v2-reports.component.spec.ts` (same report DOM node across the cycle, version 26/version page/full body/draft retention with filters, GET-only requests, empty and model-unavailable states, new-result notice, delayed response, temporary failure and explicit expiry).
+
+Also run the normal `bun run build` and a read-only `../node_modules/.bin/biome check` on touched files. If no managed service is running, mark browser tests BLOCKED instead of starting an unapproved server or using Playwright `webServer`.
+
+### Historical receipts
+
+The 2026-11-10 result-reading run used `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5184` and the config `/Users/yet/ops/tasks/exposure2026/result-reading-20261110/rework-01/playwright.evidence.config.cjs`. Its commands were:
 
 ```sh
 cd frontend
@@ -104,11 +152,7 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:5184 bunx playwright test tests/v2-reports.
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:5184 bunx playwright test tests/reports.component.spec.ts --config /Users/yet/ops/tasks/exposure2026/result-reading-20261110/rework-01/playwright.evidence.config.cjs --reporter=line
 ```
 
-The CLI spec path selects the intended file; the config already fixes one worker, zero retries, and line output.
-
-Recent report coverage lives in `report-sections.component.spec.ts` (item10 chapter/draft/history/conflict matrices). Recent reading-entry coverage lives in `core-reading.component.spec.ts` (focus cycle, URL invariance, sticky-header clearance at three widths, keyboard traversal, open materials/drawer cycle, deep-link and material round trip) and `v2-reports.component.spec.ts` (same report DOM node across the cycle, version 26/version page/full body/draft retention with filters, GET-only requests, empty and model-unavailable states, new-result notice, delayed response, temporary failure and explicit expiry).
-
-Also run the normal `bun run build` and a read-only `bunx biome check` on touched files. If no managed service is running, mark browser tests BLOCKED instead of starting an unapproved server or using Playwright `webServer`.
+That config's `testDir` points at the old task checkout. It is historical evidence, not a current recipe. Do not reuse its source path or port for another candidate.
 
 ## Mock boundary and evidence limits
 
