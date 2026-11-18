@@ -1,7 +1,22 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { ArrowUpRight, Search } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  CheckCircle2,
+  CircleDashed,
+  EyeOff,
+  HelpCircle,
+  Search,
+} from "lucide-react"
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import {
   ComparisonResultsService as API,
   ApiError,
@@ -47,8 +62,12 @@ import {
   comparisonUuid,
 } from "@/lib/comparisonReturn"
 import { useI18n } from "@/lib/i18n"
+import { isImeComposing } from "@/lib/ime"
 import { requestDigest } from "@/lib/ledgerIntent"
 import { readinessText as readinessLabel } from "@/lib/readiness-presentation"
+
+const DENSITY_STORAGE_KEY = "exposure:table-density"
+type TableDensity = "comfortable" | "compact"
 
 const SIZE = comparisonPageSize
 // Browsers cap one timer at about 24.8 days; recheck long explicit cutoffs.
@@ -450,6 +469,23 @@ export default function CoreComparisonResults({
   const alive = useRef(true)
   const [denied, setDenied] = useState(false)
   const [ip, setIp] = useState(search.core_ip ?? "")
+  const [density, setDensity] = useState<TableDensity>(() => {
+    try {
+      return localStorage.getItem(DENSITY_STORAGE_KEY) === "compact"
+        ? "compact"
+        : "comfortable"
+    } catch {
+      return "comfortable"
+    }
+  })
+  const changeDensity = (next: TableDensity) => {
+    setDensity(next)
+    try {
+      localStorage.setItem(DENSITY_STORAGE_KEY, next)
+    } catch {
+      // Storage may be disabled; state still applies for this session.
+    }
+  }
   const [composer, setComposer] = useState(false)
   const [source, setSource] = useState<string>()
   const [namespace, setNamespace] = useState("")
@@ -1410,12 +1446,41 @@ export default function CoreComparisonResults({
       ? t("Flow records in this batch", "该资料中有流量记录")
       : t("No matching flow record", "未匹配到流量")
   }
+  const classPillMeta = (kind: string | null | undefined) => {
+    if (kind === "both")
+      return {
+        className: "status-pill status-pill-ready",
+        Icon: CheckCircle2,
+      }
+    if (kind === "cloud_only")
+      return {
+        className: "status-pill status-pill-cloud-only",
+        Icon: AlertTriangle,
+      }
+    if (kind === "customer_only")
+      return {
+        className: "status-pill status-pill-customer-only",
+        Icon: EyeOff,
+      }
+    return {
+      className: "status-pill status-pill-unknown",
+      Icon: HelpCircle,
+    }
+  }
+  const customerPrepared = Boolean(statusReady?.customer)
+  const cloudPrepared = Boolean(
+    statusReady?.clouds?.some((cloud) => cloud.selection),
+  )
+  const readyToGenerate = statusReady?.state === "READY"
   return (
-    <main className="comparison-workbench min-w-0 space-y-5">
+    <main
+      className="comparison-workbench comparison-workspace min-w-0 space-y-5"
+      data-evidence-open={search.core_address ? "true" : undefined}
+    >
       <header className="comparison-header space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-2">
-            <h1 className="text-[22px] font-semibold tracking-tight">
+            <h1 className="text-[1.375rem] font-semibold tracking-tight">
               {t("Comparison results", "比对结果")}
             </h1>
             {result && (
@@ -1580,7 +1645,7 @@ export default function CoreComparisonResults({
             )}
           </p>
         ) : !current.data?.result ? (
-          <section className="space-y-4">
+          <section className="space-y-4 rounded-lg border bg-card p-5">
             <h2 className="text-lg font-semibold">
               {current.data?.state === "MULTIPLE_SCOPES"
                 ? t("Choose a comparison scope", "选择比对范围")
@@ -1589,6 +1654,58 @@ export default function CoreComparisonResults({
                     "尚无可读的比对结果",
                   )}
             </h2>
+            {current.data?.state !== "MULTIPLE_SCOPES" && (
+              <ol
+                aria-label={t("Comparison prerequisites", "比对前置条件")}
+                className="grid gap-3 sm:grid-cols-3"
+              >
+                {[
+                  {
+                    done: customerPrepared,
+                    title: t("Step 1 · Customer input", "步骤 1 · 客户台账"),
+                    note: t(
+                      "Upload and set one active register version.",
+                      "上传并选定一份生效客户台账。",
+                    ),
+                  },
+                  {
+                    done: cloudPrepared,
+                    title: t("Step 2 · CloudAtlas batch", "步骤 2 · 云图资料"),
+                    note: t(
+                      "Sync and publish an external asset version.",
+                      "同步并发布外部暴露面批次。",
+                    ),
+                  },
+                  {
+                    done: readyToGenerate,
+                    title: t(
+                      "Step 3 · Scope & generation",
+                      "步骤 3 · 范围确认与生成",
+                    ),
+                    note: t(
+                      "Confirm network namespace to generate results.",
+                      "确认网络空间后生成比对结果。",
+                    ),
+                  },
+                ].map((step) => {
+                  const Icon = step.done ? CheckCircle2 : CircleDashed
+                  return (
+                    <li
+                      key={step.title}
+                      className={`rounded-md border p-3 text-sm ${step.done ? "status-banner-ready" : "bg-muted/35"}`}
+                    >
+                      <div className="flex items-center gap-2 font-medium">
+                        <Icon aria-hidden="true" className="size-4 shrink-0" />
+                        <span>{step.title}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {step.note}
+                      </p>
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
             {current.data?.scope_choices?.map((scope) => (
               <Button
                 key={scope.scope_key}
@@ -1936,17 +2053,27 @@ export default function CoreComparisonResults({
           </details>
           <section
             aria-label={t("Core classification", "核心分类")}
-            className="comparison-core space-y-3"
+            className="comparison-core workspace-surface-card min-w-0 space-y-4"
+            data-density={density}
+            style={{ "--density": density } as CSSProperties}
           >
             <fieldset
               ref={recordsGroup}
               aria-label={t("Records and evidence", "记录与依据")}
               tabIndex={-1}
-              className="comparison-views flex min-w-0 flex-wrap gap-1 focus:outline-2 focus:outline-offset-2"
+              className="comparison-views flex min-w-0 scroll-mt-20 flex-wrap gap-1 focus:outline-2 focus:outline-offset-2"
             >
               {comparisonClasses.map((kind) => {
                 const value =
                   kind === "all" ? result.total_addresses : result[kind]
+                const dotColor =
+                  kind === "both"
+                    ? "bg-[var(--status-ready-base)]"
+                    : kind === "cloud_only"
+                      ? "bg-[var(--status-cloud-only-base)]"
+                      : kind === "customer_only"
+                        ? "bg-[var(--status-customer-only-base)]"
+                        : null
                 return (
                   <Button
                     key={kind}
@@ -1964,6 +2091,12 @@ export default function CoreComparisonResults({
                       })
                     }
                   >
+                    {dotColor && (
+                      <span
+                        aria-hidden="true"
+                        className={`size-2 shrink-0 rounded-full ${dotColor}`}
+                      />
+                    )}
                     {classes[kind]}{" "}
                     <span className="ml-1 font-normal tabular-nums text-muted-foreground">
                       {value ?? "—"}
@@ -2003,6 +2136,10 @@ export default function CoreComparisonResults({
                   className="h-8 pl-9 text-xs"
                   value={ip}
                   onChange={(event) => setIp(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && isImeComposing(event))
+                      event.preventDefault()
+                  }}
                   placeholder={t(
                     "Filter by exact IP address…",
                     "输入完整 IP 地址筛选…",
@@ -2038,6 +2175,27 @@ export default function CoreComparisonResults({
               <Button variant="ghost" type="button" onClick={clearFilters}>
                 {t("Clear filters", "清除筛选")}
               </Button>
+              <fieldset
+                aria-label={t("Row density", "表格行距")}
+                className="ml-auto inline-flex min-w-0 items-center rounded-md border bg-muted/40 p-0.5"
+              >
+                {(
+                  [
+                    ["comfortable", t("Standard", "标准")],
+                    ["compact", t("Compact", "紧凑")],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <Button
+                    key={mode}
+                    type="button"
+                    variant={density === mode ? "secondary" : "ghost"}
+                    aria-pressed={density === mode}
+                    onClick={() => changeDensity(mode)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </fieldset>
             </form>
             {search.core_filter_invalid ? (
               <p role="alert">
@@ -2061,7 +2219,7 @@ export default function CoreComparisonResults({
                   ref={comparisonTable}
                   tabIndex={0}
                   aria-label={t("Comparison addresses", "比对地址列表")}
-                  className="min-w-[740px] focus-visible:outline-2 focus-visible:outline-ring"
+                  className="min-w-[600px] focus-visible:outline-2 focus-visible:outline-ring"
                 >
                   <TableHeader>
                     <TableRow>
@@ -2076,64 +2234,78 @@ export default function CoreComparisonResults({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.data.data.map((row) => (
-                      <TableRow
-                        key={row.address_key}
-                        data-state={
-                          search.core_address === row.address_key
-                            ? "selected"
-                            : undefined
-                        }
-                      >
-                        <TableCell className="comparison-ip font-mono">
-                          {row.canonical_ip}
-                        </TableCell>
-                        <TableCell className="tabular-nums">
-                          {row.customer_records}
-                        </TableCell>
-                        <TableCell className="tabular-nums">
-                          {row.cloud_records}
-                        </TableCell>
-                        <TableCell className="max-w-64 whitespace-normal">
-                          {row.classification
-                            ? classes[row.classification]
-                            : t(
-                                "Known records; comparison coverage is incomplete",
-                                "已知记录；比对覆盖不足",
-                              )}
-                        </TableCell>
-                        <TableCell className="max-w-48 whitespace-normal text-xs text-muted-foreground">
-                          {flowStatus(row.canonical_ip)}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="comparison-evidence-trigger"
-                            aria-expanded={
-                              search.core_address === row.address_key
-                            }
-                            onClick={(event) => {
-                              lastAddressTrigger.current = event.currentTarget
-                              change({
-                                core_address: row.address_key,
-                                core_evidence: row.customer_records
-                                  ? "customer"
-                                  : "cloud",
-                                ...emptyEvidencePages,
-                                core_filter_invalid: false,
-                              })
-                            }}
-                          >
-                            {t("View evidence", "查看依据")}
-                            <ArrowUpRight
-                              aria-hidden="true"
-                              className="size-3"
-                            />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {rows.data.data.map((row) => {
+                      const conclusion = classPillMeta(row.classification)
+                      const ConclusionIcon = conclusion.Icon
+                      return (
+                        <TableRow
+                          key={row.address_key}
+                          data-state={
+                            search.core_address === row.address_key
+                              ? "selected"
+                              : undefined
+                          }
+                        >
+                          <TableCell className="comparison-ip font-mono">
+                            {row.canonical_ip}
+                          </TableCell>
+                          <TableCell className="tabular-nums">
+                            {row.customer_records}
+                          </TableCell>
+                          <TableCell className="tabular-nums">
+                            {row.cloud_records}
+                          </TableCell>
+                          <TableCell className="max-w-64 whitespace-normal">
+                            <span
+                              className={`${conclusion.className} items-start rounded-md text-left font-normal`}
+                            >
+                              <ConclusionIcon
+                                aria-hidden="true"
+                                className="mt-0.5 size-3.5 shrink-0"
+                              />
+                              <span>
+                                {row.classification
+                                  ? classes[row.classification]
+                                  : t(
+                                      "Known records; comparison coverage is incomplete",
+                                      "已知记录；比对覆盖不足",
+                                    )}
+                              </span>
+                            </span>
+                          </TableCell>
+                          <TableCell className="max-w-48 whitespace-normal text-xs text-muted-foreground">
+                            {flowStatus(row.canonical_ip)}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="comparison-evidence-trigger"
+                              aria-expanded={
+                                search.core_address === row.address_key
+                              }
+                              onClick={(event) => {
+                                lastAddressTrigger.current = event.currentTarget
+                                change({
+                                  core_address: row.address_key,
+                                  core_evidence: row.customer_records
+                                    ? "customer"
+                                    : "cloud",
+                                  ...emptyEvidencePages,
+                                  core_filter_invalid: false,
+                                })
+                              }}
+                            >
+                              {t("View evidence", "查看依据")}
+                              <ArrowUpRight
+                                aria-hidden="true"
+                                className="size-3"
+                              />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
                 {rows.data.count === 0 && (
@@ -2750,14 +2922,14 @@ export default function CoreComparisonResults({
           </Sheet>
           <section
             aria-labelledby="core-reading-report-heading"
-            className="space-y-3"
+            className="workspace-section-well space-y-4"
           >
             <div className="flex flex-wrap items-center gap-3">
               <h2
                 id="core-reading-report-heading"
                 ref={reportHeading}
                 tabIndex={-1}
-                className="text-lg font-semibold focus:outline-2 focus:outline-offset-2"
+                className="scroll-mt-20 text-lg font-semibold focus:outline-2 focus:outline-offset-2"
               >
                 {t("AI interpretation and reports", "AI 解读与报告")}
               </h2>
@@ -2780,7 +2952,7 @@ export default function CoreComparisonResults({
             />
           </section>
           <section
-            className="space-y-4 border-t pt-5"
+            className="workspace-surface-card space-y-4"
             aria-label={t("Optional NetFlow evidence", "可选 NetFlow 佐证")}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">

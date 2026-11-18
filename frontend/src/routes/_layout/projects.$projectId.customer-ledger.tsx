@@ -24,6 +24,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import {
   Table,
   TableBody,
   TableCell,
@@ -38,6 +45,7 @@ import {
 } from "@/lib/comparisonReturn"
 import { apiErrorDetail } from "@/lib/diagnostics"
 import { useI18n } from "@/lib/i18n"
+import { isImeComposing } from "@/lib/ime"
 import { requestDigest } from "@/lib/ledgerIntent"
 
 const ledgerScope = (upload?: string, revision?: string, original = false) =>
@@ -558,6 +566,48 @@ function LedgerView({
     })
   }
   const locked = busy || !!pendingKey || !canEdit
+  const sheetOpen = Boolean(selected || editor)
+  const noticeAlert = notice && (
+    <Alert role="status">
+      <AlertDescription>
+        {notice === "saved" ? (
+          t(
+            "Saved a new revision. Existing Run reports are unchanged.",
+            "新修订已保存，已有批次报告保持不变。",
+          )
+        ) : (
+          <>
+            <p>{notice}</p>
+            <DiagnosticDetails detail={noticeDetail} />
+          </>
+        )}
+      </AlertDescription>
+    </Alert>
+  )
+  const pendingHereAlert = pendingKey && pendingHere && (
+    <Alert>
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+        <span>
+          {t(
+            "This request has an unconfirmed result. Recover it before making another change.",
+            "原请求结果尚未确认，查询其结果后再做新的修改。",
+          )}
+        </span>
+        <Button variant="outline" disabled={busy} onClick={recover}>
+          {t("Query original request", "查询原请求")}
+        </Button>
+        {!editor && (
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => void restoreOriginal()}
+          >
+            {t("Re-enter original request", "重填原请求")}
+          </Button>
+        )}
+      </AlertDescription>
+    </Alert>
+  )
   if (search.ledger_invalid)
     return (
       <div className="space-y-3">
@@ -616,47 +666,8 @@ function LedgerView({
           )}
         </div>
       </header>
-      {notice && (
-        <Alert role="status">
-          <AlertDescription>
-            {notice === "saved" ? (
-              t(
-                "Saved a new revision. Existing Run reports are unchanged.",
-                "新修订已保存，已有批次报告保持不变。",
-              )
-            ) : (
-              <>
-                <p>{notice}</p>
-                <DiagnosticDetails detail={noticeDetail} />
-              </>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-      {pendingKey && pendingHere && (
-        <Alert>
-          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-            <span>
-              {t(
-                "This request has an unconfirmed result. Recover it before making another change.",
-                "原请求结果尚未确认，查询其结果后再做新的修改。",
-              )}
-            </span>
-            <Button variant="outline" disabled={busy} onClick={recover}>
-              {t("Query original request", "查询原请求")}
-            </Button>
-            {!editor && (
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => void restoreOriginal()}
-              >
-                {t("Re-enter original request", "重填原请求")}
-              </Button>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
+      {!sheetOpen && noticeAlert}
+      {!sheetOpen && pendingHereAlert}
       {pendingKey && !pendingHere && (
         <Alert>
           <AlertDescription className="flex flex-wrap items-center gap-3">
@@ -704,34 +715,43 @@ function LedgerView({
         <>
           <section
             aria-label={t("Version scope", "版本范围")}
-            className="space-y-2 border-b pb-4"
+            className="workspace-section-well space-y-3"
           >
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold">
-                {data.revision
-                  ? t("Manual revision", "人工修订")
-                  : t("Accepted input", "已接受输入")}
-              </h2>
-              <Badge variant="outline">
-                {data.upload_id === data.current_upload_id &&
-                data.revision_id === data.current_revision_id
-                  ? t("Current", "当前版本")
-                  : t("Historical", "历史版本")}
-              </Badge>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-semibold">
+                  {data.revision
+                    ? t("Manual revision", "人工修订")
+                    : t("Accepted input", "已接受输入")}
+                </h2>
+                <Badge variant="outline">
+                  {data.upload_id === data.current_upload_id &&
+                  data.revision_id === data.current_revision_id
+                    ? t("Current", "当前版本")
+                    : t("Historical", "历史版本")}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs tabular-nums">
+                <span className="rounded-md border bg-card px-2.5 py-1 font-medium">
+                  {data.total_records} {t("active records", "有效记录")}
+                </span>
+                <span className="rounded-md border bg-card px-2.5 py-1 font-medium">
+                  {data.unique_ips} {t("distinct IPs", "个独立 IP")}
+                </span>
+              </div>
             </div>
             <p className="text-sm break-words">
               {t("Input accepted", "输入接受于")} ·{" "}
               {data.source_created_at
                 ? formatDate(data.source_created_at)
                 : "—"}{" "}
-              · {data.total_records} {t("active records", "有效记录")} ·{" "}
-              {data.unique_ips} {t("distinct IPs", "个独立 IP")}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {t(
-                "This Project · Customer ledger facts",
-                "本项目 · 客户台账资料",
-              )}
+              ·{" "}
+              <span className="text-muted-foreground">
+                {t(
+                  "This Project · Customer ledger facts",
+                  "本项目 · 客户台账资料",
+                )}
+              </span>
             </p>
             {data.revision && (
               <p className="text-sm">
@@ -755,422 +775,493 @@ function LedgerView({
               </div>
             </details>
           </section>
-          <form
-            className="flex flex-wrap items-end gap-3"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void navigate({
-                search: (old) => ({
-                  ...old,
-                  ledger_query: query || undefined,
-                  ledger_page: 1,
-                }),
-              })
-            }}
-          >
-            <div className="min-w-0 flex-1">
-              <Label htmlFor="ledger-query">
-                {t("Search IP, owner or tag", "搜索 IP、负责人或标签")}
-              </Label>
-              <Input
-                id="ledger-query"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                maxLength={200}
+          <div className="workspace-surface-card space-y-4">
+            <form
+              className="workspace-toolbar"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void navigate({
+                  search: (old) => ({
+                    ...old,
+                    ledger_query: query || undefined,
+                    ledger_page: 1,
+                  }),
+                })
+              }}
+            >
+              <div className="min-w-48 flex-1 space-y-1.5">
+                <Label htmlFor="ledger-query">
+                  {t("Search IP, owner or tag", "搜索 IP、负责人或标签")}
+                </Label>
+                <Input
+                  id="ledger-query"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && isImeComposing(event))
+                      event.preventDefault()
+                  }}
+                  maxLength={200}
+                />
+              </div>
+              <Button variant="outline" type="submit">
+                {t("Search", "查询")}
+              </Button>
+              <label className="flex min-h-9 items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={search.ledger_archived}
+                  onChange={(e) =>
+                    void navigate({
+                      search: (old) => ({
+                        ...old,
+                        ledger_archived: e.target.checked,
+                        ledger_page: 1,
+                      }),
+                    })
+                  }
+                />
+                {t("Archived records", "已归档记录")}
+              </label>
+            </form>
+            {search.ledger_ip && (
+              <p className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <strong>
+                  {t("Customer IP dossier", "客户 IP 画像")}: {search.ledger_ip}
+                </strong>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    void navigate({
+                      search: (old) => ({
+                        ...old,
+                        ledger_ip: undefined,
+                        ledger_page: 1,
+                      }),
+                    })
+                  }
+                >
+                  {t("All IPs", "全部 IP")}
+                </Button>
+              </p>
+            )}
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground tabular-nums">
+                {data.count} {t("matching source records", "条匹配原生记录")}
+              </p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>IP</TableHead>
+                    <TableHead>{t("Port / Web", "端口 / Web")}</TableHead>
+                    <TableHead>{t("Declared owner", "原声明负责人")}</TableHead>
+                    <TableHead>{t("Local management", "本地管理")}</TableHead>
+                    <TableHead>{t("Actions", "操作")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(data.data ?? []).map((row) => (
+                    <TableRow
+                      key={row.entry_id}
+                      data-state={
+                        selected?.entry_id === row.entry_id
+                          ? "selected"
+                          : undefined
+                      }
+                    >
+                      <TableCell>
+                        <button
+                          type="button"
+                          className="font-mono text-left underline underline-offset-4"
+                          onClick={() => {
+                            setSelected(row)
+                            void navigate({
+                              search: (old) => ({
+                                ...old,
+                                ledger_ip: row.canonical_ip,
+                                ledger_page: 1,
+                              }),
+                            })
+                          }}
+                        >
+                          {row.canonical_ip}
+                        </button>
+                        <p className="text-xs text-muted-foreground">
+                          {t("Record", "条目")} {row.position}
+                        </p>
+                      </TableCell>
+                      <TableCell>
+                        {display(row.fields.start_port) ===
+                        display(row.fields.end_port)
+                          ? display(row.fields.start_port)
+                          : `${display(row.fields.start_port)}–${display(row.fields.end_port)}`}{" "}
+                        · {row.fields.is_web === "是" ? "Web" : "—"}
+                      </TableCell>
+                      <TableCell>
+                        {display(row.fields.asset_owner) ||
+                          t("Not provided", "未提供")}
+                      </TableCell>
+                      <TableCell>
+                        <p>
+                          {row.management?.owner || t("Unconfirmed", "未确认")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {row.management?.tags?.join(" · ")}
+                        </p>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelected(row)
+                              setEditor(null)
+                            }}
+                            disabled={!!editor || busy}
+                          >
+                            {t("Details", "详情")}
+                          </Button>
+                          {canEdit && !row.archived && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={locked || !!editor}
+                                onClick={() => start("update", row)}
+                              >
+                                {t("Correct", "更正")}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={locked || !!editor}
+                                onClick={() => start("manage", row)}
+                              >
+                                {t("Manage", "管理")}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {!data.count && (
+                <p>
+                  {t(
+                    "No matching records in this version.",
+                    "此版本没有匹配记录。",
+                  )}
+                </p>
+              )}
+              <ResultPagination
+                label={t("Ledger", "台账")}
+                count={data.count ?? 0}
+                page={search.ledger_page - 1}
+                pageSize={PAGE_SIZE}
+                onPageChange={(page) =>
+                  void navigate({
+                    search: (old) => ({ ...old, ledger_page: page + 1 }),
+                  })
+                }
               />
             </div>
-            <Button variant="outline" type="submit">
-              {t("Search", "查询")}
-            </Button>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={search.ledger_archived}
-                onChange={(e) =>
-                  void navigate({
-                    search: (old) => ({
-                      ...old,
-                      ledger_archived: e.target.checked,
-                      ledger_page: 1,
-                    }),
-                  })
-                }
-              />
-              {t("Archived records", "已归档记录")}
-            </label>
-          </form>
-          {search.ledger_ip && (
-            <p className="flex flex-wrap items-center gap-3">
-              <strong>
-                {t("Customer IP dossier", "客户 IP 画像")}: {search.ledger_ip}
-              </strong>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  void navigate({
-                    search: (old) => ({
-                      ...old,
-                      ledger_ip: undefined,
-                      ledger_page: 1,
-                    }),
-                  })
-                }
-              >
-                {t("All IPs", "全部 IP")}
-              </Button>
-            </p>
-          )}
-          <div className="space-y-3">
-            <p className="text-sm">
-              {data.count} {t("matching source records", "条匹配原生记录")}
-            </p>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>IP</TableHead>
-                  <TableHead>{t("Port / Web", "端口 / Web")}</TableHead>
-                  <TableHead>{t("Declared owner", "原声明负责人")}</TableHead>
-                  <TableHead>{t("Local management", "本地管理")}</TableHead>
-                  <TableHead>{t("Actions", "操作")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(data.data ?? []).map((row) => (
-                  <TableRow key={row.entry_id}>
-                    <TableCell>
-                      <button
-                        type="button"
-                        className="font-mono text-left underline underline-offset-4"
-                        onClick={() => {
-                          setSelected(row)
-                          void navigate({
-                            search: (old) => ({
-                              ...old,
-                              ledger_ip: row.canonical_ip,
-                              ledger_page: 1,
-                            }),
-                          })
+          </div>
+          <Sheet
+            open={sheetOpen}
+            onOpenChange={(open) => {
+              if (!open && !busy) {
+                setSelected(null)
+                setEditor(null)
+              }
+            }}
+          >
+            <SheetContent className="w-full overflow-y-auto p-6 sm:max-w-xl">
+              {noticeAlert}
+              {pendingHereAlert}
+              {selected && !editor && (
+                <section className="workspace-record space-y-5 pt-2">
+                  <SheetHeader className="p-0">
+                    <SheetTitle className="font-mono text-lg">
+                      {selected.canonical_ip} · {t("Source record", "原生条目")}{" "}
+                      {selected.position}
+                    </SheetTitle>
+                    <SheetDescription>
+                      {t(
+                        "Declared source fields and local actions for this customer entry.",
+                        "该客户台账条目的原声明字段与本地操作。",
+                      )}
+                    </SheetDescription>
+                  </SheetHeader>
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        to="/projects/$projectId/cloudatlas-ledger"
+                        params={{ projectId }}
+                        search={{
+                          asset_view: "synced",
+                          external_ip: selected.canonical_ip,
                         }}
                       >
-                        {row.canonical_ip}
-                      </button>
-                      <p className="text-xs text-muted-foreground">
-                        {t("Record", "条目")} {row.position}
-                      </p>
-                    </TableCell>
-                    <TableCell>
-                      {display(row.fields.start_port) ===
-                      display(row.fields.end_port)
-                        ? display(row.fields.start_port)
-                        : `${display(row.fields.start_port)}–${display(row.fields.end_port)}`}{" "}
-                      · {row.fields.is_web === "是" ? "Web" : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {display(row.fields.asset_owner) ||
-                        t("Not provided", "未提供")}
-                    </TableCell>
-                    <TableCell>
-                      <p>
-                        {row.management?.owner || t("Unconfirmed", "未确认")}
-                      </p>
-                      <p className="text-xs">
-                        {row.management?.tags?.join(" · ")}
-                      </p>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
+                        {t(
+                          "Lookup IP in CloudAtlas assets",
+                          "在云图资产中检索此 IP",
+                        )}
+                      </Link>
+                    </Button>
+                    {canEdit && !selected.archived && (
+                      <>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => {
-                            setSelected(row)
-                            setEditor(null)
-                          }}
-                          disabled={!!editor || busy}
+                          disabled={locked}
+                          onClick={() => start("update", selected)}
                         >
-                          {t("Details", "详情")}
+                          {t("Correct", "更正")}
                         </Button>
-                        {canEdit && !row.archived && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={locked || !!editor}
-                              onClick={() => start("update", row)}
-                            >
-                              {t("Correct", "更正")}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={locked || !!editor}
-                              onClick={() => start("manage", row)}
-                            >
-                              {t("Manage", "管理")}
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            {!data.count && (
-              <p>
-                {t(
-                  "No matching records in this version.",
-                  "此版本没有匹配记录。",
-                )}
-              </p>
-            )}
-            <ResultPagination
-              label={t("Ledger", "台账")}
-              count={data.count ?? 0}
-              page={search.ledger_page - 1}
-              pageSize={PAGE_SIZE}
-              onPageChange={(page) =>
-                void navigate({
-                  search: (old) => ({ ...old, ledger_page: page + 1 }),
-                })
-              }
-            />
-          </div>
-          {selected && !editor && (
-            <section className="workspace-record space-y-4 border-t pt-5">
-              <h2 className="text-lg font-semibold">
-                {selected.canonical_ip} · {t("Source record", "原生条目")}{" "}
-                {selected.position}
-              </h2>
-              <Button asChild variant="outline">
-                <Link
-                  to="/projects/$projectId/cloudatlas-ledger"
-                  params={{ projectId }}
-                  search={{
-                    asset_view: "history",
-                    cloud_source: undefined,
-                    cloud_snapshot: undefined,
-                    cloud_revision: undefined,
-                    cloud_page: 0,
-                    cloud_ip: undefined,
-                    cloud_asset: undefined,
-                    profile_ip: selected.canonical_ip,
-                    customer_upload: data.upload_id ?? undefined,
-                    customer_revision: data.revision_id ?? undefined,
-                    customer_page: 0,
-                    profile_cloud_page: 0,
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={locked}
+                          onClick={() => start("manage", selected)}
+                        >
+                          {t("Manage", "管理")}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  <CustomerRecordFields fields={selected.fields} />
+                  {canEdit && !selected.archived && (
+                    <div className="border-t pt-4">
+                      <Button
+                        variant="outline"
+                        disabled={locked}
+                        onClick={() => start("archive", selected)}
+                      >
+                        {t("Archive this record", "归档此条目")}
+                      </Button>
+                    </div>
+                  )}
+                </section>
+              )}
+              {editor && (
+                <form
+                  className="space-y-4 pt-2"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    void submit()
                   }}
                 >
-                  {t("View with CloudAtlas source", "结合云图来源查看画像")}
-                </Link>
-              </Button>
-              <CustomerRecordFields fields={selected.fields} />
-              {canEdit && !selected.archived && (
-                <Button
-                  variant="outline"
-                  disabled={locked}
-                  onClick={() => start("archive", selected)}
-                >
-                  {t("Archive this record", "归档此条目")}
-                </Button>
-              )}
-            </section>
-          )}
-          {editor && (
-            <form
-              className="space-y-4 border-t pt-5"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void submit()
-              }}
-            >
-              <h2 className="text-lg font-semibold">
-                {editor.operation === "add"
-                  ? t("Add customer record", "新增客户记录")
-                  : editor.operation === "manage"
-                    ? t("Local management fields", "本地管理字段")
-                    : editor.operation === "archive"
-                      ? t("Archive customer record", "归档客户记录")
-                      : t("Correct customer record", "更正客户记录")}
-              </h2>
-              {(editor.operation === "add" ||
-                editor.operation === "update") && (
-                <p className="text-sm text-muted-foreground">
-                  {t(
-                    "Derived files contain only supported fields. The original file and its other columns remain in the previous input.",
-                    "派生文件仅包含当前支持字段，原文件及其他列保留在旧输入中。",
-                  )}
-                </p>
-              )}
-              {editor.operation === "archive" ? (
-                <p>
-                  {t(
-                    "The record is excluded from the new input; old versions remain readable. At least one active record must remain.",
-                    "该条目将从新输入排除，旧版本仍可读取；必须保留至少一条有效记录。",
-                  )}
-                </p>
-              ) : editor.operation === "manage" ? (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {(
-                    [
-                      ["owner", "Confirmed owner", "确认负责人"],
-                      ["department", "Confirmed department", "确认部门"],
-                    ] as const
-                  ).map(([field, en, zh]) => (
-                    <div key={field}>
-                      <Label htmlFor={`manage-${field}`}>{t(en, zh)}</Label>
-                      <Input
-                        id={`manage-${field}`}
-                        maxLength={255}
-                        value={editor.management?.[field] ?? ""}
-                        onChange={(e) =>
-                          setEditor({
-                            ...editor,
-                            management: {
-                              ...editor.management,
-                              [field]: e.target.value,
-                            },
-                          })
-                        }
-                      />
-                    </div>
-                  ))}
-                  <div>
-                    <Label htmlFor="manage-tags">
-                      {t("Tags (comma separated)", "标签（逗号分隔）")}
-                    </Label>
-                    <Input
-                      id="manage-tags"
-                      value={editor.management?.tags?.join(",") ?? ""}
-                      onChange={(e) =>
-                        setEditor({
-                          ...editor,
-                          management: {
-                            ...editor.management,
-                            tags: e.target.value.split(/[,，]/).filter(Boolean),
-                          },
-                        })
+                  <SheetHeader className="p-0">
+                    <SheetTitle className="text-lg">
+                      {editor.operation === "add"
+                        ? t("Add customer record", "新增客户记录")
+                        : editor.operation === "manage"
+                          ? t("Local management fields", "本地管理字段")
+                          : editor.operation === "archive"
+                            ? t("Archive customer record", "归档客户记录")
+                            : t("Correct customer record", "更正客户记录")}
+                    </SheetTitle>
+                    <SheetDescription
+                      className={
+                        editor.operation === "add" ||
+                        editor.operation === "update"
+                          ? "text-sm text-muted-foreground"
+                          : "sr-only"
                       }
-                    />
-                  </div>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={editor.management?.followed ?? false}
-                      onChange={(e) =>
-                        setEditor({
-                          ...editor,
-                          management: {
-                            ...editor.management,
-                            followed: e.target.checked,
-                          },
-                        })
-                      }
-                    />
-                    {t("Follow this record", "关注此条目")}
-                  </label>
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {FIELDS.map(([name, en, zh]) => (
-                    <div key={name}>
-                      <Label htmlFor={`edit-${name}`}>{t(en, zh)}</Label>
-                      {name === "is_web" ? (
-                        <select
-                          id={`edit-${name}`}
-                          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                          value={display(editor.fields?.[name] ?? null)}
-                          onChange={(e) =>
-                            setEditor({
-                              ...editor,
-                              fields: {
-                                ...editor.fields,
-                                [name]: e.target.value,
-                              },
-                            })
-                          }
-                        >
-                          {["是", "否", "无"].map((v) => (
-                            <option key={v} value={v}>
-                              {t(
-                                v === "是" ? "Yes" : v === "否" ? "No" : "None",
-                                v,
-                              )}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
+                    >
+                      {editor.operation === "add" ||
+                      editor.operation === "update"
+                        ? t(
+                            "Derived files contain only supported fields. The original file and its other columns remain in the previous input.",
+                            "派生文件仅包含当前支持字段，原文件及其他列保留在旧输入中。",
+                          )
+                        : t(
+                            "Submit a new local revision with a recorded reason.",
+                            "填写变更理由并保存新本地修订。",
+                          )}
+                    </SheetDescription>
+                  </SheetHeader>
+                  {editor.operation === "archive" ? (
+                    <p className="text-sm">
+                      {t(
+                        "The record is excluded from the new input; old versions remain readable. At least one active record must remain.",
+                        "该条目将从新输入排除，旧版本仍可读取；必须保留至少一条有效记录。",
+                      )}
+                    </p>
+                  ) : editor.operation === "manage" ? (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {(
+                        [
+                          ["owner", "Confirmed owner", "确认负责人"],
+                          ["department", "Confirmed department", "确认部门"],
+                        ] as const
+                      ).map(([field, en, zh]) => (
+                        <div key={field}>
+                          <Label htmlFor={`manage-${field}`}>{t(en, zh)}</Label>
+                          <Input
+                            id={`manage-${field}`}
+                            maxLength={255}
+                            value={editor.management?.[field] ?? ""}
+                            onChange={(e) =>
+                              setEditor({
+                                ...editor,
+                                management: {
+                                  ...editor.management,
+                                  [field]: e.target.value,
+                                },
+                              })
+                            }
+                          />
+                        </div>
+                      ))}
+                      <div>
+                        <Label htmlFor="manage-tags">
+                          {t("Tags (comma separated)", "标签（逗号分隔）")}
+                        </Label>
                         <Input
-                          id={`edit-${name}`}
-                          maxLength={32767}
-                          required={[
-                            "asset_ip",
-                            "start_port",
-                            "end_port",
-                          ].includes(name)}
-                          value={display(editor.fields?.[name] ?? null)}
+                          id="manage-tags"
+                          value={editor.management?.tags?.join(",") ?? ""}
                           onChange={(e) =>
                             setEditor({
                               ...editor,
-                              fields: {
-                                ...editor.fields,
-                                [name]: e.target.value || null,
+                              management: {
+                                ...editor.management,
+                                tags: e.target.value
+                                  .split(/[,，]/)
+                                  .filter(Boolean),
                               },
                             })
                           }
                         />
-                      )}
+                      </div>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={editor.management?.followed ?? false}
+                          onChange={(e) =>
+                            setEditor({
+                              ...editor,
+                              management: {
+                                ...editor.management,
+                                followed: e.target.checked,
+                              },
+                            })
+                          }
+                        />
+                        {t("Follow this record", "关注此条目")}
+                      </label>
                     </div>
-                  ))}
-                </div>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {FIELDS.map(([name, en, zh]) => (
+                        <div key={name}>
+                          <Label htmlFor={`edit-${name}`}>{t(en, zh)}</Label>
+                          {name === "is_web" ? (
+                            <select
+                              id={`edit-${name}`}
+                              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                              value={display(editor.fields?.[name] ?? null)}
+                              onChange={(e) =>
+                                setEditor({
+                                  ...editor,
+                                  fields: {
+                                    ...editor.fields,
+                                    [name]: e.target.value,
+                                  },
+                                })
+                              }
+                            >
+                              {["是", "否", "无"].map((v) => (
+                                <option key={v} value={v}>
+                                  {t(
+                                    v === "是"
+                                      ? "Yes"
+                                      : v === "否"
+                                        ? "No"
+                                        : "None",
+                                    v,
+                                  )}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <Input
+                              id={`edit-${name}`}
+                              maxLength={32767}
+                              required={[
+                                "asset_ip",
+                                "start_port",
+                                "end_port",
+                              ].includes(name)}
+                              value={display(editor.fields?.[name] ?? null)}
+                              onChange={(e) =>
+                                setEditor({
+                                  ...editor,
+                                  fields: {
+                                    ...editor.fields,
+                                    [name]: e.target.value || null,
+                                  },
+                                })
+                              }
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div>
+                    <Label htmlFor="ledger-reason">
+                      {t("Reason for this change", "变更理由")}
+                    </Label>
+                    <textarea
+                      className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                      id="ledger-reason"
+                      required
+                      maxLength={1000}
+                      value={editor.reason}
+                      onChange={(e) =>
+                        setEditor({ ...editor, reason: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      type="submit"
+                      disabled={
+                        busy || (!canEdit && !pending) || !editor.reason.trim()
+                      }
+                      aria-busy={busy}
+                    >
+                      {busy
+                        ? t("Saving…", "正在保存…")
+                        : pending
+                          ? t("Confirm original request", "确认原请求")
+                          : t("Save new revision", "保存新修订")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => {
+                        setEditor(null)
+                        setSelected(null)
+                        heading.current?.focus()
+                      }}
+                    >
+                      {t("Cancel editing", "取消编辑")}
+                    </Button>
+                  </div>
+                </form>
               )}
-              <div>
-                <Label htmlFor="ledger-reason">
-                  {t("Reason for this change", "变更理由")}
-                </Label>
-                <textarea
-                  className="min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                  id="ledger-reason"
-                  required
-                  maxLength={1000}
-                  value={editor.reason}
-                  onChange={(e) =>
-                    setEditor({ ...editor, reason: e.target.value })
-                  }
-                />
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  type="submit"
-                  disabled={
-                    busy || (!canEdit && !pending) || !editor.reason.trim()
-                  }
-                  aria-busy={busy}
-                >
-                  {busy
-                    ? t("Saving…", "正在保存…")
-                    : pending
-                      ? t("Confirm original request", "确认原请求")
-                      : t("Save new revision", "保存新修订")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => {
-                    setEditor(null)
-                    heading.current?.focus()
-                  }}
-                >
-                  {t("Cancel editing", "取消编辑")}
-                </Button>
-              </div>
-            </form>
-          )}
+            </SheetContent>
+          </Sheet>
         </>
       )}
-      <details className="border-t pt-4">
+      <details className="workspace-surface-card">
         <summary className="cursor-pointer font-medium">
           {t("Input versions and edit history", "输入版本与编辑历史")}
         </summary>

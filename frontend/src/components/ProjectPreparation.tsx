@@ -5,9 +5,11 @@ import { useI18n } from "@/lib/i18n"
 
 export default function ProjectPreparation({
   projectId,
+  projectName,
   archived,
 }: {
   projectId: string
+  projectName?: string
   archived: boolean
 }) {
   const { t } = useI18n()
@@ -15,18 +17,32 @@ export default function ProjectPreparation({
   const hash = useRouterState({ select: (state) => state.location.hash })
   useEffect(() => {
     const id = hash.replace(/^#/, "")
-    const target = [
-      "customer-inputs",
-      "cloudatlas-inputs",
-      "netflow-inputs",
-      "netflow-processing",
-    ].includes(id)
-      ? document.getElementById(id)
-      : heading.current
-    target?.focus()
+    if (
+      ![
+        "customer-inputs",
+        "cloudatlas-inputs",
+        "netflow-inputs",
+        "netflow-processing",
+      ].includes(id)
+    ) {
+      heading.current?.focus()
+    }
   }, [hash])
   return (
     <header className="workspace-page-header">
+      {projectName && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <h2 className="rounded-md border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground">
+            {projectName}
+          </h2>
+          <span>
+            {t(
+              "Current project management. Published reading context is preserved.",
+              "当前项目管理，已保留发布结果阅读上下文。",
+            )}
+          </span>
+        </div>
+      )}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <h1
@@ -54,20 +70,6 @@ export default function ProjectPreparation({
           </Link>
         </Button>
       </div>
-      <nav
-        aria-label={t("Data sources", "数据来源")}
-        className="flex flex-wrap gap-4 text-sm"
-      >
-        <a className="underline underline-offset-4" href="#customer-inputs">
-          {t("Customer asset ledger", "客户资产台账")}
-        </a>
-        <a className="underline underline-offset-4" href="#cloudatlas-inputs">
-          {t("CloudAtlas", "云图")}
-        </a>
-        <a className="underline underline-offset-4" href="#netflow-inputs">
-          {t("NetFlow", "NetFlow")}
-        </a>
-      </nav>
       {archived && (
         <p role="status">
           {t(

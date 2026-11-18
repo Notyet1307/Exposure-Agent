@@ -66,7 +66,9 @@ function UserSettings() {
         </TabsList>
         {tabsConfig.map((tab) => (
           <TabsContent key={tab.value} value={tab.value}>
-            <tab.component />
+            <div className="workspace-surface-card mt-3 max-w-xl">
+              <tab.component />
+            </div>
           </TabsContent>
         ))}
       </Tabs>

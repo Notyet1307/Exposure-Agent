@@ -524,7 +524,10 @@ export default function NetFlowDatasets({
   }
 
   return (
-    <section aria-labelledby="netflow-datasets-title" className="space-y-6">
+    <section
+      aria-labelledby="netflow-datasets-title"
+      className="workspace-section-well space-y-5"
+    >
       <div>
         <h2
           ref={inputHeading}
@@ -553,117 +556,121 @@ export default function NetFlowDatasets({
           )}
         </a>
       )}
-      {currentDataset ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {t("Current NetFlowDataset", "当前 NetFlow 数据集")}
-            </CardTitle>
-            <CardDescription>
-              {t(
-                "Project current NetFlow selection",
-                "项目当前选择的 NetFlow 数据集",
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        {currentDataset ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {t("Current NetFlowDataset", "当前 NetFlow 数据集")}
+              </CardTitle>
+              <CardDescription>
+                {t(
+                  "Project current NetFlow selection",
+                  "项目当前选择的 NetFlow 数据集",
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <DatasetDetails dataset={currentDataset} />
+              {canSelect && (
+                <LoadingButton
+                  type="button"
+                  variant="outline"
+                  loading={clearMutation.isPending}
+                  onClick={() => {
+                    setMessage(null)
+                    clearMutation.mutate()
+                  }}
+                >
+                  {t("Clear current", "清除当前选择")}
+                </LoadingButton>
               )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <DatasetDetails dataset={currentDataset} />
-            {canSelect && (
-              <LoadingButton
-                type="button"
-                variant="outline"
-                loading={clearMutation.isPending}
-                onClick={() => {
-                  setMessage(null)
-                  clearMutation.mutate()
-                }}
-              >
-                {t("Clear current", "清除当前选择")}
-              </LoadingButton>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <Alert>
-          <AlertCircle />
-          <AlertTitle>
-            {t("No current NetFlowDataset", "未选择当前 NetFlow 数据集")}
-          </AlertTitle>
-          <AlertDescription>
-            {t(
-              "This Project has no current NetFlow selection.",
-              "此项目尚未选择当前 NetFlow 数据集。",
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Alert className="bg-card">
+            <AlertCircle />
+            <AlertTitle>
+              {t("No current NetFlowDataset", "未选择当前 NetFlow 数据集")}
+            </AlertTitle>
+            <AlertDescription>
+              {t(
+                "This Project has no current NetFlow selection.",
+                "此项目尚未选择当前 NetFlow 数据集。",
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {canUpload ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {t("Upload NetFlowDataset", "上传 NetFlow 数据集")}
-            </CardTitle>
-            <CardDescription>
-              {t(
-                "Choose one .csv or .txt file. The server performs authoritative validation.",
-                "请选择一个 .csv 或 .txt 文件。服务器执行权威校验。",
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="flex flex-col gap-3 sm:flex-row sm:items-end"
-              onSubmit={submitUpload}
-            >
-              <div className="min-w-0 flex-1 space-y-2">
-                <Label htmlFor="netflow-dataset-file">
-                  {t("NetFlow dataset file", "NetFlow 数据集文件")}
-                </Label>
-                <div className="flex items-center gap-3">
-                  <input
-                    ref={fileInputRef}
-                    id="netflow-dataset-file"
-                    name="file"
-                    type="file"
-                    accept=".csv,.txt,text/csv,text/plain"
-                    className="sr-only"
-                    tabIndex={-1}
-                    disabled={uploadMutation.isPending}
-                    onChange={(event) =>
-                      setSelectedFilename(event.target.files?.[0]?.name ?? null)
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={uploadMutation.isPending}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {t("Choose file", "选择文件")}
-                  </Button>
-                  <span className="min-w-0 break-all text-sm">
-                    {selectedFilename ?? t("No file chosen", "未选择文件")}
-                  </span>
+        {canUpload ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {t("Upload NetFlowDataset", "上传 NetFlow 数据集")}
+              </CardTitle>
+              <CardDescription>
+                {t(
+                  "Choose one .csv or .txt file. The server performs authoritative validation.",
+                  "请选择一个 .csv 或 .txt 文件。服务器执行权威校验。",
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form
+                className="flex flex-col gap-3 sm:flex-row sm:items-end"
+                onSubmit={submitUpload}
+              >
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Label htmlFor="netflow-dataset-file">
+                    {t("NetFlow dataset file", "NetFlow 数据集文件")}
+                  </Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      ref={fileInputRef}
+                      id="netflow-dataset-file"
+                      name="file"
+                      type="file"
+                      accept=".csv,.txt,text/csv,text/plain"
+                      className="sr-only"
+                      tabIndex={-1}
+                      disabled={uploadMutation.isPending}
+                      onChange={(event) =>
+                        setSelectedFilename(
+                          event.target.files?.[0]?.name ?? null,
+                        )
+                      }
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={uploadMutation.isPending}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {t("Choose file", "选择文件")}
+                    </Button>
+                    <span className="min-w-0 break-all text-sm">
+                      {selectedFilename ?? t("No file chosen", "未选择文件")}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              <LoadingButton type="submit" loading={uploadMutation.isPending}>
-                <Upload />
-                {t("Upload", "上传")}
-              </LoadingButton>
-            </form>
-          </CardContent>
-        </Card>
-      ) : (
-        !archived && (
-          <p className="text-sm text-muted-foreground">
-            {t(
-              "You have read-only access to NetFlowDataset inputs for this Project.",
-              "您对此项目的 NetFlow 数据集输入仅有只读权限。",
-            )}
-          </p>
-        )
-      )}
+                <LoadingButton type="submit" loading={uploadMutation.isPending}>
+                  <Upload />
+                  {t("Upload", "上传")}
+                </LoadingButton>
+              </form>
+            </CardContent>
+          </Card>
+        ) : (
+          !archived && (
+            <p className="text-sm text-muted-foreground">
+              {t(
+                "You have read-only access to NetFlowDataset inputs for this Project.",
+                "您对此项目的 NetFlow 数据集输入仅有只读权限。",
+              )}
+            </p>
+          )
+        )}
+      </div>
 
       {message && (
         <p role="status" className="text-sm">

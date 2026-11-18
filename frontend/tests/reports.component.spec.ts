@@ -1264,9 +1264,10 @@ test.describe("Published overview", () => {
       page.getByText("Compared resources", { exact: true }),
     ).toHaveCount(0)
     await expect(
-      page
-        .getByRole("link", { name: "Assets & differences", exact: true })
-        .last(),
+      page.getByRole("link", {
+        name: "View all assets & differences",
+        exact: true,
+      }),
     ).toHaveAttribute("href", new RegExp(`/runs/${runIds[0]}/comparison`))
   })
 

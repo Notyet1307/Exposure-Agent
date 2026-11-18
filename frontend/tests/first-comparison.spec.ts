@@ -104,6 +104,7 @@ test("administrator completes a historical Run through explicit compatibility co
       page.getByRole("heading", { name: "Operation confirmed.", exact: true }),
     ).toBeFocused()
     if (mode !== "absent") {
+      await activate(page.getByRole("tab", { name: "NetFlow", exact: true }))
       await uploadByKeyboard(page, "NetFlow dataset file", {
         name: `${mode}.csv`,
         mimeType: "text/csv",
@@ -122,6 +123,7 @@ test("administrator completes a historical Run through explicit compatibility co
         page.getByRole("heading", { name: "NetFlowDatasets", exact: true }),
       ).toBeFocused()
     }
+    await activate(page.getByRole("tab", { name: "CloudAtlas", exact: true }))
     await activate(
       page.getByText("Historical Run source settings", { exact: true }),
     )

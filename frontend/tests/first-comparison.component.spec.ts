@@ -354,6 +354,7 @@ test("an unavailable CloudAtlas source cannot inherit a stale ready badge", asyn
       }),
   )
   await page.goto(`/?project=${project.id}&view=inputs`)
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
   await page
     .getByText("Historical Run source settings", { exact: true })
     .click()

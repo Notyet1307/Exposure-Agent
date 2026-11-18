@@ -73,7 +73,7 @@ function SheetContent({
         )}
         {...props}
       >
-        <div className="flex justify-end px-10 pt-3">
+        <div data-sheet-lang="" className="flex justify-end px-10 pt-3">
           <LanguageSwitcher />
         </div>
         {children}

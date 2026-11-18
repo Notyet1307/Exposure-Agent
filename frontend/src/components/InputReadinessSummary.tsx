@@ -1,5 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  FileSpreadsheet,
+  Network,
+  Waypoints,
+} from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { ApiError, InputSummaryService } from "@/client"
 import { Button } from "@/components/ui/button"
@@ -68,12 +76,18 @@ function customerContradiction(value: Summary): boolean {
   )
 }
 
+export type DataAccessSource = "customer" | "cloudatlas" | "netflow"
+
 export default function InputReadinessSummary({
   actorId,
   projectId,
+  activeSource,
+  onSelectSource,
 }: {
   actorId: string
   projectId: string
+  activeSource?: DataAccessSource
+  onSelectSource?: (source: DataAccessSource) => void
 }) {
   const { t, formatDate } = useI18n()
   const cache = useQueryClient()
@@ -156,7 +170,7 @@ export default function InputReadinessSummary({
     return (
       <section
         aria-labelledby="input-readiness-title"
-        className="space-y-3 border-t pt-6"
+        className="workspace-section-well space-y-3"
         data-input-readiness
       >
         {heading}
@@ -198,7 +212,7 @@ export default function InputReadinessSummary({
     return (
       <section
         aria-labelledby="input-readiness-title"
-        className="space-y-3 border-t pt-6"
+        className="workspace-section-well space-y-3"
         data-input-readiness
       >
         {heading}
@@ -305,164 +319,312 @@ export default function InputReadinessSummary({
       {t("Configure optional NetFlow input", "配置可选 NetFlow 输入")}
     </Link>
   )
+  const verdictBannerClass = contradiction
+    ? "border-destructive bg-destructive/10 text-destructive"
+    : stale ||
+        readiness.state === "EXPIRED" ||
+        readiness.state === "ACCESS_DENIED"
+      ? "status-banner-unknown"
+      : readiness.state === "READY"
+        ? "status-banner-ready"
+        : "status-banner-warn"
+  const VerdictIcon = contradiction
+    ? AlertCircle
+    : stale ||
+        readiness.state === "EXPIRED" ||
+        readiness.state === "ACCESS_DENIED"
+      ? Clock
+      : readiness.state === "READY"
+        ? CheckCircle2
+        : AlertCircle
+  const customerReady =
+    Boolean(value.customer.applied_upload_id) &&
+    customerState?.read_state !== "READ_FAILED"
+  const cloudReady =
+    cloudState?.read_state === "VALID_NONEMPTY" &&
+    cloudState?.coverage_state === "SUFFICIENT"
+  const cloudUnconfigured =
+    value.cloud.sources.length === 0 || !readiness.clouds?.length
+  const netflowReady = Boolean(readNetflow?.current_analysis_id)
   return (
     <section
       aria-labelledby="input-readiness-title"
-      className="space-y-4 border-t pt-6"
+      className="workspace-section-well space-y-4"
       data-input-readiness
     >
-      {heading}
-      <p className="max-w-prose text-sm text-muted-foreground">
-        {t(
-          "This summary only reads stored facts. Opening or refreshing it never applies a file, syncs, processes NetFlow, or generates a result.",
-          "此摘要只读取已存事实。打开或刷新不会应用文件、同步、处理 NetFlow 或生成结果。",
-        )}
-      </p>
+      <div className="space-y-1">
+        {heading}
+        <p className="max-w-prose text-sm text-muted-foreground">
+          {t(
+            "This summary only reads stored facts. Opening or refreshing it never applies a file, syncs, processes NetFlow, or generates a result.",
+            "此摘要只读取已存事实。打开或刷新不会应用文件、同步、处理 NetFlow 或生成结果。",
+          )}
+        </p>
+      </div>
       {stale && (
-        <p role="status">
+        <p role="status" className="text-sm text-muted-foreground">
           {t(
             `Refreshing input status. Last observed ${observedAt}; this is not a current ready claim.`,
             `正在刷新数据接入状态。上次观测时间 ${observedAt}，这不是当前就绪结论。`,
           )}
         </p>
       )}
-      {contradiction ? (
-        <p role="alert">
-          {t(
-            "The applied input pointer and readiness selection disagree. Refresh to read one consistent state; readiness is not recomputed here.",
-            "已应用输入指针与就绪选择不一致，请刷新读取一致状态；此处不重算就绪结论。",
-          )}
-        </p>
-      ) : (
-        <p data-readiness-state={readiness.state}>
-          {stale
-            ? t(
-                "Not confirming readiness while the summary is stale.",
-                "摘要陈旧时不确认就绪。",
-              )
-            : readinessText(readiness.state, t)}
-        </p>
-      )}
-      <p className="text-sm">
-        {t("Next step", "下一步")}: {nextStep}
-      </p>
-      <div className="space-y-1 text-sm">
-        <h3 className="font-medium">{t("Customer register", "客户台账")}</h3>
-        <p>
-          {t("Applied input", "已应用输入")}:{" "}
-          {value.customer.applied_upload_id ?? t("None", "无")}
-        </p>
-        {value.customer.applied_revision_id && (
-          <p>
-            {t("Applied revision", "已应用修订")}:{" "}
-            {value.customer.applied_revision_id}
-          </p>
-        )}
-        <p>
-          {t("Accepted uploads", "已接受上传")}:{" "}
-          {value.customer.accepted_upload_count}
-        </p>
-        <p>
-          {t("Accepted but not applied", "已接受但未应用")}:{" "}
-          {value.customer.unapplied_upload_count}
-        </p>
-        <p>
-          {t("Material", "材料")}: {readLabel(customerState)}
-        </p>
-      </div>
-      <div className="space-y-1 text-sm">
-        <h3 className="font-medium">{t("CloudAtlas", "云图")}</h3>
-        {value.cloud.sources.length ? (
-          <ul className="list-disc pl-5">
-            {value.cloud.sources.map((source) => (
-              <li key={source.source_instance_id}>
-                {source.instance_id} · {source.validation_status} ·{" "}
-                {source.enabled
-                  ? t("enabled", "已启用")
-                  : t("disabled", "未启用")}{" "}
-                ·{" "}
-                {source.data_access_enabled
-                  ? t("data access allowed", "允许读取资料")
-                  : t("data access revoked", "资料读取已撤权")}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>
-            {t(
-              "No assets-v1 source is configured.",
-              "尚未配置 assets-v1 来源。",
-            )}
-          </p>
-        )}
-        <p>
-          {t("Published version candidates", "已发布版本候选")}:{" "}
-          {readiness.clouds?.length
-            ? readiness.clouds
-                .map(
-                  (choice) =>
-                    `${choice.source_name} (${publication[choice.state]})`,
-                )
-                .join("; ")
-            : t("None", "无")}
-        </p>
-        <p>
-          {t("Material", "材料")}: {readLabel(cloudState)}
-        </p>
-        <p>
-          {t("Records", "记录")}: {known(cloudState?.source_records)} ·{" "}
-          {t("Addresses", "地址")}: {known(cloudState?.source_addresses)}
-        </p>
-      </div>
-      <div className="space-y-1 text-sm">
-        <h3 className="font-medium">
-          {t("NetFlow (optional)", "NetFlow（可选）")}
-        </h3>
-        <p>
-          {t(
-            "Optional evidence only; it never gates the core comparison.",
-            "仅作可选辅证，从不阻断核心比对。",
-          )}
-        </p>
-        <p>
-          {t("Accepted datasets", "已接受数据集")}:{" "}
-          {known(netflow.dataset_count)}
-        </p>
-        {readNetflow ? (
-          <>
-            <p>
-              {t("Scopes", "范围")}:{" "}
-              {readNetflow.scopes.length
-                ? readNetflow.scopes
-                    .map(
-                      (scope) => `${scope.label} (${scope.network_namespace})`,
+      <div
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm ${verdictBannerClass}`}
+      >
+        <div className="flex min-w-0 items-start gap-2.5">
+          <VerdictIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <div className="min-w-0">
+            {contradiction ? (
+              <p role="alert" className="font-medium">
+                {t(
+                  "The applied input pointer and readiness selection disagree. Refresh to read one consistent state; readiness is not recomputed here.",
+                  "已应用输入指针与就绪选择不一致，请刷新读取一致状态；此处不重算就绪结论。",
+                )}
+              </p>
+            ) : (
+              <p data-readiness-state={readiness.state} className="font-medium">
+                {stale
+                  ? t(
+                      "Not confirming readiness while the summary is stale.",
+                      "摘要陈旧时不确认就绪。",
                     )
-                    .join("; ")
-                : t("None selected", "未选择")}
-            </p>
-            <p>
-              {t("Current readable analysis", "当前可读分析")}:{" "}
-              {readNetflow.current_analysis_id ?? t("None", "无")}
-            </p>
-            <p>
-              {t("Latest attempt", "最近尝试")}:{" "}
-              {readNetflow.latest_attempt_status ?? t("None", "无")}
-              {readNetflow.latest_attempt_error_code
-                ? ` · ${readNetflow.latest_attempt_error_code}`
-                : ""}
-            </p>
-          </>
-        ) : (
-          <p role="alert">
-            {t("NetFlow state could not be read", "无法读取 NetFlow 状态")}:{" "}
-            {netflow.read_state === "READ_FAILED"
-              ? `${netflow.error_code}${
-                  netflow.error_status ? ` (HTTP ${netflow.error_status})` : ""
-                }`
-              : t("Unknown", "未知")}
-          </p>
-        )}
-        {netflowLink}
+                  : readinessText(readiness.state, t)}
+              </p>
+            )}
+          </div>
+        </div>
+        <p className="shrink-0 text-sm font-medium">
+          {t("Next step", "下一步")}: {nextStep}
+        </p>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div
+          className={`flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 text-sm tabular-nums ${activeSource === "customer" ? "border-foreground/30 ring-1 ring-ring/30" : ""}`}
+        >
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-muted-foreground"
+                />
+                <h3 className="font-medium">
+                  {t("Customer register", "客户台账")}
+                </h3>
+              </div>
+              <span
+                aria-hidden="true"
+                className={`status-pill ${customerReady ? "status-pill-ready" : "status-pill-cloud-only"}`}
+              >
+                {customerReady
+                  ? t("Applied", "已应用")
+                  : t("Pending", "待应用")}
+              </span>
+            </div>
+            <div className="space-y-1 text-muted-foreground [&_p]:break-words">
+              <p>
+                {t("Applied input", "已应用输入")}:{" "}
+                {value.customer.applied_upload_id ?? t("None", "无")}
+              </p>
+              {value.customer.applied_revision_id && (
+                <p>
+                  {t("Applied revision", "已应用修订")}:{" "}
+                  {value.customer.applied_revision_id}
+                </p>
+              )}
+              <p>
+                {t("Accepted uploads", "已接受上传")}:{" "}
+                {value.customer.accepted_upload_count}
+              </p>
+              <p>
+                {t("Accepted but not applied", "已接受但未应用")}:{" "}
+                {value.customer.unapplied_upload_count}
+              </p>
+              <p>
+                {t("Material", "材料")}: {readLabel(customerState)}
+              </p>
+            </div>
+          </div>
+          {onSelectSource && (
+            <div className="mt-auto border-t pt-2.5">
+              <button
+                type="button"
+                className="text-xs font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                onClick={() => onSelectSource("customer")}
+              >
+                {t("Open Customer panel", "切换到客户台账配置")}
+              </button>
+            </div>
+          )}
+        </div>
+        <div
+          className={`flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 text-sm tabular-nums ${activeSource === "cloudatlas" ? "border-foreground/30 ring-1 ring-ring/30" : ""}`}
+        >
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Waypoints
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-muted-foreground"
+                />
+                <h3 className="font-medium">{t("CloudAtlas", "云图")}</h3>
+              </div>
+              <span
+                aria-hidden="true"
+                className={`status-pill ${cloudReady ? "status-pill-ready" : cloudUnconfigured ? "status-pill-unknown" : "status-pill-cloud-only"}`}
+              >
+                {cloudReady
+                  ? t("Readable", "可读")
+                  : cloudUnconfigured
+                    ? t("Unconfigured", "未配置")
+                    : t("Attention", "需核查")}
+              </span>
+            </div>
+            <div className="space-y-1 text-muted-foreground [&_p]:break-words">
+              {value.cloud.sources.length ? (
+                <ul className="list-disc space-y-1 pl-5">
+                  {value.cloud.sources.map((source) => (
+                    <li key={source.source_instance_id}>
+                      {source.instance_id} · {source.validation_status} ·{" "}
+                      {source.enabled
+                        ? t("enabled", "已启用")
+                        : t("disabled", "未启用")}{" "}
+                      ·{" "}
+                      {source.data_access_enabled
+                        ? t("data access allowed", "允许读取资料")
+                        : t("data access revoked", "资料读取已撤权")}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>
+                  {t(
+                    "No assets-v1 source is configured.",
+                    "尚未配置 assets-v1 来源。",
+                  )}
+                </p>
+              )}
+              <p>
+                {t("Published version candidates", "已发布版本候选")}:{" "}
+                {readiness.clouds?.length
+                  ? readiness.clouds
+                      .map(
+                        (choice) =>
+                          `${choice.source_name} (${publication[choice.state]})`,
+                      )
+                      .join("; ")
+                  : t("None", "无")}
+              </p>
+              <p>
+                {t("Material", "材料")}: {readLabel(cloudState)}
+              </p>
+              <p>
+                {t("Records", "记录")}: {known(cloudState?.source_records)} ·{" "}
+                {t("Addresses", "地址")}: {known(cloudState?.source_addresses)}
+              </p>
+            </div>
+          </div>
+          {onSelectSource && (
+            <div className="mt-auto border-t pt-2.5">
+              <button
+                type="button"
+                className="text-xs font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                onClick={() => onSelectSource("cloudatlas")}
+              >
+                {t("Open CloudAtlas panel", "切换到云图配置")}
+              </button>
+            </div>
+          )}
+        </div>
+        <div
+          className={`flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 text-sm tabular-nums ${activeSource === "netflow" ? "border-foreground/30 ring-1 ring-ring/30" : ""}`}
+        >
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Network
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-muted-foreground"
+                />
+                <h3 className="font-medium">
+                  {t("NetFlow (optional)", "NetFlow（可选）")}
+                </h3>
+              </div>
+              <span
+                aria-hidden="true"
+                className={`status-pill ${netflowReady ? "status-pill-ready" : "status-pill-unknown"}`}
+              >
+                {netflowReady ? t("Available", "可用") : t("Optional", "可选")}
+              </span>
+            </div>
+            <div className="space-y-1 text-muted-foreground [&_p]:break-words">
+              <p>
+                {t(
+                  "Optional evidence only; it never gates the core comparison.",
+                  "仅作可选辅证，从不阻断核心比对。",
+                )}
+              </p>
+              <p>
+                {t("Accepted datasets", "已接受数据集")}:{" "}
+                {known(netflow.dataset_count)}
+              </p>
+              {readNetflow ? (
+                <>
+                  <p>
+                    {t("Scopes", "范围")}:{" "}
+                    {readNetflow.scopes.length
+                      ? readNetflow.scopes
+                          .map(
+                            (scope) =>
+                              `${scope.label} (${scope.network_namespace})`,
+                          )
+                          .join("; ")
+                      : t("None selected", "未选择")}
+                  </p>
+                  <p>
+                    {t("Current readable analysis", "当前可读分析")}:{" "}
+                    {readNetflow.current_analysis_id ?? t("None", "无")}
+                  </p>
+                  <p>
+                    {t("Latest attempt", "最近尝试")}:{" "}
+                    {readNetflow.latest_attempt_status ?? t("None", "无")}
+                    {readNetflow.latest_attempt_error_code
+                      ? ` · ${readNetflow.latest_attempt_error_code}`
+                      : ""}
+                  </p>
+                </>
+              ) : (
+                <p role="alert">
+                  {t(
+                    "NetFlow state could not be read",
+                    "无法读取 NetFlow 状态",
+                  )}
+                  :{" "}
+                  {netflow.read_state === "READ_FAILED"
+                    ? `${netflow.error_code}${
+                        netflow.error_status
+                          ? ` (HTTP ${netflow.error_status})`
+                          : ""
+                      }`
+                    : t("Unknown", "未知")}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t pt-2.5 text-xs">
+            {netflowLink}
+            {onSelectSource && (
+              <button
+                type="button"
+                className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                onClick={() => onSelectSource("netflow")}
+              >
+                {t("Open NetFlow panel", "切换到 NetFlow 配置")}
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </section>
   )

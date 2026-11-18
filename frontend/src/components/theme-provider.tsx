@@ -56,17 +56,15 @@ export function ThemeProvider({
 
     root.classList.remove("light", "dark")
 
-    if (newTheme === "system") {
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-        .matches
-        ? "dark"
-        : "light"
+    const resolved =
+      newTheme === "system"
+        ? window.matchMedia("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light"
+        : newTheme
 
-      root.classList.add(systemTheme)
-      return
-    }
-
-    root.classList.add(newTheme)
+    root.classList.add(resolved)
+    root.style.colorScheme = resolved
   }, [])
 
   useEffect(() => {

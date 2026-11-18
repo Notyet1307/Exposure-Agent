@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
-import { useI18n } from "@/lib/i18n"
+import { LanguageSwitcher, useI18n } from "@/lib/i18n"
 
 const NotFound = () => {
   const { t } = useI18n()
@@ -9,6 +9,9 @@ const NotFound = () => {
       className="flex min-h-screen items-center justify-center flex-col p-4"
       data-testid="not-found"
     >
+      <div className="fixed top-4 right-4 z-20">
+        <LanguageSwitcher />
+      </div>
       <div className="flex items-center z-10">
         <div className="flex flex-col ml-4 items-center justify-center p-4">
           <span className="text-6xl md:text-8xl font-bold leading-none mb-4">

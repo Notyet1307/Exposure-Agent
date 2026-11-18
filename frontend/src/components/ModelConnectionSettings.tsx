@@ -458,10 +458,18 @@ function Management({ actor }: { actor: string }) {
   const disabled = busy || !!intent || initial.invalid
   const needsForm = !pending || intent?.action === "save"
   return (
-    <div className="space-y-8">
-      <h2 ref={heading} tabIndex={-1} className="text-lg font-semibold">
-        {t("Model connections", "模型连接")}
-      </h2>
+    <div className="space-y-6">
+      <header className="workspace-page-header">
+        <h1 ref={heading} tabIndex={-1} className="workspace-page-title">
+          {t("Model connections", "模型连接")}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {t(
+            "Configure, verify, and activate model endpoints for AI interpretation and investigation. Keys remain write-only.",
+            "配置、验证并启用用于 AI 解读与核查的模型端点；API Key 全程只写不回显。",
+          )}
+        </p>
+      </header>
       {initial.invalid && (
         <Alert variant="destructive">
           <AlertDescription>
@@ -492,7 +500,7 @@ function Management({ actor }: { actor: string }) {
       </div>
       {intent && (
         <section
-          className="space-y-3 rounded-lg border p-4"
+          className="workspace-section-well space-y-3"
           aria-label={t("Operation recovery", "操作恢复")}
         >
           <h3 className="font-semibold">
@@ -550,254 +558,280 @@ function Management({ actor }: { actor: string }) {
           </div>
         </section>
       )}
-      <section
-        className="space-y-3"
-        aria-label={t("Active connection", "生效连接")}
-      >
-        <h3 className="font-semibold">{t("Active connection", "生效连接")}</h3>
-        {active ? (
-          <>
-            <ConnectionDetails version={active} />
-            <RevokeButton
-              disabled={disabled}
-              onConfirm={() => void submit("revoke", active.id)}
-              active
-            />
-          </>
-        ) : (
-          <p className="text-muted-foreground">
-            {data.adopted
-              ? t(
-                  "No active connection. Enabling a verified version resumes new AI tasks.",
-                  "当前无生效连接。启用验证通过的版本后，才可发起新的 AI 任务。",
-                )
-              : t(
-                  "The existing deployment configuration remains unchanged until explicit activation.",
-                  "在明确启用前，现有部署配置保持原样。",
-                )}
-          </p>
-        )}
-      </section>
-      {pending && (
-        <section
-          className="space-y-4 border-t pt-6"
-          aria-label={t("Pending connection", "待启用连接")}
-        >
-          <h3 className="font-semibold">
-            {t("Pending connection", "待启用连接")}
-          </h3>
-          <ConnectionDetails version={pending} />
-          <div className="flex flex-wrap gap-3">
-            <Button
-              disabled={
-                disabled ||
-                ["VALIDATING", "ACTIVATING"].includes(pending.validation_status)
-              }
-              onClick={() => void submit("validate", pending.id)}
-            >
-              {t("Verify connection", "验证连接")}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={disabled || pending.validation_status !== "VALIDATED"}
-              onClick={() => void submit("activate", pending.id)}
-            >
-              {t("Activate for new tasks", "启用到新任务")}
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={
-                disabled ||
-                ["VALIDATING", "ACTIVATING"].includes(pending.validation_status)
-              }
-              onClick={() => void submit("discard", pending.id)}
-            >
-              {t("Discard pending version", "放弃待启用版本")}
-            </Button>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {t(
-              "Verification uses fixed synthetic samples. Passing does not activate the version or grant project material access.",
-              "验证仅使用固定合成样例。通过不等于启用，也不授予项目材料许可。",
-            )}
-          </p>
-        </section>
-      )}
-      {needsForm && (
-        <section className="space-y-4 border-t pt-6">
-          <h3 className="font-semibold">
-            {t("Save a new version", "保存新版本")}
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            {intent?.action === "save"
-              ? t(
-                  "Re-enter the original inputs and Key to retry the same intent. The browser does not retain them after leaving.",
-                  "请重新输入原连接内容与 Key，以同一意图重试。离页后浏览器不会保留这些输入。",
-                )
-              : t(
-                  "Saved versions cannot be edited. Changing the model or rotating a Key creates a new version.",
-                  "已保存版本不可修改。变更模型或轮换 Key 会创建新版本。",
-                )}
-          </p>
-          <form
-            ref={form}
-            className="max-w-2xl space-y-5"
-            onSubmit={(event) => {
-              event.preventDefault()
-              const values = new FormData(event.currentTarget)
-              void submit("save", undefined, {
-                expected_generation: data.generation,
-                name: String(values.get("name")),
-                endpoint: String(values.get("endpoint")),
-                model_identity: String(values.get("model")),
-                protocol: values.get("protocol") as SaveConnection["protocol"],
-                api_key: String(values.get("api_key")),
-              })
-            }}
+      <div className="grid items-start gap-6 lg:grid-cols-12">
+        <div className="min-w-0 space-y-5 lg:col-span-5">
+          <section
+            className="workspace-surface-card space-y-3"
+            aria-label={t("Active connection", "生效连接")}
           >
-            <fieldset
-              disabled={
-                busy ||
-                initial.invalid ||
-                (!!intent && intent.action !== "save")
-              }
-              className="space-y-5"
+            <h3 className="font-semibold">
+              {t("Active connection", "生效连接")}
+            </h3>
+            {active ? (
+              <>
+                <ConnectionDetails version={active} />
+                <RevokeButton
+                  disabled={disabled}
+                  onConfirm={() => void submit("revoke", active.id)}
+                  active
+                />
+              </>
+            ) : (
+              <p className="text-muted-foreground">
+                {data.adopted
+                  ? t(
+                      "No active connection. Enabling a verified version resumes new AI tasks.",
+                      "当前无生效连接。启用验证通过的版本后，才可发起新的 AI 任务。",
+                    )
+                  : t(
+                      "The existing deployment configuration remains unchanged until explicit activation.",
+                      "在明确启用前，现有部署配置保持原样。",
+                    )}
+              </p>
+            )}
+          </section>
+          {pending && (
+            <section
+              className="workspace-section-well space-y-4"
+              aria-label={t("Pending connection", "待启用连接")}
             >
-              <div className="space-y-2">
-                <Label htmlFor="connection-name">
-                  {t("Connection name", "连接名称")}
-                </Label>
-                <Input
-                  id="connection-name"
-                  name="name"
-                  required
-                  maxLength={255}
-                  autoComplete="off"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="connection-protocol">
-                  {t("Protocol", "协议")}
-                </Label>
-                <select
-                  id="connection-protocol"
-                  name="protocol"
-                  className="h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-2 focus-visible:outline-ring"
+              <h3 className="font-semibold">
+                {t("Pending connection", "待启用连接")}
+              </h3>
+              <ConnectionDetails version={pending} />
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  disabled={
+                    disabled ||
+                    ["VALIDATING", "ACTIVATING"].includes(
+                      pending.validation_status,
+                    )
+                  }
+                  onClick={() => void submit("validate", pending.id)}
                 >
-                  <option value="chat_completions">Chat Completions</option>
-                  <option value="responses">Responses</option>
-                </select>
+                  {t("Verify connection", "验证连接")}
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={
+                    disabled || pending.validation_status !== "VALIDATED"
+                  }
+                  onClick={() => void submit("activate", pending.id)}
+                >
+                  {t("Activate for new tasks", "启用到新任务")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={
+                    disabled ||
+                    ["VALIDATING", "ACTIVATING"].includes(
+                      pending.validation_status,
+                    )
+                  }
+                  onClick={() => void submit("discard", pending.id)}
+                >
+                  {t("Discard pending version", "放弃待启用版本")}
+                </Button>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="connection-endpoint">
-                  {t("API base URL", "API 基础地址")}
-                </Label>
-                <Input
-                  id="connection-endpoint"
-                  name="endpoint"
-                  type="url"
-                  required
-                  maxLength={2048}
-                  autoComplete="off"
-                  aria-describedby="endpoint-help"
-                />
-                <p id="endpoint-help" className="text-sm text-muted-foreground">
-                  {t(
-                    "Use the base URL, such as http://model.internal:8080/v1, without /chat/completions or /responses. Deployment network restrictions still apply.",
-                    "填写基础地址，例如 http://model.internal:8080/v1，不附加 /chat/completions 或 /responses。仍遵循部署网络限制。",
-                  )}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="connection-model">
-                  {t("Model identifier", "模型标识")}
-                </Label>
-                <Input
-                  id="connection-model"
-                  name="model"
-                  required
-                  maxLength={255}
-                  autoComplete="off"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="connection-key">API Key</Label>
-                <Input
-                  ref={secret}
-                  id="connection-key"
-                  name="api_key"
-                  type="password"
-                  required
-                  maxLength={8192}
-                  autoComplete="new-password"
-                  spellCheck={false}
-                  aria-describedby="key-help"
-                />
-                <p id="key-help" className="text-sm text-muted-foreground">
-                  {t(
-                    "Write only. Cleared on submission or leaving this page; never stored in browser recovery data.",
-                    "仅供写入，提交或离页即清空，不存入浏览器恢复记录。",
-                  )}
-                </p>
-              </div>
-              <LoadingButton
-                type="submit"
-                loading={busy}
-                disabled={!!intent && (!notFound || recovery.isFetching)}
-              >
-                {intent?.action === "save"
-                  ? t("Confirm retry of original intent", "确认重试原意图")
-                  : t("Save pending version", "保存待启用版本")}
-              </LoadingButton>
-            </fieldset>
-          </form>
-          {!data.adopted && !intent && (
-            <div className="space-y-2 border-t pt-4">
               <p className="text-sm text-muted-foreground">
                 {t(
-                  "Already configured by deployment? Import it as a pending version, then verify and activate it explicitly.",
-                  "已有部署连接？可导入为待启用版本，再明确验证与启用。",
+                  "Verification uses fixed synthetic samples. Passing does not activate the version or grant project material access.",
+                  "验证仅使用固定合成样例。通过不等于启用，也不授予项目材料许可。",
                 )}
               </p>
-              <Button
-                variant="outline"
-                disabled={disabled}
-                onClick={() => void submit("adopt")}
-              >
-                {t("Import deployment connection", "导入部署连接")}
-              </Button>
-            </div>
+            </section>
           )}
-        </section>
-      )}
-      {history.length > 0 && (
-        <section className="space-y-4 border-t pt-6">
-          <h3 className="font-semibold">
-            {t("Historical versions", "历史版本")}
-          </h3>
-          {history.map((version) => (
-            <details key={version.id} className="border-b pb-4">
-              <summary className="cursor-pointer break-words py-2 font-medium">
-                {version.name} ·{" "}
-                {version.revoked_at
-                  ? t("Revoked", "已撤销")
-                  : version.discarded_at
-                    ? t("Discarded", "已放弃")
-                    : t("Historical", "历史版本")}
-              </summary>
-              <div className="space-y-3 pt-3">
-                <ConnectionDetails version={version} />
-                {version.activated_at && !version.revoked_at && (
-                  <RevokeButton
+        </div>
+        <div className="min-w-0 space-y-5 lg:col-span-7">
+          {needsForm && (
+            <section className="workspace-surface-card space-y-4">
+              <h3 className="font-semibold">
+                {t("Save a new version", "保存新版本")}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {intent?.action === "save"
+                  ? t(
+                      "Re-enter the original inputs and Key to retry the same intent. The browser does not retain them after leaving.",
+                      "请重新输入原连接内容与 Key，以同一意图重试。离页后浏览器不会保留这些输入。",
+                    )
+                  : t(
+                      "Saved versions cannot be edited. Changing the model or rotating a Key creates a new version.",
+                      "已保存版本不可修改。变更模型或轮换 Key 会创建新版本。",
+                    )}
+              </p>
+              <form
+                ref={form}
+                className="space-y-5"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  const values = new FormData(event.currentTarget)
+                  void submit("save", undefined, {
+                    expected_generation: data.generation,
+                    name: String(values.get("name")),
+                    endpoint: String(values.get("endpoint")),
+                    model_identity: String(values.get("model")),
+                    protocol: values.get(
+                      "protocol",
+                    ) as SaveConnection["protocol"],
+                    api_key: String(values.get("api_key")),
+                  })
+                }}
+              >
+                <fieldset
+                  disabled={
+                    busy ||
+                    initial.invalid ||
+                    (!!intent && intent.action !== "save")
+                  }
+                  className="space-y-5"
+                >
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="connection-name">
+                        {t("Connection name", "连接名称")}
+                      </Label>
+                      <Input
+                        id="connection-name"
+                        name="name"
+                        required
+                        maxLength={255}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="connection-protocol">
+                        {t("Protocol", "协议")}
+                      </Label>
+                      <select
+                        id="connection-protocol"
+                        name="protocol"
+                        className="h-10 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-2 focus-visible:outline-ring"
+                      >
+                        <option value="chat_completions">
+                          Chat Completions
+                        </option>
+                        <option value="responses">Responses</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="connection-endpoint">
+                      {t("API base URL", "API 基础地址")}
+                    </Label>
+                    <Input
+                      id="connection-endpoint"
+                      name="endpoint"
+                      type="url"
+                      required
+                      maxLength={2048}
+                      autoComplete="off"
+                      aria-describedby="endpoint-help"
+                    />
+                    <p
+                      id="endpoint-help"
+                      className="text-sm text-muted-foreground"
+                    >
+                      {t(
+                        "Use the base URL, such as http://model.internal:8080/v1, without /chat/completions or /responses. Deployment network restrictions still apply.",
+                        "填写基础地址，例如 http://model.internal:8080/v1，不附加 /chat/completions 或 /responses。仍遵循部署网络限制。",
+                      )}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="connection-model">
+                      {t("Model identifier", "模型标识")}
+                    </Label>
+                    <Input
+                      id="connection-model"
+                      name="model"
+                      required
+                      maxLength={255}
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="connection-key">API Key</Label>
+                    <Input
+                      ref={secret}
+                      id="connection-key"
+                      name="api_key"
+                      type="password"
+                      required
+                      maxLength={8192}
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      aria-describedby="key-help"
+                    />
+                    <p id="key-help" className="text-sm text-muted-foreground">
+                      {t(
+                        "Write only. Cleared on submission or leaving this page; never stored in browser recovery data.",
+                        "仅供写入，提交或离页即清空，不存入浏览器恢复记录。",
+                      )}
+                    </p>
+                  </div>
+                  <LoadingButton
+                    type="submit"
+                    loading={busy}
+                    disabled={!!intent && (!notFound || recovery.isFetching)}
+                  >
+                    {intent?.action === "save"
+                      ? t("Confirm retry of original intent", "确认重试原意图")
+                      : t("Save pending version", "保存待启用版本")}
+                  </LoadingButton>
+                </fieldset>
+              </form>
+              {!data.adopted && !intent && (
+                <div className="space-y-2 border-t pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    {t(
+                      "Already configured by deployment? Import it as a pending version, then verify and activate it explicitly.",
+                      "已有部署连接？可导入为待启用版本，再明确验证与启用。",
+                    )}
+                  </p>
+                  <Button
+                    variant="outline"
                     disabled={disabled}
-                    onConfirm={() => void submit("revoke", version.id)}
-                  />
-                )}
-              </div>
-            </details>
-          ))}
-        </section>
-      )}
+                    onClick={() => void submit("adopt")}
+                  >
+                    {t("Import deployment connection", "导入部署连接")}
+                  </Button>
+                </div>
+              )}
+            </section>
+          )}
+          {history.length > 0 && (
+            <section className="workspace-section-well space-y-3">
+              <h3 className="font-semibold">
+                {t("Historical versions", "历史版本")}
+              </h3>
+              {history.map((version) => (
+                <details
+                  key={version.id}
+                  className="border-b pb-4 last:border-b-0"
+                >
+                  <summary className="cursor-pointer break-words py-2 font-medium">
+                    {version.name} ·{" "}
+                    {version.revoked_at
+                      ? t("Revoked", "已撤销")
+                      : version.discarded_at
+                        ? t("Discarded", "已放弃")
+                        : t("Historical", "历史版本")}
+                  </summary>
+                  <div className="space-y-3 pt-3">
+                    <ConnectionDetails version={version} />
+                    {version.activated_at && !version.revoked_at && (
+                      <RevokeButton
+                        disabled={disabled}
+                        onConfirm={() => void submit("revoke", version.id)}
+                      />
+                    )}
+                  </div>
+                </details>
+              ))}
+            </section>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
