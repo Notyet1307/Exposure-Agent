@@ -56,15 +56,24 @@ export default function ProjectPreparation({
       </div>
       <nav
         aria-label={t("Data sources", "数据来源")}
-        className="flex flex-wrap gap-4 text-sm"
+        className="flex flex-wrap gap-2 text-sm"
       >
-        <a className="underline underline-offset-4" href="#customer-inputs">
+        <a
+          className="inline-flex items-center rounded-md border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+          href="#customer-inputs"
+        >
           {t("Customer asset ledger", "客户资产台账")}
         </a>
-        <a className="underline underline-offset-4" href="#cloudatlas-inputs">
+        <a
+          className="inline-flex items-center rounded-md border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+          href="#cloudatlas-inputs"
+        >
           {t("CloudAtlas", "云图")}
         </a>
-        <a className="underline underline-offset-4" href="#netflow-inputs">
+        <a
+          className="inline-flex items-center rounded-md border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+          href="#netflow-inputs"
+        >
           {t("NetFlow", "NetFlow")}
         </a>
       </nav>

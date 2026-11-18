@@ -95,6 +95,9 @@ function Login() {
                       data-testid="email-input"
                       placeholder="user@example.com"
                       type="email"
+                      autoComplete="username"
+                      spellCheck={false}
+                      required
                       {...field}
                     />
                   </FormControl>
@@ -113,6 +116,8 @@ function Login() {
                     <PasswordInput
                       data-testid="password-input"
                       placeholder={t("Password", "密码")}
+                      autoComplete="current-password"
+                      required
                       {...field}
                     />
                   </FormControl>

@@ -4,9 +4,9 @@
 
 .comparison-actions button,
 .comparison-filters button {
-  height: 32px;
-  padding-inline: 10px;
-  font-size: 12px;
+  min-block-size: 2rem;
+  padding-inline: 0.625rem;
+  font-size: 0.75rem;
   box-shadow: none;
 }
 
@@ -14,7 +14,12 @@
   color: var(--muted-foreground);
 }
 
+.comparison-views button {
+  border: 1px solid transparent;
+}
+
 .comparison-views button[aria-pressed="true"] {
+  border-color: var(--border);
   background: var(--secondary);
   color: var(--foreground);
 }
@@ -25,10 +30,10 @@
 }
 
 .comparison-core th {
-  height: 38px;
-  padding-inline: 12px;
+  min-block-size: 2.375rem;
+  padding-inline: 0.75rem;
   background: var(--muted);
-  font-weight: 400;
+  font-weight: 500;
   text-transform: none;
   letter-spacing: normal;
 }
@@ -38,28 +43,47 @@
 }
 
 .comparison-core td {
-  height: 48px;
-  padding: 9px 12px;
-  font-size: 13px;
+  min-block-size: 3rem;
+  padding: 0.5625rem 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .comparison-core .comparison-ip {
-  max-width: 260px;
-  min-width: 156px;
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  max-width: 16.25rem;
+  min-width: 9.75rem;
+  background: var(--background);
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
+.comparison-core th:first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 2;
+  background: var(--muted);
+}
+
+.comparison-core tbody tr:hover .comparison-ip {
+  background: color-mix(in oklab, var(--muted) 50%, var(--background));
+}
+
+.comparison-core tbody tr[data-state="selected"] .comparison-ip {
+  background: var(--muted);
+}
+
 .comparison-core .comparison-evidence-trigger {
-  height: 28px;
-  padding-inline: 5px;
-  font-size: 12px;
+  min-block-size: 1.75rem;
+  padding-inline: 0.375rem;
+  font-size: 0.75rem;
   font-weight: 400;
   color: var(--muted-foreground);
 }
 
 .comparison-table-footer > p {
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .comparison-evidence {
@@ -67,7 +91,7 @@
 }
 
 .comparison-evidence p {
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
@@ -80,7 +104,7 @@
 }
 
 .comparison-evidence h3 {
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .comparison-evidence-source dl,
@@ -99,9 +123,28 @@
   min-width: 0;
 }
 
+@container (width < 680px) {
+  .comparison-core .comparison-ip {
+    min-width: 8.25rem;
+    max-width: 11.5rem;
+  }
+}
+
 @media (min-width: 1280px) {
+  .comparison-evidence {
+    top: 3.5rem;
+    height: calc(100dvh - 3.5rem);
+    box-shadow: -4px 0 24px rgb(0 0 0 / 0.08);
+  }
+
   .comparison-evidence-columns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1360px) {
+  .comparison-workspace[data-evidence-open="true"] {
+    padding-inline-end: 560px;
   }
 }
 

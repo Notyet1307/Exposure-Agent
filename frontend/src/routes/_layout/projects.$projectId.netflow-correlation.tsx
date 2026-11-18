@@ -213,7 +213,7 @@ export const Route = createFileRoute(
         typeof search.taskKind === "string" ? search.taskKind : undefined,
       objectKey:
         typeof search.objectKey === "string" ? search.objectKey : undefined,
-      identityErrors,
+      identityErrors: identityErrors.length ? identityErrors : undefined,
     }
   },
   component: NetflowCorrelationRoute,

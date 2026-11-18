@@ -1941,7 +1941,7 @@ function Dashboard() {
           <section
             id="cloudatlas-inputs"
             tabIndex={-1}
-            className="scroll-mt-32 space-y-3 border-t pt-6"
+            className="scroll-mt-32 space-y-3 rounded-lg border bg-card p-5"
             aria-labelledby="cloud-access-title"
           >
             <h2 id="cloud-access-title" className="text-base font-semibold">
@@ -2105,24 +2105,30 @@ function Dashboard() {
   }
   return (
     <div className="min-w-0 space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <h1 className="workspace-page-title">{project.name}</h1>
-        {view === "overview" && report && (
-          <Button asChild variant="outline">
-            <Link to="/" search={{ project: project.id, view: "inputs" }}>
-              {t("Start a new comparison", "开始新一轮比对")}
-            </Link>
-          </Button>
-        )}
-        {view !== "overview" && view !== "reports" && (
-          <p className="text-sm text-muted-foreground">
+      {view === "overview" || view === "reports" ? (
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="workspace-page-title">{project.name}</h1>
+          {view === "overview" && report && (
+            <Button asChild variant="outline">
+              <Link to="/" search={{ project: project.id, view: "inputs" }}>
+                {t("Start a new comparison", "开始新一轮比对")}
+              </Link>
+            </Button>
+          )}
+        </header>
+      ) : (
+        <header className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3.5 py-2">
+          <h2 className="text-sm font-semibold text-foreground">
+            {project.name}
+          </h2>
+          <p className="text-xs text-muted-foreground">
             {t(
               "Current project management. Published reading context is preserved; current inputs and Findings are not historical Run facts.",
               "当前项目管理。已保留发布结果阅读上下文；当前输入和发现项并非历史运行事实。",
             )}
           </p>
-        )}
-      </header>
+        </header>
+      )}
       {content}
     </div>
   )

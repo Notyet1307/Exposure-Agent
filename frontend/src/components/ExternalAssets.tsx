@@ -36,6 +36,7 @@ import useAuth from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
 import { externalDomains, syncedAssetSearch } from "@/lib/assetSearch"
 import { useI18n } from "@/lib/i18n"
+import { isImeComposing } from "@/lib/ime"
 
 const textDomains = new Set([
   "subdomain",
@@ -262,23 +263,39 @@ function AssetDirectory({
   }
   const items = (group: (typeof categories)[number]) => (
     <div className="mt-2 space-y-1">
-      {group.items.map(([id, en, zh]) => (
-        <button
-          key={id}
-          type="button"
-          aria-current={id === selected ? "page" : undefined}
-          className={`flex w-full items-center justify-between gap-2 rounded px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-ring ${id === selected ? "bg-accent font-medium text-accent-foreground" : "hover:bg-muted"}`}
-          onClick={() => onSelect(id)}
-        >
-          <span>{t(en, zh)}</span>
-          <span
-            className="text-xs text-muted-foreground"
-            title={countTitle(id)}
+      {group.items.map(([id, en, zh]) => {
+        const { target, version } = entryFor(id)
+        const hasPublished = Boolean(
+          version &&
+            version.status === "PUBLISHED" &&
+            Date.parse(version.retain_until) > now &&
+            target?.data_access_enabled &&
+            !blocked.has(target.id),
+        )
+        return (
+          <button
+            key={id}
+            type="button"
+            aria-current={id === selected ? "page" : undefined}
+            className={`flex w-full items-center justify-between gap-2 rounded px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-ring ${id === selected ? "bg-accent font-medium text-accent-foreground" : !target ? "text-muted-foreground hover:bg-muted" : "hover:bg-muted"}`}
+            onClick={() => onSelect(id)}
           >
-            {countFor(id)}
-          </span>
-        </button>
-      ))}
+            <span>{t(en, zh)}</span>
+            <span
+              className={
+                hasPublished
+                  ? "rounded-full border bg-secondary px-2 py-0.5 font-mono text-[0.6875rem] font-medium text-foreground tabular-nums"
+                  : !target
+                    ? "text-[0.6875rem] text-muted-foreground/75"
+                    : "text-xs text-muted-foreground tabular-nums"
+              }
+              title={countTitle(id)}
+            >
+              {countFor(id)}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
   return (
@@ -2942,6 +2959,10 @@ function SourceAssets({
                             ? search.external_root_domain
                             : search.external_ip) ?? ""
                     }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && isImeComposing(event))
+                        event.preventDefault()
+                    }}
                     aria-invalid={invalidIpFilter ? true : undefined}
                   />
                 </div>
