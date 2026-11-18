@@ -18,11 +18,19 @@ export default function AssetViews({
       "互联网暴露面资产 - Exposure",
     )
   }, [t])
+  const showLegacyToggle =
+    search.asset_view === "history" || Boolean(search.asset_error)
   return (
     <header className="workspace-page-header">
       <h1 className="workspace-page-title">
         {t("Internet exposure assets", "互联网暴露面资产")}
       </h1>
+      <p className="text-sm text-muted-foreground">
+        {t(
+          "Browse and filter locally synchronized CloudAtlas exposure versions by domain.",
+          "按资产分类浏览与检索本地已同步的云图暴露面版本。",
+        )}
+      </p>
       {search.asset_error && (
         <p role="alert">
           {search.asset_error === "invalid"
@@ -36,34 +44,41 @@ export default function AssetViews({
               )}
         </p>
       )}
-      <nav aria-label={t("Asset view", "资产视图")} className="workspace-views">
-        <Button
-          asChild
-          variant={search.asset_view === "synced" ? "secondary" : "ghost"}
+      {showLegacyToggle && (
+        <nav
+          aria-label={t("Asset view", "资产视图")}
+          className="workspace-views"
         >
-          <Link
-            to="/projects/$projectId/cloudatlas-ledger"
-            params={{ projectId }}
-            search={{ asset_view: "synced" }}
-            aria-current={search.asset_view === "synced" ? "page" : undefined}
+          <Button
+            asChild
+            variant={search.asset_view === "synced" ? "secondary" : "ghost"}
           >
-            {t("Synced assets", "已同步资产")}
-          </Link>
-        </Button>
-        <Button
-          asChild
-          variant={search.asset_view === "history" ? "secondary" : "ghost"}
-        >
-          <Link
-            to="/projects/$projectId/cloudatlas-ledger"
-            params={{ projectId }}
-            search={{ asset_view: "history" }}
-            aria-current={search.asset_view === "history" ? "page" : undefined}
+            <Link
+              to="/projects/$projectId/cloudatlas-ledger"
+              params={{ projectId }}
+              search={{ asset_view: "synced" }}
+              aria-current={search.asset_view === "synced" ? "page" : undefined}
+            >
+              {t("Synced assets", "已同步资产")}
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant={search.asset_view === "history" ? "secondary" : "ghost"}
           >
-            {t("Historical Run snapshots", "历史 Run 快照")}
-          </Link>
-        </Button>
-      </nav>
+            <Link
+              to="/projects/$projectId/cloudatlas-ledger"
+              params={{ projectId }}
+              search={{ asset_view: "history" }}
+              aria-current={
+                search.asset_view === "history" ? "page" : undefined
+              }
+            >
+              {t("Historical Run snapshots", "历史 Run 快照")}
+            </Link>
+          </Button>
+        </nav>
+      )}
     </header>
   )
 }

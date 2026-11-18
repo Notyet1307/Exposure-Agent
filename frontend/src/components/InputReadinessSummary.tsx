@@ -76,12 +76,18 @@ function customerContradiction(value: Summary): boolean {
   )
 }
 
+export type DataAccessSource = "customer" | "cloudatlas" | "netflow"
+
 export default function InputReadinessSummary({
   actorId,
   projectId,
+  activeSource,
+  onSelectSource,
 }: {
   actorId: string
   projectId: string
+  activeSource?: DataAccessSource
+  onSelectSource?: (source: DataAccessSource) => void
 }) {
   const { t, formatDate } = useI18n()
   const cache = useQueryClient()
@@ -164,7 +170,7 @@ export default function InputReadinessSummary({
     return (
       <section
         aria-labelledby="input-readiness-title"
-        className="space-y-3 border-t pt-6"
+        className="workspace-section-well space-y-3"
         data-input-readiness
       >
         {heading}
@@ -206,7 +212,7 @@ export default function InputReadinessSummary({
     return (
       <section
         aria-labelledby="input-readiness-title"
-        className="space-y-3 border-t pt-6"
+        className="workspace-section-well space-y-3"
         data-input-readiness
       >
         {heading}
@@ -343,7 +349,7 @@ export default function InputReadinessSummary({
   return (
     <section
       aria-labelledby="input-readiness-title"
-      className="space-y-4 border-t pt-6"
+      className="workspace-section-well space-y-4"
       data-input-readiness
     >
       <div className="space-y-1">
@@ -393,7 +399,9 @@ export default function InputReadinessSummary({
         </p>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 text-sm tabular-nums">
+        <div
+          className={`flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 text-sm tabular-nums ${activeSource === "customer" ? "border-foreground/30 ring-1 ring-ring/30" : ""}`}
+        >
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -438,8 +446,21 @@ export default function InputReadinessSummary({
               </p>
             </div>
           </div>
+          {onSelectSource && (
+            <div className="mt-auto border-t pt-2.5">
+              <button
+                type="button"
+                className="text-xs font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                onClick={() => onSelectSource("customer")}
+              >
+                {t("Open Customer panel", "切换到客户台账配置")}
+              </button>
+            </div>
+          )}
         </div>
-        <div className="flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 text-sm tabular-nums">
+        <div
+          className={`flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 text-sm tabular-nums ${activeSource === "cloudatlas" ? "border-foreground/30 ring-1 ring-ring/30" : ""}`}
+        >
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -504,8 +525,21 @@ export default function InputReadinessSummary({
               </p>
             </div>
           </div>
+          {onSelectSource && (
+            <div className="mt-auto border-t pt-2.5">
+              <button
+                type="button"
+                className="text-xs font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                onClick={() => onSelectSource("cloudatlas")}
+              >
+                {t("Open CloudAtlas panel", "切换到云图配置")}
+              </button>
+            </div>
+          )}
         </div>
-        <div className="flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 text-sm tabular-nums">
+        <div
+          className={`flex flex-col justify-between gap-3 rounded-lg border bg-card p-4 text-sm tabular-nums ${activeSource === "netflow" ? "border-foreground/30 ring-1 ring-ring/30" : ""}`}
+        >
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -578,7 +612,18 @@ export default function InputReadinessSummary({
               )}
             </div>
           </div>
-          <div className="pt-1">{netflowLink}</div>
+          <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t pt-2.5 text-xs">
+            {netflowLink}
+            {onSelectSource && (
+              <button
+                type="button"
+                className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                onClick={() => onSelectSource("netflow")}
+              >
+                {t("Open NetFlow panel", "切换到 NetFlow 配置")}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </section>

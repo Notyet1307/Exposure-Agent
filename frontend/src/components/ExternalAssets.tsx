@@ -321,7 +321,7 @@ function AssetDirectory({
       </div>
       <nav
         aria-label={t("Asset categories", "资产分类")}
-        className="hidden space-y-5 border-r pr-3 md:block"
+        className="hidden space-y-5 rounded-xl border bg-muted/25 p-2.5 md:block"
       >
         {categories.slice(0, 2).map((group) => (
           <section key={group.en}>
@@ -1701,7 +1701,7 @@ function AssetsPage({
               )}
             </p>
           )}
-          <div className="grid min-w-0 gap-4 md:grid-cols-[177px_minmax(0,1fr)]">
+          <div className="grid min-w-0 items-start gap-5 md:grid-cols-[200px_minmax(0,1fr)]">
             <AssetDirectory
               selected={category}
               activeDomain={search.external_domain}
@@ -2815,7 +2815,7 @@ function SourceAssets({
               </div>
             )}
           <section
-            className="min-w-0 space-y-4"
+            className="workspace-surface-card min-w-0 space-y-4"
             aria-labelledby="records-heading"
           >
             <h2
@@ -2865,7 +2865,7 @@ function SourceAssets({
             </details>
             <form
               key={`${domain}:${search.external_ip}:${search.external_root_domain}:${search.external_subdomain}:${search.external_status}:${search.external_q}:${search.external_sha256}:${search.external_md5_value}:${search.external_mmh3_value}:${search.external_seed_enabled}:${search.external_confidence}:${search.external_seed_type}`}
-              className="flex flex-wrap items-end gap-3"
+              className="workspace-toolbar"
               onSubmit={(event) => {
                 event.preventDefault()
                 const form = new FormData(event.currentTarget)

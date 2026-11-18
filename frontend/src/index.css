@@ -353,6 +353,109 @@
       right center / 0.75rem 100% no-repeat scroll,
       var(--background);
   }
+
+  .workspace-section-well {
+    border-radius: calc(var(--radius) + 4px);
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--muted) 45%, var(--background));
+    padding: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .workspace-section-well {
+      padding: 1.25rem;
+    }
+  }
+
+  .workspace-surface-card {
+    border-radius: calc(var(--radius) + 4px);
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--card-foreground);
+    padding: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .workspace-surface-card {
+      padding: 1.25rem;
+    }
+  }
+
+  .workspace-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--muted) 38%, var(--background));
+    padding: 0.75rem 0.875rem;
+  }
+
+  .workspace-source-tablist {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--border);
+    scroll-snap-type: inline proximity;
+    scrollbar-width: none;
+  }
+
+  .workspace-source-tablist::-webkit-scrollbar {
+    display: none;
+  }
+
+  .workspace-source-tab {
+    position: relative;
+    flex: none;
+    scroll-snap-align: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-block-size: 2.5rem;
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--muted-foreground);
+    background: transparent;
+    border: 0;
+    transition: color 150ms ease;
+  }
+
+  .workspace-source-tab:hover {
+    color: var(--foreground);
+  }
+
+  .workspace-source-tab:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+    border-radius: var(--radius-sm);
+  }
+
+  .workspace-source-tab[aria-selected="true"] {
+    color: var(--foreground);
+  }
+
+  .workspace-source-tab[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0;
+    border-block-end: 2px solid var(--foreground);
+  }
+
+  dialog:modal,
+  [data-slot="sheet-content"],
+  [data-slot="dialog-content"] {
+    overscroll-behavior: contain;
+  }
+
+  dialog::backdrop,
+  [data-slot="sheet-overlay"],
+  [data-slot="dialog-overlay"] {
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
 }
 
 .workspace-inputs [data-slot="card"] {

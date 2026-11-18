@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label"
 import type { ComparisonReturn } from "@/lib/comparisonReturn"
 import { comparisonReturnFields } from "@/lib/comparisonReturn"
 import { useI18n } from "@/lib/i18n"
+import { isImeComposing } from "@/lib/ime"
 import { netflowErrorCode } from "@/lib/netflow-errors"
 import { netflowProtocol, netflowText } from "@/lib/netflow-labels"
 
@@ -478,7 +479,7 @@ export default function NetflowResults({
           records: row.source_record_count,
         }))
   return (
-    <main className="min-w-0 space-y-6">
+    <div className="min-w-0 space-y-6">
       <header className="workspace-page-header">
         <h1 className="workspace-page-title">
           {t("NetFlow observations", "NetFlow 观测")}
@@ -489,11 +490,11 @@ export default function NetflowResults({
             "查询一个固定处理批次的观测。源侧记录与外侧对端分别呈现；记录不证明资产归属、监听服务或可达性。",
           )}
         </p>
-        <div className="flex flex-wrap gap-4 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <ComparisonReturnLink projectId={projectId} search={search} />
           {identity && identity.provenance.backend !== "netflow-bulk-v1" && (
             <Link
-              className="underline"
+              className="inline-flex items-center rounded-md border bg-muted/40 px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted"
               to="/projects/$projectId/netflow-ledger"
               params={{ projectId }}
               search={{
@@ -513,7 +514,7 @@ export default function NetflowResults({
             </Link>
           )}
           <Link
-            className="underline"
+            className="inline-flex items-center rounded-md border bg-muted/40 px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted"
             to="/projects/$projectId/netflow-correlation"
             params={{ projectId }}
             search={{}}
@@ -521,7 +522,7 @@ export default function NetflowResults({
             {t("Comparison results", "比对结果")}
           </Link>
           <Link
-            className="underline"
+            className="inline-flex items-center rounded-md border bg-muted/40 px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted"
             to="/"
             search={{ project: projectId, view: "inputs" }}
             hash="netflow-inputs"
@@ -571,7 +572,7 @@ export default function NetflowResults({
         readable &&
         identity?.provenance.backend === "netflow-bulk-v1" && (
           <section
-            className="space-y-2"
+            className="workspace-section-well space-y-2"
             aria-label={t("Bulk record counts", "批量记录口径")}
           >
             <p className="text-sm">
@@ -661,7 +662,7 @@ export default function NetflowResults({
         </p>
       ) : !search.analysis ? (
         <section
-          className="space-y-5"
+          className="workspace-section-well space-y-5"
           aria-label={t("Choose a processing batch", "选择处理批次")}
         >
           <h2 className="text-lg font-semibold">
@@ -857,7 +858,7 @@ export default function NetflowResults({
       ) : (
         <>
           <section
-            className="space-y-3"
+            className="workspace-section-well space-y-3"
             aria-label={t("Fixed processing batch", "固定处理批次")}
           >
             <p className="text-sm">
@@ -899,7 +900,7 @@ export default function NetflowResults({
                 <p>
                   {t("Created", "创建时间")}: {date(identity?.created_at)}
                 </p>
-                <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded border p-3">
+                <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded border bg-card p-3">
                   {JSON.stringify(
                     {
                       dataset: identity?.dataset_id,
@@ -914,289 +915,300 @@ export default function NetflowResults({
               </div>
             </details>
           </section>
-          <section
-            className="workspace-views"
-            aria-label={t("Result views", "结果视图")}
-          >
-            {(["observations", "peers"] as const).map((value) => (
-              <Button
-                key={value}
-                variant={tab === value ? "secondary" : "ghost"}
-                aria-pressed={tab === value}
-                onClick={() =>
-                  change({
-                    tab: value,
-                    resultPage: 0,
-                    ip: undefined,
-                    protocol: undefined,
-                    port: undefined,
-                    object: undefined,
-                    peer: undefined,
-                    evidence: false,
-                    evidencePage: 0,
-                  })
-                }
-              >
-                {value === "observations"
-                  ? t("Source observations", "源侧观测")
-                  : t("External peers", "外侧对端")}
-              </Button>
-            ))}
-          </section>
-          {tab === "observations" && observations.data && (
+          <div className="workspace-surface-card space-y-4">
             <section
-              className="workspace-counts"
-              aria-label={t("Batch counts", "批次计数")}
+              className="workspace-views border-b pb-3"
+              aria-label={t("Result views", "结果视图")}
             >
-              {[
-                [
-                  t("Original rows", "原始行数"),
-                  observations.data.raw_record_count,
-                ],
-                [
-                  t("Observation objects", "观测对象数"),
-                  observations.data.total_observations,
-                ],
-                [
-                  t("Distinct source IPs", "不同源 IP 数"),
-                  observations.data.total_addresses,
-                ],
-              ].map(([label, value]) => (
-                <div className="flex items-baseline gap-2" key={label}>
-                  <p className="text-sm text-muted-foreground">{label}</p>
-                  <output
-                    className="text-sm font-semibold tabular-nums"
-                    aria-label={String(label)}
-                  >
-                    {value}
-                  </output>
-                </div>
+              {(["observations", "peers"] as const).map((value) => (
+                <Button
+                  key={value}
+                  variant={tab === value ? "secondary" : "ghost"}
+                  aria-pressed={tab === value}
+                  onClick={() =>
+                    change({
+                      tab: value,
+                      resultPage: 0,
+                      ip: undefined,
+                      protocol: undefined,
+                      port: undefined,
+                      object: undefined,
+                      peer: undefined,
+                      evidence: false,
+                      evidencePage: 0,
+                    })
+                  }
+                >
+                  {value === "observations"
+                    ? t("Source observations", "源侧观测")
+                    : t("External peers", "外侧对端")}
+                </Button>
               ))}
             </section>
-          )}
-          {tab === "observations" && observations.data && (
-            <p className="text-sm text-muted-foreground">
-              {t(
-                "Records contributing to source observations",
-                "贡献源侧观测的记录数",
-              )}
-              : {observations.data.total_source_records} ·{" "}
-              {t("Observation time: unknown", "观测时间：未知")} ·{" "}
-              {t(
-                "Processing time is not observation time.",
-                "处理时间不代表观测时间。",
-              )}
-            </p>
-          )}
-          {tab === "peers" && (
-            <p className="text-sm text-muted-foreground">
-              {t(
-                "Destination-side peers are a separate collection and are excluded from source IP and observation counts.",
-                "目的侧对端是独立集合，不计入源 IP 或源侧观测数量。",
-              )}
-              {peers.data && (
-                <>
-                  {" "}
-                  {t("All peers", "全部对端")}: {peers.data.total_peers} ·{" "}
-                  {t("Peer records", "对端记录数")}:{" "}
-                  {peers.data.total_peer_records}
-                </>
-              )}
-            </p>
-          )}
-          <form
-            className="flex flex-wrap items-end gap-3"
-            onSubmit={(event) => {
-              event.preventDefault()
-              change({
-                ip: ip.trim() || undefined,
-                protocol: protocol === "" ? undefined : Number(protocol),
-                port: port === "" ? undefined : Number(port),
-                resultPage: 0,
-                object: undefined,
-                peer: undefined,
-                evidence: false,
-                evidencePage: 0,
-              })
-            }}
-          >
-            <Label className="grid gap-2">
-              {t("Exact IP", "精确 IP")}
-              <Input
-                value={ip}
-                onChange={(event) => setIp(event.target.value)}
-                className="w-48"
-              />
-            </Label>
-            <Label className="grid gap-2">
-              {t("Protocol number", "协议编号")}
-              <Input
-                type="number"
-                min={0}
-                max={255}
-                value={protocol}
-                onChange={(event) => setProtocol(event.target.value)}
-                className="w-36"
-              />
-            </Label>
-            <Label className="grid gap-2">
-              {tab === "observations"
-                ? t("Source-side port", "源侧端口")
-                : t("Peer port", "对端端口")}
-              <Input
-                type="number"
-                min={0}
-                max={65535}
-                value={port}
-                onChange={(event) => setPort(event.target.value)}
-                className="w-36"
-              />
-            </Label>
-            <Button type="submit">{t("Filter", "筛选")}</Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
+            {tab === "observations" && observations.data && (
+              <section
+                className="workspace-counts"
+                aria-label={t("Batch counts", "批次计数")}
+              >
+                {[
+                  [
+                    t("Original rows", "原始行数"),
+                    observations.data.raw_record_count,
+                  ],
+                  [
+                    t("Observation objects", "观测对象数"),
+                    observations.data.total_observations,
+                  ],
+                  [
+                    t("Distinct source IPs", "不同源 IP 数"),
+                    observations.data.total_addresses,
+                  ],
+                ].map(([label, value]) => (
+                  <div className="flex items-baseline gap-2" key={label}>
+                    <p className="text-sm text-muted-foreground">{label}</p>
+                    <output
+                      className="text-sm font-semibold tabular-nums"
+                      aria-label={String(label)}
+                    >
+                      {value}
+                    </output>
+                  </div>
+                ))}
+              </section>
+            )}
+            {tab === "observations" && observations.data && (
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  "Records contributing to source observations",
+                  "贡献源侧观测的记录数",
+                )}
+                : {observations.data.total_source_records} ·{" "}
+                {t("Observation time: unknown", "观测时间：未知")} ·{" "}
+                {t(
+                  "Processing time is not observation time.",
+                  "处理时间不代表观测时间。",
+                )}
+              </p>
+            )}
+            {tab === "peers" && (
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  "Destination-side peers are a separate collection and are excluded from source IP and observation counts.",
+                  "目的侧对端是独立集合，不计入源 IP 或源侧观测数量。",
+                )}
+                {peers.data && (
+                  <>
+                    {" "}
+                    {t("All peers", "全部对端")}: {peers.data.total_peers} ·{" "}
+                    {t("Peer records", "对端记录数")}:{" "}
+                    {peers.data.total_peer_records}
+                  </>
+                )}
+              </p>
+            )}
+            <form
+              className="workspace-toolbar"
+              onSubmit={(event) => {
+                event.preventDefault()
                 change({
-                  ip: undefined,
-                  protocol: undefined,
-                  port: undefined,
+                  ip: ip.trim() || undefined,
+                  protocol: protocol === "" ? undefined : Number(protocol),
+                  port: port === "" ? undefined : Number(port),
                   resultPage: 0,
                   object: undefined,
                   peer: undefined,
                   evidence: false,
+                  evidencePage: 0,
                 })
-              }
+              }}
             >
-              {t("Clear", "清除")}
-            </Button>
-            <Label className="grid gap-2">
-              {t("Order", "排序")}
-              <select
-                className="h-9 rounded-md border bg-background px-2"
-                value={search.sort ?? "ip_asc"}
-                onChange={(event) =>
+              <Label className="grid gap-2">
+                {t("Exact IP", "精确 IP")}
+                <Input
+                  value={ip}
+                  onChange={(event) => setIp(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && isImeComposing(event))
+                      event.preventDefault()
+                  }}
+                  className="w-48"
+                />
+              </Label>
+              <Label className="grid gap-2">
+                {t("Protocol number", "协议编号")}
+                <Input
+                  type="number"
+                  min={0}
+                  max={255}
+                  value={protocol}
+                  onChange={(event) => setProtocol(event.target.value)}
+                  className="w-36"
+                />
+              </Label>
+              <Label className="grid gap-2">
+                {tab === "observations"
+                  ? t("Source-side port", "源侧端口")
+                  : t("Peer port", "对端端口")}
+                <Input
+                  type="number"
+                  min={0}
+                  max={65535}
+                  value={port}
+                  onChange={(event) => setPort(event.target.value)}
+                  className="w-36"
+                />
+              </Label>
+              <Button type="submit">{t("Filter", "筛选")}</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
                   change({
-                    sort: event.target.value as "ip_asc" | "ip_desc",
+                    ip: undefined,
+                    protocol: undefined,
+                    port: undefined,
                     resultPage: 0,
-                  })
-                }
-              >
-                <option value="ip_asc">{t("IP ascending", "IP 升序")}</option>
-                <option value="ip_desc">{t("IP descending", "IP 降序")}</option>
-              </select>
-            </Label>
-          </form>
-          {(
-            tab === "observations"
-              ? observations.isPending
-              : peers.isPending
-          ) ? (
-            <p role="status">{t("Loading records…", "正在读取记录…")}</p>
-          ) : (
-            <>
-              <p className="text-sm">
-                {t("Filtered total", "筛选总数")}: {pageData?.count}
-              </p>
-              {!rows?.length ? (
-                <p>
-                  {t(
-                    "No records match this query in the selected batch.",
-                    "本批次没有匹配此查询的记录。",
-                  )}
-                </p>
-              ) : (
-                <section
-                  className="overflow-x-auto"
-                  aria-label={t("Processed record table", "处理记录表格")}
-                >
-                  <table className="w-full min-w-[36rem] text-left text-sm">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="p-3">IP</th>
-                        <th className="p-3">{t("Protocol", "协议")}</th>
-                        <th className="p-3">
-                          {tab === "observations"
-                            ? t("Source-side port", "源侧端口")
-                            : t("Peer port", "对端端口")}
-                        </th>
-                        <th className="p-3">{t("Records", "记录数")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row) => (
-                        <tr key={row.key} className="border-b">
-                          <td className="p-3">
-                            <button
-                              type="button"
-                              className="rounded font-mono underline focus-visible:outline-2 focus-visible:outline-offset-2"
-                              onClick={() =>
-                                change(
-                                  tab === "observations"
-                                    ? {
-                                        object: row.key,
-                                        evidence: false,
-                                        evidencePage: 0,
-                                      }
-                                    : {
-                                        peer: row.key,
-                                        evidence: true,
-                                        evidencePage: 0,
-                                      },
-                                )
-                              }
-                            >
-                              {row.ip}
-                            </button>
-                          </td>
-                          <td className="p-3">
-                            {netflowProtocol(row.protocol, t)}
-                          </td>
-                          <td className="p-3">{row.port ?? "—"}</td>
-                          <td className="p-3 tabular-nums">{row.records}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </section>
-              )}
-              <ResultPagination
-                label={
-                  tab === "observations"
-                    ? t("Observations", "观测对象")
-                    : t("Peers", "对端")
-                }
-                count={pageData?.count ?? 0}
-                page={search.resultPage ?? 0}
-                pageSize={SIZE}
-                onPageChange={(page) => {
-                  if (
-                    page === (search.resultPage ?? 0) + 1 &&
-                    pageData?.next_cursor
-                  ) {
-                    if (cursorPages.current.size >= 100)
-                      cursorPages.current.clear()
-                    cursorPages.current.set(
-                      `${pageScope}:${page}`,
-                      pageData.next_cursor,
-                    )
-                  }
-                  change({
-                    resultPage: page,
                     object: undefined,
                     peer: undefined,
                     evidence: false,
-                    evidencePage: 0,
                   })
-                }}
-              />
-            </>
-          )}
+                }
+              >
+                {t("Clear", "清除")}
+              </Button>
+              <Label className="grid gap-2">
+                {t("Order", "排序")}
+                <select
+                  className="h-9 rounded-md border bg-background px-2"
+                  value={search.sort ?? "ip_asc"}
+                  onChange={(event) =>
+                    change({
+                      sort: event.target.value as "ip_asc" | "ip_desc",
+                      resultPage: 0,
+                    })
+                  }
+                >
+                  <option value="ip_asc">{t("IP ascending", "IP 升序")}</option>
+                  <option value="ip_desc">
+                    {t("IP descending", "IP 降序")}
+                  </option>
+                </select>
+              </Label>
+            </form>
+            {(
+              tab === "observations"
+                ? observations.isPending
+                : peers.isPending
+            ) ? (
+              <p role="status">{t("Loading records…", "正在读取记录…")}</p>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground tabular-nums">
+                  {t("Filtered total", "筛选总数")}: {pageData?.count}
+                </p>
+                {!rows?.length ? (
+                  <p>
+                    {t(
+                      "No records match this query in the selected batch.",
+                      "本批次没有匹配此查询的记录。",
+                    )}
+                  </p>
+                ) : (
+                  <section
+                    className="table-scroll-container overflow-x-auto rounded-md border"
+                    aria-label={t("Processed record table", "处理记录表格")}
+                  >
+                    <table className="w-full min-w-[36rem] text-left text-sm">
+                      <thead className="bg-muted/60 text-xs font-medium text-muted-foreground">
+                        <tr className="border-b">
+                          <th className="p-3">IP</th>
+                          <th className="p-3">{t("Protocol", "协议")}</th>
+                          <th className="p-3">
+                            {tab === "observations"
+                              ? t("Source-side port", "源侧端口")
+                              : t("Peer port", "对端端口")}
+                          </th>
+                          <th className="p-3">{t("Records", "记录数")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row) => (
+                          <tr
+                            key={row.key}
+                            className="border-b last:border-b-0"
+                          >
+                            <td className="p-3">
+                              <button
+                                type="button"
+                                className="rounded font-mono underline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                onClick={() =>
+                                  change(
+                                    tab === "observations"
+                                      ? {
+                                          object: row.key,
+                                          evidence: false,
+                                          evidencePage: 0,
+                                        }
+                                      : {
+                                          peer: row.key,
+                                          evidence: true,
+                                          evidencePage: 0,
+                                        },
+                                  )
+                                }
+                              >
+                                {row.ip}
+                              </button>
+                            </td>
+                            <td className="p-3">
+                              {netflowProtocol(row.protocol, t)}
+                            </td>
+                            <td className="p-3">{row.port ?? "—"}</td>
+                            <td className="p-3 tabular-nums">{row.records}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+                )}
+                <ResultPagination
+                  label={
+                    tab === "observations"
+                      ? t("Observations", "观测对象")
+                      : t("Peers", "对端")
+                  }
+                  count={pageData?.count ?? 0}
+                  page={search.resultPage ?? 0}
+                  pageSize={SIZE}
+                  onPageChange={(page) => {
+                    if (
+                      page === (search.resultPage ?? 0) + 1 &&
+                      pageData?.next_cursor
+                    ) {
+                      if (cursorPages.current.size >= 100)
+                        cursorPages.current.clear()
+                      cursorPages.current.set(
+                        `${pageScope}:${page}`,
+                        pageData.next_cursor,
+                      )
+                    }
+                    change({
+                      resultPage: page,
+                      object: undefined,
+                      peer: undefined,
+                      evidence: false,
+                      evidencePage: 0,
+                    })
+                  }}
+                />
+              </>
+            )}
+          </div>
           {tab === "observations" && search.object && (
             <section
               ref={detailTarget}
               tabIndex={-1}
-              className="space-y-3 rounded-lg border p-4"
+              className="workspace-section-well scroll-mt-20 space-y-3"
               aria-label={t("Observation details", "观测详情")}
             >
               <h2 className="text-lg font-semibold">
@@ -1256,7 +1268,7 @@ export default function NetflowResults({
             <section
               ref={evidenceTarget}
               tabIndex={-1}
-              className="space-y-3 rounded-lg border p-4"
+              className="workspace-section-well scroll-mt-20 space-y-3"
               aria-label={t("Input evidence", "输入证据")}
             >
               <h2 className="text-lg font-semibold">
@@ -1340,6 +1352,6 @@ export default function NetflowResults({
           )}
         </>
       )}
-    </main>
+    </div>
   )
 }

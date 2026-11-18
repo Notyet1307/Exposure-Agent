@@ -290,10 +290,12 @@ test("primary navigation leaves legacy comparison while browser back keeps its f
     page.getByRole("heading", { name: "Comparison results", exact: true }),
   ).toBeVisible()
   expect(new URL(page.url()).searchParams.has("revision")).toBe(false)
-  await sidebar.getByText("Historical governance", { exact: true }).click()
+  await expect(
+    sidebar.getByText("Historical governance", { exact: true }),
+  ).toHaveCount(0)
   await expect(
     sidebar.getByRole("link", { name: "Reports", exact: true }),
-  ).toBeVisible()
+  ).toHaveCount(0)
   await page.goto(
     `/?project=${project}&view=reports&run=80000000-0000-4000-8000-000000000274`,
   )

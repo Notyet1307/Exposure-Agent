@@ -25,6 +25,7 @@ export function NetflowInputManagement({
   onDatasetChange,
   isAdmin,
   canWrite = true,
+  autoSyncDataset = true,
 }: {
   actor: string
   projectId: string
@@ -32,6 +33,7 @@ export function NetflowInputManagement({
   onDatasetChange: (id: string) => void
   isAdmin: boolean
   canWrite?: boolean
+  autoSyncDataset?: boolean
 }) {
   const { t, formatDate } = useI18n()
   const cache = useQueryClient()
@@ -77,6 +79,7 @@ export function NetflowInputManagement({
       datasets.data?.current_netflow_dataset_id)
   useEffect(() => {
     if (
+      autoSyncDataset &&
       !explicit &&
       validExplicit &&
       selectedId &&
@@ -85,6 +88,7 @@ export function NetflowInputManagement({
     )
       onDatasetChange(selectedId)
   }, [
+    autoSyncDataset,
     explicit,
     validExplicit,
     selectedId,
@@ -241,10 +245,10 @@ export function NetflowInputManagement({
     )
   return (
     <section
-      className="space-y-4"
+      className="workspace-section-well space-y-4"
       aria-label={t("NetFlow data input", "NetFlow 数据接入")}
     >
-      <header>
+      <header className="space-y-1">
         <h2 className="text-lg font-semibold">
           {t("NetFlow processing", "NetFlow 处理")}
         </h2>
@@ -277,7 +281,7 @@ export function NetflowInputManagement({
         </p>
       ) : null}
       {!explicit && !datasets.isPending && !selectedId && (
-        <div className="space-y-2">
+        <div className="workspace-surface-card space-y-2">
           <p>
             {t(
               "Choose an accepted NetFlow upload.",
@@ -303,8 +307,8 @@ export function NetflowInputManagement({
         </div>
       )}
       {selectedId && (
-        <div className="space-y-4 rounded border p-4">
-          <p className="text-sm">
+        <div className="workspace-surface-card space-y-4">
+          <p className="text-sm font-medium">
             {selected
               ? `${selected.display_filename} · ${formatDate(selected.created_at)}`
               : t(
@@ -365,7 +369,7 @@ export function NetflowInputManagement({
               }}
             />
           )}
-          <div className="space-y-2">
+          <div className="space-y-2 border-t pt-4">
             <h3 className="font-medium">
               {t("Processing history", "处理历史")}
             </h3>
@@ -381,7 +385,7 @@ export function NetflowInputManagement({
               analyses.data?.data.map((row) => (
                 <div
                   key={row.analysis_id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border bg-muted/20 p-2.5 text-sm"
                 >
                   <span>
                     {netflowText(row.status, t)} ·{" "}

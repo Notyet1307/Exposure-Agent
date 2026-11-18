@@ -1,12 +1,7 @@
 import { useParams, useRouterState, useSearch } from "@tanstack/react-router"
 import {
-  Boxes,
   FileSpreadsheet,
-  FileText,
-  Home,
-  ListChecks,
   Network,
-  Play,
   Settings2,
   Upload,
   Users,
@@ -20,6 +15,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarSeparator,
 } from "@/components/ui/sidebar"
 import useAuth from "@/hooks/useAuth"
 import { useI18n } from "@/lib/i18n"
@@ -95,27 +91,6 @@ export function AppSidebar() {
         ["inputs", "cloudatlas"].includes(search.view ?? ""),
     },
   ]
-  const historical: Item[] = [
-    home("overview", t("Overview", "旧运行概览"), Home),
-    {
-      icon: Boxes,
-      title: t("Assets & differences", "历史资产比较"),
-      path:
-        project && run ? `/projects/${project}/runs/${run}/comparison` : "/",
-      search: { ...context, view: "overview" },
-      active: pathname.endsWith("/comparison"),
-    },
-    home("reports", t("Reports", "历史报告"), FileText),
-    {
-      icon: Waypoints,
-      title: t("NetFlow activity ledger", "旧 NetFlow 活动账"),
-      path: project ? `/projects/${project}/netflow-ledger` : "/",
-      search: project ? undefined : { view: "inputs" },
-      active: pathname.endsWith("/netflow-ledger"),
-    },
-    home("runs", t("Runs", "运行管理"), Play),
-    home("findings", t("Findings", "发现项"), ListChecks),
-  ]
   const administration: Item[] = [
     {
       icon: Settings2,
@@ -133,10 +108,6 @@ export function AppSidebar() {
         ]
       : []),
   ]
-  const historicalPage =
-    historical.some((item) => item.active) ||
-    pathname.endsWith("/lineage") ||
-    (pathname === "/" && search.view === "assets")
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="px-4 py-6 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:items-center">
@@ -144,22 +115,16 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <Main label={t("Data and comparison", "资料与比对")} items={primary} />
+        <SidebarSeparator className="mx-2 opacity-60" />
         <Main label={t("Project settings", "项目设置")} items={management} />
-        <details
-          key={historicalPage ? "historical" : "current"}
-          open={historicalPage}
-          className="group-data-[collapsible=icon]:hidden"
-        >
-          <summary className="mx-4 cursor-pointer rounded-md py-2 text-sm text-sidebar-foreground/70">
-            {t("Historical governance", "历史与治理")}
-          </summary>
-          <Main items={historical} />
-        </details>
         {administration.length > 0 && (
-          <Main
-            label={t("System management", "系统管理")}
-            items={administration}
-          />
+          <>
+            <SidebarSeparator className="mx-2 opacity-60" />
+            <Main
+              label={t("System management", "系统管理")}
+              items={administration}
+            />
+          </>
         )}
       </SidebarContent>
       <SidebarFooter>

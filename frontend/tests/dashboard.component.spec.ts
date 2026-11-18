@@ -552,6 +552,7 @@ test("preserves an unknown source validation status across language changes", as
       }),
   )
   await page.goto("/?view=inputs")
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
   await page
     .getByText("Historical Run source settings", { exact: true })
     .click()
@@ -929,6 +930,7 @@ test("keeps read-only and Archived Projects visible without input controls", asy
   ).toBeVisible()
   await expect(page.getByText("Existing inputs remain visible")).toBeVisible()
   await expect(page.getByLabel("XLSX file")).not.toBeVisible()
+  await page.getByRole("tab", { name: "NetFlow", exact: true }).click()
   await expect(page.getByLabel("NetFlow dataset file")).not.toBeVisible()
   await expect(
     page.getByRole("button", { name: /Select .*current NetFlowDataset/ }),
@@ -954,6 +956,7 @@ test("keeps NetFlow quality visible and identities behind keyboard-copyable deta
       }),
   )
   await page.goto("/?view=inputs")
+  await page.getByRole("tab", { name: "NetFlow", exact: true }).click()
 
   await expect(
     page.getByText("Current NetFlowDataset", { exact: true }),
@@ -1033,6 +1036,12 @@ test("keeps both file pickers and upload actions within desktop and narrow viewp
       ["XLSX file", "xlsx"],
       ["NetFlow dataset file", "csv"],
     ]) {
+      await page
+        .getByRole("tab", {
+          name: label === "XLSX file" ? "Customer asset ledger" : "NetFlow",
+          exact: true,
+        })
+        .click()
       const input = page.getByLabel(label, { exact: true })
       const form = page.locator("form").filter({ has: input })
       const picker = form.getByRole("button", {
@@ -1096,6 +1105,7 @@ test("uploads a NetFlowDataset and refreshes the list", async ({ page }) => {
     },
   )
   await page.goto("/?view=inputs")
+  await page.getByRole("tab", { name: "NetFlow", exact: true }).click()
 
   const fileInput = page.getByLabel("NetFlow dataset file")
   await fileInput.setInputFiles({
@@ -1153,6 +1163,7 @@ test("selects and clears the current NetFlowDataset", async ({ page }) => {
     },
   )
   await page.goto("/?view=inputs")
+  await page.getByRole("tab", { name: "NetFlow", exact: true }).click()
 
   await page
     .getByRole("button", { name: /Select north-netflow-older\.txt/ })
@@ -1290,6 +1301,7 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
   await page.route(sourceUrl, handleSourceRequest)
   await page.route(`${sourceUrl}/**`, handleSourceRequest)
   await page.goto("/?view=inputs")
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
   await page
     .getByText("Historical Run source settings", { exact: true })
     .click()
@@ -1334,6 +1346,7 @@ test("lets an Admin validate, enable, configure, and disable a CloudAtlas source
     validated_fingerprint: "abcdef0123456789".repeat(4),
   }
   await page.reload()
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
   await page
     .getByText("Historical Run source settings", { exact: true })
     .click()
@@ -1382,6 +1395,7 @@ test("keeps the local session after a structured CloudAtlas authentication failu
     }),
   )
   await page.goto("/?view=inputs")
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
   await page
     .getByText("Historical Run source settings", { exact: true })
     .click()
@@ -1444,6 +1458,7 @@ test("lets an Admin manage an older enabled source from disabled history", async
     await route.fulfill({ json: olderEnabled })
   })
   await page.goto("/?view=inputs")
+  await page.getByRole("tab", { name: "CloudAtlas", exact: true }).click()
   await page
     .getByText("Historical Run source settings", { exact: true })
     .click()

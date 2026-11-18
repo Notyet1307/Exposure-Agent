@@ -2053,7 +2053,7 @@ export default function CoreComparisonResults({
           </details>
           <section
             aria-label={t("Core classification", "核心分类")}
-            className="comparison-core space-y-3"
+            className="comparison-core workspace-surface-card space-y-4"
             data-density={density}
             style={{ "--density": density } as CSSProperties}
           >
@@ -2061,7 +2061,7 @@ export default function CoreComparisonResults({
               ref={recordsGroup}
               aria-label={t("Records and evidence", "记录与依据")}
               tabIndex={-1}
-              className="comparison-views flex min-w-0 flex-wrap gap-1 focus:outline-2 focus:outline-offset-2"
+              className="comparison-views flex min-w-0 scroll-mt-20 flex-wrap gap-1 focus:outline-2 focus:outline-offset-2"
             >
               {comparisonClasses.map((kind) => {
                 const value =
@@ -2922,14 +2922,14 @@ export default function CoreComparisonResults({
           </Sheet>
           <section
             aria-labelledby="core-reading-report-heading"
-            className="space-y-3"
+            className="workspace-section-well space-y-4"
           >
             <div className="flex flex-wrap items-center gap-3">
               <h2
                 id="core-reading-report-heading"
                 ref={reportHeading}
                 tabIndex={-1}
-                className="text-lg font-semibold focus:outline-2 focus:outline-offset-2"
+                className="scroll-mt-20 text-lg font-semibold focus:outline-2 focus:outline-offset-2"
               >
                 {t("AI interpretation and reports", "AI 解读与报告")}
               </h2>
@@ -2952,7 +2952,7 @@ export default function CoreComparisonResults({
             />
           </section>
           <section
-            className="space-y-4 border-t pt-5"
+            className="workspace-surface-card space-y-4"
             aria-label={t("Optional NetFlow evidence", "可选 NetFlow 佐证")}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">

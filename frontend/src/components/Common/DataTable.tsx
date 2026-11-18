@@ -48,7 +48,7 @@ export function DataTable<TData, TValue>({
   })
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="overflow-hidden rounded-xl border bg-card [&_[data-slot=table-container]]:border-y-0">
       <Table>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (

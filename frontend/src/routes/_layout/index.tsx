@@ -1,7 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Link, Navigate } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  Link,
+  Navigate,
+  useRouterState,
+} from "@tanstack/react-router"
 import { AlertCircle, Archive, Upload } from "lucide-react"
-import { type FormEvent, useEffect, useRef, useState } from "react"
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 
 import {
   ApiError,
@@ -20,7 +33,9 @@ import { DiagnosticDetails } from "@/components/DiagnosticDetails"
 import Findings from "@/components/Findings"
 import GovernanceReports from "@/components/GovernanceReports"
 import GovernanceRuns from "@/components/GovernanceRuns"
-import InputReadinessSummary from "@/components/InputReadinessSummary"
+import InputReadinessSummary, {
+  type DataAccessSource,
+} from "@/components/InputReadinessSummary"
 import IPAssets from "@/components/IPAssets"
 import NetFlowDatasets from "@/components/NetFlowDatasets"
 import { NetflowInputManagement } from "@/components/NetflowInputManagement"
@@ -1100,659 +1115,676 @@ function ProjectInputs({
 
   return (
     <div className="space-y-6">
-      {project.archived_at && (
-        <Alert>
-          <Archive />
-          <AlertTitle>{t("Archived Project", "已归档项目")}</AlertTitle>
-          <AlertDescription>
-            {t(
-              "Existing inputs remain visible, but this Project cannot accept uploads.",
-              "现有输入仍可查看，但此项目不再接受上传。",
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {t("Current CustomerUpload Profile", "当前客户上传配置")}
-          </CardTitle>
-          <CardDescription>
-            {t("Version", "版本")} {profile.version}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-5 md:grid-cols-3">
-          <HeaderList
-            title={t("Required headers", "必需表头")}
-            headers={profile.required_headers}
-          />
-          <HeaderList
-            title={t("Warning headers", "警告表头")}
-            headers={profile.warning_headers}
-          />
-          <HeaderList
-            title={t("Optional headers", "可选表头")}
-            headers={profile.optional_headers}
-          />
-          <details className="min-w-0 text-sm md:col-span-3">
-            <summary className="cursor-pointer">
-              {t("Profile details", "配置详情")}
-            </summary>
-            <div className="mt-2">
-              <TechnicalValue
-                value={profile.id}
-                label={t("Profile ID", "配置 ID")}
-              />
-            </div>
-          </details>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle role="heading" aria-level={3}>
-            {t("Current Project input", "项目当前输入")}
-          </CardTitle>
-          <CardDescription>
-            {t(
-              "Governance uses one explicitly selected accepted CustomerUpload.",
-              "治理使用一个明确选定且已接受的客户上传。",
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {uploadsQuery.isError ? (
-            <Alert variant="destructive">
-              <AlertCircle />
-              <AlertTitle>
-                {t("Current input could not be read", "无法读取当前输入")}
-              </AlertTitle>
-              <AlertDescription className="space-y-2">
-                <p>
-                  {t(
-                    "The latest ownership could not be read. This separate failure does not change the submitted operation.",
-                    "无法读取最新当前输入；此独立失败不会改变已提交操作。",
-                  )}
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void uploadsQuery.refetch()}
-                >
-                  {t("Retry current input", "重试读取当前输入")}
-                </Button>
-              </AlertDescription>
-            </Alert>
-          ) : uploads?.current_customer_upload_id ? (
-            <div className="space-y-2">
-              <p className="break-words font-medium">
-                {currentUpload?.display_filename ??
-                  t("Current selected input", "当前已选输入")}
-              </p>
-              {currentUpload && (
-                <p className="text-sm text-muted-foreground">
-                  {formatDate(currentUpload.created_at)} ·{" "}
-                  {t(
-                    `${currentUpload.record_count} records`,
-                    `${currentUpload.record_count} 条记录`,
-                  )}{" "}
-                  · {t("Profile v", "配置版本 v")}
-                  {currentUpload.profile_version}
-                </p>
+      <section
+        aria-label={t("Current register and upload", "当前台账与上传")}
+        className="workspace-section-well space-y-5"
+      >
+        {project.archived_at && (
+          <Alert className="bg-card">
+            <Archive />
+            <AlertTitle>{t("Archived Project", "已归档项目")}</AlertTitle>
+            <AlertDescription>
+              {t(
+                "Existing inputs remain visible, but this Project cannot accept uploads.",
+                "现有输入仍可查看，但此项目不再接受上传。",
               )}
-              <details className="text-sm">
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="grid items-start gap-5 lg:grid-cols-12">
+          <div className="min-w-0 space-y-4 lg:col-span-7">
+            <Card>
+              <CardHeader>
+                <CardTitle role="heading" aria-level={3}>
+                  {t("Current Project input", "项目当前输入")}
+                </CardTitle>
+                <CardDescription>
+                  {t(
+                    "Governance uses one explicitly selected accepted CustomerUpload.",
+                    "治理使用一个明确选定且已接受的客户上传。",
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {uploadsQuery.isError ? (
+                  <Alert variant="destructive">
+                    <AlertCircle />
+                    <AlertTitle>
+                      {t("Current input could not be read", "无法读取当前输入")}
+                    </AlertTitle>
+                    <AlertDescription className="space-y-2">
+                      <p>
+                        {t(
+                          "The latest ownership could not be read. This separate failure does not change the submitted operation.",
+                          "无法读取最新当前输入；此独立失败不会改变已提交操作。",
+                        )}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void uploadsQuery.refetch()}
+                      >
+                        {t("Retry current input", "重试读取当前输入")}
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                ) : uploads?.current_customer_upload_id ? (
+                  <div className="space-y-2">
+                    <p className="break-words font-medium">
+                      {currentUpload?.display_filename ??
+                        t("Current selected input", "当前已选输入")}
+                    </p>
+                    {currentUpload && (
+                      <p className="text-sm text-muted-foreground">
+                        {formatDate(currentUpload.created_at)} ·{" "}
+                        {t(
+                          `${currentUpload.record_count} records`,
+                          `${currentUpload.record_count} 条记录`,
+                        )}{" "}
+                        · {t("Profile v", "配置版本 v")}
+                        {currentUpload.profile_version}
+                      </p>
+                    )}
+                    <details className="text-sm">
+                      <summary className="cursor-pointer">
+                        {t("Current input details", "当前输入详情")}
+                      </summary>
+                      <div className="mt-2">
+                        <TechnicalValue
+                          value={uploads.current_customer_upload_id}
+                          label={t(
+                            "Current CustomerUpload ID",
+                            "当前客户上传 ID",
+                          )}
+                        />
+                      </div>
+                    </details>
+                  </div>
+                ) : (
+                  <Alert>
+                    <AlertCircle />
+                    <AlertTitle>{t("Not ready", "尚未就绪")}</AlertTitle>
+                    <AlertDescription>
+                      {t(
+                        "Project input is not ready. Select one accepted CustomerUpload.",
+                        "项目输入尚未就绪。请选择一个已接受的客户上传。",
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            </Card>
+
+            {uploads?.can_upload ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>{t("Upload XLSX", "上传 XLSX")}</CardTitle>
+                  <CardDescription>
+                    {t(
+                      "Choose one .xlsx file. The server performs all authoritative validation.",
+                      "请选择一个 .xlsx 文件。服务器执行所有权威校验。",
+                    )}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form
+                    className="flex flex-col gap-3 sm:flex-row sm:items-end"
+                    onSubmit={submitUpload}
+                  >
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Label htmlFor="customer-upload">
+                        {t("XLSX file", "XLSX 文件")}
+                      </Label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          ref={fileInputRef}
+                          id="customer-upload"
+                          name="file"
+                          type="file"
+                          accept=".xlsx"
+                          className="sr-only"
+                          tabIndex={-1}
+                          disabled={
+                            flow.kind === "uploading" ||
+                            flow.kind === "preparing" ||
+                            flow.kind === "operation"
+                          }
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] ?? null
+                            flowTicket.current += 1
+                            if (busy.current === "preview") busy.current = null
+                            setFlow(
+                              file ? { kind: "file", file } : { kind: "idle" },
+                            )
+                          }}
+                        />
+                        <Button
+                          ref={chooseFileButton}
+                          type="button"
+                          variant="outline"
+                          disabled={
+                            flow.kind === "uploading" ||
+                            flow.kind === "preparing" ||
+                            flow.kind === "operation"
+                          }
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          {t("Choose file", "选择文件")}
+                        </Button>
+                        <span className="min-w-0 break-all text-sm">
+                          {flow.kind === "file"
+                            ? (flow.file?.name ??
+                              t("No file chosen", "未选择文件"))
+                            : flow.kind === "uploading"
+                              ? flow.file.name
+                              : t("No file chosen", "未选择文件")}
+                        </span>
+                      </div>
+                    </div>
+                    <LoadingButton
+                      type="submit"
+                      loading={flow.kind === "uploading"}
+                      disabled={
+                        flow.kind === "previewing" ||
+                        flow.kind === "preparing" ||
+                        flow.kind === "operation"
+                      }
+                    >
+                      <Upload />
+                      {t("Upload", "上传")}
+                    </LoadingButton>
+                  </form>
+                  {flow.kind === "file" && flow.issue && (
+                    <div
+                      ref={errorHeading}
+                      role="status"
+                      tabIndex={-1}
+                      data-testid="import-error-summary"
+                      className={`mt-3 text-sm ${focusHeading}`}
+                    >
+                      <p>{message(flow.issue.message)}</p>
+                      <DiagnosticDetails detail={flow.issue.diagnostic} />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ) : uploads && !project.archived_at ? (
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  "You have read-only access to CustomerUpload inputs for this Project.",
+                  "您对此项目的客户上传输入仅有只读权限。",
+                )}
+              </p>
+            ) : null}
+          </div>
+
+          <Card className="min-w-0 lg:col-span-5">
+            <CardHeader>
+              <CardTitle>
+                {t("Current CustomerUpload Profile", "当前客户上传配置")}
+              </CardTitle>
+              <CardDescription>
+                {t("Version", "版本")} {profile.version}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <HeaderList
+                title={t("Required headers", "必需表头")}
+                headers={profile.required_headers}
+              />
+              <HeaderList
+                title={t("Warning headers", "警告表头")}
+                headers={profile.warning_headers}
+              />
+              <HeaderList
+                title={t("Optional headers", "可选表头")}
+                headers={profile.optional_headers}
+              />
+              <details className="min-w-0 text-sm">
                 <summary className="cursor-pointer">
-                  {t("Current input details", "当前输入详情")}
+                  {t("Profile details", "配置详情")}
                 </summary>
                 <div className="mt-2">
                   <TechnicalValue
-                    value={uploads.current_customer_upload_id}
-                    label={t("Current CustomerUpload ID", "当前客户上传 ID")}
+                    value={profile.id}
+                    label={t("Profile ID", "配置 ID")}
                   />
                 </div>
               </details>
-            </div>
-          ) : (
-            <Alert>
-              <AlertCircle />
-              <AlertTitle>{t("Not ready", "尚未就绪")}</AlertTitle>
-              <AlertDescription>
-                {t(
-                  "Project input is not ready. Select one accepted CustomerUpload.",
-                  "项目输入尚未就绪。请选择一个已接受的客户上传。",
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </div>
 
-      {uploads?.can_upload ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("Upload XLSX", "上传 XLSX")}</CardTitle>
-            <CardDescription>
-              {t(
-                "Choose one .xlsx file. The server performs all authoritative validation.",
-                "请选择一个 .xlsx 文件。服务器执行所有权威校验。",
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form
-              className="flex flex-col gap-3 sm:flex-row sm:items-end"
-              onSubmit={submitUpload}
-            >
-              <div className="min-w-0 flex-1 space-y-2">
-                <Label htmlFor="customer-upload">
-                  {t("XLSX file", "XLSX 文件")}
-                </Label>
-                <div className="flex items-center gap-3">
-                  <input
-                    ref={fileInputRef}
-                    id="customer-upload"
-                    name="file"
-                    type="file"
-                    accept=".xlsx"
-                    className="sr-only"
-                    tabIndex={-1}
-                    disabled={
-                      flow.kind === "uploading" ||
-                      flow.kind === "preparing" ||
-                      flow.kind === "operation"
-                    }
-                    onChange={(event) => {
-                      const file = event.target.files?.[0] ?? null
-                      flowTicket.current += 1
-                      if (busy.current === "preview") busy.current = null
-                      setFlow(file ? { kind: "file", file } : { kind: "idle" })
-                    }}
-                  />
-                  <Button
-                    ref={chooseFileButton}
-                    type="button"
-                    variant="outline"
-                    disabled={
-                      flow.kind === "uploading" ||
-                      flow.kind === "preparing" ||
-                      flow.kind === "operation"
-                    }
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {t("Choose file", "选择文件")}
-                  </Button>
-                  <span className="min-w-0 break-all text-sm">
-                    {flow.kind === "file"
-                      ? (flow.file?.name ?? t("No file chosen", "未选择文件"))
-                      : flow.kind === "uploading"
-                        ? flow.file.name
-                        : t("No file chosen", "未选择文件")}
-                  </span>
-                </div>
-              </div>
-              <LoadingButton
-                type="submit"
-                loading={flow.kind === "uploading"}
-                disabled={
-                  flow.kind === "previewing" ||
-                  flow.kind === "preparing" ||
-                  flow.kind === "operation"
-                }
-              >
-                <Upload />
-                {t("Upload", "上传")}
-              </LoadingButton>
-            </form>
-            {flow.kind === "file" && flow.issue && (
-              <div
-                ref={errorHeading}
-                role="status"
+        {flow.kind === "candidate" && (
+          <Card aria-live="polite" data-testid="upload-candidate">
+            <CardHeader>
+              <CardTitle
+                ref={candidateHeading}
+                role="heading"
+                aria-level={3}
                 tabIndex={-1}
-                data-testid="import-error-summary"
-                className={`mt-3 text-sm ${focusHeading}`}
+                className={focusHeading}
               >
-                <p>{message(flow.issue.message)}</p>
-                <DiagnosticDetails detail={flow.issue.diagnostic} />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : uploads && !project.archived_at ? (
-        <p className="text-sm text-muted-foreground">
-          {t(
-            "You have read-only access to CustomerUpload inputs for this Project.",
-            "您对此项目的客户上传输入仅有只读权限。",
-          )}
-        </p>
-      ) : null}
-
-      {flow.kind === "candidate" && (
-        <Card aria-live="polite" data-testid="upload-candidate">
-          <CardHeader>
-            <CardTitle
-              ref={candidateHeading}
-              role="heading"
-              aria-level={3}
-              tabIndex={-1}
-              className={focusHeading}
-            >
-              {t("Accepted file", "已接受文件")}
-            </CardTitle>
-            <CardDescription>
-              {message(
-                flow.replacement
-                  ? t(
-                      "Upload accepted. Preview the replacement before applying it.",
-                      "上传已接受。应用前请先预览替换。",
-                    )
-                  : t(
-                      "Upload accepted. Preview this file and set it as the current input.",
-                      "上传已接受。请预览此文件并将其设为当前输入。",
-                    ),
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <p className="break-all font-medium">{flow.candidate.name}</p>
-              <p className="text-sm text-muted-foreground">
-                {t(
-                  `${flow.candidate.recordCount} records`,
-                  `${flow.candidate.recordCount} 条记录`,
-                )}{" "}
-                · {t("Profile v", "配置版本 v")}
-                {flow.candidate.profileVersion}
-              </p>
-              <TechnicalValue
-                value={flow.candidate.id}
-                label={t("CustomerUpload ID", "客户上传 ID")}
-              />
-            </div>
-            <div>
-              <h3 className="text-sm font-medium">{t("Warnings", "警告")}</h3>
-              <WarningSummary warnings={flow.candidate.warnings} />
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={
-                !uploads?.can_select ||
-                !writable.current ||
-                busy.current !== null
-              }
-              onClick={(event) =>
-                previewCandidate(flow.candidate, event.currentTarget)
-              }
-            >
-              {t("Preview this file", "预览此文件")}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {flow.kind === "previewing" && (
-        <Card aria-live="polite">
-          <CardHeader>
-            <CardTitle
-              ref={previewHeading}
-              role="heading"
-              aria-level={3}
-              tabIndex={-1}
-              className={focusHeading}
-            >
-              {t("Reading preview…", "正在读取预览…")}
-            </CardTitle>
-            <CardDescription>
-              {t(
-                "The server is reading the latest current input and building the impact preview.",
-                "服务器正在读取最新当前输入并生成影响预览。",
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <p className="break-all font-medium">{flow.candidate.name}</p>
-            <TechnicalValue
-              value={flow.candidate.id}
-              label={t("CustomerUpload ID", "客户上传 ID")}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {previewValue && (
-        <Card aria-live="polite" data-testid="replacement-preview">
-          <CardHeader>
-            <CardTitle
-              ref={previewHeading}
-              role="heading"
-              aria-level={3}
-              tabIndex={-1}
-              className={focusHeading}
-            >
-              {previewValue.request.expected_upload_id === null
-                ? t("Selection preview", "选择预览")
-                : t("Replacement preview", "替换预览")}
-            </CardTitle>
-            <CardDescription>
-              {previewValue.request.expected_upload_id === null
-                ? t(
-                    "Setting this file as the current input makes it the complete current register and clears local edits for it. It does not change history.",
-                    "将此文件设为当前输入后，它将成为完整的当前台账，并清除该文件的本地修订；不会改变历史版本。",
-                  )
-                : t(
-                    "Apply replaces the complete current register and clears local edits for the new file. It does not change history.",
-                    "应用会以新文件完整替换当前台账，并清除新文件的本地修订；不会改变历史版本。",
-                  )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1">
-              <p className="break-all font-medium">
-                {previewValue.candidate.name}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {t(
-                  `${previewValue.candidate.recordCount} records`,
-                  `${previewValue.candidate.recordCount} 条记录`,
-                )}{" "}
-                · {t("Profile v", "配置版本 v")}
-                {previewValue.candidate.profileVersion}
-              </p>
-              <TechnicalValue
-                value={previewValue.candidate.id}
-                label={t("CustomerUpload ID", "客户上传 ID")}
-              />
-            </div>
-            <dl className="grid gap-3 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-muted-foreground">
-                  {t("Current records / IPs", "当前条目 / IP")}
-                </dt>
-                <dd>
-                  {previewValue.impact.current_record_count} /{" "}
-                  {previewValue.impact.current_unique_ips}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">
-                  {t("New records / IPs", "新条目 / IP")}
-                </dt>
-                <dd>
-                  {previewValue.impact.candidate_record_count} /{" "}
-                  {previewValue.impact.candidate_unique_ips}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">
+                {t("Accepted file", "已接受文件")}
+              </CardTitle>
+              <CardDescription>
+                {message(
+                  flow.replacement
+                    ? t(
+                        "Upload accepted. Preview the replacement before applying it.",
+                        "上传已接受。应用前请先预览替换。",
+                      )
+                    : t(
+                        "Upload accepted. Preview this file and set it as the current input.",
+                        "上传已接受。请预览此文件并将其设为当前输入。",
+                      ),
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1">
+                <p className="break-all font-medium">{flow.candidate.name}</p>
+                <p className="text-sm text-muted-foreground">
                   {t(
-                    "Added / removed / changed IPs",
-                    "新增 / 移出 / 声明变化 IP",
-                  )}
-                </dt>
-                <dd>
-                  {previewValue.impact.added_ips} /{" "}
-                  {previewValue.impact.removed_ips} /{" "}
-                  {previewValue.impact.changed_ip_declarations}
-                </dd>
+                    `${flow.candidate.recordCount} records`,
+                    `${flow.candidate.recordCount} 条记录`,
+                  )}{" "}
+                  · {t("Profile v", "配置版本 v")}
+                  {flow.candidate.profileVersion}
+                </p>
+                <TechnicalValue
+                  value={flow.candidate.id}
+                  label={t("CustomerUpload ID", "客户上传 ID")}
+                />
               </div>
-            </dl>
-            {flow.kind === "preview" && (
-              <ReplacementPreviewDetails
-                key={previewValue.generation}
-                actorId={actorId}
-                projectId={project.id}
-                request={previewValue.request}
-                summary={previewValue.impact}
-                generation={previewValue.generation}
-                onConflict={previewConflict}
-              />
-            )}
-            <div>
-              <h3 className="text-sm font-medium">{t("Warnings", "警告")}</h3>
-              <WarningSummary warnings={previewValue.candidate.warnings} />
-            </div>
-            {flow.kind === "preview" && flow.issue && (
-              <div className="text-sm" role="status">
-                <p>{message(flow.issue.message)}</p>
-                <DiagnosticDetails detail={flow.issue.diagnostic} />
+              <div>
+                <h3 className="text-sm font-medium">{t("Warnings", "警告")}</h3>
+                <WarningSummary warnings={flow.candidate.warnings} />
               </div>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <LoadingButton
+              <Button
                 type="button"
-                loading={flow.kind === "preparing"}
+                variant="outline"
                 disabled={
-                  flow.kind === "preparing" ||
                   !uploads?.can_select ||
                   !writable.current ||
                   busy.current !== null
                 }
-                onClick={() => void startReplacement()}
+                onClick={(event) =>
+                  previewCandidate(flow.candidate, event.currentTarget)
+                }
+              >
+                {t("Preview this file", "预览此文件")}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {flow.kind === "previewing" && (
+          <Card aria-live="polite">
+            <CardHeader>
+              <CardTitle
+                ref={previewHeading}
+                role="heading"
+                aria-level={3}
+                tabIndex={-1}
+                className={focusHeading}
+              >
+                {t("Reading preview…", "正在读取预览…")}
+              </CardTitle>
+              <CardDescription>
+                {t(
+                  "The server is reading the latest current input and building the impact preview.",
+                  "服务器正在读取最新当前输入并生成影响预览。",
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="break-all font-medium">{flow.candidate.name}</p>
+              <TechnicalValue
+                value={flow.candidate.id}
+                label={t("CustomerUpload ID", "客户上传 ID")}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {previewValue && (
+          <Card aria-live="polite" data-testid="replacement-preview">
+            <CardHeader>
+              <CardTitle
+                ref={previewHeading}
+                role="heading"
+                aria-level={3}
+                tabIndex={-1}
+                className={focusHeading}
               >
                 {previewValue.request.expected_upload_id === null
-                  ? t("Set as current input", "设为当前输入")
-                  : t("Apply replacement", "应用替换")}
-              </LoadingButton>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={flow.kind === "preparing"}
-                onClick={cancelPreview}
-              >
-                {t("Cancel", "取消")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {flow.kind === "candidate-error" && (
-        <Card aria-live="assertive" data-testid="import-error">
-          <CardHeader>
-            <CardTitle
-              ref={errorHeading}
-              role="heading"
-              aria-level={3}
-              tabIndex={-1}
-              className={focusHeading}
-            >
-              {flow.reason === "read"
-                ? t("Preview could not be read", "无法读取预览")
-                : flow.reason === "version"
-                  ? t("Current version changed", "当前版本已变化")
-                  : flow.reason === "profile"
-                    ? t("Current profile changed", "当前配置已变化")
-                    : flow.reason === "key"
-                      ? t("Operation key conflict", "操作标识冲突")
-                      : t("Request rejected", "请求被拒绝")}
-            </CardTitle>
-            <CardDescription>{candidateErrorCopy}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {flow.candidate && (
+                  ? t("Selection preview", "选择预览")
+                  : t("Replacement preview", "替换预览")}
+              </CardTitle>
+              <CardDescription>
+                {previewValue.request.expected_upload_id === null
+                  ? t(
+                      "Setting this file as the current input makes it the complete current register and clears local edits for it. It does not change history.",
+                      "将此文件设为当前输入后，它将成为完整的当前台账，并清除该文件的本地修订；不会改变历史版本。",
+                    )
+                  : t(
+                      "Apply replaces the complete current register and clears local edits for the new file. It does not change history.",
+                      "应用会以新文件完整替换当前台账，并清除新文件的本地修订；不会改变历史版本。",
+                    )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="space-y-1">
-                <p className="break-all font-medium">{flow.candidate.name}</p>
+                <p className="break-all font-medium">
+                  {previewValue.candidate.name}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    `${previewValue.candidate.recordCount} records`,
+                    `${previewValue.candidate.recordCount} 条记录`,
+                  )}{" "}
+                  · {t("Profile v", "配置版本 v")}
+                  {previewValue.candidate.profileVersion}
+                </p>
                 <TechnicalValue
-                  value={flow.candidate.id}
+                  value={previewValue.candidate.id}
                   label={t("CustomerUpload ID", "客户上传 ID")}
                 />
               </div>
-            )}
-            {flow.issue && (
-              <p className="text-sm">{message(flow.issue.message)}</p>
-            )}
-            <DiagnosticDetails detail={flow.diagnostic} />
-            {flow.candidate && (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!uploads?.can_select || !writable.current}
-                onClick={(event) => {
-                  if (flow.candidate)
-                    previewCandidate(flow.candidate, event.currentTarget)
-                }}
-              >
-                {flow.reason === "version" || flow.reason === "profile"
-                  ? t(
-                      "Read latest version and preview again",
-                      "读取最新版本并重新预览",
-                    )
-                  : t("Preview this file again", "重新预览此文件")}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {flow.kind === "already-current" && (
-        <Card aria-live="polite" data-testid="already-current">
-          <CardHeader>
-            <CardTitle
-              ref={alreadyCurrentHeading}
-              role="heading"
-              aria-level={3}
-              tabIndex={-1}
-              className={focusHeading}
-            >
-              {t("File is already current", "文件已是当前输入")}
-            </CardTitle>
-            <CardDescription>
-              {t(
-                "This file is already the current input. No preview or apply is needed; existing manual revisions are unchanged.",
-                "此文件已是当前输入，无需预览或应用；现有本地修订保持不变。",
+              <dl className="grid gap-3 text-sm sm:grid-cols-3">
+                <div>
+                  <dt className="text-muted-foreground">
+                    {t("Current records / IPs", "当前条目 / IP")}
+                  </dt>
+                  <dd>
+                    {previewValue.impact.current_record_count} /{" "}
+                    {previewValue.impact.current_unique_ips}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">
+                    {t("New records / IPs", "新条目 / IP")}
+                  </dt>
+                  <dd>
+                    {previewValue.impact.candidate_record_count} /{" "}
+                    {previewValue.impact.candidate_unique_ips}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">
+                    {t(
+                      "Added / removed / changed IPs",
+                      "新增 / 移出 / 声明变化 IP",
+                    )}
+                  </dt>
+                  <dd>
+                    {previewValue.impact.added_ips} /{" "}
+                    {previewValue.impact.removed_ips} /{" "}
+                    {previewValue.impact.changed_ip_declarations}
+                  </dd>
+                </div>
+              </dl>
+              {flow.kind === "preview" && (
+                <ReplacementPreviewDetails
+                  key={previewValue.generation}
+                  actorId={actorId}
+                  projectId={project.id}
+                  request={previewValue.request}
+                  summary={previewValue.impact}
+                  generation={previewValue.generation}
+                  onConflict={previewConflict}
+                />
               )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <p className="break-all font-medium">{flow.candidate.name}</p>
-            <TechnicalValue
-              value={flow.candidate.id}
-              label={t("CustomerUpload ID", "客户上传 ID")}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {flow.kind === "operation" && (
-        <Alert data-testid="operation-state">
-          <AlertTitle
-            ref={recoveryHeading}
-            role="heading"
-            aria-level={3}
-            tabIndex={-1}
-            className={focusHeading}
-          >
-            {flow.phase === "applying"
-              ? flow.intent.request.expected_upload_id === null
-                ? t("Setting current input…", "正在设置当前输入…")
-                : t("Applying replacement…", "正在应用替换…")
-              : flow.intent.request.expected_upload_id === null
-                ? t("Selection outcome unknown", "选择结果未知")
-                : t("Replacement outcome unknown", "替换结果未知")}
-          </AlertTitle>
-          <AlertDescription className="space-y-3">
-            {flow.candidate && (
-              <div className="space-y-1">
-                <p className="break-all font-medium">{flow.candidate.name}</p>
-                <TechnicalValue
-                  value={flow.candidate.id}
-                  label={t("CustomerUpload ID", "客户上传 ID")}
-                />
+              <div>
+                <h3 className="text-sm font-medium">{t("Warnings", "警告")}</h3>
+                <WarningSummary warnings={previewValue.candidate.warnings} />
               </div>
-            )}
-            <p>
-              {flow.phase === "applying"
-                ? t(
-                    "The request is being submitted. New uploads and previews are disabled until its outcome is known; you can read its saved receipt.",
-                    "请求正在提交。在结果明确前，新的上传和预览已禁用；可读取已保存的回执。",
-                  )
-                : flow.phase === "missing"
-                  ? t(
-                      "No completed receipt yet. You may explicitly resend the same request with its original identity; the server will recover any committed operation.",
-                      "尚无完成回执。可明确复用原标识重新提交同一请求，服务端会恢复任何已提交操作。",
-                    )
-                  : flow.recoveryError
-                    ? t(
-                        "Could not read the operation. Keep its identity and retry this read.",
-                        "无法读取操作回执。已保留原标识，请重试读取。",
-                      )
-                    : t(
-                        "The outcome is unknown. Read the saved operation before submitting again.",
-                        "结果尚未确认，请先读取已保存的操作，再决定是否重新提交。",
-                      )}
-            </p>
-            <DiagnosticDetails detail={flow.diagnostic} />
-            <div className="flex flex-wrap items-center gap-2">
-              <LoadingButton
-                type="button"
-                size="sm"
-                variant="outline"
-                loading={recoverReplacement.isPending}
-                disabled={recoverReplacement.isPending}
-                onClick={() => recoverOperation(flow.intent)}
+              {flow.kind === "preview" && flow.issue && (
+                <div className="text-sm" role="status">
+                  <p>{message(flow.issue.message)}</p>
+                  <DiagnosticDetails detail={flow.issue.diagnostic} />
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <LoadingButton
+                  type="button"
+                  loading={flow.kind === "preparing"}
+                  disabled={
+                    flow.kind === "preparing" ||
+                    !uploads?.can_select ||
+                    !writable.current ||
+                    busy.current !== null
+                  }
+                  onClick={() => void startReplacement()}
+                >
+                  {previewValue.request.expected_upload_id === null
+                    ? t("Set as current input", "设为当前输入")
+                    : t("Apply replacement", "应用替换")}
+                </LoadingButton>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={flow.kind === "preparing"}
+                  onClick={cancelPreview}
+                >
+                  {t("Cancel", "取消")}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {flow.kind === "candidate-error" && (
+          <Card aria-live="assertive" data-testid="import-error">
+            <CardHeader>
+              <CardTitle
+                ref={errorHeading}
+                role="heading"
+                aria-level={3}
+                tabIndex={-1}
+                className={focusHeading}
               >
-                {t("Recover result", "恢复结果")}
-              </LoadingButton>
-              {flow.phase === "missing" && (
+                {flow.reason === "read"
+                  ? t("Preview could not be read", "无法读取预览")
+                  : flow.reason === "version"
+                    ? t("Current version changed", "当前版本已变化")
+                    : flow.reason === "profile"
+                      ? t("Current profile changed", "当前配置已变化")
+                      : flow.reason === "key"
+                        ? t("Operation key conflict", "操作标识冲突")
+                        : t("Request rejected", "请求被拒绝")}
+              </CardTitle>
+              <CardDescription>{candidateErrorCopy}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {flow.candidate && (
+                <div className="space-y-1">
+                  <p className="break-all font-medium">{flow.candidate.name}</p>
+                  <TechnicalValue
+                    value={flow.candidate.id}
+                    label={t("CustomerUpload ID", "客户上传 ID")}
+                  />
+                </div>
+              )}
+              {flow.issue && (
+                <p className="text-sm">{message(flow.issue.message)}</p>
+              )}
+              <DiagnosticDetails detail={flow.diagnostic} />
+              {flow.candidate && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!uploads?.can_select || !writable.current}
+                  onClick={(event) => {
+                    if (flow.candidate)
+                      previewCandidate(flow.candidate, event.currentTarget)
+                  }}
+                >
+                  {flow.reason === "version" || flow.reason === "profile"
+                    ? t(
+                        "Read latest version and preview again",
+                        "读取最新版本并重新预览",
+                      )
+                    : t("Preview this file again", "重新预览此文件")}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {flow.kind === "already-current" && (
+          <Card aria-live="polite" data-testid="already-current">
+            <CardHeader>
+              <CardTitle
+                ref={alreadyCurrentHeading}
+                role="heading"
+                aria-level={3}
+                tabIndex={-1}
+                className={focusHeading}
+              >
+                {t("File is already current", "文件已是当前输入")}
+              </CardTitle>
+              <CardDescription>
+                {t(
+                  "This file is already the current input. No preview or apply is needed; existing manual revisions are unchanged.",
+                  "此文件已是当前输入，无需预览或应用；现有本地修订保持不变。",
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              <p className="break-all font-medium">{flow.candidate.name}</p>
+              <TechnicalValue
+                value={flow.candidate.id}
+                label={t("CustomerUpload ID", "客户上传 ID")}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {flow.kind === "operation" && (
+          <Alert data-testid="operation-state">
+            <AlertTitle
+              ref={recoveryHeading}
+              role="heading"
+              aria-level={3}
+              tabIndex={-1}
+              className={focusHeading}
+            >
+              {flow.phase === "applying"
+                ? flow.intent.request.expected_upload_id === null
+                  ? t("Setting current input…", "正在设置当前输入…")
+                  : t("Applying replacement…", "正在应用替换…")
+                : flow.intent.request.expected_upload_id === null
+                  ? t("Selection outcome unknown", "选择结果未知")
+                  : t("Replacement outcome unknown", "替换结果未知")}
+            </AlertTitle>
+            <AlertDescription className="space-y-3">
+              {flow.candidate && (
+                <div className="space-y-1">
+                  <p className="break-all font-medium">{flow.candidate.name}</p>
+                  <TechnicalValue
+                    value={flow.candidate.id}
+                    label={t("CustomerUpload ID", "客户上传 ID")}
+                  />
+                </div>
+              )}
+              <p>
+                {flow.phase === "applying"
+                  ? t(
+                      "The request is being submitted. New uploads and previews are disabled until its outcome is known; you can read its saved receipt.",
+                      "请求正在提交。在结果明确前，新的上传和预览已禁用；可读取已保存的回执。",
+                    )
+                  : flow.phase === "missing"
+                    ? t(
+                        "No completed receipt yet. You may explicitly resend the same request with its original identity; the server will recover any committed operation.",
+                        "尚无完成回执。可明确复用原标识重新提交同一请求，服务端会恢复任何已提交操作。",
+                      )
+                    : flow.recoveryError
+                      ? t(
+                          "Could not read the operation. Keep its identity and retry this read.",
+                          "无法读取操作回执。已保留原标识，请重试读取。",
+                        )
+                      : t(
+                          "The outcome is unknown. Read the saved operation before submitting again.",
+                          "结果尚未确认，请先读取已保存的操作，再决定是否重新提交。",
+                        )}
+              </p>
+              <DiagnosticDetails detail={flow.diagnostic} />
+              <div className="flex flex-wrap items-center gap-2">
                 <LoadingButton
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={
-                    recoveryPending.current ||
-                    !uploads?.can_select ||
-                    !writable.current
-                  }
-                  onClick={() => resendReplacement(flow.intent, flow.candidate)}
+                  loading={recoverReplacement.isPending}
+                  disabled={recoverReplacement.isPending}
+                  onClick={() => recoverOperation(flow.intent)}
                 >
-                  {t("Resend original request", "复用原请求提交")}
+                  {t("Recover result", "恢复结果")}
                 </LoadingButton>
-              )}
-            </div>
-          </AlertDescription>
-        </Alert>
-      )}
+                {flow.phase === "missing" && (
+                  <LoadingButton
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={
+                      recoveryPending.current ||
+                      !uploads?.can_select ||
+                      !writable.current
+                    }
+                    onClick={() =>
+                      resendReplacement(flow.intent, flow.candidate)
+                    }
+                  >
+                    {t("Resend original request", "复用原请求提交")}
+                  </LoadingButton>
+                )}
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {flow.kind === "confirmed" && (
-        <Card aria-live="polite" data-testid="operation-confirmed">
-          <CardHeader>
-            <CardTitle
-              ref={confirmedHeading}
-              role="heading"
-              aria-level={3}
-              tabIndex={-1}
-              className={focusHeading}
-            >
-              {t("Operation confirmed.", "操作已确认。")}
-            </CardTitle>
-            <CardDescription>
-              {t(
-                "This confirmation covers the submitted operation only.",
-                "此确认仅针对已提交的操作。",
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Button asChild variant="outline">
-              <Link
-                to="/projects/$projectId/netflow-correlation"
-                params={{ projectId: project.id }}
-                search={{}}
+        {flow.kind === "confirmed" && (
+          <Card aria-live="polite" data-testid="operation-confirmed">
+            <CardHeader>
+              <CardTitle
+                ref={confirmedHeading}
+                role="heading"
+                aria-level={3}
+                tabIndex={-1}
+                className={focusHeading}
               >
-                {t("Go to comparison results", "前往比对结果")}
-              </Link>
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              {t(
-                "Opening comparison results only navigates. It does not generate comparison results or run a comparison.",
-                "打开比对结果仅进行导航，不会生成比对结果或运行比对。",
-              )}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+                {t("Operation confirmed.", "操作已确认。")}
+              </CardTitle>
+              <CardDescription>
+                {t(
+                  "This confirmation covers the submitted operation only.",
+                  "此确认仅针对已提交的操作。",
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Button asChild variant="outline">
+                <Link
+                  to="/projects/$projectId/netflow-correlation"
+                  params={{ projectId: project.id }}
+                  search={{}}
+                >
+                  {t("Go to comparison results", "前往比对结果")}
+                </Link>
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  "Opening comparison results only navigates. It does not generate comparison results or run a comparison.",
+                  "打开比对结果仅进行导航，不会生成比对结果或运行比对。",
+                )}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </section>
 
       {uploads && (
         <Card>
@@ -1811,6 +1843,318 @@ function ProjectInputs({
           </CardContent>
         </Card>
       )}
+    </div>
+  )
+}
+
+function SourceTabPanel({
+  id,
+  tabId,
+  active,
+  onActivate,
+  children,
+}: {
+  id: string
+  tabId: string
+  active: boolean
+  onActivate: () => void
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (active) {
+      el.removeAttribute("hidden")
+    } else if ("onbeforematch" in HTMLElement.prototype) {
+      el.setAttribute("hidden", "until-found")
+    } else {
+      el.hidden = true
+    }
+  }, [active])
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const handleBeforeMatch = () => onActivate()
+    el.addEventListener("beforematch", handleBeforeMatch)
+    return () => el.removeEventListener("beforematch", handleBeforeMatch)
+  }, [onActivate])
+  return (
+    <div
+      ref={ref}
+      id={id}
+      role="tabpanel"
+      aria-labelledby={tabId}
+      hidden={!active ? ("until-found" as unknown as boolean) : undefined}
+    >
+      <div className="pt-4">{children}</div>
+    </div>
+  )
+}
+
+function DataAccessWorkbench({
+  actorId,
+  isAdmin,
+  project,
+  view,
+  processingDataset,
+  onProcessingDatasetChange,
+}: {
+  actorId: string
+  isAdmin: boolean
+  project: ProjectPublic
+  view: string
+  processingDataset?: string
+  onProcessingDatasetChange: (id: string) => void
+}) {
+  const { t } = useI18n()
+  const hash = useRouterState({ select: (state) => state.location.hash })
+  const tablistRef = useRef<HTMLDivElement>(null)
+  const tabRefs = useRef<Record<DataAccessSource, HTMLButtonElement | null>>({
+    customer: null,
+    cloudatlas: null,
+    netflow: null,
+  })
+  const [activeTab, setActiveTab] = useState<DataAccessSource>(() => {
+    const cleanHash = (
+      typeof window !== "undefined" ? window.location.hash : ""
+    ).replace(/^#/, "")
+    if (view === "cloudatlas" || cleanHash === "cloudatlas-inputs")
+      return "cloudatlas"
+    if (
+      cleanHash === "netflow-inputs" ||
+      cleanHash === "netflow-processing" ||
+      processingDataset
+    )
+      return "netflow"
+    return "customer"
+  })
+
+  useEffect(() => {
+    const id = hash.replace(/^#/, "")
+    let targetSource: DataAccessSource | undefined
+    if (id === "customer-inputs") targetSource = "customer"
+    else if (id === "cloudatlas-inputs" || view === "cloudatlas")
+      targetSource = "cloudatlas"
+    else if (id === "netflow-inputs" || id === "netflow-processing")
+      targetSource = "netflow"
+
+    if (targetSource) setActiveTab(targetSource)
+    if (
+      [
+        "customer-inputs",
+        "cloudatlas-inputs",
+        "netflow-inputs",
+        "netflow-processing",
+      ].includes(id)
+    ) {
+      requestAnimationFrame(() => {
+        document.getElementById(id)?.focus()
+      })
+    }
+  }, [hash, view])
+
+  const selectTab = (source: DataAccessSource, scrollIntoView = false) => {
+    setActiveTab(source)
+    if (scrollIntoView) {
+      tablistRef.current?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      })
+    }
+  }
+
+  const tabs: { id: DataAccessSource; label: string }[] = [
+    {
+      id: "customer",
+      label: t("Customer asset ledger", "客户资产台账"),
+    },
+    {
+      id: "cloudatlas",
+      label: t("CloudAtlas", "云图"),
+    },
+    {
+      id: "netflow",
+      label: t("NetFlow", "NetFlow"),
+    },
+  ]
+
+  const onTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) => {
+    let nextIndex: number | null = null
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length
+    else if (event.key === "ArrowLeft")
+      nextIndex = (index - 1 + tabs.length) % tabs.length
+    else if (event.key === "Home") nextIndex = 0
+    else if (event.key === "End") nextIndex = tabs.length - 1
+    if (nextIndex === null) return
+    event.preventDefault()
+    const nextTab = tabs[nextIndex].id
+    setActiveTab(nextTab)
+    const targetButton = tabRefs.current[nextTab]
+    targetButton?.focus()
+    targetButton?.scrollIntoView({ block: "nearest", inline: "nearest" })
+  }
+
+  return (
+    <div className="min-w-0 space-y-6">
+      <ProjectPreparation
+        key={`preparation:${project.id}`}
+        projectId={project.id}
+        projectName={project.name}
+        archived={project.archived_at !== null}
+      />
+      <InputReadinessSummary
+        key={`input-summary:${actorId}:${project.id}`}
+        actorId={actorId}
+        projectId={project.id}
+        activeSource={activeTab}
+        onSelectSource={(source) => selectTab(source, true)}
+      />
+      <section className="min-w-0">
+        <div
+          ref={tablistRef}
+          role="tablist"
+          aria-label={t("Data sources", "数据来源")}
+          className="workspace-source-tablist"
+        >
+          {tabs.map((tab, index) => (
+            <button
+              key={tab.id}
+              ref={(node) => {
+                tabRefs.current[tab.id] = node
+              }}
+              type="button"
+              id={`source-tab-${tab.id}`}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              className="workspace-source-tab"
+              onClick={() => selectTab(tab.id)}
+              onKeyDown={(event) => onTabKeyDown(event, index)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <SourceTabPanel
+          id="source-panel-customer"
+          tabId="source-tab-customer"
+          active={activeTab === "customer"}
+          onActivate={() => setActiveTab("customer")}
+        >
+          <div
+            id="customer-inputs"
+            tabIndex={-1}
+            className="workspace-inputs scroll-mt-32"
+          >
+            <ProjectInputs
+              key={`${actorId}:${project.id}`}
+              actorId={actorId}
+              project={project}
+            />
+          </div>
+        </SourceTabPanel>
+
+        <SourceTabPanel
+          id="source-panel-cloudatlas"
+          tabId="source-tab-cloudatlas"
+          active={activeTab === "cloudatlas"}
+          onActivate={() => setActiveTab("cloudatlas")}
+        >
+          <section
+            id="cloudatlas-inputs"
+            tabIndex={-1}
+            className="workspace-section-well scroll-mt-32 space-y-4"
+            aria-labelledby="cloud-access-title"
+          >
+            <div className="workspace-surface-card space-y-4">
+              <div className="space-y-1.5">
+                <h2 id="cloud-access-title" className="text-base font-semibold">
+                  {t("CloudAtlas data access", "云图数据接入")}
+                </h2>
+                <p className="max-w-prose text-sm text-muted-foreground">
+                  {t(
+                    "Source configuration, sync scope, attempts and published versions use the same controls as the CloudAtlas data page. Opening them only reads local records.",
+                    "来源配置、同步范围、执行记录和已发布版本，与云图数据页使用同一套操作入口。打开只读取本地记录。",
+                  )}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild>
+                  <Link
+                    to="/projects/$projectId/cloudatlas-ledger"
+                    params={{ projectId: project.id }}
+                    search={{
+                      asset_view: "synced",
+                      external_manage: "sources",
+                    }}
+                  >
+                    {t("Configure sources and sync", "配置来源与同步")}
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link
+                    to="/projects/$projectId/cloudatlas-ledger"
+                    params={{ projectId: project.id }}
+                    search={{ asset_view: "synced" }}
+                  >
+                    {t("Read current CloudAtlas assets", "阅读当前云图资产")}
+                  </Link>
+                </Button>
+              </div>
+            </div>
+            <details
+              open={view === "cloudatlas"}
+              className="rounded-lg border bg-card/60 px-4 py-3 text-sm"
+            >
+              <summary className="cursor-pointer font-medium text-muted-foreground">
+                {t("Historical Run source settings", "旧 Run 来源配置（兼容）")}
+              </summary>
+              <div className="pt-3">
+                <CloudAtlasSources
+                  key={`${actorId}:${project.id}`}
+                  projectId={project.id}
+                />
+              </div>
+            </details>
+          </section>
+        </SourceTabPanel>
+
+        <SourceTabPanel
+          id="source-panel-netflow"
+          tabId="source-tab-netflow"
+          active={activeTab === "netflow"}
+          onActivate={() => setActiveTab("netflow")}
+        >
+          <div id="netflow-inputs" tabIndex={-1} className="scroll-mt-32">
+            <NetFlowDatasets
+              key={`netflow:${project.id}`}
+              projectId={project.id}
+              archived={project.archived_at !== null}
+            />
+            <div
+              id="netflow-processing"
+              tabIndex={-1}
+              className="mt-5 scroll-mt-32"
+            >
+              <NetflowInputManagement
+                key={`${actorId}:${project.id}:${processingDataset ?? "current"}`}
+                actor={actorId}
+                projectId={project.id}
+                datasetId={processingDataset}
+                isAdmin={isAdmin}
+                canWrite={!project.archived_at}
+                autoSyncDataset={activeTab === "netflow"}
+                onDatasetChange={onProcessingDatasetChange}
+              />
+            </div>
+          </div>
+        </SourceTabPanel>
+      </section>
     </div>
   )
 }
@@ -1916,105 +2260,22 @@ function Dashboard() {
     case "inputs":
     case "cloudatlas":
       content = (
-        <>
-          <ProjectPreparation
-            key={`preparation:${project.id}`}
-            projectId={project.id}
-            archived={project.archived_at !== null}
-          />
-          <InputReadinessSummary
-            key={`input-summary:${user.id}:${project.id}`}
-            actorId={user.id}
-            projectId={project.id}
-          />
-          <div
-            id="customer-inputs"
-            tabIndex={-1}
-            className="workspace-inputs scroll-mt-32"
-          >
-            <ProjectInputs
-              key={`${user.id}:${project.id}`}
-              actorId={user.id}
-              project={project}
-            />
-          </div>
-          <section
-            id="cloudatlas-inputs"
-            tabIndex={-1}
-            className="scroll-mt-32 space-y-3 rounded-lg border bg-card p-5"
-            aria-labelledby="cloud-access-title"
-          >
-            <h2 id="cloud-access-title" className="text-base font-semibold">
-              {t("CloudAtlas data access", "云图数据接入")}
-            </h2>
-            <p className="max-w-prose text-sm text-muted-foreground">
-              {t(
-                "Source configuration, sync scope, attempts and published versions use the same controls as the CloudAtlas data page. Opening them only reads local records.",
-                "来源配置、同步范围、执行记录和已发布版本，与云图数据页使用同一套操作入口。打开只读取本地记录。",
-              )}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button asChild variant="outline">
-                <Link
-                  to="/projects/$projectId/cloudatlas-ledger"
-                  params={{ projectId: project.id }}
-                  search={{ asset_view: "synced", external_manage: "sources" }}
-                >
-                  {t("Configure sources and sync", "配置来源与同步")}
-                </Link>
-              </Button>
-              <Button asChild variant="outline">
-                <Link
-                  to="/projects/$projectId/cloudatlas-ledger"
-                  params={{ projectId: project.id }}
-                  search={{ asset_view: "synced" }}
-                >
-                  {t("Read current CloudAtlas assets", "阅读当前云图资产")}
-                </Link>
-              </Button>
-            </div>
-            <details className="space-y-3 text-sm">
-              <summary className="cursor-pointer">
-                {t("Historical Run source settings", "旧 Run 来源配置（兼容）")}
-              </summary>
-              <CloudAtlasSources
-                key={`${user.id}:${project.id}`}
-                projectId={project.id}
-              />
-            </details>
-          </section>
-          <div id="netflow-inputs" tabIndex={-1} className="scroll-mt-32">
-            <NetFlowDatasets
-              key={`netflow:${project.id}`}
-              projectId={project.id}
-              archived={project.archived_at !== null}
-            />
-            <div
-              id="netflow-processing"
-              tabIndex={-1}
-              className="mt-5 scroll-mt-32"
-            >
-              <NetflowInputManagement
-                key={`${user.id}:${project.id}:${search.processing_dataset ?? "current"}`}
-                actor={user.id}
-                projectId={project.id}
-                datasetId={search.processing_dataset}
-                isAdmin={!!user.is_superuser}
-                canWrite={!project.archived_at}
-                onDatasetChange={(id) => {
-                  void navigate({
-                    search: (previous) => ({
-                      ...previous,
-                      processing_dataset: id,
-                    }),
-                    hash: "netflow-processing",
-                    replace: true,
-                  })
-                }}
-              />
-            </div>
-          </div>
-        </>
+        <DataAccessWorkbench
+          actorId={user.id}
+          isAdmin={!!user.is_superuser}
+          project={project}
+          view={view}
+          processingDataset={search.processing_dataset}
+          onProcessingDatasetChange={(id) => {
+            void navigate({
+              search: (previous) => ({
+                ...previous,
+                processing_dataset: id,
+              }),
+              replace: true,
+            })
+          }}
+        />
       )
       break
     case "runs":
@@ -2069,6 +2330,7 @@ function Dashboard() {
             <ProjectPreparation
               key={`preparation:${project.id}`}
               projectId={project.id}
+              projectName={project.name}
               archived={project.archived_at !== null}
             />
           ) : (
@@ -2103,9 +2365,19 @@ function Dashboard() {
           )
       }
   }
+  const showPreparationDirect =
+    view === "inputs" ||
+    view === "cloudatlas" ||
+    (!["runs", "assets", "findings", "reports"].includes(view) &&
+      !reports.isError &&
+      !(latest.isError && runId === undefined) &&
+      !reports.isPending &&
+      runId === undefined &&
+      latest.data === null)
   return (
     <div className="min-w-0 space-y-6">
-      {view === "overview" || view === "reports" ? (
+      {showPreparationDirect ? null : view === "overview" ||
+        view === "reports" ? (
         <header className="flex flex-wrap items-start justify-between gap-3">
           <h1 className="workspace-page-title">{project.name}</h1>
           {view === "overview" && report && (
