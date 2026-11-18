@@ -135,6 +135,8 @@
     top: 3.5rem;
     height: calc(100dvh - 3.5rem);
     box-shadow: -4px 0 24px rgb(0 0 0 / 0.08);
+    animation: none;
+    transition: none;
   }
 
   .comparison-evidence [data-sheet-lang] {
@@ -143,13 +145,6 @@
 
   .comparison-evidence-columns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1360px) {
-  .comparison-evidence {
-    animation: none;
-    transition: none;
   }
 
   .comparison-workspace[data-evidence-open="true"] {

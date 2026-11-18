@@ -2053,7 +2053,7 @@ export default function CoreComparisonResults({
           </details>
           <section
             aria-label={t("Core classification", "核心分类")}
-            className="comparison-core workspace-surface-card space-y-4"
+            className="comparison-core workspace-surface-card min-w-0 space-y-4"
             data-density={density}
             style={{ "--density": density } as CSSProperties}
           >
