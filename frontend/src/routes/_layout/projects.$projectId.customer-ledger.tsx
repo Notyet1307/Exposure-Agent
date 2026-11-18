@@ -566,6 +566,48 @@ function LedgerView({
     })
   }
   const locked = busy || !!pendingKey || !canEdit
+  const sheetOpen = Boolean(selected || editor)
+  const noticeAlert = notice && (
+    <Alert role="status">
+      <AlertDescription>
+        {notice === "saved" ? (
+          t(
+            "Saved a new revision. Existing Run reports are unchanged.",
+            "新修订已保存，已有批次报告保持不变。",
+          )
+        ) : (
+          <>
+            <p>{notice}</p>
+            <DiagnosticDetails detail={noticeDetail} />
+          </>
+        )}
+      </AlertDescription>
+    </Alert>
+  )
+  const pendingHereAlert = pendingKey && pendingHere && (
+    <Alert>
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+        <span>
+          {t(
+            "This request has an unconfirmed result. Recover it before making another change.",
+            "原请求结果尚未确认，查询其结果后再做新的修改。",
+          )}
+        </span>
+        <Button variant="outline" disabled={busy} onClick={recover}>
+          {t("Query original request", "查询原请求")}
+        </Button>
+        {!editor && (
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => void restoreOriginal()}
+          >
+            {t("Re-enter original request", "重填原请求")}
+          </Button>
+        )}
+      </AlertDescription>
+    </Alert>
+  )
   if (search.ledger_invalid)
     return (
       <div className="space-y-3">
@@ -624,47 +666,8 @@ function LedgerView({
           )}
         </div>
       </header>
-      {notice && (
-        <Alert role="status">
-          <AlertDescription>
-            {notice === "saved" ? (
-              t(
-                "Saved a new revision. Existing Run reports are unchanged.",
-                "新修订已保存，已有批次报告保持不变。",
-              )
-            ) : (
-              <>
-                <p>{notice}</p>
-                <DiagnosticDetails detail={noticeDetail} />
-              </>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
-      {pendingKey && pendingHere && (
-        <Alert>
-          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-            <span>
-              {t(
-                "This request has an unconfirmed result. Recover it before making another change.",
-                "原请求结果尚未确认，查询其结果后再做新的修改。",
-              )}
-            </span>
-            <Button variant="outline" disabled={busy} onClick={recover}>
-              {t("Query original request", "查询原请求")}
-            </Button>
-            {!editor && (
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => void restoreOriginal()}
-              >
-                {t("Re-enter original request", "重填原请求")}
-              </Button>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
+      {!sheetOpen && noticeAlert}
+      {!sheetOpen && pendingHereAlert}
       {pendingKey && !pendingHere && (
         <Alert>
           <AlertDescription className="flex flex-wrap items-center gap-3">
@@ -968,7 +971,7 @@ function LedgerView({
             </div>
           </div>
           <Sheet
-            open={Boolean(selected || editor)}
+            open={sheetOpen}
             onOpenChange={(open) => {
               if (!open && !busy) {
                 setSelected(null)
@@ -977,6 +980,8 @@ function LedgerView({
             }}
           >
             <SheetContent className="w-full overflow-y-auto p-6 sm:max-w-xl">
+              {noticeAlert}
+              {pendingHereAlert}
               {selected && !editor && (
                 <section className="workspace-record space-y-5 pt-2">
                   <SheetHeader className="p-0">

@@ -32,9 +32,9 @@ export default function ProjectPreparation({
     <header className="workspace-page-header">
       {projectName && (
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span className="rounded-md border bg-muted/50 px-2 py-0.5 font-medium text-foreground">
+          <h2 className="rounded-md border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground">
             {projectName}
-          </span>
+          </h2>
           <span>
             {t(
               "Current project management. Published reading context is preserved.",
