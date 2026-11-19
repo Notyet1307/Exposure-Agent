@@ -6,13 +6,15 @@ description: Verify Exposure2026 through a disposable synthetic PostgreSQL and r
 # Exposure2026 verification pilot
 
 ## Launch
+In a fresh worktree, run `bash scripts/wt-bootstrap.sh` once first to sync `.venv`, warm cached frontend dependencies, and run `--doctor`.
+
 Use the project interpreter and the prepare/run commands below. Set `TASK_ID` for the task and choose a new `RUN_ROOT` for each frozen bundle. The prepare command freezes eight listed assets and records their identity. The list covers six skill files and two helper scripts. It does not freeze `features/reports.md`, `features/netflow-progress.md`, `features/core-comparison.md`, or any other map file, and it does not certify the whole map. Bare `verify-exposure2026.py` does not freeze assets or record verification-asset identity.
 
 Run this block with `MODE=prepare` before the journey. After the journey, keep the same `RUN_ROOT`, set `MODE=check`, and run the same block again. Check mode compares both copies with the original manifest and verifies unchanged product HEAD. Do not refresh the frozen copies after a failure.
 
 ```bash
-export SOURCE_REPO=${SOURCE_REPO:?Bind SOURCE_REPO to the clean worktree under verification}
-export TASK_ID=customer-ledger-verification-pilot-20261107
+export SOURCE_REPO="${SOURCE_REPO:-$(git rev-parse --show-toplevel)}"
+export TASK_ID="${TASK_ID:?Set TASK_ID for the current verification task}"
 export RUN_ROOT="${RUN_ROOT:-/Users/yet/ops/tasks/exposure2026/$TASK_ID/run-$(date -u +%Y%m%dT%H%M%SZ)}"
 export MODE="${MODE:-prepare}"
 "$SOURCE_REPO/.venv/bin/python" - <<'PY_PREPARE'
@@ -69,7 +71,7 @@ Continue only when `prepare.exit` is `0`. The run block in Helpers uses this fro
 
 System `python3` is 3.9.6 on this host. It lacks `tarfile.extract(filter=...)`, and the product backend source uses Python 3.14 syntax. The helper checks the invoking interpreter path and tarfile filter support before extracting any source and returns BLOCKED with the expected `.venv/bin/python` path. Do not build a launcher; use the project interpreter.
 
-The helper archives committed HEAD (not uncommitted changes), excludes .env files, initializes a private synthetic PostgreSQL cluster, migrates, seeds one synthetic administrator, then starts the real API on a free loopback port. Readiness requires authentication, not just a listening socket. Native PostgreSQL17 is a pilot stand-in; production PostgreSQL18, Docker topology, external services are NOT verified. For PostgreSQL18 pass `--pg-bin` pointing to its installed bin directory. Default API mode installs nothing. Explicit `--ui` installs only existing bun.lock dependencies in the disposable source using `bun install --frozen-lockfile`; it needs installed Bun, Node and Google Chrome. `--ledger` implies `--ui`. No new framework or global install.
+The helper archives committed HEAD (not uncommitted changes), excludes .env files, initializes a private synthetic PostgreSQL cluster, migrates, seeds one synthetic administrator, then starts the real API on a free loopback port. Readiness requires authentication, not just a listening socket. Native PostgreSQL17 is a pilot stand-in; production PostgreSQL18, Docker topology, external services are NOT verified. For PostgreSQL18 pass `--pg-bin` pointing to its installed bin directory. Default API mode installs nothing. Explicit `--ui` installs only existing `bun.lock` dependencies in the disposable source using `bun install --frozen-lockfile` (reusing the host shared Bun cache by default); helper tools (`pg_bin`, `bun`, `node`, Chrome) are auto-discovered or overridden via `--pg-bin` / `PILOT_CHROME_BIN`. `--ledger` implies `--ui`. No new framework or global install.
 
 ## Doctor
 Select `doctor` in the frozen-helper run block below. `--doctor` is read-only against the product and runtime prerequisites. It checks that the invoking interpreter is the project .venv, that `tarfile.extract` supports `filter`, and that required binaries/imports exist. It does NOT certify database readiness, version parity, UI dependencies or an existing app instance. This helper never drives an existing instance. API PID, loopback ports, committed HEAD and PostgreSQL version are recorded during launch. A wrong interpreter or missing runtime returns BLOCKED and exit 2.

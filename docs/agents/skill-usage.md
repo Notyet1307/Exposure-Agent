@@ -5,8 +5,9 @@
 ## 派工与开工
 
 1. 从 Cindy 新建任务时显式传 `project_path="/Users/yet/Developer/exposure2026"`、`agent_kind="pi"` 并启用隔离 worktree，标题前缀带 `[#<Issue号>]`。
-2. 任务内读取原版 `poteto-mode/SKILL.md` 与同目录 `references/pi-tools.md`，按任务规模选择对应 playbook 和 skill；模型角色按仓库 [pstack-models.md](../../.pstack/pi-home/pstack-models.md) 执行。
-3. 需要项目运行验证时，直接读取工作树的 [verify-exposure2026](../../.claude/skills/verify-exposure2026/SKILL.md)（不依赖非交互子代理的项目目录自动发现）。
+2. 进入工作树后先运行 `bash scripts/wt-bootstrap.sh`（对应 `[bootstrap]` 工序），完成 `.venv`、前端依赖与 `verify --doctor` 预检。
+3. 任务内读取原版 `poteto-mode/SKILL.md` 与同目录 `references/pi-tools.md`，按任务规模选择对应 playbook 和 skill；模型角色按仓库 [pstack-models.md](../../.pstack/pi-home/pstack-models.md) 执行。
+4. 需要项目运行验证时，直接读取工作树的 [verify-exposure2026](../../.claude/skills/verify-exposure2026/SKILL.md)（不依赖非交互子代理的项目目录自动发现）。
 
 ## 方法与看板工序
 

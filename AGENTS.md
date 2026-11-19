@@ -56,7 +56,9 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 
 ## Fresh worktree 初始化与验证
 
-首次进入新的 worktree 后，按需安装受影响部分的依赖：
+首次进入新的 worktree 后，先执行一键初始化与预检，或按需安装受影响部分的依赖：
+
+- 一键初始化与验证自检：`bash scripts/wt-bootstrap.sh`
 
 - 后端（仓库根目录）：`uv sync --frozen`
 - 前端：`cd frontend && bun install --frozen-lockfile`

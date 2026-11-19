@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Isolated synthetic API and real-browser pilot. No production config, Docker, or external calls."""
+
 import argparse
 import hashlib
 import inspect
@@ -30,6 +31,55 @@ INVALID_HEADER_FILENAME = "customer-ledger-missing-header.xlsx"
 INVALID_PORT_FILENAME = "customer-ledger-port-70000.xlsx"
 
 
+REAL_HOME = Path.home()
+PG_BIN_CANDIDATES = (
+    "/opt/homebrew/opt/postgresql@18/bin",
+    "/opt/homebrew/opt/postgresql@17/bin",
+    "/usr/local/opt/postgresql@18/bin",
+    "/usr/local/opt/postgresql@17/bin",
+)
+CHROME_CANDIDATES = (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+)
+
+
+def resolve_pg_bin(explicit):
+    if explicit is not None:
+        return explicit
+    for candidate in PG_BIN_CANDIDATES:
+        candidate_path = Path(candidate)
+        if (candidate_path / "initdb").is_file():
+            return candidate_path
+    found = shutil.which("initdb")
+    if found:
+        return Path(found).resolve().parent
+    return Path("/opt/homebrew/opt/postgresql@17/bin")
+
+
+def resolve_tool(name, candidates):
+    found = shutil.which(name)
+    if found:
+        return Path(found).resolve()
+    for candidate in candidates:
+        candidate_path = Path(candidate)
+        if candidate_path.is_file():
+            return candidate_path
+    return None
+
+
+def resolve_chrome():
+    override = os.environ.get("PILOT_CHROME_BIN")
+    if override and Path(override).is_file():
+        return Path(override)
+    for candidate in CHROME_CANDIDATES:
+        candidate_path = Path(candidate)
+        if candidate_path.is_file():
+            return candidate_path
+    return None
+
+
 class Blocked(Exception):
     pass
 
@@ -56,7 +106,14 @@ def sha256_file(path):
 
 def doctor(repo, pg):
     py = repo / ".venv/bin/python"
-    for path in (py, pg / "postgres", pg / "createdb", pg / "initdb", pg / "pg_ctl", pg / "psql"):
+    for path in (
+        py,
+        pg / "postgres",
+        pg / "createdb",
+        pg / "initdb",
+        pg / "pg_ctl",
+        pg / "psql",
+    ):
         if not path.is_file():
             raise Blocked(f"Missing runtime: {path}")
     expected = py.resolve()
@@ -85,19 +142,30 @@ def doctor(repo, pg):
 
 def source_state(repo):
     raw = subprocess.check_output(
-        ["git", "-C", str(repo), "status", "--porcelain=v1", "-z", "--untracked-files=all"]
+        [
+            "git",
+            "-C",
+            str(repo),
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+        ]
     )
     entries = [item.decode() for item in raw.split(b"\0") if item]
     forbidden = [
         item
         for item in entries
         if not (
-            item[3:] in ("scripts/verify-exposure2026.py", "scripts/verify-exposure2026-ui.cjs")
+            item[3:]
+            in ("scripts/verify-exposure2026.py", "scripts/verify-exposure2026-ui.cjs")
             or item[3:].startswith(".claude/skills/verify-exposure2026/")
         )
     ]
     if forbidden:
-        raise Blocked("Product working tree differs from committed HEAD: " + repr(forbidden))
+        raise Blocked(
+            "Product working tree differs from committed HEAD: " + repr(forbidden)
+        )
     return entries
 
 
@@ -143,9 +211,8 @@ def write_xlsx(path, headers, rows):
 
 def ledger_fixtures(root, required_headers):
     headers = list(required_headers)
-    if (
-        len(headers) != len(EXPECTED_REQUIRED_HEADERS)
-        or set(headers) != set(EXPECTED_REQUIRED_HEADERS)
+    if len(headers) != len(EXPECTED_REQUIRED_HEADERS) or set(headers) != set(
+        EXPECTED_REQUIRED_HEADERS
     ):
         raise Blocked(
             "Actual upload profile required_headers differ from the synthetic ledger schema: "
@@ -170,13 +237,22 @@ def ledger_fixtures(root, required_headers):
     write_xlsx(
         valid,
         headers,
-        [project(row_values("192.0.2.10"), headers), project(row_values("192.0.2.11"), headers)],
+        [
+            project(row_values("192.0.2.10"), headers),
+            project(row_values("192.0.2.11"), headers),
+        ],
     )
     missing_headers = [header for header in headers if header != "web界面url"]
     missing = fixtures / INVALID_HEADER_FILENAME
-    write_xlsx(missing, missing_headers, [project(row_values("192.0.2.12"), missing_headers)])
+    write_xlsx(
+        missing, missing_headers, [project(row_values("192.0.2.12"), missing_headers)]
+    )
     invalid_port = fixtures / INVALID_PORT_FILENAME
-    write_xlsx(invalid_port, headers, [project(row_values("192.0.2.13", start=70000, end=70000), headers)])
+    write_xlsx(
+        invalid_port,
+        headers,
+        [project(row_values("192.0.2.13", start=70000, end=70000), headers)],
+    )
     return {
         "valid": {
             "path": str(valid),
@@ -206,25 +282,56 @@ def ledger_fixtures(root, required_headers):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
-    p.add_argument("--pg-bin", type=Path, default=Path("/opt/homebrew/opt/postgresql@17/bin"))
+    p.add_argument("--pg-bin", type=Path, default=None)
+    p.add_argument(
+        "--install-timeout",
+        type=int,
+        default=180,
+        help="Timeout in seconds for frozen UI dependency installation",
+    )
     p.add_argument("--evidence", type=Path)
-    p.add_argument("--ui-timeout-test", action="store_true", help="Negative control: pause browser and force owned-group teardown")
-    p.add_argument("--ui", action="store_true", help="Install locked frontend deps in isolated source and drive real Chrome UI")
-    p.add_argument("--ledger", action="store_true", help="With the browser, drive customer-ledger invalid uploads, first selection, ledger read and persisted readback")
+    p.add_argument(
+        "--ui-timeout-test",
+        action="store_true",
+        help="Negative control: pause browser and force owned-group teardown",
+    )
+    p.add_argument(
+        "--ui",
+        action="store_true",
+        help="Install locked frontend deps in isolated source and drive real Chrome UI",
+    )
+    p.add_argument(
+        "--ledger",
+        action="store_true",
+        help="With the browser, drive customer-ledger invalid uploads, first selection, ledger read and persisted readback",
+    )
     p.add_argument("--doctor", action="store_true")
     p.add_argument("--self-test", action="store_true")
-    p.add_argument("--expect-name", help="Deliberately wrong value proves real-path assertions fail")
-    p.add_argument("--expect-ledger-ip", default="192.0.2.10", help="Deliberately wrong value proves the ledger readback assertion fails")
+    p.add_argument(
+        "--expect-name",
+        help="Deliberately wrong value proves real-path assertions fail",
+    )
+    p.add_argument(
+        "--expect-ledger-ip",
+        default="192.0.2.10",
+        help="Deliberately wrong value proves the ledger readback assertion fails",
+    )
     a = p.parse_args()
+    a.pg_bin = resolve_pg_bin(a.pg_bin)
     if a.ledger and a.ui_timeout_test:
         p.error("--ledger cannot combine with --ui-timeout-test")
     if a.ledger:
         a.ui = True
     if a.self_test:
         bad = classify(lambda: require(False, "known bad result"))[0]
-        missing = classify(lambda: doctor(Path("/nonexistent-verification-runtime"), a.pg_bin))[0]
-        result = {"bad_result": bad, "missing_runtime": missing,
-                  "status": "PASS" if (bad, missing) == ("FAIL", "BLOCKED") else "FAIL"}
+        missing = classify(
+            lambda: doctor(Path("/nonexistent-verification-runtime"), a.pg_bin)
+        )[0]
+        result = {
+            "bad_result": bad,
+            "missing_runtime": missing,
+            "status": "PASS" if (bad, missing) == ("FAIL", "BLOCKED") else "FAIL",
+        }
         print(json.dumps(result))
         return 0 if result["status"] == "PASS" else 1
     if a.doctor:
@@ -258,31 +365,65 @@ def main():
     process = None
     pg_started = False
     ui_process = None
-    env = {"PATH": os.defpath, "HOME": str(runtime), "LC_ALL": "C", "LANG": "C", "PYTHONDONTWRITEBYTECODE": "1"}
+    env = {
+        "PATH": os.defpath,
+        "HOME": str(runtime),
+        "LC_ALL": "C",
+        "LANG": "C",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
 
-    def run(cmd, **kw):
+    def run(cmd, timeout=120, **kw):
         return subprocess.run(
-            [str(x) for x in cmd], env=env, stdout=log, stderr=log, check=True, timeout=120, **kw
+            [str(x) for x in cmd],
+            env=env,
+            stdout=log,
+            stderr=log,
+            check=True,
+            timeout=timeout,
+            **kw,
         )
 
     def psql_scalar(sql):
         return subprocess.check_output(
-            [str(a.pg_bin / "psql"), "-h", "127.0.0.1", "-p", str(result["ports"]["postgres"]),
-             "-U", "pilot", "-d", "pilot", "-tAc", sql],
+            [
+                str(a.pg_bin / "psql"),
+                "-h",
+                "127.0.0.1",
+                "-p",
+                str(result["ports"]["postgres"]),
+                "-U",
+                "pilot",
+                "-d",
+                "pilot",
+                "-tAc",
+                sql,
+            ],
             env=env,
             text=True,
         ).strip()
 
     def journey():
         nonlocal process, pg_started, env, ui_process
-        result["target"] = "committed HEAD; validation assets excluded from dirty-source gate"
+        result["target"] = (
+            "committed HEAD; validation assets excluded from dirty-source gate"
+        )
         py = doctor(a.repo, a.pg_bin)
         result["source_start"] = source_state(a.repo)
-        result["head"] = subprocess.check_output(["git", "-C", str(a.repo), "rev-parse", "HEAD"], text=True).strip()
-        result["postgres"] = subprocess.check_output([str(a.pg_bin / "postgres"), "--version"], text=True).strip()
-        result["environment_limit"] = "Native PostgreSQL17 pilot, not PostgreSQL18/Docker/production equivalence"
+        result["head"] = subprocess.check_output(
+            ["git", "-C", str(a.repo), "rev-parse", "HEAD"], text=True
+        ).strip()
+        result["postgres"] = subprocess.check_output(
+            [str(a.pg_bin / "postgres"), "--version"], text=True
+        ).strip()
+        result["resolved_tools"] = {"pg_bin": str(a.pg_bin)}
+        result["environment_limit"] = (
+            "Native PostgreSQL17 pilot, not PostgreSQL18/Docker/production equivalence"
+        )
         with (runtime / "source.tar").open("wb") as f:
-            subprocess.run(["git", "-C", str(a.repo), "archive", "HEAD"], stdout=f, check=True)
+            subprocess.run(
+                ["git", "-C", str(a.repo), "archive", "HEAD"], stdout=f, check=True
+            )
         with tarfile.open(runtime / "source.tar") as archive:
             # Only versioned source, exclude any config credentials regardless of tracking.
             for member in archive.getmembers():
@@ -315,17 +456,60 @@ def main():
             MODEL_API_KEY="",
             CLOUDATLAS_CAPSET_TOKEN="",
         )
-        run([a.pg_bin / "initdb", "-D", runtime / "pgdata", "-U", "pilot", "-A", "trust", "--no-locale", "--encoding=UTF8"])
+        run(
+            [
+                a.pg_bin / "initdb",
+                "-D",
+                runtime / "pgdata",
+                "-U",
+                "pilot",
+                "-A",
+                "trust",
+                "--no-locale",
+                "--encoding=UTF8",
+            ]
+        )
         # The private directory is mode 0700; only our disposable cluster uses trust.
-        run([a.pg_bin / "pg_ctl", "-D", runtime / "pgdata", "-l", runtime / "postgres.log",
-             "-o", f"-h 127.0.0.1 -p {pgport} -k ''", "-w", "start"])
+        run(
+            [
+                a.pg_bin / "pg_ctl",
+                "-D",
+                runtime / "pgdata",
+                "-l",
+                runtime / "postgres.log",
+                "-o",
+                f"-h 127.0.0.1 -p {pgport} -k ''",
+                "-w",
+                "start",
+            ]
+        )
         pg_started = True
-        run([a.pg_bin / "createdb", "-h", "127.0.0.1", "-p", str(pgport), "-U", "pilot", "pilot"])
+        run(
+            [
+                a.pg_bin / "createdb",
+                "-h",
+                "127.0.0.1",
+                "-p",
+                str(pgport),
+                "-U",
+                "pilot",
+                "pilot",
+            ]
+        )
         backend = source / "backend"
         run([py, "-m", "alembic", "upgrade", "head"], cwd=backend)
         run([py, "-m", "app.initial_data"], cwd=backend)
         process = subprocess.Popen(
-            [str(py), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(apiport)],
+            [
+                str(py),
+                "-m",
+                "uvicorn",
+                "app.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(apiport),
+            ],
             cwd=backend,
             env=env,
             stdout=log,
@@ -349,7 +533,10 @@ def main():
             if key:
                 headers["Idempotency-Key"] = key
             req = urllib.request.Request(
-                f"http://127.0.0.1:{apiport}" + path, data=data, headers=headers, method=method
+                f"http://127.0.0.1:{apiport}" + path,
+                data=data,
+                headers=headers,
+                method=method,
             )
             try:
                 with opener.open(req, timeout=10) as resp:
@@ -379,24 +566,47 @@ def main():
         else:
             raise Blocked("API did not become ready")
         status, auth = request(
-            "POST", "/api/v1/login/access-token", form={"username": username, "password": password}
+            "POST",
+            "/api/v1/login/access-token",
+            form={"username": username, "password": password},
         )
         require(status == 200 and auth.get("access_token"), "authentication failed")
         token = auth["access_token"]
-        status, project = request("POST", "/api/v1/projects/", {"name": "verification-pilot"}, key="pilot-create")
+        status, project = request(
+            "POST",
+            "/api/v1/projects/",
+            {"name": "verification-pilot"},
+            key="pilot-create",
+        )
         require(status == 201 and project.get("id"), "project creation failed")
         pid = project["id"]
-        status, replay = request("POST", "/api/v1/projects/", {"name": "verification-pilot"}, key="pilot-create")
-        require(status == 201 and replay.get("id") == pid, "idempotent creation duplicated project")
+        status, replay = request(
+            "POST",
+            "/api/v1/projects/",
+            {"name": "verification-pilot"},
+            key="pilot-create",
+        )
+        require(
+            status == 201 and replay.get("id") == pid,
+            "idempotent creation duplicated project",
+        )
         status, readback = request("GET", "/api/v1/projects/" + pid)
         require(
-            status == 200 and readback["name"] == (a.expect_name or "verification-pilot"),
+            status == 200
+            and readback["name"] == (a.expect_name or "verification-pilot"),
             "persisted name mismatch",
         )
         status, listing = request("GET", "/api/v1/projects/")
-        require(status == 200 and listing["count"] == 1 and listing["data"][0]["id"] == pid, "project list mismatch")
-        status, profile = request("GET", f"/api/v1/projects/{pid}/customer-upload-profile")
-        require(status == 200 and profile["version"] == 1, "default upload profile missing")
+        require(
+            status == 200 and listing["count"] == 1 and listing["data"][0]["id"] == pid,
+            "project list mismatch",
+        )
+        status, profile = request(
+            "GET", f"/api/v1/projects/{pid}/customer-upload-profile"
+        )
+        require(
+            status == 200 and profile["version"] == 1, "default upload profile missing"
+        )
         result["upload_profile"] = {
             "version": profile["version"],
             "required_headers": profile["required_headers"],
@@ -406,7 +616,9 @@ def main():
         result["db_project_count"] = saved
         require(saved == "1", "DB side effect differs from API")
         result["artifact_files"] = [
-            str(f.relative_to(runtime / "artifacts")) for f in (runtime / "artifacts").rglob("*") if f.is_file()
+            str(f.relative_to(runtime / "artifacts"))
+            for f in (runtime / "artifacts").rglob("*")
+            if f.is_file()
         ]
         require(not result["artifact_files"], "unexpected artifact side effect")
         fixtures = None
@@ -418,14 +630,34 @@ def main():
             }
         if a.ui or a.ui_timeout_test:
             result["ui"] = "FAIL"
-            bun = Path("/opt/homebrew/bin/bun")
-            node = Path("/opt/homebrew/bin/node")
-            if not bun.exists() or not node.exists():
+            bun = resolve_tool(
+                "bun",
+                (
+                    "/opt/homebrew/bin/bun",
+                    "/usr/local/bin/bun",
+                    str(REAL_HOME / ".bun/bin/bun"),
+                ),
+            )
+            node = resolve_tool(
+                "node", ("/opt/homebrew/bin/node", "/usr/local/bin/node")
+            )
+            if bun is None or node is None:
                 result["ui"] = "BLOCKED"
                 raise Blocked("UI requires installed bun and node")
-            env["PATH"] = "/opt/homebrew/bin:" + os.defpath
+            path_parts = [str(bun.parent), str(node.parent)] + os.defpath.split(
+                os.pathsep
+            )
+            env["PATH"] = os.pathsep.join(dict.fromkeys(path_parts))
             env["PILOT_API"] = f"http://127.0.0.1:{apiport}"
-            env["BUN_INSTALL_CACHE_DIR"] = str(runtime / "bun-cache")
+            shared_bun_cache = os.environ.get("BUN_INSTALL_CACHE_DIR") or str(
+                REAL_HOME / ".bun/install/cache"
+            )
+            try:
+                Path(shared_bun_cache).mkdir(parents=True, exist_ok=True)
+                bun_cache_dir = shared_bun_cache
+            except OSError:
+                bun_cache_dir = str(runtime / "bun-cache")
+            env["BUN_INSTALL_CACHE_DIR"] = bun_cache_dir
             env["PILOT_LEDGER"] = "1" if a.ledger else "0"
             if fixtures is not None:
                 env["PILOT_VALID_XLSX"] = fixtures["valid"]["path"]
@@ -433,21 +665,43 @@ def main():
                 env["PILOT_INVALID_PORT_XLSX"] = fixtures["invalid_port"]["path"]
                 env["PILOT_VALID_FILENAME"] = fixtures["valid"]["file"]
                 env["PILOT_REQUIRED_HEADERS"] = json.dumps(profile["required_headers"])
-            chrome = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-            if not chrome.exists():
+            chrome = resolve_chrome()
+            if chrome is None:
                 result["ui"] = "BLOCKED"
                 raise Blocked("Installed Chrome unavailable")
+            env["PILOT_CHROME_BIN"] = str(chrome)
+            result["resolved_tools"] = {
+                "pg_bin": str(a.pg_bin),
+                "bun": str(bun),
+                "node": str(node),
+                "chrome": str(chrome),
+                "bun_cache_dir": bun_cache_dir,
+            }
             try:
-                run([bun, "install", "--frozen-lockfile"], cwd=source)
                 run(
-                    [node, "-e", "const {createRequire}=require('module');"
-                     "const r=createRequire(process.cwd()+'/frontend/package.json');"
-                     "r('@playwright/test');r.resolve('vite/package.json')"],
+                    [bun, "install", "--frozen-lockfile"],
+                    cwd=source,
+                    timeout=a.install_timeout,
+                )
+                run(
+                    [
+                        node,
+                        "-e",
+                        "const {createRequire}=require('module');"
+                        "const r=createRequire(process.cwd()+'/frontend/package.json');"
+                        "r('@playwright/test');r.resolve('vite/package.json')",
+                    ],
                     cwd=source,
                 )
-            except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            except (
+                OSError,
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+            ) as exc:
                 result["ui"] = "BLOCKED"
-                raise Blocked("Locked frontend dependencies unavailable; see runtime.log") from exc
+                raise Blocked(
+                    "Locked frontend dependencies unavailable; see runtime.log"
+                ) from exc
             if a.ui_timeout_test:
                 env["PILOT_TIMEOUT_TEST"] = "1"
             helper = Path(__file__).resolve().with_name("verify-exposure2026-ui.cjs")
@@ -464,7 +718,10 @@ def main():
                 json.dumps({"pgid": ui_process.pid, "source": str(source)})
             )
             timeout = 20 if a.ui_timeout_test else (300 if a.ledger else 180)
-            require(ui_process.wait(timeout=timeout) == 0, "Browser journey failed; see ui-result.json")
+            require(
+                ui_process.wait(timeout=timeout) == 0,
+                "Browser journey failed; see ui-result.json",
+            )
             ui_result = json.loads((root / "ui-result.json").read_text())
             result["ui"] = ui_result["status"]
             ledger_result = ui_result.get("ledger") if a.ledger else None
@@ -480,35 +737,81 @@ def main():
                 upload = ledger_result["upload"]
                 upload_id = upload["upload_id"]
                 raw_sha256 = upload["raw_sha256"]
-                status, uploads = request("GET", f"/api/v1/projects/{ui_project}/customer-uploads")
+                status, uploads = request(
+                    "GET", f"/api/v1/projects/{ui_project}/customer-uploads"
+                )
                 require(status == 200, "customer uploads readback failed")
                 require(uploads.get("count") == 1, "accepted upload count mismatch")
-                require(uploads.get("current_customer_upload_id") == upload_id, "current upload pointer mismatch")
-                require((uploads.get("data") or [{}])[0].get("id") == upload_id, "accepted upload id mismatch")
-                require((uploads.get("data") or [{}])[0].get("raw_sha256") == raw_sha256, "upload hash mismatch")
-                status, ledger = request("GET", f"/api/v1/projects/{ui_project}/customer-ledger")
+                require(
+                    uploads.get("current_customer_upload_id") == upload_id,
+                    "current upload pointer mismatch",
+                )
+                require(
+                    (uploads.get("data") or [{}])[0].get("id") == upload_id,
+                    "accepted upload id mismatch",
+                )
+                require(
+                    (uploads.get("data") or [{}])[0].get("raw_sha256") == raw_sha256,
+                    "upload hash mismatch",
+                )
+                status, ledger = request(
+                    "GET", f"/api/v1/projects/{ui_project}/customer-ledger"
+                )
                 require(status == 200, "customer ledger readback failed")
-                require(ledger.get("upload_id") == upload_id, "ledger upload scope mismatch")
-                require(ledger.get("current_upload_id") == upload_id, "ledger current upload mismatch")
-                require(ledger.get("current_revision_id") is None, "first selection created a revision")
-                require(ledger.get("revision") is None, "first selection returned a revision")
+                require(
+                    ledger.get("upload_id") == upload_id, "ledger upload scope mismatch"
+                )
+                require(
+                    ledger.get("current_upload_id") == upload_id,
+                    "ledger current upload mismatch",
+                )
+                require(
+                    ledger.get("current_revision_id") is None,
+                    "first selection created a revision",
+                )
+                require(
+                    ledger.get("revision") is None,
+                    "first selection returned a revision",
+                )
                 require(ledger.get("count") == 2, "ledger count mismatch")
-                require(ledger.get("total_records") == 2, "ledger total_records mismatch")
+                require(
+                    ledger.get("total_records") == 2, "ledger total_records mismatch"
+                )
                 require(ledger.get("unique_ips") == 2, "ledger unique_ips mismatch")
-                require(ledger.get("filename") == VALID_FILENAME, "ledger filename mismatch")
-                require(ledger.get("upload_sha256") == raw_sha256, "ledger upload sha mismatch")
+                require(
+                    ledger.get("filename") == VALID_FILENAME, "ledger filename mismatch"
+                )
+                require(
+                    ledger.get("upload_sha256") == raw_sha256,
+                    "ledger upload sha mismatch",
+                )
                 rows = ledger.get("data") or []
                 require(len(rows) == 2, "ledger page rows mismatch")
-                require(rows[0].get("canonical_ip") == a.expect_ledger_ip,
-                        f"ledger first IP {rows[0].get('canonical_ip')} != expected {a.expect_ledger_ip}")
+                require(
+                    rows[0].get("canonical_ip") == a.expect_ledger_ip,
+                    f"ledger first IP {rows[0].get('canonical_ip')} != expected {a.expect_ledger_ip}",
+                )
                 by_ip = {row.get("canonical_ip"): row for row in rows}
-                require(set(by_ip) == {"192.0.2.10", "192.0.2.11"}, "ledger IP set mismatch")
+                require(
+                    set(by_ip) == {"192.0.2.10", "192.0.2.11"}, "ledger IP set mismatch"
+                )
                 for ip in ("192.0.2.10", "192.0.2.11"):
                     fields = by_ip[ip].get("fields") or {}
-                    require(fields.get("start_port") == 443, f"ledger start_port mismatch for {ip}")
-                    require(fields.get("end_port") == 443, f"ledger end_port mismatch for {ip}")
-                    require(fields.get("is_web") == "否", f"ledger is_web mismatch for {ip}")
-                    require(fields.get("web_url") is None, f"ledger web_url mismatch for {ip}")
+                    require(
+                        fields.get("start_port") == 443,
+                        f"ledger start_port mismatch for {ip}",
+                    )
+                    require(
+                        fields.get("end_port") == 443,
+                        f"ledger end_port mismatch for {ip}",
+                    )
+                    require(
+                        fields.get("is_web") == "否", f"ledger is_web mismatch for {ip}"
+                    )
+                    require(
+                        fields.get("web_url") is None,
+                        f"ledger web_url mismatch for {ip}",
+                    )
                 result["ledger_api_readback"] = {
                     "upload_id": ledger.get("upload_id"),
                     "current_upload_id": ledger.get("current_upload_id"),
@@ -530,7 +833,10 @@ def main():
                 artifact_files = [
                     f for f in (runtime / "artifacts").rglob("*") if f.is_file()
                 ]
-                require(len(artifact_files) == 1, "ledger run must persist exactly one artifact")
+                require(
+                    len(artifact_files) == 1,
+                    "ledger run must persist exactly one artifact",
+                )
                 artifact = artifact_files[0]
                 artifact_hash = sha256_file(artifact)
                 artifact_size = artifact.stat().st_size
@@ -560,33 +866,61 @@ def main():
                 require(sql_current == upload_id, "DB current upload pointer mismatch")
                 require(sql_uploads == "1", "DB accepted upload count mismatch")
                 require(sql_artifacts == "1", "DB artifact count mismatch")
-                require(sql_replacements == "1", "DB replacement receipt count mismatch")
-                require(sql_revisions == "0", "DB revision count mismatch for first selection")
+                require(
+                    sql_replacements == "1", "DB replacement receipt count mismatch"
+                )
+                require(
+                    sql_revisions == "0",
+                    "DB revision count mismatch for first selection",
+                )
                 storage_key, db_hash, db_size = sql_artifact.split("|")
                 require(db_hash == raw_sha256, "DB artifact sha mismatch")
                 require(int(db_size) == artifact_size, "DB artifact size mismatch")
-                require(str(artifact.relative_to(runtime / "artifacts")) == storage_key, "artifact storage key mismatch")
+                require(
+                    str(artifact.relative_to(runtime / "artifacts")) == storage_key,
+                    "artifact storage key mismatch",
+                )
                 artifact_copy = root / "artifact-uploaded.xlsx"
                 shutil.copyfile(artifact, artifact_copy)
-                require(sha256_file(artifact_copy) == raw_sha256, "artifact copy hash mismatch")
+                require(
+                    sha256_file(artifact_copy) == raw_sha256,
+                    "artifact copy hash mismatch",
+                )
                 from openpyxl import load_workbook
 
                 workbook = load_workbook(artifact_copy, read_only=True, data_only=False)
                 try:
                     worksheet = workbook.worksheets[0]
-                    artifact_rows = [list(row) for row in worksheet.iter_rows(values_only=True)]
+                    artifact_rows = [
+                        list(row) for row in worksheet.iter_rows(values_only=True)
+                    ]
                 finally:
                     workbook.close()
-                require(artifact_rows[0] == list(profile["required_headers"]), "artifact headers mismatch")
+                require(
+                    artifact_rows[0] == list(profile["required_headers"]),
+                    "artifact headers mismatch",
+                )
                 require(len(artifact_rows) == 3, "artifact row count mismatch")
-                parsed = [dict(zip(artifact_rows[0], row, strict=True)) for row in artifact_rows[1:]]
-                require([item["资产IP"] for item in parsed] == ["192.0.2.10", "192.0.2.11"], "artifact IPs mismatch")
+                parsed = [
+                    dict(zip(artifact_rows[0], row, strict=True))
+                    for row in artifact_rows[1:]
+                ]
+                require(
+                    [item["资产IP"] for item in parsed] == ["192.0.2.10", "192.0.2.11"],
+                    "artifact IPs mismatch",
+                )
                 for item in parsed:
-                    require(item["起始端口"] == 443 and item["结束端口"] == 443, "artifact port mismatch")
+                    require(
+                        item["起始端口"] == 443 and item["结束端口"] == 443,
+                        "artifact port mismatch",
+                    )
                     require(item["是否web界面"] == "否", "artifact web flag mismatch")
                     require(item["web界面url"] is None, "artifact web url mismatch")
                 result["ledger_artifact"] = {
-                    "files": [str(f.relative_to(runtime / "artifacts")) for f in artifact_files],
+                    "files": [
+                        str(f.relative_to(runtime / "artifacts"))
+                        for f in artifact_files
+                    ],
                     "storage_key": storage_key,
                     "sha256": artifact_hash,
                     "byte_size": artifact_size,
@@ -614,10 +948,14 @@ def main():
             if owner.exists():
                 try:
                     data = json.loads(owner.read_text())
-                    if data.get("source") != str(source) or not isinstance(data.get("pid"), int):
+                    if data.get("source") != str(source) or not isinstance(
+                        data.get("pid"), int
+                    ):
                         errors.append("Unverified browser ownership; retain runtime")
                     elif not stop_group(data["pid"]):
-                        errors.append("Browser group stop unconfirmed (including EPERM)")
+                        errors.append(
+                            "Browser group stop unconfirmed (including EPERM)"
+                        )
                 except Exception as exc:
                     errors.append("Browser cleanup: " + str(exc))
             try:
@@ -646,7 +984,17 @@ def main():
         # A failed/timed-out start may already own a live postmaster. Never discard its data.
         if pg_started or (pgdata / "postmaster.pid").exists():
             try:
-                run([a.pg_bin / "pg_ctl", "-D", runtime / "pgdata", "-m", "fast", "-w", "stop"])
+                run(
+                    [
+                        a.pg_bin / "pg_ctl",
+                        "-D",
+                        runtime / "pgdata",
+                        "-m",
+                        "fast",
+                        "-w",
+                        "stop",
+                    ]
+                )
             except Exception as exc:
                 errors.append(str(exc))
             if (pgdata / "postmaster.pid").exists():
@@ -657,9 +1005,14 @@ def main():
                 end_head = subprocess.check_output(
                     ["git", "-C", str(a.repo), "rev-parse", "HEAD"], text=True
                 ).strip()
-                require(end_head == result.get("head"), "HEAD changed during verification")
+                require(
+                    end_head == result.get("head"), "HEAD changed during verification"
+                )
             except Exception as exc:
-                result["status"], result["reason"] = "FAIL", "Source changed during verification: " + str(exc)
+                result["status"], result["reason"] = (
+                    "FAIL",
+                    "Source changed during verification: " + str(exc),
+                )
         log.close()
         if (runtime / "postgres.log").exists():
             shutil.copyfile(runtime / "postgres.log", root / "postgres.log")
@@ -669,7 +1022,9 @@ def main():
         result["cleanup_errors"] = errors
         if errors:
             result["status"] = "FAIL"
-        (root / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+        (root / "result.json").write_text(
+            json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+        )
         print(
             json.dumps(
                 {
