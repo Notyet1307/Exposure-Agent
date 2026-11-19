@@ -346,7 +346,7 @@ async function main() {
   }
   if (!ready) throw Error('Vite not ready');
   browserServer = await chromium.launchServer({
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    executablePath: process.env.PILOT_CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     headless: true,
   });
   fs.writeFileSync(path.join(evidence, 'ui-browser-owner.json'),
