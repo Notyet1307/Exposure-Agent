@@ -30,7 +30,7 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 
 `frontend/src/client/**` 和 `frontend/src/routeTree.gen.ts` 是生成文件，仅在 API Contract 或路由生成相关任务中按需读取，禁止手工编辑。API 变更后使用 `bash scripts/generate-client.sh` 更新客户端。
 
-任务规划、实现、审阅和发布默认通过 Codync 入口，在 Claude Code 中按 pstack 方法执行，并使用 GitHub 原生能力。已明确授权的任务级 Cindy/Pi 运行可沿任务专属入口执行同一方法；默认入口不变，也不构成项目级迁移、权限或全局配置变更。仓库内遗留的 pi-ticket-planning、HerdrHarness、Wayfinder、Admission、Delivery Graph、Frontier 和 Controller 材料仅视为历史文档，不作为当前流程入口。
+任务规划、实现、审阅和发布统一通过 Cindy 项目任务入口，在托管 Pi 中按原版 pstack 方法执行，并使用 GitHub 原生能力。仓库内遗留的 pi-ticket-planning、HerdrHarness、Wayfinder、Admission、Delivery Graph、Frontier 和 Controller 材料仅视为历史文档，不作为当前流程入口。
 
 文档事实源索引见 `docs/README.md`。
 
@@ -43,23 +43,23 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 - 未经新 ADR 明确批准，不引入 Redis、Celery、Kafka、Temporal、第二套调度器、通用规则 DSL 或默认多 Agent 路径。
 - 只实现当前已确认任务，不提前推进目标状态中的能力。
 
-## Claude Code + pstack 工作流
+## Cindy + Pi + pstack 工作流
 
-- 任务入口默认是 Codync。总管持有目标、设计、路线与验收；获派的项目工匠在单独实现上下文中完成修改、验证、普通测试和证据交回。已明确授权的任务级 Cindy/Pi 运行按上文入口范围使用任务专属入口。同一候选同一时间只有一个源码写入者。
-- 实现默认运行在 Claude Code，开发方法使用 pstack；已明确授权的任务级 Cindy/Pi 运行按上文入口范围执行。所选 pstack 步骤要求的验证与独立审阅不得省略。
-- 只实现当前对话已确认的 GitHub Issue；行为预期以该 Issue 引用的批准 Spec 为准。
-- 实现完成后，总管组织非作者的独立审阅，分别按仓库 Standards 与批准 Spec 两轴进行；发现 blocker 时由原实现者修复并重新审阅。独立业务验收与该两轴代码审阅分开，不互相替代。
-- 明确授权的实现任务，约定验证通过后可在已核对的任务分支或 worktree 本地 commit，沿用任务的提交条件与指定收口者，不另加报告审批；只读请求、明确禁止、暂停及既有停止点继续有效。只提交本任务内容并保留其他改动；本地候选或复现 commit 继续既定验证，不代表必需审阅或独立业务验收通过。交付读回实际完整 SHA、文件范围与验证状态。commit、push、创建 PR、merge、部署和关闭 Issue 分开报告，远端状态与关闭仍各需明确授权及验收，pstack 步骤结束不构成对下一状态的授权。
-- 远端生命周期逐项验收：push 前确认本地提交和验证结果，merge 前确认所需 CI/Review，关闭 Issue 前确认 PR 已合并且任务要求的部署验收已完成或明确不适用。
-- GitHub 分支保护、必需 CI 和 Review 门禁始终有效。
-- 不设置独立 Controller、Admission 或 ready-label 自动授权；总管的正常派工与任务分派不属于这些机制。
+- Exposure 任务从 Cindy 已登记的 Exposure 项目创建，显式选择托管 Pi 与隔离 worktree，标题带 `[#<Issue号>]`。
+- 一个已确认的 GitHub Issue 对应一个托管 Pi 任务闭环；单个 Pi 主代理在隔离 worktree 内按原版 `pstack`（`poteto-mode`）调度原生子代理完成调查、设计、实现、验证、审阅与 PR 准备。同一候选同一时间只有一个源码写入者。
+- 只实现当前已确认的 GitHub Issue；行为预期以该 Issue 引用的批准固定 Spec 为准。
+- 人工门禁收口为两道（只读请求、明确禁止、暂停及既有停止点继续有效）：
+  1. **开工授权**：确认 Issue 与固定 Spec（存在产品、UI 或架构歧义时先确认设计），授权范围包含隔离任务分支上的本地 commit、push 分支、创建附验证摘要卡的 PR 及跟进必需 CI 到绿。本地提交只纳入本任务范围并保护其他改动。
+  2. **落地授权**：人工核对 PR 验证证据与必需 CI 后，批准 merge、生产部署及关闭 Issue（关闭前确认任务要求的部署验收已完成或明确不适用）。
+- 实现完成后，Pi 主代理在当前任务内组织非作者的 fresh 只读审阅，核对仓库 Standards 与批准 Spec AC；发现 blocker 退回原实现者修复并复审。运行验证按 `.claude/skills/verify-exposure2026/SKILL.md` 执行；代码审阅与独立业务验收分开，结果使用 `PASS / FAIL / BLOCKED / NOT_RUN`（见 `docs/adr/0016-pin-approved-spec-and-issue-status.md`）。
+- GitHub 分支保护、必需 CI 和 Review 门禁始终有效；不设置独立 Controller、Admission 或 ready-label 自动授权。
 
 ## Fresh worktree 初始化与验证
 
 首次进入新的 worktree 后，按需安装受影响部分的依赖：
 
-- 后端：`cd backend && uv sync`
-- 前端：`cd frontend && bun ci`
+- 后端（仓库根目录）：`uv sync --frozen`
+- 前端：`cd frontend && bun install --frozen-lockfile`
 
 常用验证命令：
 
