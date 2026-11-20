@@ -43,4 +43,10 @@ VERIFY="$REPO_ROOT/scripts/verify-exposure2026.py"
 
 "$PY" "$VERIFY" --self-test
 "$PY" "$VERIFY" --repo "$REPO_ROOT" --doctor
+COMMON_GIT_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
+if [ -x "$COMMON_GIT_DIR/hooks/pre-commit" ]; then
+  echo "HOOK_STATUS pre-commit=installed path=$COMMON_GIT_DIR/hooks/pre-commit"
+else
+  echo "HOOK_STATUS pre-commit=missing (run 'uv run prek install' in primary checkout when authorized)"
+fi
 echo "BOOTSTRAP_READY repo=$REPO_ROOT"

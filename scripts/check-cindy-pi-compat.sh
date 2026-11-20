@@ -18,7 +18,27 @@ do
 done
 export PATH
 
-REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --repo)
+      shift
+      if [ "$#" -eq 0 ]; then
+        echo "BLOCKED: --repo requires a path argument" >&2
+        exit 2
+      fi
+      REPO_ROOT="$1"
+      ;;
+    *)
+      echo "BLOCKED: unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (cd "$SCRIPT_DIR/.." && pwd))"
+REPO_ROOT="${REPO_ROOT:-$DEFAULT_REPO_ROOT}"
 CINDY_DATA_DIR="${CINDY_DATA_DIR:-$HOME/Library/Application Support/CindyGlobal}"
 SELECTED_JSON="$CINDY_DATA_DIR/pi/selected.json"
 PKG_STATE_JSON="$CINDY_DATA_DIR/pi-package-home/cindy-package-state.json"

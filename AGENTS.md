@@ -68,6 +68,7 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 常用验证命令：
 
 - 上下文门禁：`python3 scripts/check-context-hygiene.py`
+- PR 交付护栏（无本机路径 + 证据 HEAD 绑定）：`python3 scripts/check-pr-delivery.py --pr-body <file> --frozen-manifest <frozen-assets.json> --head <sha>`
 - 后端 lint/typecheck：`cd backend && uv run bash scripts/lint.sh`
 - 后端测试：`cd backend && uv run bash scripts/tests-start.sh`
 - 前端 lint：`cd frontend && bun run lint`

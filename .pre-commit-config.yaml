@@ -25,57 +25,58 @@ repos:
     hooks:
       - id: context-hygiene
         name: context hygiene
-        entry: python3 scripts/check-context-hygiene.py
+        entry: bash scripts/with-tool-path.sh python3 scripts/check-context-hygiene.py
         language: system
         pass_filenames: false
         always_run: true
 
       - id: local-biome-check
         name: biome check
-        entry: npm run lint
+        entry: bash scripts/with-tool-path.sh bun run lint
         language: system
+        pass_filenames: false
         types: [text]
         files: ^frontend/
 
       - id: local-ruff-check
         name: ruff check
-        entry: uv run ruff check --force-exclude --fix --exit-non-zero-on-fix
+        entry: bash scripts/with-tool-path.sh uv run ruff check --force-exclude --fix --exit-non-zero-on-fix
         require_serial: true
-        language: unsupported
+        language: system
         types: [python]
 
       - id: local-ruff-format
         name: ruff format
-        entry: uv run ruff format --force-exclude --exit-non-zero-on-format
+        entry: bash scripts/with-tool-path.sh uv run ruff format --force-exclude --exit-non-zero-on-format
         require_serial: true
-        language: unsupported
+        language: system
         types: [python]
 
       - id: local-mypy
         name: mypy check
-        entry: uv run mypy backend/app
+        entry: bash scripts/with-tool-path.sh uv run mypy backend/app
         require_serial: true
-        language: unsupported
+        language: system
         pass_filenames: false
 
       - id: local-ty
         name: ty check
-        entry: uv run ty check backend/app
+        entry: bash scripts/with-tool-path.sh uv run ty check backend/app
         require_serial: true
-        language: unsupported
+        language: system
         pass_filenames: false
 
       - id: generate-frontend-sdk
         name: Generate Frontend SDK
-        entry: bash ./scripts/generate-client.sh
+        entry: bash scripts/with-tool-path.sh bash ./scripts/generate-client.sh
         pass_filenames: false
-        language: unsupported
+        language: system
         files: ^backend/.*$|^scripts/generate-client\.sh$
 
       - id: zizmor
         name: zizmor
-        language: python
-        entry: uv run zizmor .
+        language: system
+        entry: bash scripts/with-tool-path.sh uv run zizmor .
         files: ^\.github\/workflows\/
         require_serial: true
         pass_filenames: false
