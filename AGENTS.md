@@ -88,6 +88,7 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 ## 仓库工作流入口
 
 - [验证入口](.claude/skills/verify-exposure2026/SKILL.md)与 [Feature Map](.claude/skills/verify-exposure2026/features/README.md)
+- 内循环交互调试/原型 CLI：`node scripts/control-exposure.mjs --help`（基于通用 `scripts/web-control.mjs`，用于 commit 前开发调试、复现与双视口原型；提交终审仍走 `verify-exposure2026`）
 - Issue tracker：`docs/agents/issue-tracker.md`
 - Triage labels：`docs/agents/triage-labels.md`
 - Domain docs：`docs/agents/domain.md`
