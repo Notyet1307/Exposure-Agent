@@ -89,3 +89,5 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 - Triage labels：`docs/agents/triage-labels.md`
 - Domain docs：`docs/agents/domain.md`
 - Skill 与方法：`docs/agents/skill-usage.md`
+- Cindy / Pi 升级只读兼容预检：`bash scripts/check-cindy-pi-compat.sh`
+- 本地只读工程巡检看板：`node scripts/pstack-ops-dashboard.mjs`
