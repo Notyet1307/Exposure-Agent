@@ -16,3 +16,7 @@ node_modules/
 # Python bytecode from local acceptance scripts
 __pycache__/
 *.py[cod]
+
+# Cindy managed worktrees and injected skill symlinks
+/.agents/
+/.cindy-worktrees/

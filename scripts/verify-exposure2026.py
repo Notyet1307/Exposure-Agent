@@ -14,6 +14,7 @@ import socket
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -160,6 +161,7 @@ def source_state(repo):
             item[3:]
             in ("scripts/verify-exposure2026.py", "scripts/verify-exposure2026-ui.cjs")
             or item[3:].startswith(".claude/skills/verify-exposure2026/")
+            or item[3:].startswith(".agents/skills/")
         )
     ]
     if forbidden:
@@ -327,10 +329,24 @@ def main():
         missing = classify(
             lambda: doctor(Path("/nonexistent-verification-runtime"), a.pg_bin)
         )[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_repo = Path(tmp)
+            subprocess.run(["git", "-C", str(tmp_repo), "init", "-q"], check=True)
+            skill_dir = tmp_repo / ".agents" / "skills" / "verify-exposure2026"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("stub\n")
+            agents_exempt = classify(lambda: source_state(tmp_repo))[0]
+            (tmp_repo / "dirty-product.txt").write_text("dirty\n")
+            dirty_blocked = classify(lambda: source_state(tmp_repo))[0]
         result = {
             "bad_result": bad,
             "missing_runtime": missing,
-            "status": "PASS" if (bad, missing) == ("FAIL", "BLOCKED") else "FAIL",
+            "agents_skill_exempt": agents_exempt,
+            "dirty_source_blocked": dirty_blocked,
+            "status": "PASS"
+            if (bad, missing, agents_exempt, dirty_blocked)
+            == ("FAIL", "BLOCKED", "PASS", "BLOCKED")
+            else "FAIL",
         }
         print(json.dumps(result))
         return 0 if result["status"] == "PASS" else 1

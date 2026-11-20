@@ -46,12 +46,12 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 ## Cindy + Pi + pstack 工作流
 
 - Exposure 任务从 Cindy 已登记的 Exposure 项目创建，显式选择托管 Pi 与隔离 worktree，标题带 `[#<Issue号>]`。
-- 一个已确认的 GitHub Issue 对应一个托管 Pi 任务闭环；单个 Pi 主代理在隔离 worktree 内按原版 `pstack`（`poteto-mode`）调度原生子代理完成调查、设计、实现、验证、审阅与 PR 准备。同一候选同一时间只有一个源码写入者。
+- 一个已确认的 GitHub Issue 对应一个托管 Pi 任务闭环；同一候选同一时间只有一个源码写入者。开 PR 前按原版 `pstack`（`poteto-mode`，随任务复杂度弹性升级调查/设计/审阅深度）调度原生子代理；开 PR 后交由 Cindy 内置 `cindy-github`（`pr` skill + `pr_card` + `pr-heartbeat-gate.mjs` 后台零空闲 token 巡检）跟进 CI 与评论，禁止前台阻塞运行 `gh pr checks --watch` 或 `babysit`。
 - 只实现当前已确认的 GitHub Issue；行为预期以该 Issue 引用的批准固定 Spec 为准。
 - 人工门禁收口为两道（只读请求、明确禁止、暂停及既有停止点继续有效）：
-  1. **开工授权**：确认 Issue 与固定 Spec（存在产品、UI 或架构歧义时先确认设计），授权范围包含隔离任务分支上的本地 commit、push 分支、创建附验证摘要卡的 PR 及跟进必需 CI 到绿。本地提交只纳入本任务范围并保护其他改动。
-  2. **落地授权**：人工核对 PR 验证证据与必需 CI 后，批准 merge、生产部署及关闭 Issue（关闭前确认任务要求的部署验收已完成或明确不适用）。
-- 实现完成后，Pi 主代理在当前任务内组织非作者的 fresh 只读审阅，核对仓库 Standards 与批准 Spec AC；发现 blocker 退回原实现者修复并复审。运行验证按 `.claude/skills/verify-exposure2026/SKILL.md` 执行；代码审阅与独立业务验收分开，结果使用 `PASS / FAIL / BLOCKED / NOT_RUN`（见 `docs/adr/0016-pin-approved-spec-and-issue-status.md`）。
+  1. **开工授权**：确认 Issue 与固定 Spec（存在产品、UI 或架构歧义时先确认设计），授权范围包含隔离任务分支上的本地候选 commit、运行验证、push 分支、创建附验证摘要卡的 PR 及后台跟进必需 CI。本地提交只纳入本任务范围并保护其他改动。
+  2. **落地授权**：默认在必需 CI 全绿且无未决评论后停在 `[ready]`，由人工核对证据后批准 merge、云端部署及关闭 Issue；仅当派单显式预授权自动合并时，后台跟进可在 `pr-snapshot.mjs --expect-head <sha> --strict-exit` 校验通过后锁头 `squash` 合入（保留远端分支）。
+- 因 `.claude/skills/verify-exposure2026/SKILL.md` 基于 `git archive HEAD` 验证且拦截未提交产品改动，隔离任务分支须按**先本地候选 commit → 对 `HEAD` 执行 `verify-exposure2026` → 任务内非作者 fresh 只读审阅**顺序推进；发现 blocker 退回原实现者修复、更新本地提交并复验复审。代码审阅与独立业务验收分开，结果使用 `PASS / FAIL / BLOCKED / NOT_RUN`（见 `docs/adr/0016-pin-approved-spec-and-issue-status.md`）。
 - GitHub 分支保护、必需 CI 和 Review 门禁始终有效；不设置独立 Controller、Admission 或 ready-label 自动授权。
 
 ## Fresh worktree 初始化与验证
