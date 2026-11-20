@@ -7,7 +7,7 @@
 1. 从 Cindy 新建任务时显式传 `project_path="/Users/yet/Developer/exposure2026"`、`agent_kind="pi"` 并启用隔离 worktree，标题前缀带 `[#<Issue号>]`。
 2. 进入工作树后先运行 `bash scripts/wt-bootstrap.sh`（对应 `[bootstrap]` 工序），完成 `.venv`、前端依赖与 `verify --doctor` 预检。
 3. 任务内读取原版 `poteto-mode/SKILL.md` 与同目录 `references/pi-tools.md`，按任务规模选择对应 playbook 和 skill；模型角色按仓库 [pstack-models.md](../../.pstack/pi-home/pstack-models.md) 执行。
-4. 项目运行验证读取工作树的 [verify-exposure2026](../../.claude/skills/verify-exposure2026/SKILL.md)（不依赖非交互子代理目录发现）。因验证脚本归档已提交 `HEAD` 并豁免 `.agents/skills/` 注入软链，完成实现与单测后须**先执行 `/deslop` 与 `/no-comments` → 在隔离任务分支完成本地候选 commit → 对 `HEAD` 执行运行验证**；若工作树中留有嵌套 `.claude/worktrees/` 或临时 checklist，通过 `SOURCE_REPO` 指向由候选提交导出的干净 Git 副本运行验证，不得删除非空工作树。
+4. 项目运行验证分双层：开发期调试、复现 Bug 与 `/prototype` 双视口原型优先复用内循环原子控制 CLI（`node scripts/control-exposure.mjs`，基于通用 `scripts/web-control.mjs`，避免每单现写一次性驱动脚本）；提交前终审读取工作树的 [verify-exposure2026](../../.claude/skills/verify-exposure2026/SKILL.md)（不依赖非交互子代理目录发现）。因终审脚本归档已提交 `HEAD` 并豁免 `.agents/skills/` 注入软链，完成实现与单测后须**先执行 `/deslop` 与 `/no-comments` → 在隔离任务分支完成本地候选 commit → 对 `HEAD` 执行运行验证**；若工作树中留有嵌套 `.claude/worktrees/` 或临时 checklist，通过 `SOURCE_REPO` 指向由候选提交导出的干净 Git 副本运行验证，不得删除非空工作树。
 
 ## 方法与看板工序
 
