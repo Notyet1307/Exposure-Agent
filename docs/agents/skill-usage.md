@@ -7,13 +7,14 @@
 1. 从 Cindy 新建任务时显式传 `project_path="/Users/yet/Developer/exposure2026"`、`agent_kind="pi"` 并启用隔离 worktree，标题前缀带 `[#<Issue号>]`。
 2. 进入工作树后先运行 `bash scripts/wt-bootstrap.sh`（对应 `[bootstrap]` 工序），完成 `.venv`、前端依赖与 `verify --doctor` 预检。
 3. 任务内读取原版 `poteto-mode/SKILL.md` 与同目录 `references/pi-tools.md`，按任务规模选择对应 playbook 和 skill；模型角色按仓库 [pstack-models.md](../../.pstack/pi-home/pstack-models.md) 执行。
-4. 项目运行验证读取工作树的 [verify-exposure2026](../../.claude/skills/verify-exposure2026/SKILL.md)（不依赖非交互子代理目录发现）。因验证脚本归档已提交 `HEAD` 并豁免 `.agents/skills/` 注入软链，完成实现与单测后须**先在隔离任务分支完成本地候选 commit，再对 `HEAD` 执行运行验证**。
+4. 项目运行验证读取工作树的 [verify-exposure2026](../../.claude/skills/verify-exposure2026/SKILL.md)（不依赖非交互子代理目录发现）。因验证脚本归档已提交 `HEAD` 并豁免 `.agents/skills/` 注入软链，完成实现与单测后须**先执行 `/deslop` 与 `/no-comments` → 在隔离任务分支完成本地候选 commit → 对 `HEAD` 执行运行验证**；若工作树中留有嵌套 `.claude/worktrees/` 或临时 checklist，通过 `SOURCE_REPO` 指向由候选提交导出的干净 Git 副本运行验证，不得删除非空工作树。
 
 ## 方法与看板工序
 
 - 所选原版 `pstack` 步骤要求的验证与独立审阅照常执行，不省略。`/to-spec` 与 `/to-tickets` 仍可作为方法使用；[delivery-gate.md](delivery-gate.md) 是历史说明，不是当前入口，也不自动授权实施。
 - Pi 主代理在会话 checklist 中使用固定工序前缀维护当前进度：`[bootstrap]` → `[design]` → `[implement]` → `[verify]` → `[review]` → `[pr-follow]` → `[ready]`，供 `cindy-task-board` 与 `get_task_digest` 读取当前工序。
-- **开 PR 前归 `pstack`，开 PR 后归 Cindy `cindy-github`**：创建附验证摘要卡的 PR 后，使用 `cindy-github`（`pr` skill + `pr_card` + `pr-heartbeat-gate.mjs`）挂载后台变更/CI 跟进（无变化 0 模型唤醒），**取消前台阻塞 `gh pr checks --watch` 与 `pstack` `babysit`**。
+- **开 PR 前归 `pstack`，开 PR 后归 Cindy `cindy-github`**：创建附验证摘要卡（仅含证据 ID、`product_head` 与四态结论，严禁含本机路径）的 PR 后，使用 `cindy-github`（`pr` skill + `pr_card` + `pr-heartbeat-gate.mjs`）挂载后台变更/CI 跟进（无变化 0 模型唤醒），**取消前台阻塞 `gh pr checks --watch` 与 `pstack` `babysit`**。
+- **证据与 `HEAD` 强绑定及修补上限**：`verify` 之后任何改写 `HEAD` 的操作（含 `rebase`、`amend` 或 `cindy-github` 后台修补轮次新 push）均使旧验证作废，须按最新 `HEAD` 重跑验证，进入 `[ready]` 与门禁 2 前确认 `frozen-assets.json` 的 `product_head == PR head_sha`；后台修补与本地重试同因连续两轮无新证据即转诊断（遵循 [ADR-0016](../adr/0016-pin-approved-spec-and-issue-status.md)）。
 - 任务内部子代理多轮协作保持过程静默；未获自动合并预授权时在必需 CI 全绿后停在 `[ready]` 并向派单会话回报一次摘要与证据链接，获显式预授权时按 `pr-snapshot.mjs --expect-head <sha> --strict-exit` 锁头 `squash` 合入（保留分支）。
 
 ## 边界与审阅
