@@ -96,6 +96,10 @@ type Pending = {
   body: Creation | Binding
 }
 type ReadingArea = "records" | "reports" | "materials"
+type DifferenceDirection = Extract<
+  ComparisonClass,
+  "cloud_only" | "customer_only"
+>
 
 export type CoreComparisonSearch = {
   result?: string
@@ -243,6 +247,21 @@ const fixedCloudVersion = (value: Summary, domain: "ip" | "port") => {
   const pin = stringValue(object(fixedCloudPins(value)[domain]).id)
   if (pin && pin !== selected) return undefined
   return selected
+}
+const differenceCounts = (value: Summary) => {
+  if (value.comparison_state !== "AVAILABLE") return null
+  const cloud = value.cloud_only
+  const customer = value.customer_only
+  if (
+    typeof cloud !== "number" ||
+    !Number.isSafeInteger(cloud) ||
+    cloud < 0 ||
+    typeof customer !== "number" ||
+    !Number.isSafeInteger(customer) ||
+    customer < 0
+  )
+    return null
+  return { cloud_only: cloud, customer_only: customer }
 }
 const isEvidenceRefusal = (error: unknown) =>
   error instanceof ApiError &&
@@ -821,6 +840,19 @@ export default function CoreComparisonResults({
   const readable =
     summaryReadable && !deniedNow && !expiredCore && !search.core_invalid
   const result = readable ? summary.data : undefined
+  const counts = result ? differenceCounts(result) : null
+  const openDirection = (kind: DifferenceDirection) => {
+    setIp("")
+    change({
+      core_class: kind,
+      core_page: 0,
+      core_ip: undefined,
+      core_address: undefined,
+      ...emptyEvidencePages,
+      core_filter_invalid: false,
+    })
+    reveal(recordsGroup.current)
+  }
   useEffect(() => {
     if (detail.isSuccess && !detail.isError) detailHeading.current?.focus()
   }, [detail.isSuccess, detail.isError])
@@ -1472,6 +1504,40 @@ export default function CoreComparisonResults({
     statusReady?.clouds?.some((cloud) => cloud.selection),
   )
   const readyToGenerate = statusReady?.state === "READY"
+  const differences = [
+    {
+      kind: "cloud_only",
+      dot: "bg-[var(--status-cloud-only-base)]",
+      unknown: t(
+        "Unknown: this fixed result does not cover enough data to count CloudAtlas addresses missing from the applied customer version.",
+        "差异未知：本固定结果覆盖不足，无法确定云图有记录、本版台账未登记的地址数量。",
+      ),
+      text: (count: number) =>
+        t(
+          count === 1
+            ? "1 CloudAtlas address is not registered in the applied customer version."
+            : `${count} CloudAtlas addresses are not registered in the applied customer version.`,
+          `${count} 个云图地址在本版台账未登记。`,
+        ),
+      action: t("View CloudAtlas-only addresses", "查看仅云图地址"),
+    },
+    {
+      kind: "customer_only",
+      dot: "bg-[var(--status-customer-only-base)]",
+      unknown: t(
+        "Unknown: this fixed result does not cover enough data to count customer addresses not observed in this CloudAtlas batch.",
+        "差异未知：本固定结果覆盖不足，无法确定台账有记录、本批云图未观测的地址数量。",
+      ),
+      text: (count: number) =>
+        t(
+          count === 1
+            ? "1 customer address was not observed in this CloudAtlas batch."
+            : `${count} customer addresses were not observed in this CloudAtlas batch.`,
+          `${count} 个台账地址在本批云图未观测。`,
+        ),
+      action: t("View customer-only addresses", "查看仅台账地址"),
+    },
+  ] as const
   return (
     <main
       className="comparison-workbench comparison-workspace min-w-0 space-y-5"
@@ -1555,6 +1621,44 @@ export default function CoreComparisonResults({
           </p>
         )}
       </header>
+      {result && (
+        <section
+          aria-label={t("Two-way address difference", "双向地址差异")}
+          className="rounded-lg border bg-card p-3 sm:p-4"
+        >
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {differences.map((direction) => {
+              const count = counts ? counts[direction.kind] : null
+              return (
+                <li key={direction.kind} className="min-w-0">
+                  {count === null ? (
+                    <p className="px-2 py-1 text-sm leading-6 text-muted-foreground">
+                      {direction.unknown}
+                    </p>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      className="h-auto w-full min-w-0 max-w-full justify-start gap-2 whitespace-normal px-2 py-1 text-left text-sm font-normal"
+                      onClick={() => openDirection(direction.kind)}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`size-2 shrink-0 rounded-full ${direction.dot}`}
+                      />
+                      <span className="min-w-0">{direction.text(count)}</span>
+                      <ArrowUpRight
+                        aria-hidden="true"
+                        className="size-3.5 shrink-0"
+                      />
+                      <span className="sr-only">{direction.action}</span>
+                    </Button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
       {notice && (
         <p role="status" className="rounded-md border p-3 text-sm">
           {notice}
