@@ -51,7 +51,9 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 - 人工门禁收口为两道（只读请求、明确禁止、暂停及既有停止点继续有效）：
   1. **开工授权**：确认 Issue 与固定 Spec（存在产品、UI 或架构歧义时先确认设计），授权范围包含隔离任务分支上的本地候选 commit、运行验证、push 分支、创建附验证摘要卡的 PR 及后台跟进必需 CI。本地提交只纳入本任务范围并保护其他改动。
   2. **落地授权**：默认在必需 CI 全绿且无未决评论后停在 `[ready]`，由人工核对证据后批准 merge、云端部署及关闭 Issue；仅当派单显式预授权自动合并时，后台跟进可在 `pr-snapshot.mjs --expect-head <sha> --strict-exit` 校验通过后锁头 `squash` 合入（保留远端分支）。
-- 因 `.claude/skills/verify-exposure2026/SKILL.md` 基于 `git archive HEAD` 验证且拦截未提交产品改动，隔离任务分支须按**先本地候选 commit → 对 `HEAD` 执行 `verify-exposure2026` → 任务内非作者 fresh 只读审阅**顺序推进；发现 blocker 退回原实现者修复、更新本地提交并复验复审。代码审阅与独立业务验收分开，结果使用 `PASS / FAIL / BLOCKED / NOT_RUN`（见 `docs/adr/0016-pin-approved-spec-and-issue-status.md`）。
+- 因 `.claude/skills/verify-exposure2026/SKILL.md` 基于 `git archive HEAD` 验证且拦截未提交产品改动，隔离任务分支须按**先完成 `/deslop` 与 `/no-comments` → 本地候选 commit → 对 `HEAD` 执行 `verify-exposure2026` → 任务内非作者 fresh 只读审阅**顺序推进；`verify-exposure2026` 之后任何改写 `HEAD` 的操作（含 `rebase`、`amend` 及开 PR 后 `cindy-github` 后台修补轮次）均使旧验证证据作废，须按最新 `HEAD` 重跑验证与必要复审。进入 `[ready]` 及门禁 2 合入前，必须核对冻结清单 `frozen-assets.json` 中的 `product_head` 等于 PR 当前 `head_sha`。代码审阅与独立业务验收分开，结果使用 `PASS / FAIL / BLOCKED / NOT_RUN`（见 `docs/adr/0016-pin-approved-spec-and-issue-status.md`）。
+- PR 正文、评论与验证摘要卡严禁写入本机路径（含家目录或绝对路径）、云账号/IP 或宿主环境标识，仅记录结构化证据 ID、`product_head` 与四态结论；截图等可视化证据须使用审阅者可访问的持久链接，无法外发时仅保留文字说明与证据 ID。
+- PR 后台修补与本地重试统一遵循 `docs/adr/0016-pin-approved-spec-and-issue-status.md`：同一原因连续两轮无新证据即停止循环并转入诊断，不无界重试。
 - GitHub 分支保护、必需 CI 和 Review 门禁始终有效；不设置独立 Controller、Admission 或 ready-label 自动授权。
 
 ## Fresh worktree 初始化与验证
@@ -77,7 +79,7 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 
 - 不增加任务未要求的功能、抽象、依赖或顺手重构；先复用仓库现有实现、标准库和已安装依赖。
 - Bug 修复定位共享根因，并检查所有调用方；不得只修报告中的单一路径。
-- 不覆盖、清理或重置用户已有改动。
+- 不覆盖、清理或重置用户已有改动；**严禁执行 `git reset --hard`**。对于隔离 worktree 清理，仅放行 `pstack` 底层 `settleWorktree` 自动回收**干净且无任何提交或变更**的空子 worktree，其余目录、非空工作树与旧分支均遵守“归档不删除”。
 - 不简化认证、授权、审计、信任边界校验、防数据丢失处理和必要错误处理。
 - Alembic revision 一旦进入共享历史（push、PR、main 或部署）即不得删除或重写；从未共享的任务分支 revision 可在首次 push 前修正，其他 Schema 变化必须新增迁移。
 - 非平凡逻辑保留最小可运行检查；未运行或失败的测试必须如实说明。
