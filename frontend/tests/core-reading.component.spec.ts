@@ -640,6 +640,21 @@ const readingNav = (page: Page) =>
   page.getByRole("navigation", { name: "Reading areas" })
 const recordsGroup = (page: Page) =>
   page.getByRole("group", { name: "Records and evidence" })
+const directionRegion = (page: Page) =>
+  page.getByRole("region", { name: "Two-way address difference" })
+const directionCloudAction = (page: Page, count: number) =>
+  directionRegion(page).getByRole("button", {
+    name: new RegExp(
+      `${count} CloudAtlas address(?:es)? (?:is|are) not registered`,
+    ),
+  })
+const directionCustomerAction = (page: Page, count: number) =>
+  directionRegion(page).getByRole("button", {
+    name: new RegExp(
+      `${count} customer address(?:es)? (?:was|were) not observed`,
+    ),
+  })
+
 const reportHeading = (page: Page) =>
   page.getByRole("heading", {
     name: "AI interpretation and reports",
@@ -911,6 +926,7 @@ test("an explicit core refusal removes the reading entries instead of retaining 
     `/projects/${project}/netflow-correlation?result=${result}&binding=none`,
   )
   await expect(readingNav(page)).toBeVisible()
+  await expect(directionRegion(page)).toBeVisible()
   refused = true
   await page.getByRole("button", { name: "Refresh page", exact: true }).click()
   await expect(
@@ -921,6 +937,10 @@ test("an explicit core refusal removes the reading entries instead of retaining 
   ).toBeVisible()
   await expect(readingNav(page)).toHaveCount(0)
   await expect(reportHeading(page)).toHaveCount(0)
+  await expect(directionRegion(page)).toHaveCount(0)
+  await expect(
+    page.getByText(/CloudAtlas addresses are not registered/),
+  ).toHaveCount(0)
   expect(page.url()).toContain(`result=${result}`)
   expect(writes).toEqual([])
 })
@@ -2790,4 +2810,245 @@ test("a late old evidence address response cannot replace the newly opened addre
   await expect(
     customer.getByText("First address owner", { exact: true }),
   ).toHaveCount(0)
+})
+
+const classAddresses: Record<
+  "all" | "both" | "cloud_only" | "customer_only",
+  { canonical_ip: string; classification: string }[]
+> = {
+  all: [],
+  both: [{ canonical_ip: "192.0.2.20", classification: "both" }],
+  cloud_only: [10, 11, 12].map((index) => ({
+    canonical_ip: `198.51.100.${index}`,
+    classification: "cloud_only",
+  })),
+  customer_only: [
+    { canonical_ip: "192.0.2.10", classification: "customer_only" },
+  ],
+}
+classAddresses.all = [
+  ...classAddresses.both,
+  ...classAddresses.cloud_only,
+  ...classAddresses.customer_only,
+]
+
+async function serveDirections(page: Page, patch: Record<string, unknown>) {
+  const writes = await serve(page)
+  await page.route(`**${root}/summary`, (route) =>
+    route.fulfill({ json: { ...summary, ...patch } }),
+  )
+  const reads: URLSearchParams[] = []
+  await page.route(`**${root}/addresses?*`, (route) => {
+    const query = new URL(route.request().url()).searchParams
+    reads.push(query)
+    const requested = query.get("classification")
+    const classification: keyof typeof classAddresses =
+      requested === "both" ||
+      requested === "cloud_only" ||
+      requested === "customer_only"
+        ? requested
+        : "all"
+    const data = classAddresses[classification].map((row, index) => ({
+      address_key: `addr:${String(index).padStart(64, "0")}`,
+      canonical_ip: row.canonical_ip,
+      classification: row.classification,
+      customer_records: row.classification === "cloud_only" ? 0 : 1,
+      cloud_records: row.classification === "customer_only" ? 0 : 1,
+      presence: {
+        CUSTOMER: row.classification === "cloud_only" ? "ABSENT" : "PRESENT",
+        CLOUD: row.classification === "customer_only" ? "ABSENT" : "PRESENT",
+      },
+    }))
+    const skip = Number(query.get("skip") ?? 0)
+    return route.fulfill({
+      json: {
+        ...envelope,
+        result_id: result,
+        total_addresses: 5,
+        count: data.length,
+        skip,
+        limit: 25,
+        data: data.slice(skip, skip + 25),
+      },
+    })
+  })
+  return { writes, reads }
+}
+
+test("first screen states both directions without scrolling or expanding at desktop and mobile", async ({
+  page,
+}, info) => {
+  await serveDirections(page, {
+    total_addresses: 5,
+    cloud_only: 3,
+    customer_only: 1,
+  })
+  for (const [width, height] of [
+    [1280, 844],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height })
+    await page.goto(
+      `/projects/${project}/netflow-correlation?result=${result}&binding=none`,
+    )
+    const cloud = directionCloudAction(page, 3)
+    const customer = directionCustomerAction(page, 1)
+    await expect(cloud).toBeVisible()
+    await expect(customer).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Update comparison", exact: true }),
+    ).toBeVisible()
+    expect(
+      await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY })),
+    ).toEqual({ x: 0, y: 0 })
+    for (const target of [cloud, customer]) {
+      const box = await target.boundingBox()
+      expect(box).not.toBeNull()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.y).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width)
+      expect(box!.y + box!.height).toBeLessThanOrEqual(height)
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      ),
+    ).toBe(false)
+    const materials = page.locator("details").filter({
+      has: page.getByText("View the materials used here", { exact: true }),
+    })
+    await expect(materials).not.toHaveJSProperty("open", true)
+    await expect(
+      page.getByRole("button", { name: /All addresses 5/ }),
+    ).toHaveAttribute("aria-pressed", "true")
+    await page.screenshot({
+      path: info.outputPath(`first-screen-${width}x${height}.png`),
+      fullPage: false,
+      animations: "disabled",
+    })
+  }
+})
+
+test("each direction opens its fixed class from page one, clears the IP filter and keeps result, binding and reads", async ({
+  page,
+}) => {
+  const { writes, reads } = await serveDirections(page, {
+    total_addresses: 5,
+    cloud_only: 3,
+    customer_only: 1,
+  })
+  const methods: string[] = []
+  page.on("request", (request) => {
+    const url = new URL(request.url())
+    if (url.pathname.startsWith("/api/v1/"))
+      methods.push(`${request.method()} ${url.pathname}`)
+  })
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none&core_class=customer_only&core_page=2&core_ip=203.0.113.9&core_sort=ip_desc`,
+  )
+  const core = page.getByRole("region", { name: "Core classification" })
+  const draftIp = core.getByRole("textbox", { name: "IP address", exact: true })
+  await expect(draftIp).toHaveValue("203.0.113.9")
+  await expect(
+    page.getByRole("table", { name: "Comparison addresses" }),
+  ).toBeVisible()
+
+  await directionCloudAction(page, 3).click()
+  const cloudUrl = new URL(page.url())
+  expect(cloudUrl.searchParams.get("result")).toBe(result)
+  expect(cloudUrl.searchParams.get("binding")).toBe("none")
+  expect(cloudUrl.searchParams.get("core_class")).toBe("cloud_only")
+  expect(["0", null]).toContain(cloudUrl.searchParams.get("core_page"))
+  expect(cloudUrl.searchParams.has("core_ip")).toBe(false)
+  expect(cloudUrl.searchParams.has("core_address")).toBe(false)
+  await expect(draftIp).toHaveValue("")
+  await expect(recordsGroup(page)).toBeFocused()
+  await expect(
+    page.getByRole("row").filter({ hasText: "198.51.100.10" }),
+  ).toBeVisible()
+  const cloudRead = reads[reads.length - 1]
+  expect(cloudRead.get("classification")).toBe("cloud_only")
+  expect(cloudRead.get("ip")).toBeNull()
+  expect(cloudRead.get("skip")).toBe("0")
+
+  await directionCustomerAction(page, 1).click()
+  const customerUrl = new URL(page.url())
+  expect(customerUrl.searchParams.get("result")).toBe(result)
+  expect(customerUrl.searchParams.get("binding")).toBe("none")
+  expect(customerUrl.searchParams.get("core_class")).toBe("customer_only")
+  expect(["0", null]).toContain(customerUrl.searchParams.get("core_page"))
+  expect(customerUrl.searchParams.has("core_ip")).toBe(false)
+  await expect(draftIp).toHaveValue("")
+  await expect(recordsGroup(page)).toBeFocused()
+  await expect(
+    page.getByRole("row").filter({ hasText: "192.0.2.10" }),
+  ).toBeVisible()
+  const customerRead = reads[reads.length - 1]
+  expect(customerRead.get("classification")).toBe("customer_only")
+  expect(customerRead.get("skip")).toBe("0")
+
+  expect(writes).toEqual([])
+  expect(methods.length).toBeGreaterThan(0)
+  expect(methods.every((method) => method.startsWith("GET "))).toBe(true)
+  expect(
+    methods.some((method) => method.endsWith("/comparison-results/current")),
+  ).toBe(false)
+})
+
+test("the count contract keeps a genuine zero numeric and makes incomplete coverage one unknown pair", async ({
+  page,
+}) => {
+  const patch: Record<string, unknown> = {
+    total_addresses: 0,
+    both: null,
+    cloud_only: 0,
+    customer_only: 0,
+  }
+  const { writes } = await serveDirections(page, patch)
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none`,
+  )
+  await expect(directionCloudAction(page, 0)).toBeVisible()
+  await expect(directionCustomerAction(page, 0)).toBeVisible()
+  await expect(directionRegion(page).getByText(/Unknown/)).toHaveCount(0)
+
+  Object.assign(patch, {
+    comparison_state: "INSUFFICIENT_COVERAGE",
+    both: null,
+    cloud_only: null,
+    customer_only: 0,
+  })
+  await page.goto(
+    `/projects/${project}/netflow-correlation?result=${result}&binding=none`,
+  )
+  const region = directionRegion(page)
+  await expect(
+    region.getByText(
+      "Unknown: this fixed result does not cover enough data to count CloudAtlas addresses missing from the applied customer version.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(
+    region.getByText(
+      "Unknown: this fixed result does not cover enough data to count customer addresses not observed in this CloudAtlas batch.",
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await expect(region.getByText(/0 customer addresses/)).toHaveCount(0)
+  await expect(region.getByRole("button")).toHaveCount(0)
+  await expect(
+    page.getByText(
+      "The data coverage is insufficient for full-scope differences.",
+      { exact: false },
+    ),
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", {
+      name: /CloudAtlas record, not registered in this customer version/,
+    }),
+  ).toBeDisabled()
+  await expect(
+    page.getByRole("table", { name: "Comparison addresses" }),
+  ).toBeVisible()
+  expect(writes).toEqual([])
 })

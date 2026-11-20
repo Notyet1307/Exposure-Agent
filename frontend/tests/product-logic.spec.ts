@@ -463,8 +463,17 @@ test("real C+A result stays fixed across browsing, optional evidence and expiry"
     detail.getByText("Customer records 2", { exact: false }),
   ).toBeVisible()
   await expect(
-    detail.locator("summary").filter({ hasText: "Original source record" }),
+    detail
+      .getByRole("region", { name: "Customer declarations" })
+      .locator("summary")
+      .filter({ hasText: "Original source record" }),
   ).toHaveCount(2)
+  await expect(
+    detail
+      .getByRole("region", { name: "CloudAtlas observations" })
+      .locator("summary")
+      .filter({ hasText: "Original source record" }),
+  ).toHaveCount(1)
   await page.screenshot({
     path: path.join(evidence, "fixed-evidence-en-1366.png"),
     fullPage: true,
@@ -817,4 +826,156 @@ test("real input summary reads stored readiness without writing", async ({
   await expect(
     page.getByRole("heading", { name: "Comparison results", exact: true }),
   ).toBeVisible()
+})
+
+test("real fixed C+A first screen states both directions and opens each class from page one", async ({
+  page,
+  request,
+}, info) => {
+  test.setTimeout(180_000)
+  page.setDefaultTimeout(15_000)
+  const { readFile } = await import("node:fs/promises")
+  const { execFileSync } = await import("node:child_process")
+  const repo = path.resolve(fileURLToPath(new URL("../..", import.meta.url)))
+  execFileSync(
+    "uv",
+    ["run", "python", "../scripts/seed-product-logic-acceptance.py", "core"],
+    { cwd: path.join(repo, "backend"), stdio: "pipe" },
+  )
+  const fixture = JSON.parse(
+    await readFile(process.env.PRODUCT_LOGIC_FIXTURE!, "utf8"),
+  )
+  const login = await request.post(`${api}/api/v1/login/access-token`, {
+    form: {
+      username: process.env.FIRST_SUPERUSER!,
+      password: process.env.FIRST_SUPERUSER_PASSWORD!,
+    },
+  })
+  expect(login.ok()).toBeTruthy()
+  const token = (await login.json()).access_token as string
+  const headers = { Authorization: `Bearer ${token}` }
+  const root = `${api}/api/v1/projects/${fixture.project_id}`
+  const ready = await request.get(
+    `${root}/comparison-results/readiness?network_namespace=${fixture.namespace}`,
+    { headers },
+  )
+  expect(ready.ok()).toBeTruthy()
+  const readiness = await ready.json()
+  expect(readiness.input_sha256).toBeTruthy()
+  const scopeConfirmation = readiness.scope_confirmation_id ?? null
+  const creation = await request.post(`${root}/comparison-results`, {
+    headers: {
+      ...headers,
+      "Idempotency-Key": `first-screen-result-${crypto.randomUUID()}`,
+    },
+    data: {
+      selection: readiness.selection,
+      scope_confirmation_id: scopeConfirmation,
+      scope_evidence: scopeConfirmation
+        ? null
+        : "Synthetic customer and CloudAtlas scope confirmed for the same test network",
+      purpose: "regular",
+      expected_input_sha256: readiness.input_sha256,
+      expected_current_result_id: readiness.expected_current_result_id,
+    },
+  })
+  expect(creation.status()).toBe(201)
+  const result = await creation.json()
+  const fixed = `/projects/${fixture.project_id}/netflow-correlation?result=${result.id}&binding=none`
+  const cloudAction = page.getByRole("button", {
+    name: /1 CloudAtlas address is not registered/,
+  })
+  const customerAction = page.getByRole("button", {
+    name: /1 customer address was not observed/,
+  })
+  await page.addInitScript(
+    (value) => localStorage.setItem("access_token", value),
+    token,
+  )
+  const evidence = process.env.PRODUCT_LOGIC_EVIDENCE!
+  await mkdir(evidence, { recursive: true })
+  for (const [width, height] of [
+    [1280, 844],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height })
+    await page.goto(fixed)
+    await expect(cloudAction).toBeVisible()
+    await expect(customerAction).toBeVisible()
+    expect(
+      await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY })),
+    ).toEqual({ x: 0, y: 0 })
+    for (const target of [cloudAction, customerAction]) {
+      const box = await target.boundingBox()
+      expect(box).not.toBeNull()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.y).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width)
+      expect(box!.y + box!.height).toBeLessThanOrEqual(height)
+    }
+    await page.screenshot({
+      path: path.join(evidence, `first-screen-${width}x${height}.png`),
+      fullPage: false,
+    })
+  }
+
+  const writes: string[] = []
+  const methods: string[] = []
+  const observe = (request: import("@playwright/test").Request) => {
+    const url = new URL(request.url())
+    if (!url.pathname.startsWith("/api/v1/")) return
+    methods.push(`${request.method()} ${url.pathname}`)
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method()))
+      writes.push(`${request.method()} ${url.pathname}`)
+  }
+  page.on("request", observe)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(
+    `${fixed}&core_class=customer_only&core_page=1&core_ip=192.0.2.20`,
+  )
+  const core = page.getByRole("region", { name: "Core classification" })
+  const draftIp = core.getByRole("textbox", { name: "IP address", exact: true })
+  await expect(draftIp).toHaveValue("192.0.2.20")
+  const before = new URL(page.url()).searchParams
+  await cloudAction.click()
+  const afterCloud = new URL(page.url()).searchParams
+  expect(afterCloud.get("result")).toBe(before.get("result"))
+  expect(afterCloud.get("binding")).toBe(before.get("binding"))
+  expect(afterCloud.get("core_class")).toBe("cloud_only")
+  expect(["0", null]).toContain(afterCloud.get("core_page"))
+  expect(afterCloud.has("core_ip")).toBe(false)
+  await expect(draftIp).toHaveValue("")
+  await expect(
+    page.getByRole("group", { name: "Records and evidence" }),
+  ).toBeFocused()
+  await expect(
+    page.getByRole("row").filter({ hasText: "192.0.2.30" }),
+  ).toBeVisible()
+  await customerAction.click()
+  const afterCustomer = new URL(page.url()).searchParams
+  expect(afterCustomer.get("result")).toBe(before.get("result"))
+  expect(afterCustomer.get("binding")).toBe(before.get("binding"))
+  expect(afterCustomer.get("core_class")).toBe("customer_only")
+  expect(["0", null]).toContain(afterCustomer.get("core_page"))
+  expect(afterCustomer.has("core_ip")).toBe(false)
+  await expect(draftIp).toHaveValue("")
+  await expect(
+    page.getByRole("row").filter({ hasText: "192.0.2.10" }),
+  ).toBeVisible()
+  expect(writes).toEqual([])
+  expect(methods.length).toBeGreaterThan(0)
+  expect(methods.every((method) => method.startsWith("GET "))).toBe(true)
+  expect(
+    methods.some((method) => method.endsWith("/comparison-results/current")),
+  ).toBe(false)
+  const summary = await request.get(
+    `${root}/comparison-results/${result.id}/summary`,
+    { headers },
+  )
+  expect(summary.ok()).toBeTruthy()
+  expect(await summary.json()).toMatchObject(fixture.expected)
+  await page.screenshot({
+    path: info.outputPath("direction-customer-only-390x844.png"),
+    fullPage: false,
+  })
 })
