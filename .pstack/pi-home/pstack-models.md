@@ -19,8 +19,8 @@ arena cross-judge pool: backup/grok-4.7 @high, openai-codex/gpt-6.2-sol @high
 swarm workers: backup/deepseek-flash @max
 architect runners: openai-codex/gpt-6.2-sol @high, backup/deepseek-flash @max
 interrogate reviewers: openai-codex/gpt-6.2-sol @high, backup/grok-4.7 @high
-thermos reviewers: openai-codex/gpt-6.2-astra @high
-no-comments reviewer: openai-codex/gpt-6.2-astra @high
+thermos reviewers: openai-codex/gpt-6.2-sol @high
+no-comments reviewer: backup/grok-4.7 @high
 
 default effort: high
 session hook: on
@@ -31,4 +31,4 @@ pi models: opus=openai-codex/gpt-6.2-sol, sonnet=backup/deepseek-flash, haiku=ba
 - GPT models use the owner's openai-codex subscription only, never backup.
 - When two strong Architect candidates are explicitly needed, use `openai-codex/gpt-6.2-sol @high, backup/grok-4.7 @high`.
 - Real Claude (`fable`) and GLM challenger are currently unbound; disclose reduced panel diversity when running `interrogate` or when cross-family judge availability is constrained rather than halting the task.
-- Use native pstack `agent` (not Cindy `subagent`); one writer per candidate worktree; fresh readonly reviewer context for substantive review.
+- Use native pstack `agent` (not Cindy `subagent`); one writer per candidate worktree; fresh readonly reviewer context for substantive review, using a model distinct from the main session (`gpt-6.2-astra`) whenever available.
