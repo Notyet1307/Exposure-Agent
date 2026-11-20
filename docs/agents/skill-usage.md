@@ -7,13 +7,14 @@
 1. 从 Cindy 新建任务时显式传 `project_path="/Users/yet/Developer/exposure2026"`、`agent_kind="pi"` 并启用隔离 worktree，标题前缀带 `[#<Issue号>]`。
 2. 进入工作树后先运行 `bash scripts/wt-bootstrap.sh`（对应 `[bootstrap]` 工序），完成 `.venv`、前端依赖与 `verify --doctor` 预检。
 3. 任务内读取原版 `poteto-mode/SKILL.md` 与同目录 `references/pi-tools.md`，按任务规模选择对应 playbook 和 skill；模型角色按仓库 [pstack-models.md](../../.pstack/pi-home/pstack-models.md) 执行。
-4. 需要项目运行验证时，直接读取工作树的 [verify-exposure2026](../../.claude/skills/verify-exposure2026/SKILL.md)（不依赖非交互子代理的项目目录自动发现）。
+4. 项目运行验证读取工作树的 [verify-exposure2026](../../.claude/skills/verify-exposure2026/SKILL.md)（不依赖非交互子代理目录发现）。因验证脚本归档已提交 `HEAD` 并豁免 `.agents/skills/` 注入软链，完成实现与单测后须**先在隔离任务分支完成本地候选 commit，再对 `HEAD` 执行运行验证**。
 
 ## 方法与看板工序
 
 - 所选原版 `pstack` 步骤要求的验证与独立审阅照常执行，不省略。`/to-spec` 与 `/to-tickets` 仍可作为方法使用；[delivery-gate.md](delivery-gate.md) 是历史说明，不是当前入口，也不自动授权实施。
-- Pi 主代理在会话 checklist 中使用固定工序前缀维护当前进度：`[bootstrap]` → `[design]` → `[implement]` → `[verify]` → `[review]` → `[pr-babysit]` → `[ready]`，供 `cindy-task-board` 与 `get_task_digest` 读取当前工序。
-- 任务内部子代理多轮协作保持过程静默；到达 `[ready]`（PR 已附验证摘要卡且必需 CI 全绿）或遇到无权解决的硬阻塞时，向派单会话回报一次摘要与证据链接。
+- Pi 主代理在会话 checklist 中使用固定工序前缀维护当前进度：`[bootstrap]` → `[design]` → `[implement]` → `[verify]` → `[review]` → `[pr-follow]` → `[ready]`，供 `cindy-task-board` 与 `get_task_digest` 读取当前工序。
+- **开 PR 前归 `pstack`，开 PR 后归 Cindy `cindy-github`**：创建附验证摘要卡的 PR 后，使用 `cindy-github`（`pr` skill + `pr_card` + `pr-heartbeat-gate.mjs`）挂载后台变更/CI 跟进（无变化 0 模型唤醒），**取消前台阻塞 `gh pr checks --watch` 与 `pstack` `babysit`**。
+- 任务内部子代理多轮协作保持过程静默；未获自动合并预授权时在必需 CI 全绿后停在 `[ready]` 并向派单会话回报一次摘要与证据链接，获显式预授权时按 `pr-snapshot.mjs --expect-head <sha> --strict-exit` 锁头 `squash` 合入（保留分支）。
 
 ## 边界与审阅
 
