@@ -43,7 +43,11 @@ function UserInfo({ fullName, email }: UserInfoProps) {
   )
 }
 
-export function User({ user }: { user: any }) {
+export function User({
+  user,
+}: {
+  user?: { full_name?: string | null; email?: string | null } | null
+}) {
   const { t } = useI18n()
   const { logout } = useAuth()
   const { isMobile, setOpenMobile } = useSidebar()
@@ -72,7 +76,10 @@ export function User({ user }: { user: any }) {
               data-testid="user-menu"
               aria-label={t("User menu", "用户菜单")}
             >
-              <UserInfo fullName={user?.full_name} email={user?.email} />
+              <UserInfo
+                fullName={user.full_name ?? undefined}
+                email={user.email ?? undefined}
+              />
               <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
@@ -83,7 +90,10 @@ export function User({ user }: { user: any }) {
             sideOffset={4}
           >
             <DropdownMenuLabel className="p-0 font-normal">
-              <UserInfo fullName={user?.full_name} email={user?.email} />
+              <UserInfo
+                fullName={user.full_name ?? undefined}
+                email={user.email ?? undefined}
+              />
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <RouterLink

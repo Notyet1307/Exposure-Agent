@@ -17,7 +17,13 @@ const versionId = "22222222-2222-4222-8222-222222222222"
 const recordId = "44444444-4444-4444-8444-444444444444"
 const root = `/projects/${project}/cloudatlas-ledger?asset_view=synced&external_source=${source}`
 const stamp = "2026-10-03T00:00:00Z"
-const sample = (shape: any, key = ""): any => {
+type SchemaShape = {
+  enum?: unknown[]
+  type?: string
+  items?: SchemaShape
+  properties?: Record<string, SchemaShape>
+}
+const sample = (shape: SchemaShape, key = ""): unknown => {
   if (shape.enum) return shape.enum[0]
   if (shape.type === "identity") return "900719925474099312345"
   if (shape.type === "integer")
@@ -30,9 +36,9 @@ const sample = (shape: any, key = ""): any => {
       : key.endsWith("_at")
         ? stamp
         : `Synthetic ${key} <img src=https://never-fetch.example/x> %_\\`
-  if (shape.type === "array") return [sample(shape.items)]
+  if (shape.type === "array" && shape.items) return [sample(shape.items)]
   return Object.fromEntries(
-    Object.entries(shape.properties).map(([k, v]) => [k, sample(v, k)]),
+    Object.entries(shape.properties ?? {}).map(([k, v]) => [k, sample(v, k)]),
   )
 }
 async function serve(page: Page, domain: string, canManage = false) {
@@ -57,7 +63,7 @@ async function serve(page: Page, domain: string, canManage = false) {
     retain_until: "2099-01-01T00:00:00Z",
     omitted_field_count: 2,
   }
-  const fields = sample(definition.schema)
+  const fields = sample(definition.schema) as Record<string, unknown>
   if (domain === "seed_icon") fields.icon_url = null
   if (domain === "crawler") delete fields.target
   const record = {

@@ -47,12 +47,12 @@ async function mock(pageObject: Page, onPost?: (body: unknown) => void) {
   await pageObject.addInitScript(() =>
     localStorage.setItem("access_token", "component-token"),
   )
-  await pageObject.route("**/api/v1/users/me", (route: any) =>
+  await pageObject.route("**/api/v1/users/me", (route) =>
     route.fulfill({ json: user }),
   )
   await pageObject.route(
     `**/api/v1/projects/${project}/netflow-datasets`,
-    (route: any) =>
+    (route) =>
       route.fulfill({
         json: {
           data: [{ id: dataset, display_filename: "D1.csv" }],
@@ -66,11 +66,11 @@ async function mock(pageObject: Page, onPost?: (body: unknown) => void) {
   )
   await pageObject.route(
     `**/api/v1/projects/${project}/netflow-ledger?*`,
-    (route: any) => route.fulfill({ json: page() }),
+    (route) => route.fulfill({ json: page() }),
   )
   await pageObject.route(
     `**/api/v1/projects/${project}/netflow-ledger/profile?*`,
-    (route: any) =>
+    (route) =>
       route.fulfill({
         json: {
           canonical_ip: "2001:db8:10::25",
@@ -85,7 +85,7 @@ async function mock(pageObject: Page, onPost?: (body: unknown) => void) {
   )
   await pageObject.route(
     `**/api/v1/projects/${project}/netflow-ledger/revisions`,
-    async (route: any) => {
+    async (route) => {
       onPost?.(route.request().postDataJSON())
       await route.fulfill({
         status: 201,
@@ -102,7 +102,7 @@ async function mock(pageObject: Page, onPost?: (body: unknown) => void) {
 test("scope and management send explicit values; profile reads fixed sources", async ({
   page: browser,
 }) => {
-  const bodies: any[] = []
+  const bodies: unknown[] = []
   await mock(browser, (body) => bodies.push(body))
   await browser.goto(`/projects/${project}/netflow-ledger?dataset=${dataset}`)
   await browser.getByRole("button", { name: "Confirm scope" }).click()

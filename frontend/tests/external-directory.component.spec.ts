@@ -15,7 +15,7 @@ const profiles = [...new Set(externalDomains.map(profile))]
 const sid = (domain: string) =>
   uid("11111111", profiles.indexOf(profile(domain)) + 1)
 const vid = (domain: string) =>
-  uid("22222222", externalDomains.indexOf(domain as any) + 1)
+  uid("22222222", (externalDomains as readonly string[]).indexOf(domain) + 1)
 const historic = uid("33333333", 1)
 const url = (domain: string, version = vid(domain)) =>
   `/projects/${project}/cloudatlas-ledger?asset_view=synced&external_source=${sid(domain)}&external_domain=${domain}&external_version=${version}`
@@ -58,7 +58,7 @@ async function serve(page: Page) {
       ? 5
       : domain === "seed_keyword"
         ? 0
-        : (externalDomains.indexOf(domain as any) + 1) * 3,
+        : ((externalDomains as readonly string[]).indexOf(domain) + 1) * 3,
     complete: domain !== "seed_icon",
     expected_total: 100,
     pages_read: 1,

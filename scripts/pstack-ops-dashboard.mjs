@@ -276,14 +276,63 @@ function walkJsonlFiles(dir, out = []) {
   return out;
 }
 
+const ROLE_LABELS = {
+  verify: "验证 (Verify)",
+  review: "审阅 (Review)",
+  explore: "探索与设计 (Explore/Design)",
+  implement: "实现 (Implement)",
+  other: "其他 (Other)",
+};
+
+function classifySubagentRole(firstPrompt) {
+  const text = String(firstPrompt || "").slice(0, 800);
+  if (!text) return "other";
+  if (
+    /\b(standards-only|spec-only|independent review|fresh.*review|no-comments|comment-sicko|thermos|interrogate)\b|独立.*审阅|只读审阅|只读核查/i.test(
+      text
+    )
+  ) {
+    return "review";
+  }
+  if (
+    /\b(verify|playwright|browser|chrome|viewport|control-|self-test|smoke|journey|doctor|oracle)\b|真实浏览器|验证|双视口|视口/i.test(
+      text
+    )
+  ) {
+    return "verify";
+  }
+  if (
+    /\b(\/how|\/why|how explorer|how explainer|why investigator|why synthesizer|code explorer|read-only explorer|architect|prototype|design sketch)\b|只读调查|探索|原型|架构/i.test(
+      text
+    )
+  ) {
+    return "explore";
+  }
+  if (/\b(sole.*writer|writer|implement|refactor|bug-fix|poteto-agent)\b|实现|写入|修复/i.test(text)) {
+    return "implement";
+  }
+  return "other";
+}
+
 function scanPstackSubagents(stateDir, cutoffMs) {
   if (!stateDir || !fs.existsSync(stateDir)) {
-    return { available: false, runs: [], byModel: [], totalTokens: 0, totalInput: 0, totalOutput: 0, totalCacheRead: 0 };
+    return {
+      available: false,
+      runs: [],
+      byModel: [],
+      byRole: [],
+      verifyReviewSharePct: 0,
+      totalTokens: 0,
+      totalInput: 0,
+      totalOutput: 0,
+      totalCacheRead: 0,
+    };
   }
 
   const files = walkJsonlFiles(stateDir).filter((f) => f.includes(`${path.sep}pstack${path.sep}`));
   const runs = [];
   const byModelMap = new Map();
+  const byRoleMap = new Map();
 
   for (const filePath of files) {
     let stat;
@@ -304,6 +353,7 @@ function scanPstackSubagents(stateDir, cutoffMs) {
     let model = "unknown";
     let thinking = "-";
     let cwd = "";
+    let firstPrompt = "";
     let messages = 0;
     let input = 0;
     let output = 0;
@@ -327,7 +377,20 @@ function scanPstackSubagents(stateDir, cutoffMs) {
       if (obj.type === "thinking_level_change" && obj.thinkingLevel) {
         thinking = String(obj.thinkingLevel);
       }
-      if (obj.type === "message") messages += 1;
+      if (obj.type === "message") {
+        messages += 1;
+        if (!firstPrompt && obj.message?.role === "user") {
+          const content = obj.message.content;
+          if (typeof content === "string") {
+            firstPrompt = content.slice(0, 800);
+          } else if (Array.isArray(content)) {
+            firstPrompt = content
+              .map((part) => (part && typeof part.text === "string" ? part.text : ""))
+              .join(" ")
+              .slice(0, 800);
+          }
+        }
+      }
 
       const usage = obj.usage || obj.message?.usage;
       if (usage && typeof usage === "object") {
@@ -347,12 +410,14 @@ function scanPstackSubagents(stateDir, cutoffMs) {
     const relParts = path.relative(stateDir, filePath).split(path.sep);
     const scopeHash = relParts[0] || "-";
     const parentSession = relParts[2] || "-";
+    const role = classifySubagentRole(firstPrompt);
 
     runs.push({
       file: path.basename(filePath),
       scopeHash,
       parentSession: parentSession.slice(0, 12),
       cwd,
+      role,
       model,
       thinking,
       messages,
@@ -371,6 +436,22 @@ function scanPstackSubagents(stateDir, cutoffMs) {
     cur.cacheRead += cacheRead;
     cur.totalTokens += totalTokens;
     byModelMap.set(model, cur);
+
+    const rCur = byRoleMap.get(role) || {
+      role,
+      label: ROLE_LABELS[role] || role,
+      runs: 0,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      totalTokens: 0,
+    };
+    rCur.runs += 1;
+    rCur.input += input;
+    rCur.output += output;
+    rCur.cacheRead += cacheRead;
+    rCur.totalTokens += totalTokens;
+    byRoleMap.set(role, rCur);
   }
 
   runs.sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -379,8 +460,28 @@ function scanPstackSubagents(stateDir, cutoffMs) {
   const totalInput = runs.reduce((s, r) => s + r.input, 0);
   const totalOutput = runs.reduce((s, r) => s + r.output, 0);
   const totalCacheRead = runs.reduce((s, r) => s + r.cacheRead, 0);
+  const byRole = [...byRoleMap.values()]
+    .map((r) => ({
+      ...r,
+      sharePct: totalTokens > 0 ? Number(((r.totalTokens / totalTokens) * 100).toFixed(1)) : 0,
+    }))
+    .sort((a, b) => b.totalTokens - a.totalTokens);
+  const verifyReviewTokens =
+    (byRoleMap.get("verify")?.totalTokens || 0) + (byRoleMap.get("review")?.totalTokens || 0);
+  const verifyReviewSharePct =
+    totalTokens > 0 ? Number(((verifyReviewTokens / totalTokens) * 100).toFixed(1)) : 0;
 
-  return { available: true, runs, byModel, totalTokens, totalInput, totalOutput, totalCacheRead };
+  return {
+    available: true,
+    runs,
+    byModel,
+    byRole,
+    verifyReviewSharePct,
+    totalTokens,
+    totalInput,
+    totalOutput,
+    totalCacheRead,
+  };
 }
 
 function scanWorktrees(repoRoot) {
@@ -526,11 +627,26 @@ function renderHtml(data) {
     )
     .join("\n");
 
+  const roleRows = (data.subagents.byRole || [])
+    .map(
+      (r) => `<tr>
+        <td><strong>${escapeHtml(r.label)}</strong></td>
+        <td class="num">${fmtNum(r.runs)}</td>
+        <td class="num">${fmtTokens(r.input)}</td>
+        <td class="num">${fmtTokens(r.output)}</td>
+        <td class="num">${fmtTokens(r.cacheRead)}</td>
+        <td class="num"><strong>${fmtTokens(r.totalTokens)}</strong></td>
+        <td class="num">${escapeHtml(r.sharePct.toFixed(1))}%</td>
+      </tr>`
+    )
+    .join("\n");
+
   const subagentRows = data.subagents.runs
     .slice(0, 30)
     .map(
       (r) => `<tr>
         <td class="mono">${escapeHtml(fmtDate(r.mtimeMs))}</td>
+        <td><span class="badge muted">${escapeHtml(ROLE_LABELS[r.role] || r.role || "-")}</span></td>
         <td><code>${escapeHtml(r.model)}</code> <span class="dim">@${escapeHtml(r.thinking)}</span></td>
         <td class="mono">${escapeHtml(r.parentSession)}</td>
         <td class="num">${fmtNum(r.messages)}</td>
@@ -638,6 +754,7 @@ function renderHtml(data) {
     <div class="kpi"><div class="label">受管会话 (Cindy DB)</div><div class="val">${fmtNum(data.cindy.sessions.length)}</div><div class="dim mono">PR 关联 ${fmtNum(data.cindy.prRefs.length)} 条</div></div>
     <div class="kpi"><div class="label">父会话 Token</div><div class="val">${fmtTokens(data.cindy.parentTokensTotal)}</div><div class="dim">Cindy SQLite 记账</div></div>
     <div class="kpi"><div class="label">pstack 子代理 Token</div><div class="val">${fmtTokens(data.subagents.totalTokens)}</div><div class="dim">${fmtNum(data.subagents.runs.length)} 次子代理 · 占总计 ${escapeHtml(hiddenPct)}%</div></div>
+    <div class="kpi"><div class="label">验证 + 审阅占比</div><div class="val">${escapeHtml((data.subagents.verifyReviewSharePct || 0).toFixed(1))}%</div><div class="dim">子代理 Token 投入结构（对标验证杠杆）</div></div>
     <div class="kpi"><div class="label">挂载 Worktree</div><div class="val">${fmtNum(data.worktrees.length)}</div><div class="dim">脏工作树 ${fmtNum(dirtyWorktrees)} 个</div></div>
     <div class="kpi"><div class="label">Verify 证据</div><div class="val">${fmtNum(passVerify)} / ${fmtNum(data.verifyRuns.length)}</div><div class="dim">PASS / 最近记录</div></div>
     <div class="kpi"><div class="label">Cindy Pi 运行时</div><div class="val">${escapeHtml(data.runtime.selectedVersion || "N/A")}</div><div class="dim">${data.runtime.piBinExists ? "可执行文件就位" : "未检测到二进制"} · 已批准包 ${fmtNum(data.runtime.approvedSources)}</div></div>
@@ -659,6 +776,14 @@ function renderHtml(data) {
     </table>
   </div>
 
+  <h2>2b. pstack 子代理阶段 / 角色 Token 分布</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>角色分类</th><th class="num">子代理次数</th><th class="num">Input</th><th class="num">Output</th><th class="num">CacheRead</th><th class="num">Total</th><th class="num">占比</th></tr></thead>
+      <tbody>${roleRows || '<tr><td colspan="7" class="dim">无子代理 JSONL 记录</td></tr>'}</tbody>
+    </table>
+  </div>
+
   <div class="toolbar">
     <h2>3. Cindy Exposure 会话（最近 40 条）</h2>
     <input id="sessionFilter" type="search" placeholder="筛选会话标题 / 模型 / 状态..." />
@@ -673,8 +798,8 @@ function renderHtml(data) {
   <h2>4. 最近 pstack 子代理执行记录（最近 30 条）</h2>
   <div class="card">
     <table>
-      <thead><tr><th>时间</th><th>模型 / 思考档</th><th>父会话</th><th class="num">消息数</th><th class="num">Token</th><th>Transcript</th></tr></thead>
-      <tbody>${subagentRows || '<tr><td colspan="6" class="dim">无记录</td></tr>'}</tbody>
+      <thead><tr><th>时间</th><th>角色</th><th>模型 / 思考档</th><th>父会话</th><th class="num">消息数</th><th class="num">Token</th><th>Transcript</th></tr></thead>
+      <tbody>${subagentRows || '<tr><td colspan="7" class="dim">无记录</td></tr>'}</tbody>
     </table>
   </div>
 
@@ -753,6 +878,13 @@ async function main() {
     pstack_subagent_tokens: subagents.totalTokens,
     hidden_subagent_share_pct:
       combined > 0 ? Number(((subagents.totalTokens / combined) * 100).toFixed(1)) : 0,
+    verify_review_share_pct: subagents.verifyReviewSharePct,
+    subagent_by_role: subagents.byRole.map((r) => ({
+      role: r.role,
+      runs: r.runs,
+      tokens: r.totalTokens,
+      share_pct: r.sharePct,
+    })),
     worktrees_total: worktrees.length,
     worktrees_dirty: worktrees.filter((w) => w.dirtyCount > 0).length,
     verify_runs_scanned: verifyRuns.length,
@@ -766,6 +898,7 @@ async function main() {
     console.log(
       `Sessions=${summary.cindy_sessions} ParentTokens=${fmtTokens(summary.cindy_parent_tokens)} ` +
         `Subagents=${summary.pstack_subagent_runs} SubagentTokens=${fmtTokens(summary.pstack_subagent_tokens)} (${summary.hidden_subagent_share_pct}%) ` +
+        `VerifyReview=${summary.verify_review_share_pct}% ` +
         `Worktrees=${summary.worktrees_total} (dirty=${summary.worktrees_dirty}) VerifyPass=${summary.verify_pass_count}/${summary.verify_runs_scanned}`
     );
   }
