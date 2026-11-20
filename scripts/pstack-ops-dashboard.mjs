@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 function printHelp() {
   console.log(`Usage: node scripts/pstack-ops-dashboard.mjs [options]
@@ -704,8 +705,12 @@ function renderHtml(data) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(
-    opts.repo || safeExec("git", ["rev-parse", "--show-toplevel"]) || process.cwd()
+    opts.repo ||
+      safeExec("git", ["rev-parse", "--show-toplevel"]) ||
+      safeExec("git", ["rev-parse", "--show-toplevel"], scriptDir) ||
+      process.cwd()
   );
   const cutoffMs = opts.days > 0 ? Date.now() - opts.days * 86_400_000 : 0;
 
