@@ -5,7 +5,7 @@
  *   1. Cindy SQLite sessions, PR links, and active schedules (strictly read-only)
  *   2. pstack subagent JSONL transcripts (surfaces hidden subagent tokens)
  *   3. Git worktree garden cleanliness and origin/main ancestry
- *   4. verify-exposure2026 frozen run receipts and screenshot counts
+ *   4. Verification frozen run receipts and screenshot counts
  *   5. Cindy managed Pi version & package approval status
  *
  * Writes a single self-contained static HTML file (no server, no port binding).
@@ -21,14 +21,15 @@ function printHelp() {
   console.log(`Usage: node scripts/pstack-ops-dashboard.mjs [options]
 
 Options:
-  --repo <path>        Target git repository root (default: git top-level or cwd)
-  --cindy-dir <path>   CindyGlobal data dir (default: ~/Library/Application Support/CindyGlobal)
-  --state-dir <path>   pstack state dir (default: auto-resolved from cindy-package-state.json)
-  --verify-dir <path>  verify tasks dir (default: ~/ops/tasks/<repo-basename>)
-  --out <path>         Output HTML path (default: ~/ops/dashboards/pstack-ops-dashboard.html)
-  --days <n>           Include sessions/subagents updated within last N days (default: 30, 0=all)
-  --json               Print machine-readable JSON summary to stdout
-  --help               Show this message
+  --repo <path>          Target git repository root (default: git top-level or cwd)
+  --cindy-dir <path>     CindyGlobal data dir (default: ~/Library/Application Support/CindyGlobal)
+  --state-dir <path>     pstack state dir (default: auto-resolved from cindy-package-state.json)
+  --verify-dir <path>    verify tasks dir (default: ~/ops/tasks/<repo-basename>)
+  --title-match <regex>  Optional extra regex to match Cindy session titles for this project
+  --out <path>           Output HTML path (default: ~/ops/dashboards/pstack-ops-dashboard.html)
+  --days <n>             Include sessions/subagents updated within last N days (default: 30, 0=all)
+  --json                 Print machine-readable JSON summary to stdout
+  --help                 Show this message
 `);
 }
 
@@ -38,6 +39,7 @@ function parseArgs(argv) {
     cindyDir: process.env.CINDY_DATA_DIR || path.join(os.homedir(), "Library/Application Support/CindyGlobal"),
     stateDir: null,
     verifyDir: null,
+    titleMatch: null,
     out: path.join(os.homedir(), "ops/dashboards/pstack-ops-dashboard.html"),
     days: 30,
     json: false,
@@ -57,6 +59,8 @@ function parseArgs(argv) {
       opts.stateDir = argv[++i];
     } else if (arg === "--verify-dir" && argv[i + 1]) {
       opts.verifyDir = argv[++i];
+    } else if (arg === "--title-match" && argv[i + 1]) {
+      opts.titleMatch = argv[++i];
     } else if (arg === "--out" && argv[i + 1]) {
       opts.out = argv[++i];
     } else if (arg === "--days" && argv[i + 1]) {
@@ -166,7 +170,7 @@ function findCindyDb(cindyDir) {
   return match ? path.join(cindyDir, match) : null;
 }
 
-async function queryCindyDb(dbPath, repoRoot, cutoffMs) {
+async function queryCindyDb(dbPath, repoRoot, cutoffMs, titleMatch = null) {
   if (!dbPath || !fs.existsSync(dbPath)) {
     return { available: false, sessions: [], prRefs: [], schedules: [], parentTokensTotal: 0 };
   }
@@ -207,6 +211,7 @@ async function queryCindyDb(dbPath, repoRoot, cutoffMs) {
     const allRows = db.prepare(`SELECT ${wanted.join(", ")} FROM sessions ORDER BY ${orderCol} DESC LIMIT 500`).all();
 
     const repoBase = path.basename(repoRoot).toLowerCase();
+    const titleRegex = titleMatch ? new RegExp(titleMatch, "i") : null;
     const sessions = allRows.filter((s) => {
       const updated = Number(s.updated_at || s.created_at || 0);
       if (cutoffMs > 0 && updated > 0 && updated < cutoffMs) return false;
@@ -218,7 +223,8 @@ async function queryCindyDb(dbPath, repoRoot, cutoffMs) {
         wdir.includes(repoRoot) ||
         pdir.toLowerCase().includes(repoBase) ||
         wdir.toLowerCase().includes(repoBase) ||
-        /exposure/i.test(title)
+        title.toLowerCase().includes(repoBase) ||
+        (titleRegex ? titleRegex.test(title) : false)
       );
     });
 
@@ -785,7 +791,7 @@ function renderHtml(data) {
   </div>
 
   <div class="toolbar">
-    <h2>3. Cindy Exposure 会话（最近 40 条）</h2>
+    <h2>3. Cindy 项目会话（${escapeHtml(path.basename(data.repoRoot))}，最近 40 条）</h2>
     <input id="sessionFilter" type="search" placeholder="筛选会话标题 / 模型 / 状态..." />
   </div>
   <div class="card">
@@ -803,7 +809,7 @@ function renderHtml(data) {
     </table>
   </div>
 
-  <h2>5. verify-exposure2026 验证证据（最近 30 次）</h2>
+  <h2>5. 运行验证证据（${escapeHtml(path.basename(data.repoRoot))}，最近 30 次）</h2>
   <div class="card">
     <table>
       <thead><tr><th>Task ID</th><th>Run ID</th><th>HEAD</th><th>结果</th><th>UI / Ledger</th><th class="num">截图数</th><th>清理</th></tr></thead>
@@ -844,7 +850,7 @@ async function main() {
   const verifyDir = opts.verifyDir || path.join(os.homedir(), "ops/tasks", path.basename(repoRoot));
   const dbPath = findCindyDb(opts.cindyDir);
 
-  const cindy = await queryCindyDb(dbPath, repoRoot, cutoffMs);
+  const cindy = await queryCindyDb(dbPath, repoRoot, cutoffMs, opts.titleMatch);
   const subagents = scanPstackSubagents(stateDir, cutoffMs);
   const worktrees = scanWorktrees(repoRoot);
   const verifyRuns = scanVerifyRuns(verifyDir);
