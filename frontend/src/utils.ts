@@ -6,11 +6,14 @@ function extractErrorMessage(err: ApiError): string {
     return err.message
   }
 
-  const errDetail = (err.body as any)?.detail
+  const body = err.body as
+    | { detail?: string | Array<{ msg?: string }> }
+    | undefined
+  const errDetail = body?.detail
   if (Array.isArray(errDetail) && errDetail.length > 0) {
-    return errDetail[0].msg
+    return errDetail[0]?.msg || "Something went wrong."
   }
-  return errDetail || "Something went wrong."
+  return (typeof errDetail === "string" && errDetail) || "Something went wrong."
 }
 
 export const handleError = function (

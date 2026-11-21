@@ -7,12 +7,23 @@ const secret = "synthetic-key-never-real"
 const endpoint = "http://model.internal:8080/v1"
 const stamp = "2026-09-12T00:00:00Z"
 async function fixture(page: Page, admin = true) {
+  type FixtureOperation = {
+    id: string
+    connection_id: string
+    action: string
+    expected_generation: unknown
+    status: string
+    error_code: string | null
+    evidence: unknown
+    created_at: string
+    completed_at: string | null
+  }
   const state = {
     generation: 0,
     adopted: false,
     active_id: null as string | null,
     pending_id: null as string | null,
-    connections: [] as any[],
+    connections: [] as Array<Record<string, unknown>>,
   }
   const f = {
     actor,
@@ -22,8 +33,13 @@ async function fixture(page: Page, admin = true) {
     offline: false,
     unknown: false,
     delay: 0,
-    calls: [] as any[],
-    ops: new Map<string, any>(),
+    calls: [] as Array<{
+      method: string
+      path: string
+      key: string
+      body: Record<string, unknown> | null
+    }>,
+    ops: new Map<string, FixtureOperation>(),
   }
   await page.addInitScript(() =>
     localStorage.setItem("access_token", "synthetic-ui-token"),
