@@ -94,5 +94,4 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 - Triage labels：`docs/agents/triage-labels.md`
 - Domain docs：`docs/agents/domain.md`
 - Skill 与方法：`docs/agents/skill-usage.md`
-- Cindy / Pi 升级只读兼容预检：`bash scripts/check-cindy-pi-compat.sh`
-- 本地只读工程巡检看板：`node scripts/pstack-ops-dashboard.mjs`
+- Cindy / Pi 升级兼容预检与工程巡检看板属宿主机运维工具，不入本仓；由宿主机通用工程套件对本仓以 `--repo` 方式运行
