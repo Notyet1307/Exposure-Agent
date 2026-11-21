@@ -92,7 +92,7 @@ This was the pre-cloud status retained from the earlier repair documentation. Th
 Checks recorded during the earlier repairs (historical, not runtime acceptance):
 
 - `cd backend && uv run bash scripts/lint.sh` passed.
-- `../.venv/bin/python -m pytest tests/api/routes/test_customer_ledger.py --collect-only -q` collected 38 tests. Tests were not executed because `tests/conftest.py` has a session-autouse PostgreSQL fixture.
+- `../.venv/bin/python -m pytest tests/api/routes/test_customer_ledger.py --collect-only -q` collected 38 tests. Tests were not executed because `backend/tests/conftest.py` has a session-autouse PostgreSQL fixture.
 - A pure in-process ASGI and Pydantic probe using the real sanitizer, real scoped route class and real models checked validation sanitization, unexpected, dependency and response-validation 500 responses with `private, no-store`, tagged large integers and floats, malformed tag rejection, and skip bounds.
 - `cd frontend && bunx tsc -p tsconfig.json --noEmit` was previously described as 56 diagnostic output lines. Owner normalization identified 55 distinct baseline diagnostics; the old 56 wording was a counting error, not an additional resolved diagnostic. The current 55 baseline diagnostics remain, so this is not a green typecheck.
 - `cd frontend && bun run build` passed. `cd frontend && bun run lint` passed.

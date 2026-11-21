@@ -5,15 +5,16 @@ This index maps the V2 core comparison and its optional NetFlow supplement. It d
 ## Authority
 
 - Behavior and acceptance: [`docs/specs/product-logic-convergence-v2.md`](../../../../docs/specs/product-logic-convergence-v2.md) at `b603b45c853de764e47f99ccd1ed3ba98dec7c7e`.
+- First-screen two-class difference summary & direct drill-down: [`docs/specs/comparison-result-first-screen-v1.md`](../../../../docs/specs/comparison-result-first-screen-v1.md) (PR #332 / Issue #331, `f4afbe8c6f444c7147ec334fa6fbb7e2fd9de2c0`).
 - Same-version decision: [`docs/adr/0024-core-comparison-and-optional-netflow-evidence.md`](../../../../docs/adr/0024-core-comparison-and-optional-netflow-evidence.md).
 - The local Spec bytes equal that commit. `git diff b603b45c853de764e47f99ccd1ed3ba98dec7c7e -- docs/specs/product-logic-convergence-v2.md` is empty.
-- Task status and authorization stay in GitHub Issue #292.
+- Task status and authorization stay in GitHub Issues (#292, #331).
 
 ## User journey
 
 1. Open Comparison results for a project. The server resolves the latest regular, published, readable V2 result. The page fixes the result ID before it reads the summary, addresses, or materials.
 2. If the applied customer register and the published CloudAtlas version are ready, generate the result from the confirmed same-space selection.
-3. Read the three core counts and the address list. Filter, sort, page, open fixed address evidence, and return to the same result, filter, and page.
+3. Read the first-screen two-class difference conclusion (`cloud_only` and `customer_only` counts, readable without scrolling or expanding at 1280×844 and 390×844; genuine zero only on complete coverage, explicit unknown pair on incomplete coverage), the three core counts, and the address list. Click either difference direction to drill directly into page 1 of that fixed class (clearing conflicting IP filters while preserving result ID and supplement binding), or filter, sort, page, open fixed address evidence, and return to the same result, filter, and page.
 4. If a newer current result exists, the fixed page keeps the current result and offers an explicit newer-result action. It does not resolve latest again.
 5. Optional NetFlow evidence attaches as a separate binding with an explicit valid-until cutoff. It never changes the core counts or classification.
 6. Expiry, revocation, or loss of the supplement clears the supplement content. The readable C/A core stays readable. A core source refusal denies the fixed core result.
@@ -35,6 +36,7 @@ The table records test paths that exist in the current tree. It is not a run rec
 | Viewer permission, archive, and unsafe downgrade | AC-18, AC-20 | `backend/tests/api/routes/test_core_comparisons.py::test_current_input_update_permissions_integrity_and_unsafe_downgrade` | Real PostgreSQL HTTP |
 | The fixed result survives primary navigation and browser Back | AC-14 | `frontend/tests/netflow-correlation.component.spec.ts`, `primary navigation preserves a pinned current result and its reading position`, `primary navigation leaves legacy comparison while browser back keeps its fixed revision` | Route mock |
 | Real IP and port material with supplement fault retry | AC-03, AC-14, AC-17 | `frontend/tests/core-reading.spec.ts` | Real browser and fixture; supplement failures are injected with `page.route` |
+| First-screen two-class difference summary, zero-vs-unknown coverage contract, and direct drill-down to page 1 | First-screen AC1–AC4 | `frontend/tests/core-reading.component.spec.ts` (`first screen states both directions without scrolling or expanding at desktop and mobile`, `each direction opens its fixed class from page one, clears the IP filter and keeps result, binding and reads`, `the count contract keeps a genuine zero numeric and makes incomplete coverage one unknown pair`); `frontend/tests/product-logic.spec.ts` (`real fixed C+A first screen states both directions and opens each class from page one`) | Route mock; real browser with real API and PostgreSQL |
 
 ## Real journey preconditions
 
@@ -42,7 +44,7 @@ The table records test paths that exist in the current tree. It is not a run rec
 
 `frontend/tests/core-reading.spec.ts` needs `V2_READING_FIXTURE` and `V2_READING_EVIDENCE` plus the same real backend and browser runtime.
 
-In the 2026-11-16 repair worktree, `backend/.venv` and the root `.venv` are absent and the `PRODUCT_LOGIC_*` and `V2_READING_*` variables are unset. The real journeys are NOT_RUN for this candidate. A skipped file is not a pass.
+In a fresh worktree, run `bash scripts/wt-bootstrap.sh` to sync the root `.venv`. For quick inner-loop live UI inspection (viewport switching, ARIA snapshot, screenshots, console/network checks), use `node scripts/control-exposure.mjs` (built on `scripts/web-control.mjs`). Full real-browser execution of `product-logic.spec.ts` / `core-reading.spec.ts` remains NOT_RUN unless the `PRODUCT_LOGIC_*` / `V2_READING_*` fixtures, backend runtime, and evidence directory are explicitly provisioned; a skipped file is not a pass.
 
 ## Not this index
 
