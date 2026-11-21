@@ -14,7 +14,7 @@
 - 所选原版 `pstack` 步骤要求的验证与独立审阅照常执行，不省略。`/to-spec` 与 `/to-tickets` 仍可作为方法使用；[delivery-gate.md](delivery-gate.md) 是历史说明，不是当前入口，也不自动授权实施。
 - Pi 主代理在会话 checklist 中使用固定工序前缀维护当前进度：`[bootstrap]` → `[design]` → `[implement]` → `[verify]` → `[review]` → `[pr-follow]` → `[ready]`，供 `cindy-task-board` 与 `get_task_digest` 读取当前工序。
 - **开 PR 前归 `pstack`，开 PR 后归 Cindy `cindy-github`**：创建附验证摘要卡（仅含证据 ID、`product_head` 与四态结论，严禁含本机路径）的 PR 后，使用 `cindy-github`（`pr` skill + `pr_card` + `pr-heartbeat-gate.mjs`）挂载后台变更/CI 跟进（无变化 0 模型唤醒），**取消前台阻塞 `gh pr checks --watch` 与 `pstack` `babysit`**。
-- **证据与 `HEAD` 强绑定及修补上限**：`verify` 之后任何改写 `HEAD` 的操作（含 `rebase`、`amend` 或 `cindy-github` 后台修补轮次新 push）均使旧验证作废，须按最新 `HEAD` 重跑验证，进入 `[ready]` 与门禁 2 前用 `python3 scripts/check-pr-delivery.py --pr-body <file> --frozen-manifest <frozen-assets.json> --head <sha>` 核验无本机路径泄露且 `frozen-assets.json` 的 `product_head == PR head_sha`；后台修补与本地重试同因连续两轮无新证据即转诊断（遵循 [ADR-0016](../adr/0016-pin-approved-spec-and-issue-status.md)）。
+- **证据与 `HEAD`/`PASS` 强绑定及修补上限**：`verify` 之后任何改写 `HEAD` 的操作（含 `rebase`、`amend` 或 `cindy-github` 后台修补轮次新 push）均使旧验证作废，须按最新 `HEAD` 重跑验证，进入 `[ready]` 与门禁 2 前用 `python3 scripts/check-pr-delivery.py --pr-body <file> --frozen-manifest <frozen-assets.json> --head <sha> --require-manifest --require-pass` 核验无本机路径泄露、`product_head == PR head_sha` 且同目录存在通过实证（PR 正文脱敏由 `.github/workflows/pr-delivery-guardrail.yml` 在 CI 同步机械拦截）；交付工序补丁统一收敛于宿主机 `~/.agents/playbooks/cindy-delivery.md`（并支持仓库 `.agents/playbooks/`）；后台修补与本地重试同因连续两轮无新证据即转诊断（遵循 [ADR-0016](../adr/0016-pin-approved-spec-and-issue-status.md)）。
 - 任务内部子代理多轮协作保持过程静默；未获自动合并预授权时在必需 CI 全绿后停在 `[ready]` 并向派单会话回报一次摘要与证据链接，获显式预授权时按 `pr-snapshot.mjs --expect-head <sha> --strict-exit` 锁头 `squash` 合入（保留分支）。
 
 ## 边界与审阅

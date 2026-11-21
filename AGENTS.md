@@ -52,7 +52,7 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 - 人工门禁收口为两道（只读请求、明确禁止、暂停及既有停止点继续有效）：
   1. **开工授权**：确认 Issue 与固定 Spec（存在产品、UI 或架构歧义时先确认设计），授权范围包含隔离任务分支上的本地候选 commit、运行验证、push 分支、创建附验证摘要卡的 PR 及后台跟进必需 CI。本地提交只纳入本任务范围并保护其他改动。
   2. **落地授权**：默认在必需 CI 全绿且无未决评论后停在 `[ready]`，由人工核对证据后批准 merge、云端部署及关闭 Issue；仅当派单显式预授权自动合并时，后台跟进可在 `pr-snapshot.mjs --expect-head <sha> --strict-exit` 校验通过后锁头 `squash` 合入（保留远端分支）。
-- 因 `.claude/skills/verify-exposure2026/SKILL.md` 基于 `git archive HEAD` 验证且拦截未提交产品改动，隔离任务分支须按**先完成 `/deslop` 与 `/no-comments` → 本地候选 commit → 对 `HEAD` 执行 `verify-exposure2026` → 任务内非作者 fresh 只读审阅**顺序推进；`verify-exposure2026` 之后任何改写 `HEAD` 的操作（含 `rebase`、`amend` 及开 PR 后 `cindy-github` 后台修补轮次）均使旧验证证据作废，须按最新 `HEAD` 重跑验证与必要复审。进入 `[ready]` 及门禁 2 合入前，必须核对冻结清单 `frozen-assets.json` 中的 `product_head` 等于 PR 当前 `head_sha`。代码审阅与独立业务验收分开，结果使用 `PASS / FAIL / BLOCKED / NOT_RUN`（见 `docs/adr/0016-pin-approved-spec-and-issue-status.md`）。
+- 因 `.claude/skills/verify-exposure2026/SKILL.md` 基于 `git archive HEAD` 验证且拦截未提交产品改动，隔离任务分支的交付工序统一由原生 Project Playbook（宿主机 `~/.agents/playbooks/cindy-delivery.md`，及仓库按需扩展的 `.agents/playbooks/`）声明，升级 pstack 后用 `check-playbooks.mjs` 自动检测锚点漂移：按**先完成 `/deslop` 与 `/no-comments` → 本地候选 commit → 对 `HEAD` 执行 `verify-exposure2026` → 任务内非作者 fresh 只读审阅**顺序推进；`verify-exposure2026` 之后任何改写 `HEAD` 的操作（含 `rebase`、`amend` 及开 PR 后 `cindy-github` 后台修补轮次）均使旧验证证据作废，须按最新 `HEAD` 重跑验证与必要复审。进入 `[ready]` 及门禁 2 合入前，必须通过 `check-pr-delivery.py --require-manifest --require-pass` 核对 `frozen-assets.json` 的 `product_head == PR head_sha` 且同目录存在通过实证（`check.exit == 0` 与 `PASS` 结果）。代码审阅与独立业务验收分开，结果使用 `PASS / FAIL / BLOCKED / NOT_RUN`（见 `docs/adr/0016-pin-approved-spec-and-issue-status.md`）。
 - PR 正文、评论与验证摘要卡严禁写入本机路径（含家目录或绝对路径）、云账号/IP 或宿主环境标识，仅记录结构化证据 ID、`product_head` 与四态结论；截图等可视化证据须使用审阅者可访问的持久链接，无法外发时仅保留文字说明与证据 ID。
 - PR 后台修补与本地重试统一遵循 `docs/adr/0016-pin-approved-spec-and-issue-status.md`：同一原因连续两轮无新证据即停止循环并转入诊断，不无界重试。
 - GitHub 分支保护、必需 CI 和 Review 门禁始终有效；不设置独立 Controller、Admission 或 ready-label 自动授权。
@@ -69,7 +69,7 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 常用验证命令：
 
 - 上下文门禁：`python3 scripts/check-context-hygiene.py`
-- PR 交付护栏（无本机路径 + 证据 HEAD 绑定）：`python3 scripts/check-pr-delivery.py --pr-body <file> --frozen-manifest <frozen-assets.json> --head <sha>`
+- PR 交付护栏（无本机路径 + 证据 HEAD 与 PASS 强绑定）：`python3 scripts/check-pr-delivery.py --pr-body <file> --frozen-manifest <frozen-assets.json> --head <sha> --require-manifest --require-pass`
 - 后端 lint/typecheck：`cd backend && uv run bash scripts/lint.sh`
 - 后端测试：`cd backend && uv run bash scripts/tests-start.sh`
 - 前端 lint：`cd frontend && bun run lint`
