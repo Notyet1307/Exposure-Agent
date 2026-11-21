@@ -124,7 +124,7 @@ def run_self_test() -> dict[str, object]:
         leaky_body = (
             "Screenshot at ~/ops/tasks/demo/run-1/ and /Users/alice/dev/app/foo.png\n"
         )
-        cindy_body = "Bot bot_1794477732137_7pjsr4 in CindyGlobal\n"
+        cindy_body = "Bot bot_0000000000000_demo01 in CindyGlobal\n"
 
         clean_ok = len(check_pr_body_text(clean_body)) == 0
         leaky_caught = len(check_pr_body_text(leaky_body)) >= 2
@@ -148,7 +148,13 @@ def run_self_test() -> dict[str, object]:
             ),
             encoding="utf-8",
         )
+        minimal_receipt = root / "verify-receipt.json"
+        minimal_receipt.write_text(
+            json.dumps({"product_head": head_a}),
+            encoding="utf-8",
+        )
         manifest_match_ok = len(check_frozen_manifest(manifest, head_a)) == 0
+        minimal_receipt_ok = len(check_frozen_manifest(minimal_receipt, head_a)) == 0
         manifest_stale_caught = len(check_frozen_manifest(manifest, head_b)) == 1
 
     passed = all(
@@ -157,6 +163,7 @@ def run_self_test() -> dict[str, object]:
             leaky_caught,
             cindy_caught,
             manifest_match_ok,
+            minimal_receipt_ok,
             manifest_stale_caught,
         )
     )
@@ -166,6 +173,7 @@ def run_self_test() -> dict[str, object]:
         "local_path_leak_caught": leaky_caught,
         "cindy_id_leak_caught": cindy_caught,
         "manifest_head_match_pass": manifest_match_ok,
+        "minimal_receipt_head_match_pass": minimal_receipt_ok,
         "manifest_stale_head_caught": manifest_stale_caught,
     }
 
@@ -181,7 +189,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--frozen-manifest",
         type=Path,
-        help="Path to frozen-assets.json produced by runtime verification.",
+        help="Path to verification receipt JSON (e.g. frozen-assets.json or minimal {'product_head': '<sha>'}).",
+    )
+    parser.add_argument(
+        "--require-manifest",
+        action="store_true",
+        help="Fail if --frozen-manifest is omitted (enforces HEAD-bound verification receipt on delivery PRs).",
     )
     parser.add_argument(
         "--head",
@@ -208,10 +221,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.self_test:
         result = run_self_test()
-        print(json.dumps(result, indent=2))
+        sys.stdout.write(json.dumps(result, indent=2) + "\n")
         return 0 if result["status"] == "PASS" else 1
 
-    if not args.pr_body and not args.frozen_manifest:
+    if not args.pr_body and not args.frozen_manifest and not args.require_manifest:
         parser.error(
             "Specify at least one of --pr-body, --frozen-manifest, or --self-test"
         )
@@ -227,16 +240,19 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 body_text = Path(args.pr_body).read_text(encoding="utf-8")
         except OSError as exc:
-            print(json.dumps({"status": "BLOCKED", "error": str(exc)}, indent=2))
+            sys.stdout.write(
+                json.dumps({"status": "BLOCKED", "error": str(exc)}, indent=2) + "\n"
+            )
             return 2
 
         try:
             findings = check_pr_body_text(body_text, args.extra_forbidden_regex)
         except re.error as exc:
-            print(
+            sys.stdout.write(
                 json.dumps(
                     {"status": "BLOCKED", "error": f"Invalid regex: {exc}"}, indent=2
                 )
+                + "\n"
             )
             return 2
 
@@ -247,9 +263,17 @@ def main(argv: list[str] | None = None) -> int:
         if findings:
             failed = True
 
-    if args.frozen_manifest:
+    if args.require_manifest and not args.frozen_manifest:
+        checks["frozen_manifest"] = {
+            "status": "FAIL",
+            "errors": [
+                "Missing required verification receipt: pass --frozen-manifest <path> with --require-manifest"
+            ],
+        }
+        failed = True
+    elif args.frozen_manifest:
         if not args.frozen_manifest.is_file():
-            print(
+            sys.stdout.write(
                 json.dumps(
                     {
                         "status": "BLOCKED",
@@ -257,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
                     },
                     indent=2,
                 )
+                + "\n"
             )
             return 2
         try:
@@ -268,7 +293,9 @@ def main(argv: list[str] | None = None) -> int:
             json.JSONDecodeError,
             subprocess.CalledProcessError,
         ) as exc:
-            print(json.dumps({"status": "BLOCKED", "error": str(exc)}, indent=2))
+            sys.stdout.write(
+                json.dumps({"status": "BLOCKED", "error": str(exc)}, indent=2) + "\n"
+            )
             return 2
 
         checks["frozen_manifest"] = {
@@ -281,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
 
     report["checks"] = checks
     report["status"] = "FAIL" if failed else "PASS"
-    print(json.dumps(report, indent=2))
+    sys.stdout.write(json.dumps(report, indent=2) + "\n")
     return 1 if failed else 0
 
 

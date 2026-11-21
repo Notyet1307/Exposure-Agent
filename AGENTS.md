@@ -45,9 +45,10 @@ Skill、方法、记忆、单写者：`docs/agents/skill-usage.md`。
 
 ## Cindy + Pi + pstack 工作流
 
-- Exposure 任务从 Cindy 已登记的 Exposure 项目创建，显式选择托管 Pi 与隔离 worktree，标题带 `[#<Issue号>]`。
-- 一个已确认的 GitHub Issue 对应一个托管 Pi 任务闭环；同一候选同一时间只有一个源码写入者。开 PR 前按原版 `pstack`（`poteto-mode`，随任务复杂度弹性升级调查/设计/审阅深度）调度原生子代理；开 PR 后交由 Cindy 内置 `cindy-github`（`pr` skill + `pr_card` + `pr-heartbeat-gate.mjs` 后台零空闲 token 巡检）跟进 CI 与评论，禁止前台阻塞运行 `gh pr checks --watch` 或 `babysit`。
-- 只实现当前已确认的 GitHub Issue；行为预期以该 Issue 引用的批准固定 Spec 为准。
+- Exposure 任务从 Cindy 已登记的 Exposure 项目创建，显式选择托管 Pi 与隔离 worktree，交付单标题带 `[#<Issue号>]`，探索/原型单标题带 `[Explore]`。
+- **探索/原型轨（`[Explore]`）**：用于需求未定、UI 或架构方案对比，无须预先绑定 GitHub Issue；仅允许本地只读调查、多方案对比或隔离原型验证，严禁 `push`、开 PR、合并或修改共享 `main`。
+- **交付轨（`[#<Issue号>]`）**：一个已确认的 GitHub Issue 对应一个托管 Pi 任务闭环；同一候选同一时间只有一个源码写入者。开 PR 前按原版 `pstack`（`poteto-mode`，随任务复杂度弹性升级调查/设计/审阅深度）调度原生子代理；开 PR 后交由 Cindy 内置 `cindy-github`（`pr` skill + `pr_card` + `pr-heartbeat-gate.mjs` 后台零空闲 token 巡检）跟进 CI 与评论，禁止前台阻塞运行 `gh pr checks --watch` 或 `babysit`。
+- 交付轨只实现当前已确认的 GitHub Issue；行为预期以该 Issue 引用的批准固定 Spec 为准。
 - 人工门禁收口为两道（只读请求、明确禁止、暂停及既有停止点继续有效）：
   1. **开工授权**：确认 Issue 与固定 Spec（存在产品、UI 或架构歧义时先确认设计），授权范围包含隔离任务分支上的本地候选 commit、运行验证、push 分支、创建附验证摘要卡的 PR 及后台跟进必需 CI。本地提交只纳入本任务范围并保护其他改动。
   2. **落地授权**：默认在必需 CI 全绿且无未决评论后停在 `[ready]`，由人工核对证据后批准 merge、云端部署及关闭 Issue；仅当派单显式预授权自动合并时，后台跟进可在 `pr-snapshot.mjs --expect-head <sha> --strict-exit` 校验通过后锁头 `squash` 合入（保留远端分支）。
